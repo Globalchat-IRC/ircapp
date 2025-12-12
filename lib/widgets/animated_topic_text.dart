@@ -50,6 +50,16 @@ class _AnimatedTopicTextState extends State<AnimatedTopicText>
             style: const TextStyle(
               fontSize: 13,
               fontWeight: FontWeight.w500,
+              fontFamily: 'SF Pro Display',
+              fontFamilyFallback: [
+                'SF Pro Text',
+                'Helvetica Neue',
+                'Arial Unicode MS',
+                'Apple Color Emoji',
+                'Segoe UI Emoji',
+                'Noto Color Emoji',
+                'sans-serif',
+              ],
             ),
           ),
           textDirection: TextDirection.ltr,
@@ -99,6 +109,16 @@ class _AnimatedTopicTextState extends State<AnimatedTopicText>
                   color: Colors.white,
                   fontWeight: FontWeight.w500,
                   fontSize: 13,
+                  fontFamily: 'SF Pro Display', // Fuente del sistema que soporta UTF-8 y emoticonos
+                  fontFamilyFallback: [
+                    'SF Pro Text',
+                    'Helvetica Neue',
+                    'Arial Unicode MS',
+                    'Apple Color Emoji',
+                    'Segoe UI Emoji',
+                    'Noto Color Emoji',
+                    'sans-serif',
+                  ],
                 ),
                 textAlign: TextAlign.center,
               ),
@@ -127,26 +147,46 @@ class _AnimatedTopicTextState extends State<AnimatedTopicText>
                 children: [
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                    child: Text(
-                      widget.topic,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w500,
-                        fontSize: 13,
-                      ),
+                  child: Text(
+                    widget.topic,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w500,
+                      fontSize: 13,
+                      fontFamily: 'SF Pro Display',
+                      fontFamilyFallback: [
+                        'SF Pro Text',
+                        'Helvetica Neue',
+                        'Arial Unicode MS',
+                        'Apple Color Emoji',
+                        'Segoe UI Emoji',
+                        'Noto Color Emoji',
+                        'sans-serif',
+                      ],
                     ),
+                  ),
                   ),
                   const SizedBox(width: 50),
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                    child: Text(
-                      widget.topic,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w500,
-                        fontSize: 13,
-                      ),
+                  child: Text(
+                    widget.topic,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w500,
+                      fontSize: 13,
+                      fontFamily: 'SF Pro Display',
+                      fontFamilyFallback: [
+                        'SF Pro Text',
+                        'Helvetica Neue',
+                        'Arial Unicode MS',
+                        'Apple Color Emoji',
+                        'Segoe UI Emoji',
+                        'Noto Color Emoji',
+                        'sans-serif',
+                      ],
                     ),
+                  ),
                   ),
                 ],
               ),

@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:async';
+import 'dart:convert';
 import '../models/irc_message.dart';
 
 class IRCService {
@@ -48,7 +49,8 @@ class IRCService {
       // Start listening to incoming data (non-blocking)
       _socketSubscription = _socket!.listen(
         (List<int> event) {
-          String data = String.fromCharCodes(event);
+          // Decodificar como UTF-8 para soportar emoticonos y caracteres especiales
+          String data = utf8.decode(event, allowMalformed: true);
           _handleData(data);
         },
         onDone: () {
@@ -218,14 +220,23 @@ class IRCService {
   void sendMessage(String channel, String message) {
     // Normalizar el nombre del canal
     final normalized = _normalizeChannelName(channel);
-    _sendCommand('PRIVMSG $normalized :$message');
     
-    // Add to local channel
+    // Dividir el mensaje en líneas y enviar cada línea como un PRIVMSG separado
+    // pero mostrar el mensaje completo en la UI
+    final lines = message.split('\n');
+    for (var line in lines) {
+      line = line.trim();
+      if (line.isNotEmpty) {
+        _sendCommand('PRIVMSG $normalized :$line');
+      }
+    }
+    
+    // Add to local channel (el mensaje completo, no dividido)
     if (channels.containsKey(normalized)) {
       final msg = IRCMessage(
         nick: _nickname ?? 'You',
         channel: normalized,
-        message: message,
+        message: message, // Mensaje completo con saltos de línea
         timestamp: DateTime.now(),
       );
       channels[normalized]!.addMessage(msg);
@@ -603,6 +614,8 @@ class IRCService {
             if (!isServerHost) {
               channels[channel]!.addUser(nick, host: host);
               print('🔍 [DEBUG] Added user "$nick" to channel "$channel" with host: ${host ?? "unknown"}');
+              // Notificar cambio en la lista de usuarios
+              _notifyUserListListeners(channel);
             } else {
               print('🔍 [DEBUG] ❌ Skipping server/host name in JOIN: "$nick"');
             }
@@ -682,6 +695,8 @@ class IRCService {
               );
               channels[channel]!.addMessage(msg);
               _notifyMessageListeners(msg);
+              // Notificar cambio en la lista de usuarios
+              _notifyUserListListeners(channel);
             }
           }
           break;
@@ -739,8 +754,27 @@ class IRCService {
         
         case 'QUIT':
           // User quit from all channels
-          for (var channel in channels.values) {
-            channel.removeUser(nick);
+          final affectedChannels = <String>[];
+          for (var entry in channels.entries) {
+            if (entry.value.users.contains(nick)) {
+              entry.value.removeUser(nick);
+              affectedChannels.add(entry.key);
+              
+              // Crear mensaje de sistema para cada canal
+              final msg = IRCMessage(
+                nick: nick,
+                channel: entry.key,
+                message: 'salió del canal',
+                timestamp: DateTime.now(),
+                isSystem: true,
+              );
+              entry.value.addMessage(msg);
+              _notifyMessageListeners(msg);
+            }
+          }
+          // Notificar cambios en la lista de usuarios para cada canal afectado
+          for (var channel in affectedChannels) {
+            _notifyUserListListeners(channel);
           }
           break;
       }

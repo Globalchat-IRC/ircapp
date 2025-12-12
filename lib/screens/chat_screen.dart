@@ -1,3 +1,4 @@
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
@@ -424,18 +425,78 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                               ],
                             ),
                           )
-                        : Container(
-                            color: Colors.grey[50],
-                            child: ListView.builder(
-                              reverse: true,
-                              padding: const EdgeInsets.symmetric(vertical: 8),
-                              itemCount: channelMessages.length,
-                              itemBuilder: (context, index) {
-                                final message =
-                                    channelMessages[channelMessages.length - 1 - index];
-                                return _buildMessageTile(message);
-                              },
-                            ),
+                        : Stack(
+                            children: [
+                              // Fondo degradado cálido (multi-tono) para resaltar el ASCII
+                              Positioned.fill(
+                                child: Container(
+                                  decoration: const BoxDecoration(
+                                    gradient: LinearGradient(
+                                      begin: Alignment.topCenter,
+                                      end: Alignment.bottomCenter,
+                                      colors: [
+                                        Color(0xFF3B1F00), // tope cálido
+                                        Color(0xFF2F1600), // transición oscura
+                                        Color(0xFF3F1F00), // brillo medio
+                                        Color(0xFF2A1200), // sombra
+                                      ],
+                                      stops: [0.0, 0.35, 0.65, 1.0],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              // Resalte radial suave para dar profundidad
+                              Positioned.fill(
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    gradient: RadialGradient(
+                                      center: const Alignment(0, -0.05),
+                                      radius: 1.1,
+                                      colors: [
+                                        Colors.white.withOpacity(0.08),
+                                        Colors.transparent,
+                                      ],
+                                      stops: const [0.0, 1.0],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              // Logo ASCII con mayor opacidad
+                              Positioned.fill(
+                                child: Opacity(
+                                  opacity: 0.38, // subir opacidad para que se lean mejor las letras
+                                  child: const _AsciiBackground(),
+                                ),
+                              ),
+                              // Capa de oscurecido muy ligera para conservar contraste sin tapar el logo
+                              Positioned.fill(
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    gradient: LinearGradient(
+                                      colors: [
+                                        Colors.black.withOpacity(0.06),
+                                        Colors.black.withOpacity(0.12),
+                                      ],
+                                      begin: Alignment.topCenter,
+                                      end: Alignment.bottomCenter,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              // Lista de mensajes
+                              Positioned.fill(
+                                child: ListView.builder(
+                                  reverse: true,
+                                  padding: const EdgeInsets.symmetric(vertical: 8),
+                                  itemCount: channelMessages.length,
+                                  itemBuilder: (context, index) {
+                                    final message =
+                                        channelMessages[channelMessages.length - 1 - index];
+                                    return _buildMessageTile(message);
+                                  },
+                                ),
+                              ),
+                            ],
                           ),
                   ),
                   const Divider(height: 1),
@@ -577,23 +638,82 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final isOwnMessage = message.nick == currentNick;
     
     if (message.isSystem) {
+      // Detectar si es JOIN o PART
+      final isJoin = message.message.contains('se unió');
+      final isPart = message.message.contains('dejó') || message.message.contains('salió');
+      
       return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
         child: Center(
           child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
             decoration: BoxDecoration(
-              color: Colors.grey[200],
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Text(
-              '${message.nick} ${message.message}',
-              style: TextStyle(
-                color: Colors.grey[700],
-                fontStyle: FontStyle.italic,
-                fontSize: 12,
-                fontWeight: FontWeight.w500,
+              gradient: LinearGradient(
+                colors: isJoin
+                    ? [
+                        Colors.green.withOpacity(0.2),
+                        Colors.greenAccent.withOpacity(0.15),
+                      ]
+                    : [
+                        Colors.orange.withOpacity(0.2),
+                        Colors.redAccent.withOpacity(0.15),
+                      ],
+                begin: Alignment.centerLeft,
+                end: Alignment.centerRight,
               ),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(
+                color: isJoin
+                    ? Colors.green.withOpacity(0.4)
+                    : Colors.orange.withOpacity(0.4),
+                width: 1.5,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: (isJoin ? Colors.green : Colors.orange)
+                      .withOpacity(0.2),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: (isJoin ? Colors.green : Colors.orange)
+                        .withOpacity(0.2),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    isJoin ? Icons.person_add : Icons.person_remove,
+                    size: 16,
+                    color: isJoin ? Colors.green[700] : Colors.orange[700],
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Text(
+                  message.nick,
+                  style: TextStyle(
+                    color: isJoin ? Colors.green[700] : Colors.orange[700],
+                    fontWeight: FontWeight.bold,
+                    fontSize: 13,
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  message.message,
+                  style: TextStyle(
+                    color: isJoin
+                        ? Colors.green[600]
+                        : Colors.orange[600],
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
             ),
           ),
         ),
@@ -860,4 +980,84 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       ),
     );
   }
+}
+
+// Fondo tipo ASCII con letras en gradiente cálido inspirado en la imagen de referencia
+class _AsciiBackground extends StatelessWidget {
+  const _AsciiBackground();
+
+  @override
+  Widget build(BuildContext context) {
+    return CustomPaint(
+      painter: _AsciiBackgroundPainter(),
+    );
+  }
+}
+
+class _AsciiBackgroundPainter extends CustomPainter {
+  static const String _asciiLogo = '''
+   _____ _       _           _  _____ _           _   
+  / ____| |     | |         | |/ ____| |         | |  
+ | |  __| | ___ | |__   __ _| | |    | |__   __ _| |_ 
+ | | |_ | |/ _ \\| '_ \\ / _` | | |    | '_ \\ / _` | __|
+ | |__| | | (_) | |_) | (_| | | |____| | | | (_| | |_ 
+  \\_____|_|\\___/|_.__/ \\__,_|_|\\_____|_| |_|\\__,_|\\__|
+
+          IRC Network · Desde 1999-2025                
+  ''';
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (size.isEmpty) return;
+
+    final baseRect = Rect.fromLTWH(0, 0, size.width, size.height);
+    final gradient = const LinearGradient(
+      colors: [
+        Color(0xFFFFD700), // Dorado brillante
+        Color(0xFFFFF44F), // Amarillo intenso
+        Color(0xFFFFD700), // Dorado
+        Color(0xFF4169E1), // Azul Royal
+        Color(0xFFE31E24), // Rojo GlobalChat
+        Color(0xFFFFD700), // Dorado
+        Color(0xFFFFF44F), // Amarillo brillante
+      ],
+      begin: Alignment.topLeft,
+      end: Alignment.bottomRight,
+    ).createShader(baseRect);
+
+    final logoPaint = Paint()..shader = gradient;
+    final logoStyle = TextStyle(
+      fontFamily: 'Courier New', // monoespaciada muy estable
+      fontFamilyFallback: const ['Menlo', 'SFMono-Regular', 'monospace'],
+      fontSize: size.width * 0.022, // aún más pequeña para evitar cualquier wrap
+      fontWeight: FontWeight.w700,
+      height: 1.0, // filas alineadas
+      foreground: logoPaint,
+      letterSpacing: 0, // sin espaciado extra
+    );
+
+    final logoPainter = TextPainter(
+      text: TextSpan(text: _asciiLogo, style: logoStyle),
+      textAlign: TextAlign.center,
+      textDirection: ui.TextDirection.ltr,
+      textWidthBasis: TextWidthBasis.longestLine,
+      textHeightBehavior: const TextHeightBehavior(
+        applyHeightToFirstAscent: true,
+        applyHeightToLastDescent: true,
+      ),
+    )..layout(maxWidth: size.width * 0.85); // margen mayor para evitar descolocación
+
+    final logoOffset = Offset(
+      (size.width - logoPainter.width) / 2,
+      (size.height - logoPainter.height) / 2,
+    );
+
+    // Opacidad ligera y sensación de texto de fondo
+    canvas.saveLayer(baseRect, Paint()..color = Colors.white.withOpacity(0.32));
+    logoPainter.paint(canvas, logoOffset);
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
