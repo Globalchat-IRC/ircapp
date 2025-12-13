@@ -307,6 +307,40 @@ class IRCService {
     print('📤 [IRCService] Enviando mensaje a servicio $serviceName: $message');
   }
 
+  // Enviar mensaje privado a un nick (query)
+  void sendPrivateMessage(String nick, String message) {
+    final normalizedNick = nick.trim();
+    if (normalizedNick.isEmpty) return;
+    
+    // Crear un canal privado si no existe (los queries usan el nick como "canal")
+    final queryChannel = normalizedNick.toLowerCase();
+    if (!channels.containsKey(queryChannel)) {
+      channels[queryChannel] = IRCChannel(name: queryChannel);
+      print('📤 [IRCService] Creado canal privado para: $queryChannel');
+    }
+    
+    // Enviar el mensaje
+    final lines = message.split('\n');
+    for (var line in lines) {
+      line = line.trim();
+      if (line.isNotEmpty) {
+        _sendCommand('PRIVMSG $normalizedNick :$line');
+      }
+    }
+    
+    // Agregar el mensaje al canal privado local
+    final msg = IRCMessage(
+      nick: _nickname ?? 'You',
+      channel: queryChannel,
+      message: message,
+      timestamp: DateTime.now(),
+    );
+    channels[queryChannel]!.addMessage(msg);
+    _notifyMessageListeners(msg);
+    
+    print('📤 [IRCService] Mensaje privado enviado a $normalizedNick: $message');
+  }
+
   void _sendCommand(String command) {
     if (_useSSL && _secureSocket != null) {
       print('🔍 [DEBUG] Sending command (SSL): $command');
@@ -769,48 +803,67 @@ class IRCService {
         
         case 'PRIVMSG':
           if (args.isNotEmpty) {
-            var channel = args[0];
-            channel = _normalizeChannelName(channel);
+            var target = args[0];
+            var targetChannel = _normalizeChannelName(target);
             
-            // Solo procesar si es un canal válido
-            if (!channel.startsWith('#')) {
-              break;
+            // Determinar si es un canal (#) o un mensaje privado (nick)
+            bool isChannel = target.startsWith('#');
+            String channelKey;
+            
+            if (isChannel) {
+              // Es un canal, usar el nombre del canal normalizado
+              channelKey = targetChannel;
+            } else {
+              // Es un mensaje privado
+              // Si el target es nuestro nickname, es un mensaje que NOS ENVIAN
+              // En ese caso, usar el nick del remitente como channelKey
+              // Si el target NO es nuestro nickname, es un mensaje que ENVIAMOS
+              // En ese caso, usar el target como channelKey
+              if (_nickname != null && target.toLowerCase() == _nickname!.toLowerCase()) {
+                // Mensaje privado que nos envían, usar el nick del remitente
+                channelKey = nick.toLowerCase();
+                print('🔍 [DEBUG] PRIVMSG: Mensaje privado recibido de "$nick", usando channelKey="$channelKey"');
+              } else {
+                // Mensaje privado que enviamos, usar el target
+                channelKey = target.toLowerCase();
+                print('🔍 [DEBUG] PRIVMSG: Mensaje privado enviado a "$target", usando channelKey="$channelKey"');
+              }
             }
             
-            if (!channels.containsKey(channel)) {
-              channels[channel] = IRCChannel(name: channel);
+            // Crear el canal/query si no existe
+            if (!channels.containsKey(channelKey)) {
+              channels[channelKey] = IRCChannel(name: channelKey);
+              print('🔍 [DEBUG] Creado ${isChannel ? "canal" : "query"}: $channelKey');
             }
             
-            // Guardar el host del usuario si está disponible
-            if (host != null) {
-              channels[channel]!.addUser(nick, host: host);
+            // Guardar el host del usuario si está disponible (solo para canales)
+            if (isChannel && host != null) {
+              channels[channelKey]!.addUser(nick, host: host);
             }
             
-            // El formato es: :nick!user@host PRIVMSG #channel :mensaje
-            // Necesitamos encontrar el último ':' que separa el comando del mensaje
-            // Buscar después de "PRIVMSG #channel"
+            // El formato es: :nick!user@host PRIVMSG target :mensaje
             final privmsgIndex = line.indexOf('PRIVMSG');
             if (privmsgIndex != -1) {
-              // Encontrar el ':' que viene después del canal
-              final channelEndIndex = line.indexOf(channel, privmsgIndex) + channel.length;
-              final colonIndex = line.indexOf(':', channelEndIndex);
+              // Encontrar el ':' que viene después del target
+              final targetEndIndex = line.indexOf(target, privmsgIndex) + target.length;
+              final colonIndex = line.indexOf(':', targetEndIndex);
               
               if (colonIndex != -1) {
                 // El mensaje es todo lo que viene después del ':'
                 final messageContent = line.substring(colonIndex + 1).trim();
                 
-                print('🔍 [DEBUG] PRIVMSG parsed: nick="$nick", channel="$channel", message="$messageContent"');
+                print('🔍 [DEBUG] PRIVMSG parsed: nick="$nick", target="$target", channelKey="$channelKey", message="$messageContent"');
                 
                 final msg = IRCMessage(
                   nick: nick,
-                  channel: channel,
+                  channel: channelKey,
                   message: messageContent,
                   timestamp: DateTime.now(),
                 );
-                channels[channel]!.addMessage(msg);
+                channels[channelKey]!.addMessage(msg);
                 _notifyMessageListeners(msg);
               } else {
-                print('🔍 [DEBUG] ⚠️  PRIVMSG: No colon found after channel name');
+                print('🔍 [DEBUG] ⚠️  PRIVMSG: No colon found after target');
               }
             } else {
               print('🔍 [DEBUG] ⚠️  PRIVMSG: PRIVMSG keyword not found in line');
