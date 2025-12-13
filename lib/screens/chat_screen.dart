@@ -1,12 +1,170 @@
 import 'dart:ui' as ui;
+import 'dart:io';
+import 'dart:convert';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:http/http.dart' as http;
+import 'package:file_picker/file_picker.dart';
+import 'package:pasteboard/pasteboard.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../models/irc_message.dart';
 import '../providers/irc_provider.dart';
+import '../providers/theme_provider.dart';
+import '../models/app_theme.dart';
 import '../services/irc_service.dart';
 import 'login_screen.dart';
 import '../widgets/animated_topic_text.dart';
+import '../widgets/radio_controls.dart';
+
+// Widget genérico para botones animados
+class AnimatedServiceButton extends StatefulWidget {
+  final VoidCallback onPressed;
+  final AppTheme appTheme;
+  final String tooltip;
+  final String emoji;
+  final String label;
+
+  const AnimatedServiceButton({
+    Key? key,
+    required this.onPressed,
+    required this.appTheme,
+    required this.tooltip,
+    required this.emoji,
+    required this.label,
+  }) : super(key: key);
+
+  @override
+  State<AnimatedServiceButton> createState() => _AnimatedServiceButtonState();
+}
+
+class _AnimatedServiceButtonState extends State<AnimatedServiceButton>
+    with SingleTickerProviderStateMixin {
+  bool _isHovered = false;
+  bool _isPressed = false;
+  late AnimationController _pulseController;
+  late Animation<double> _pulseAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1500),
+    )..repeat(reverse: true);
+    
+    _pulseAnimation = Tween<double>(
+      begin: 1.0,
+      end: 1.1,
+    ).animate(CurvedAnimation(
+      parent: _pulseController,
+      curve: Curves.easeInOut,
+    ));
+  }
+
+  @override
+  void dispose() {
+    _pulseController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: widget.tooltip,
+      child: MouseRegion(
+        onEnter: (_) => setState(() => _isHovered = true),
+        onExit: (_) => setState(() => _isHovered = false),
+        child: GestureDetector(
+          onTapDown: (_) => setState(() => _isPressed = true),
+          onTapUp: (_) {
+            setState(() => _isPressed = false);
+            widget.onPressed();
+          },
+          onTapCancel: () => setState(() => _isPressed = false),
+          child: AnimatedBuilder(
+            animation: _pulseAnimation,
+            builder: (context, child) {
+              return Transform.scale(
+                scale: _isPressed ? 0.95 : (_isHovered ? _pulseAnimation.value : 1.0),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  curve: Curves.easeInOut,
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: _isHovered
+                          ? [
+                              widget.appTheme.accent,
+                              widget.appTheme.primary,
+                            ]
+                          : [
+                              widget.appTheme.primary.withOpacity(0.7),
+                              widget.appTheme.secondary.withOpacity(0.7),
+                            ],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(20),
+                    boxShadow: _isHovered
+                        ? [
+                            BoxShadow(
+                              color: widget.appTheme.accent.withOpacity(0.5),
+                              blurRadius: 12,
+                              spreadRadius: 2,
+                              offset: const Offset(0, 4),
+                            ),
+                          ]
+                        : [
+                            BoxShadow(
+                              color: widget.appTheme.primary.withOpacity(0.3),
+                              blurRadius: 6,
+                              spreadRadius: 1,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      AnimatedRotation(
+                        turns: _isHovered ? 0.1 : 0.0,
+                        duration: const Duration(milliseconds: 300),
+                        curve: Curves.easeInOut,
+                        child: Text(
+                          widget.emoji,
+                          style: const TextStyle(fontSize: 16),
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        widget.label,
+                        style: TextStyle(
+                          color: widget.appTheme.textPrimary,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 12,
+                          letterSpacing: 1.0,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// Intent para pegar imágenes
+class PasteImageIntent extends Intent {
+  const PasteImageIntent();
+}
 
 class ChatScreen extends ConsumerStatefulWidget {
   const ChatScreen({Key? key}) : super(key: key);
@@ -19,6 +177,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   final _messageController = TextEditingController();
   final _channelController = TextEditingController();
   late IRCService _ircService;
+  final ImagePicker _imagePicker = ImagePicker();
 
   @override
   void initState() {
@@ -43,7 +202,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       if (!mounted) return;
       final targetChannel = (channel != null && channel.isNotEmpty) ? channel : '#general';
       if (channel == null || channel.isEmpty) {
-        print('⚠️  [ChatScreen] No channel specified, using #general');
+      print('⚠️  [ChatScreen] No channel specified, using #general');
       }
       
       // Esperar un poco más para asegurar que el servidor haya terminado de registrar al usuario
@@ -63,7 +222,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       print('  🔄 Scheduling Riverpod update post-frame');
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
-        ref.read(channelsProvider.notifier).updateChannels();
+      ref.read(channelsProvider.notifier).updateChannels();
         setState(() {
           print('  🔄 setState after post-frame');
         });
@@ -78,7 +237,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         ref.read(channelsProvider.notifier).updateChannels();
-        setState(() {
+      setState(() {
           print('  🔄 setState after post-frame for topic');
         });
       });
@@ -157,6 +316,510 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     ref.read(messagesProvider.notifier);
   }
 
+  Future<void> _pickAndSendImage() async {
+    try {
+      print('🔍 Iniciando selección de imagen o video...');
+      
+      FilePickerResult? result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'mp4', 'webm', 'mov'],
+        allowMultiple: false,
+        dialogTitle: 'Seleccionar imagen o video',
+        withData: true, // Obtener también los bytes
+      );
+
+      print('🔍 Resultado del file picker: ${result != null ? "no null" : "null"}');
+
+      if (result != null && result.files.isNotEmpty) {
+        final file = result.files.single;
+        print('🔍 Archivo seleccionado:');
+        print('  - name: ${file.name}');
+        print('  - path: ${file.path}');
+        print('  - bytes: ${file.bytes != null ? "${file.bytes!.length} bytes" : "null"}');
+        print('  - size: ${file.size}');
+        
+        String? filePath = file.path;
+        
+        // Si no hay path pero hay bytes, guardar en archivo temporal
+        if ((filePath == null || filePath.isEmpty) && file.bytes != null) {
+          final tempDir = Directory.systemTemp;
+          final extension = file.name.split('.').last;
+          final tempFile = File('${tempDir.path}/picked_image_${DateTime.now().millisecondsSinceEpoch}.$extension');
+          await tempFile.writeAsBytes(file.bytes!);
+          filePath = tempFile.path;
+          print('✅ Imagen guardada en archivo temporal: $filePath');
+        }
+        
+        if (filePath != null && filePath.isNotEmpty) {
+          final mediaFile = File(filePath);
+          
+          // Verificar que el archivo existe
+          if (await mediaFile.exists()) {
+            print('✅ Archivo existe, procesando...');
+            
+            // Detectar si es imagen o video
+            final extension = file.name.split('.').last.toLowerCase();
+            final isVideo = ['mp4', 'webm', 'mov'].contains(extension);
+            
+            if (isVideo) {
+              await _processAndSendVideo(mediaFile);
+            } else {
+              await _processAndSendImage(mediaFile);
+            }
+          } else {
+            print('❌ El archivo no existe: $filePath');
+            throw Exception('El archivo seleccionado no existe: $filePath');
+          }
+        } else {
+          print('❌ No se pudo obtener la ruta del archivo');
+          throw Exception('No se pudo obtener la ruta del archivo seleccionado');
+        }
+      } else {
+        print('ℹ️ No se seleccionó ningún archivo (usuario canceló)');
+      }
+    } catch (e, stackTrace) {
+      print('❌ Error al seleccionar imagen: $e');
+      print('❌ Stack trace: $stackTrace');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: ${e.toString()}'),
+            duration: const Duration(seconds: 5),
+            action: SnackBarAction(
+              label: 'Reintentar',
+              onPressed: _pickAndSendImage,
+            ),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _uploadAndSendToCloudinary(Uint8List imageBytes, String mimeType, String channel) async {
+    if (mounted) {
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Row(
+            children: [
+              SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+              SizedBox(width: 12),
+              Text('Subiendo imagen a Cloudinary...'),
+            ],
+          ),
+          duration: Duration(seconds: 30),
+        ),
+      );
+    }
+    
+    try {
+      // Subir a Cloudinary
+      final imageUrl = await _uploadImageToCloudinary(imageBytes, mimeType);
+      
+      if (imageUrl != null) {
+        final normalizedChannel = channel.toLowerCase();
+        await Future.delayed(const Duration(milliseconds: 300));
+        // Enviar solo la URL (sin prefijo [Imagen] para que se detecte automáticamente)
+        _ircService.sendMessage(normalizedChannel, imageUrl);
+        
+        if (mounted) {
+          ScaffoldMessenger.of(context).hideCurrentSnackBar();
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('✅ Imagen subida y URL enviada')),
+          );
+        }
+      } else {
+        throw Exception('No se pudo subir la imagen a Cloudinary');
+      }
+    } catch (e) {
+      print('❌ Error al subir imagen: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error al subir imagen: ${e.toString()}'),
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _uploadAndSendVideoToCloudinary(Uint8List videoBytes, String mimeType, String channel) async {
+    if (mounted) {
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Row(
+            children: [
+              SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+              SizedBox(width: 12),
+              Text('Subiendo video a Cloudinary...'),
+            ],
+          ),
+          duration: Duration(seconds: 60),
+        ),
+      );
+    }
+    
+    try {
+      // Subir a Cloudinary
+      final videoUrl = await _uploadVideoToCloudinary(videoBytes, mimeType);
+      
+      if (videoUrl != null) {
+        final normalizedChannel = channel.toLowerCase();
+        await Future.delayed(const Duration(milliseconds: 300));
+        // Enviar solo la URL (sin prefijo para que se detecte automáticamente)
+        _ircService.sendMessage(normalizedChannel, videoUrl);
+        
+        if (mounted) {
+          ScaffoldMessenger.of(context).hideCurrentSnackBar();
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('✅ Video subido y URL enviada')),
+          );
+        }
+      } else {
+        throw Exception('No se pudo subir el video a Cloudinary');
+      }
+    } catch (e) {
+      print('❌ Error al subir video: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error al subir video: ${e.toString()}'),
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<String?> _uploadImageToCloudinary(Uint8List imageBytes, String mimeType) async {
+    try {
+      // Configuración de Cloudinary (del plugin web)
+      const cloudName = 'datdq7xkz';
+      const uploadPreset = 'ml_default';
+      const maxSize = 10 * 1024 * 1024; // 10MB
+      
+      // Verificar tamaño
+      if (imageBytes.length > maxSize) {
+        print('❌ Imagen demasiado grande: ${(imageBytes.length / 1024 / 1024).toStringAsFixed(2)} MB (máximo 10MB)');
+        return null;
+      }
+      
+      final uri = Uri.parse('https://api.cloudinary.com/v1_1/$cloudName/image/upload');
+      
+      // Crear el body como multipart
+      final request = http.MultipartRequest('POST', uri);
+      
+      // Añadir la imagen
+      final extension = mimeType.split('/')[1];
+      request.files.add(
+        http.MultipartFile.fromBytes(
+          'file',
+          imageBytes,
+          filename: 'image.$extension',
+        ),
+      );
+      
+      // Añadir el upload preset
+      request.fields['upload_preset'] = uploadPreset;
+      
+      print('📤 Subiendo imagen a Cloudinary... (${(imageBytes.length / 1024).toStringAsFixed(2)} KB)');
+      
+      final streamedResponse = await request.send();
+      final response = await http.Response.fromStream(streamedResponse);
+      
+      if (response.statusCode == 200) {
+        final jsonResponse = jsonDecode(response.body);
+        if (jsonResponse['secure_url'] != null) {
+          final imageUrl = jsonResponse['secure_url'] as String;
+          print('✅ Imagen subida a Cloudinary: $imageUrl');
+          return imageUrl;
+        } else {
+          print('❌ Error en respuesta de Cloudinary: ${jsonResponse['error']}');
+          return null;
+        }
+      } else {
+        print('❌ Error HTTP al subir imagen: ${response.statusCode}');
+        print('❌ Respuesta: ${response.body}');
+        return null;
+      }
+    } catch (e) {
+      print('❌ Excepción al subir imagen a Cloudinary: $e');
+      return null;
+    }
+  }
+
+  Future<String?> _uploadVideoToCloudinary(Uint8List videoBytes, String mimeType) async {
+    try {
+      // Configuración de Cloudinary (del plugin web)
+      const cloudName = 'datdq7xkz';
+      const uploadPreset = 'ml_default';
+      const maxSize = 100 * 1024 * 1024; // 100MB para videos
+      
+      // Verificar tamaño
+      if (videoBytes.length > maxSize) {
+        print('❌ Video demasiado grande: ${(videoBytes.length / 1024 / 1024).toStringAsFixed(2)} MB (máximo 100MB)');
+        return null;
+      }
+      
+      final uri = Uri.parse('https://api.cloudinary.com/v1_1/$cloudName/video/upload');
+      
+      // Crear el body como multipart
+      final request = http.MultipartRequest('POST', uri);
+      
+      // Añadir el video
+      final extension = mimeType.split('/')[1];
+      request.files.add(
+        http.MultipartFile.fromBytes(
+          'file',
+          videoBytes,
+          filename: 'video.$extension',
+        ),
+      );
+      
+      // Añadir el upload preset
+      request.fields['upload_preset'] = uploadPreset;
+      
+      print('📤 Subiendo video a Cloudinary... (${(videoBytes.length / 1024 / 1024).toStringAsFixed(2)} MB)');
+      
+      final streamedResponse = await request.send();
+      final response = await http.Response.fromStream(streamedResponse);
+      
+      if (response.statusCode == 200) {
+        final jsonResponse = jsonDecode(response.body);
+        if (jsonResponse['secure_url'] != null) {
+          final videoUrl = jsonResponse['secure_url'] as String;
+          print('✅ Video subido a Cloudinary: $videoUrl');
+          return videoUrl;
+        } else {
+          print('❌ Error en respuesta de Cloudinary: ${jsonResponse['error']}');
+          return null;
+        }
+      } else {
+        print('❌ Error HTTP al subir video: ${response.statusCode}');
+        print('❌ Respuesta: ${response.body}');
+        return null;
+      }
+    } catch (e) {
+      print('❌ Excepción al subir video a Cloudinary: $e');
+      return null;
+    }
+  }
+
+  Future<void> _checkClipboardForImage() async {
+    // Verificar periódicamente si hay una imagen en el portapapeles
+    // Esto se puede mejorar con un listener más directo
+  }
+
+  Future<void> _pasteImageFromClipboard() async {
+    try {
+      if (Platform.isMacOS || Platform.isLinux || Platform.isWindows) {
+        // Intentar obtener imagen del portapapeles
+        final imageData = await Pasteboard.image;
+        
+        if (imageData != null) {
+          print('✅ Imagen encontrada en el portapapeles');
+          
+          // Convertir Uint8List a File temporal
+          final tempDir = Directory.systemTemp;
+          final tempFile = File('${tempDir.path}/pasted_image_${DateTime.now().millisecondsSinceEpoch}.png');
+          await tempFile.writeAsBytes(imageData);
+          
+          await _processAndSendImage(tempFile);
+          
+          // Limpiar archivo temporal después de un delay
+          Future.delayed(const Duration(seconds: 5), () {
+            try {
+              tempFile.deleteSync();
+            } catch (e) {
+              print('⚠️ No se pudo eliminar archivo temporal: $e');
+            }
+          });
+        } else {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('No hay imagen en el portapapeles'),
+                duration: Duration(seconds: 2),
+              ),
+            );
+          }
+        }
+      }
+    } catch (e, stackTrace) {
+      print('❌ Error al pegar imagen: $e');
+      print('❌ Stack trace: $stackTrace');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error al pegar imagen: ${e.toString()}'),
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _processAndSendImage(File imageFile) async {
+    try {
+      final channel = ref.read(currentChannelProvider);
+      if (channel == null) return;
+
+      // Mostrar indicador de carga
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Row(
+              children: [
+                SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+                SizedBox(width: 12),
+                Text('Comprimiendo y procesando imagen...'),
+              ],
+            ),
+            duration: Duration(seconds: 30),
+          ),
+        );
+      }
+
+      // Leer la imagen
+      final originalBytes = await imageFile.readAsBytes();
+      final originalSize = originalBytes.length;
+      print('📸 Tamaño original de la imagen: ${(originalSize / 1024).toStringAsFixed(2)} KB');
+      
+      // Detectar el tipo MIME
+      final extension = imageFile.path.split('.').last.toLowerCase();
+      String mimeType = 'image/png';
+      if (extension == 'jpg' || extension == 'jpeg') {
+        mimeType = 'image/jpeg';
+      } else if (extension == 'gif') {
+        mimeType = 'image/gif';
+      } else if (extension == 'webp') {
+        mimeType = 'image/webp';
+      }
+
+      // Subir TODAS las imágenes a Cloudinary para evitar flood protection
+      // IRC tiene límites estrictos y cualquier imagen en base64 causa flood
+      await _uploadAndSendToCloudinary(originalBytes, mimeType, channel);
+    } catch (e) {
+      print('Error al procesar imagen: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error al procesar imagen: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _processAndSendVideo(File videoFile) async {
+    try {
+      final channel = ref.read(currentChannelProvider);
+      if (channel == null) return;
+
+      // Mostrar indicador de carga
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Row(
+              children: [
+                SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+                SizedBox(width: 12),
+                Text('Procesando video...'),
+              ],
+            ),
+            duration: Duration(seconds: 60),
+          ),
+        );
+      }
+
+      // Leer el video
+      final originalBytes = await videoFile.readAsBytes();
+      final originalSize = originalBytes.length;
+      print('🎥 Tamaño original del video: ${(originalSize / 1024 / 1024).toStringAsFixed(2)} MB');
+      
+      // Detectar el tipo MIME
+      final extension = videoFile.path.split('.').last.toLowerCase();
+      String mimeType = 'video/mp4';
+      if (extension == 'webm') {
+        mimeType = 'video/webm';
+      } else if (extension == 'mov') {
+        mimeType = 'video/quicktime';
+      }
+
+      // Subir TODOS los videos a Cloudinary
+      await _uploadAndSendVideoToCloudinary(originalBytes, mimeType, channel);
+    } catch (e) {
+      print('Error al procesar video: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error al procesar video: $e'),
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
+    }
+  }
+
+  bool _isImageUrl(String text) {
+    final uri = Uri.tryParse(text);
+    if (uri == null) return false;
+    
+    // Detectar URLs de Cloudinary
+    if (uri.host.contains('cloudinary.com') || uri.host.contains('res.cloudinary.com')) {
+      return true;
+    }
+    
+    final path = uri.path.toLowerCase();
+    return path.endsWith('.jpg') || 
+           path.endsWith('.jpeg') || 
+           path.endsWith('.png') || 
+           path.endsWith('.gif') || 
+           path.endsWith('.webp') ||
+           text.startsWith('data:image/');
+  }
+
+  bool _isVideoUrl(String text) {
+    final uri = Uri.tryParse(text);
+    if (uri == null) return false;
+    
+    // Detectar URLs de Cloudinary para videos
+    if (uri.host.contains('cloudinary.com') || uri.host.contains('res.cloudinary.com')) {
+      // Cloudinary puede servir videos, verificar si la URL contiene 'video' o tiene extensión de video
+      final path = uri.path.toLowerCase();
+      return path.contains('/video/') || 
+             path.endsWith('.mp4') || 
+             path.endsWith('.webm') || 
+             path.endsWith('.mov');
+    }
+    
+    final path = uri.path.toLowerCase();
+    return path.endsWith('.mp4') || 
+           path.endsWith('.webm') || 
+           path.endsWith('.mov') ||
+           text.startsWith('data:video/');
+  }
+
   void _disconnect() {
     _ircService.disconnect();
     ref.read(currentNicknameProvider.notifier).state = null;
@@ -176,6 +839,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final messages = ref.watch(messagesProvider);
     final channels = ref.watch(channelsProvider);
     final isConnected = ref.watch(connectionStatusProvider);
+    final appTheme = ref.watch(themeProvider);
     
     // Verificar también el estado del servicio directamente como respaldo
     final serviceConnected = _ircService.isConnected;
@@ -250,8 +914,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 ),
             ],
           ),
-          backgroundColor: const Color(0xFFFF8C00), // Naranja oscuro
-          foregroundColor: Colors.white,
+          backgroundColor: appTheme.primary,
+          foregroundColor: appTheme.textPrimary,
           actions: [
             Padding(
               padding: const EdgeInsets.all(16),
@@ -262,12 +926,77 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     borderRadius: BorderRadius.circular(12),
                   ),
                   padding: const EdgeInsets.symmetric(horizontal: 12),
-                  child:                     Text(
-                      isConnected ? '● Conectado' : '● Desconectado',
-                      style: const TextStyle(color: Colors.white),
-                    ),
+                  child: Text(
+                    isConnected ? '● Conectado' : '● Desconectado',
+                    style: const TextStyle(color: Colors.white),
+                  ),
                 ),
               ),
+            ),
+            AnimatedServiceButton(
+              appTheme: appTheme,
+              tooltip: 'Centro de Atención a Usuarios',
+              emoji: '💬',
+              label: 'CAU',
+              onPressed: () {
+                _joinChannel('Ayuda');
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Uniéndote al canal #Ayuda...'),
+                    duration: Duration(seconds: 2),
+                  ),
+                );
+              },
+            ),
+            AnimatedServiceButton(
+              appTheme: appTheme,
+              tooltip: 'Registro de Nick',
+              emoji: '📝',
+              label: 'Nick',
+              onPressed: () {
+                _ircService.sendServiceMessage('NickServ', 'HELP');
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Solicitando ayuda de registro de nick a NickServ...'),
+                    duration: Duration(seconds: 2),
+                  ),
+                );
+              },
+            ),
+            AnimatedServiceButton(
+              appTheme: appTheme,
+              tooltip: 'Registro de Canal',
+              emoji: '📢',
+              label: 'Canal',
+              onPressed: () {
+                _ircService.sendServiceMessage('ChanServ', 'HELP');
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Solicitando ayuda de registro de canal a ChanServ...'),
+                    duration: Duration(seconds: 2),
+                  ),
+                );
+              },
+            ),
+            AnimatedServiceButton(
+              appTheme: appTheme,
+              tooltip: 'Petición de IP Virtual',
+              emoji: '🌐',
+              label: 'IP Virtual',
+              onPressed: () {
+                _ircService.sendServiceMessage('HostServ', 'HELP');
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Solicitando ayuda de IP virtual a HostServ...'),
+                    duration: Duration(seconds: 2),
+                  ),
+                );
+              },
+            ),
+            IconButton(
+              icon: const Icon(Icons.palette),
+              tooltip: 'Cambiar tema',
+              onPressed: () => _showThemeSelector(context),
             ),
           ],
         ),
@@ -285,8 +1014,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
                           colors: [
-                            const Color(0xFFFF8C00), // Naranja oscuro
-                            const Color(0xFFFFA500), // Naranja
+                            appTheme.primary,
+                            appTheme.secondary,
                           ],
                         ),
                       ),
@@ -330,45 +1059,45 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                             margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
                             decoration: BoxDecoration(
                               color: isSelected 
-                                  ? const Color(0xFFFFA500).withOpacity(0.3) // Naranja brillante cuando está seleccionado
+                                  ? appTheme.accent.withOpacity(0.3) // Color de acento cuando está seleccionado
                                   : Colors.transparent,
                               borderRadius: BorderRadius.circular(8),
                               border: isSelected
                                   ? Border.all(
-                                      color: const Color(0xFFFFD700), // Amarillo dorado
+                                      color: appTheme.accent, // Color de acento
                                       width: 2,
                                     )
                                   : null,
                             ),
                             child: ListTile(
-                              selected: isSelected,
+                            selected: isSelected,
                               selectedTileColor: Colors.transparent,
-                              title: Text(
-                                channel,
-                                style: TextStyle(
+                            title: Text(
+                              channel,
+                              style: TextStyle(
                                   color: isSelected 
-                                      ? const Color(0xFFFFD700) // Amarillo dorado cuando está seleccionado
-                                      : Colors.white,
-                                  fontWeight: isSelected
-                                      ? FontWeight.bold
-                                      : FontWeight.normal,
-                                ),
+                                      ? appTheme.accent // Color de acento cuando está seleccionado
+                                      : appTheme.textPrimary,
+                                fontWeight: isSelected
+                                    ? FontWeight.bold
+                                    : FontWeight.normal,
                               ),
-                              onTap: () {
-                                ref.read(currentChannelProvider.notifier).state = channel;
-                              },
-                              trailing: IconButton(
-                                icon: const Icon(Icons.close,
-                                    color: Colors.white70, size: 18),
-                                onPressed: () {
-                                  _ircService.partChannel(channel);
-                                  ref.read(channelsProvider.notifier).updateChannels();
+                            ),
+                            onTap: () {
+                              ref.read(currentChannelProvider.notifier).state = channel;
+                            },
+                            trailing: IconButton(
+                              icon: const Icon(Icons.close,
+                                  color: Colors.white70, size: 18),
+                              onPressed: () {
+                                _ircService.partChannel(channel);
+                                ref.read(channelsProvider.notifier).updateChannels();
                                   final normalizedCurrentChannel = currentChannel?.toLowerCase();
                                   if (normalizedCurrentChannel == normalizedChannel) {
-                                    ref.read(currentChannelProvider.notifier).state =
-                                        null;
-                                  }
-                                },
+                                  ref.read(currentChannelProvider.notifier).state =
+                                      null;
+                                }
+                              },
                               ),
                             ),
                           );
@@ -377,7 +1106,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     ),
                     Container(
                       padding: const EdgeInsets.all(12),
-                        child: SizedBox(
+                      child: SizedBox(
                         width: double.infinity,
                         child: ElevatedButton.icon(
                           onPressed: () => _showJoinDialog(context),
@@ -401,7 +1130,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 children: [
                   // Topic bar con animación
                   if (currentChannel != null)
-                    _buildTopicBar(currentChannel, channels),
+                    _buildTopicBar(currentChannel, channels, appTheme),
                   // Messages
                   Expanded(
                     child: currentChannel == null
@@ -486,14 +1215,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                               // Lista de mensajes
                               Positioned.fill(
                                 child: ListView.builder(
-                                  reverse: true,
+                            reverse: true,
                                   padding: const EdgeInsets.symmetric(vertical: 8),
-                                  itemCount: channelMessages.length,
-                                  itemBuilder: (context, index) {
-                                    final message =
-                                        channelMessages[channelMessages.length - 1 - index];
-                                    return _buildMessageTile(message);
-                                  },
+                            itemCount: channelMessages.length,
+                            itemBuilder: (context, index) {
+                              final message =
+                                  channelMessages[channelMessages.length - 1 - index];
+                              return _buildMessageTile(message);
+                            },
                                 ),
                               ),
                             ],
@@ -506,29 +1235,72 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       padding: const EdgeInsets.all(12),
                       child: Row(
                         children: [
-                          Expanded(
-                            child: TextField(
-                              controller: _messageController,
-                              decoration: InputDecoration(
-                                hintText: 'Mensaje...',
-                                border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 12,
-                                  vertical: 8,
+                          PopupMenuButton<String>(
+                            icon: Icon(Icons.image, color: appTheme.primary),
+                            tooltip: 'Adjuntar imagen',
+                            onSelected: (value) {
+                              if (value == 'pick') {
+                                _pickAndSendImage();
+                              }
+                            },
+                            itemBuilder: (context) => [
+                              const PopupMenuItem(
+                                value: 'pick',
+                                child: Row(
+                                  children: [
+                                    Icon(Icons.folder, size: 20),
+                                    SizedBox(width: 8),
+                                    Text('Seleccionar imagen o video'),
+                                  ],
                                 ),
                               ),
-                              onSubmitted: (_) => _sendMessage(),
-                              minLines: 1,
-                              maxLines: 3,
+                            ],
+                          ),
+                          const SizedBox(width: 4),
+                          Expanded(
+                            child: Shortcuts(
+                              shortcuts: {
+                                const SingleActivator(LogicalKeyboardKey.keyV, meta: true): 
+                                  const PasteImageIntent(),
+                              },
+                              child: Actions(
+                                actions: {
+                                  PasteImageIntent: CallbackAction<PasteImageIntent>(
+                                    onInvoke: (intent) {
+                                      _pasteImageFromClipboard();
+                                      return null;
+                                    },
+                                  ),
+                                },
+                                child: Focus(
+                                  child: TextField(
+                                    controller: _messageController,
+                                    decoration: InputDecoration(
+                                      hintText: 'Mensaje... (Pega imágenes con Cmd+V)',
+                                      border: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                      contentPadding: const EdgeInsets.symmetric(
+                                        horizontal: 12,
+                                        vertical: 8,
+                                      ),
+                                      fillColor: appTheme.surface,
+                                      filled: true,
+                                    ),
+                                    onSubmitted: (_) => _sendMessage(),
+                                    minLines: 1,
+                                    maxLines: 3,
+                                    keyboardType: TextInputType.multiline,
+                                  ),
+                                ),
+                              ),
                             ),
                           ),
                           const SizedBox(width: 8),
                           FloatingActionButton(
                             onPressed: _sendMessage,
                             mini: true,
-                            backgroundColor: const Color(0xFFFFA500), // Naranja
+                            backgroundColor: appTheme.primary,
                             child: const Icon(Icons.send),
                           ),
                         ],
@@ -550,8 +1322,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         decoration: BoxDecoration(
                           gradient: LinearGradient(
                             colors: [
-                              const Color(0xFFFF8C00), // Naranja oscuro
-                              const Color(0xFFFFA500), // Naranja
+                              appTheme.primary,
+                              appTheme.secondary,
                             ],
                           ),
                         ),
@@ -628,6 +1400,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           backgroundColor: Colors.red,
           child: const Icon(Icons.logout),
         ),
+        bottomNavigationBar: const RadioControls(),
       ),
     );
   }
@@ -696,7 +1469,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 const SizedBox(width: 10),
                 Text(
                   message.nick,
-                  style: TextStyle(
+            style: TextStyle(
                     color: isJoin ? Colors.green[700] : Colors.orange[700],
                     fontWeight: FontWeight.bold,
                     fontSize: 13,
@@ -709,7 +1482,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     color: isJoin
                         ? Colors.green[600]
                         : Colors.orange[600],
-                    fontSize: 12,
+              fontSize: 12,
                     fontWeight: FontWeight.w500,
                   ),
                 ),
@@ -783,48 +1556,39 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   ),
                 ],
               ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
                   // Nickname y hora
-                  Row(
+          Row(
                     mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        message.nick,
+            children: [
+              Text(
+                message.nick,
                         style: TextStyle(
-                          fontWeight: FontWeight.bold,
+                  fontWeight: FontWeight.bold,
                           fontSize: 13,
                           color: isOwnMessage 
                               ? Colors.white 
                               : userColor,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        timeFormat.format(message.timestamp),
-                        style: TextStyle(
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                timeFormat.format(message.timestamp),
+                style: TextStyle(
                           fontSize: 11,
                           color: isOwnMessage 
                               ? Colors.white70 
                               : Colors.grey[600],
                           fontWeight: FontWeight.w400,
-                        ),
-                      ),
-                    ],
-                  ),
+                ),
+              ),
+            ],
+          ),
                   const SizedBox(height: 6),
-                  // Contenido del mensaje
-                  Text(
-                    message.message,
-                    style: TextStyle(
-                      color: isOwnMessage 
-                          ? Colors.white 
-                          : Colors.black87,
-                      fontSize: 14,
-                      height: 1.4,
-                    ),
-                  ),
+                  // Contenido del mensaje con soporte para imágenes
+                  _buildMessageContent(message.message, isOwnMessage),
                 ],
               ),
             ),
@@ -862,6 +1626,299 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     );
   }
 
+  Widget _buildMessageContent(String messageText, bool isOwnMessage) {
+    // Detectar si el mensaje contiene una imagen (data URI)
+    if (messageText.contains('data:image/')) {
+      final parts = messageText.split('data:image/');
+      if (parts.length > 1) {
+        final dataUri = 'data:image/${parts[1].split(' ')[0]}';
+        final remainingText = parts.length > 1 && parts[1].contains(' ')
+            ? parts[1].substring(parts[1].indexOf(' ') + 1)
+            : '';
+        
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (messageText.startsWith('[Imagen]'))
+              Container(
+                margin: const EdgeInsets.only(bottom: 8),
+                constraints: const BoxConstraints(
+                  maxWidth: 300,
+                  maxHeight: 300,
+                ),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: isOwnMessage 
+                        ? Colors.white.withOpacity(0.3)
+                        : Colors.grey.withOpacity(0.3),
+                    width: 1,
+                  ),
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: Image.memory(
+                    base64Decode(dataUri.split(',')[1]),
+                    fit: BoxFit.cover,
+                    errorBuilder: (context, error, stackTrace) {
+                      return Container(
+                        padding: const EdgeInsets.all(16),
+                        child: const Icon(Icons.broken_image, size: 48),
+                      );
+                    },
+                  ),
+                ),
+              ),
+            if (remainingText.isNotEmpty)
+          Text(
+                remainingText,
+                style: TextStyle(
+                  color: isOwnMessage 
+                      ? Colors.white 
+                      : Colors.black87,
+                  fontSize: 14,
+                  height: 1.4,
+                ),
+              ),
+          ],
+        );
+      }
+    }
+    
+    // Detectar URLs de videos (incluyendo Cloudinary)
+    final videoUrlRegex = RegExp(
+      r'https?://(?:[^\s]+\.(?:mp4|webm|mov)|res\.cloudinary\.com/[^\s]*video[^\s]*)',
+      caseSensitive: false,
+    );
+    final videoMatches = videoUrlRegex.allMatches(messageText);
+    
+    if (videoMatches.isNotEmpty) {
+      final parts = <Widget>[];
+      int lastEnd = 0;
+      
+      for (var match in videoMatches) {
+        // Texto antes de la URL
+        if (match.start > lastEnd) {
+          parts.add(Text(
+            messageText.substring(lastEnd, match.start),
+            style: TextStyle(
+              color: isOwnMessage 
+                  ? Colors.white 
+                  : Colors.black87,
+              fontSize: 14,
+              height: 1.4,
+            ),
+          ));
+        }
+        
+        // Widget del video
+        parts.add(
+          Container(
+            margin: const EdgeInsets.symmetric(vertical: 8),
+            constraints: const BoxConstraints(
+              maxWidth: 400,
+              maxHeight: 300,
+            ),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: isOwnMessage 
+                    ? Colors.white.withOpacity(0.3)
+                    : Colors.grey.withOpacity(0.3),
+                width: 1,
+              ),
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  // Placeholder mientras carga
+                  Container(
+                    width: double.infinity,
+                    height: 200,
+                    color: Colors.black87,
+                    child: const Icon(
+                      Icons.play_circle_outline,
+                      color: Colors.white,
+                      size: 64,
+                    ),
+                  ),
+                  // Botón para abrir el video
+                  Positioned.fill(
+                    child: Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        onTap: () async {
+                          final url = match.group(0)!;
+                          final uri = Uri.parse(url);
+                          if (await canLaunchUrl(uri)) {
+                            await launchUrl(uri, mode: LaunchMode.externalApplication);
+                          }
+                        },
+                        child: const Center(
+                          child: Icon(
+                            Icons.play_circle_filled,
+                            color: Colors.white70,
+                            size: 48,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  // Mostrar la URL del video como texto
+                  Positioned(
+                    bottom: 8,
+                    left: 8,
+                    right: 8,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.7),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        '🎥 Video - Toca para reproducir',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 12,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+        
+        lastEnd = match.end;
+      }
+      
+      // Texto después de la última URL
+      if (lastEnd < messageText.length) {
+        parts.add(Text(
+          messageText.substring(lastEnd),
+          style: TextStyle(
+            color: isOwnMessage 
+                ? Colors.white 
+                : Colors.black87,
+            fontSize: 14,
+            height: 1.4,
+          ),
+        ));
+      }
+      
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: parts,
+      );
+    }
+    
+    // Detectar URLs de imágenes (incluyendo Cloudinary)
+    final imageUrlRegex = RegExp(
+      r'https?://(?:[^\s]+\.(?:jpg|jpeg|png|gif|webp)|res\.cloudinary\.com/[^\s]*(?<!video)[^\s]*)',
+      caseSensitive: false,
+    );
+    final matches = imageUrlRegex.allMatches(messageText);
+    
+    if (matches.isNotEmpty) {
+      final parts = <Widget>[];
+      int lastEnd = 0;
+      
+      for (var match in matches) {
+        // Texto antes de la URL
+        if (match.start > lastEnd) {
+          parts.add(Text(
+            messageText.substring(lastEnd, match.start),
+            style: TextStyle(
+              color: isOwnMessage 
+                  ? Colors.white 
+                  : Colors.black87,
+              fontSize: 14,
+              height: 1.4,
+            ),
+          ));
+        }
+        
+        // Imagen
+        parts.add(
+          Container(
+            margin: const EdgeInsets.symmetric(vertical: 8),
+            constraints: const BoxConstraints(
+              maxWidth: 300,
+              maxHeight: 300,
+            ),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: isOwnMessage 
+                    ? Colors.white.withOpacity(0.3)
+                    : Colors.grey.withOpacity(0.3),
+                width: 1,
+              ),
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: Image.network(
+                match.group(0)!,
+                fit: BoxFit.cover,
+                loadingBuilder: (context, child, loadingProgress) {
+                  if (loadingProgress == null) return child;
+                  return Container(
+                    padding: const EdgeInsets.all(16),
+                    child: const CircularProgressIndicator(),
+                  );
+                },
+                errorBuilder: (context, error, stackTrace) {
+                  return Container(
+                    padding: const EdgeInsets.all(16),
+                    child: const Icon(Icons.broken_image, size: 48),
+                  );
+                },
+              ),
+            ),
+          ),
+        );
+        
+        lastEnd = match.end;
+      }
+      
+      // Texto después de la última URL
+      if (lastEnd < messageText.length) {
+        parts.add(Text(
+          messageText.substring(lastEnd),
+          style: TextStyle(
+            color: isOwnMessage 
+                ? Colors.white 
+                : Colors.black87,
+            fontSize: 14,
+            height: 1.4,
+          ),
+        ));
+      }
+      
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: parts,
+      );
+    }
+    
+    // Mensaje normal sin imágenes
+    return Text(
+      messageText,
+      style: TextStyle(
+        color: isOwnMessage 
+            ? Colors.white 
+            : Colors.black87,
+        fontSize: 14,
+        height: 1.4,
+      ),
+    );
+  }
+
   // Generar color consistente basado en el hash del nickname
   Color _getUserColor(int hash) {
     final colors = [
@@ -880,7 +1937,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   }
 
   // Widget para mostrar el topic con animación moderna
-  Widget _buildTopicBar(String? channel, Map<String, IRCChannel> channels) {
+  Widget _buildTopicBar(String? channel, Map<String, IRCChannel> channels, AppTheme appTheme) {
     if (channel == null) return const SizedBox.shrink();
     
     // Buscar el canal de forma case-insensitive
@@ -900,16 +1957,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         decoration: BoxDecoration(
           gradient: LinearGradient(
             colors: [
-              const Color(0xFFFFD700).withOpacity(0.2), // Amarillo dorado
-              const Color(0xFFFFA500).withOpacity(0.2), // Naranja
+              appTheme.primary.withOpacity(0.2),
+              appTheme.secondary.withOpacity(0.2),
             ],
           ),
         ),
-        child: const Center(
+        child: Center(
           child: Text(
             'Sin tema establecido',
             style: TextStyle(
-              color: Colors.grey,
+              color: appTheme.textSecondary,
               fontSize: 12,
               fontStyle: FontStyle.italic,
             ),
@@ -923,13 +1980,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: [
-            const Color(0xFFFFD700), // Amarillo dorado
-            const Color(0xFFFFA500), // Naranja
+            appTheme.primary,
+            appTheme.secondary,
           ],
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.1),
+            color: appTheme.primary.withOpacity(0.3),
             blurRadius: 4,
             offset: const Offset(0, 2),
           ),
@@ -949,6 +2006,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   void _showJoinDialog(BuildContext context) {
     final controller = TextEditingController();
+    final appTheme = ref.read(themeProvider);
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -971,12 +2029,72 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               Navigator.pop(context);
             },
             style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFFFA500), // Naranja
-              foregroundColor: Colors.white,
+              backgroundColor: appTheme.primary,
+              foregroundColor: appTheme.textPrimary,
             ),
             child: const Text('Unirse'),
           ),
         ],
+      ),
+    );
+  }
+
+  void _showThemeSelector(BuildContext context) {
+    final currentTheme = ref.read(themeProvider);
+    
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Seleccionar Tema'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: ListView.builder(
+            shrinkWrap: true,
+            itemCount: AppTheme.themes.length,
+            itemBuilder: (context, index) {
+              final theme = AppTheme.themes[index];
+              final isSelected = theme.name == currentTheme.name;
+              
+              return ListTile(
+                leading: Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: theme.primary,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: theme.accent,
+                      width: isSelected ? 3 : 1,
+                    ),
+                  ),
+                  child: Center(
+                    child: Container(
+                      width: 20,
+                      height: 20,
+                      decoration: BoxDecoration(
+                        color: theme.accent,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                  ),
+                ),
+                title: Text(
+                  theme.name,
+                  style: TextStyle(
+                    fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                  ),
+                ),
+                trailing: isSelected
+                    ? const Icon(Icons.check, color: Colors.green)
+                    : null,
+                onTap: () {
+                  ref.read(themeProvider.notifier).setTheme(theme);
+                  Navigator.pop(context);
+                },
+              );
+            },
+          ),
+        ),
       ),
     );
   }

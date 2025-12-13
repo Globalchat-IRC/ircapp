@@ -1,0 +1,198 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:url_launcher/url_launcher.dart';
+import '../providers/radio_provider.dart';
+import '../models/radio_station.dart';
+import '../models/app_theme.dart';
+import '../providers/theme_provider.dart';
+import '../services/irc_service.dart';
+import '../providers/irc_provider.dart';
+import '../services/radio_service.dart';
+import '../providers/radio_provider.dart';
+
+class RadioStationsList extends ConsumerWidget {
+  const RadioStationsList({Key? key}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final radioState = ref.watch(radioProvider);
+    final appTheme = ref.watch(themeProvider);
+    final ircService = ref.read(ircServiceProvider);
+
+    return Dialog(
+      backgroundColor: appTheme.background,
+      child: Container(
+        width: MediaQuery.of(context).size.width * 0.8,
+        height: MediaQuery.of(context).size.height * 0.8,
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Estaciones de Radio',
+                  style: TextStyle(
+                    color: appTheme.textPrimary,
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                IconButton(
+                  icon: Icon(Icons.close, color: appTheme.textPrimary),
+                  onPressed: () => Navigator.of(context).pop(),
+                ),
+              ],
+            ),
+            const Divider(),
+            Expanded(
+              child: radioState.stations.isEmpty
+                  ? Center(
+                      child: Text(
+                        'Cargando estaciones...',
+                        style: TextStyle(color: appTheme.textSecondary),
+                      ),
+                    )
+                  : ListView.builder(
+                      itemCount: radioState.stations.length,
+                      itemBuilder: (context, index) {
+                        final station = radioState.stations[index];
+                        final isStarred = radioState.isStarred(station);
+                        final isActive = radioState.activeStation?.name == station.name;
+
+                        return Container(
+                          margin: const EdgeInsets.symmetric(vertical: 5),
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: isActive
+                                ? appTheme.primary.withOpacity(0.2)
+                                : appTheme.surface,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: isActive
+                                  ? appTheme.primary
+                                  : appTheme.surface,
+                              width: 1,
+                            ),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  // Botón favorito
+                                  IconButton(
+                                    icon: Icon(
+                                      isStarred ? Icons.star : Icons.star_border,
+                                      color: isStarred
+                                          ? Colors.amber
+                                          : appTheme.textSecondary,
+                                    ),
+                                    onPressed: () {
+                                      ref.read(radioProvider.notifier).toggleStarred(station);
+                                    },
+                                    tooltip: isStarred
+                                        ? 'Quitar de favoritos'
+                                        : 'Añadir a favoritos',
+                                  ),
+                                  // Botón play
+                                  IconButton(
+                                    icon: Icon(
+                                      Icons.play_arrow,
+                                      color: appTheme.primary,
+                                    ),
+                                    onPressed: () {
+                                      Navigator.of(context).pop();
+                                      final radioService = ref.read(radioServiceProvider);
+                                      ref.read(radioProvider.notifier).setActiveStation(station);
+                                      radioService.playStation(station).then((_) {
+                                        ref.read(radioProvider.notifier).setPlaying(true);
+                                      }).catchError((e) {
+                                        ref.read(radioProvider.notifier).setError(true);
+                                      });
+                                    },
+                                    tooltip: 'Reproducir',
+                                  ),
+                                  const SizedBox(width: 8),
+                                  // Título
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          '${station.name} - ${station.description}',
+                                          style: TextStyle(
+                                            color: appTheme.textPrimary,
+                                            fontSize: 16,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                        if (station.currentArtistSong != null)
+                                          Padding(
+                                            padding: const EdgeInsets.only(top: 4),
+                                            child: Text(
+                                              station.currentArtistSong!,
+                                              style: TextStyle(
+                                                color: appTheme.textSecondary,
+                                                fontSize: 12,
+                                              ),
+                                            ),
+                                          ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              if (station.namesite != null)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 4),
+                                  child: InkWell(
+                                    onTap: () async {
+                                      final uri = Uri.parse(station.namesite!);
+                                      if (await canLaunchUrl(uri)) {
+                                        await launchUrl(uri,
+                                            mode: LaunchMode.externalApplication);
+                                      }
+                                    },
+                                    child: Text(
+                                      station.namesite!,
+                                      style: TextStyle(
+                                        color: appTheme.primary,
+                                        fontSize: 12,
+                                        decoration: TextDecoration.underline,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              if (station.salon != null)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 4),
+                                  child: InkWell(
+                                    onTap: () {
+                                      final channel = station.salon!;
+                                      ircService.joinChannel(channel);
+                                      Navigator.of(context).pop();
+                                    },
+                                    child: Text(
+                                      'Canal: ${station.salon}',
+                                      style: TextStyle(
+                                        color: appTheme.secondary,
+                                        fontSize: 12,
+                                        decoration: TextDecoration.underline,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+

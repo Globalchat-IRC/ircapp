@@ -1,10 +1,12 @@
 import 'dart:io';
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 import '../models/irc_message.dart';
 
 class IRCService {
   Socket? _socket;
+  SecureSocket? _secureSocket;
   String? _nickname;
   String? _currentChannel;
   Map<String, IRCChannel> channels = {};
@@ -17,52 +19,98 @@ class IRCService {
   late Completer<void> _connectionCompleter;
   bool _isConnected = false;
   bool _isRegistered = false; // Indica si el usuario está completamente registrado (recibió 001)
+  bool _useSSL = false;
 
   bool get isConnected => _isConnected;
   String? get currentChannel => _currentChannel;
   String? get nickname => _nickname;
   Map<String, IRCChannel> get allChannels => channels;
+  
+  bool get _hasActiveSocket => _socket != null || _secureSocket != null;
 
   Future<void> connect({
     required String host,
     required int port,
     required String nickname,
+    bool useSSL = false,
   }) async {
     try {
-      print('📡 [IRCService.connect] Connecting to $host:$port as $nickname');
+      _useSSL = useSSL;
+      print('📡 [IRCService.connect] Connecting to $host:$port as $nickname (SSL: $useSSL)');
       _nickname = nickname;
       _isRegistered = false; // Reset registration status
       _connectionCompleter = Completer<void>(); // Reinicializar el completer
       
       // Connect to the server with timeout
-      _socket = await Socket.connect(host, port,
-          timeout: const Duration(seconds: 10));
-      
-      print('✅ [IRCService] Socket connected');
+      if (useSSL) {
+        // Usar SecureSocket para conexiones SSL/TLS
+        final context = SecurityContext.defaultContext;
+        try {
+          _secureSocket = await SecureSocket.connect(
+            host,
+            port,
+            context: context,
+            timeout: const Duration(seconds: 15),
+            onBadCertificate: (X509Certificate cert) {
+              // Aceptar certificados autofirmados o con problemas
+              // En producción, deberías validar el certificado adecuadamente
+              print('⚠️ [IRCService] Certificate warning: ${cert.subject}');
+              print('⚠️ [IRCService] Accepting certificate anyway');
+              return true; // Aceptar el certificado
+            },
+          );
+          print('✅ [IRCService] SecureSocket connected (SSL/TLS)');
+        } catch (e) {
+          print('❌ [IRCService] SSL connection error: $e');
+          print('❌ [IRCService] Error type: ${e.runtimeType}');
+          rethrow;
+        }
+        
+        // Start listening to incoming data (non-blocking)
+        _socketSubscription = _secureSocket!.listen(
+          (List<int> event) {
+            // Decodificar como UTF-8 para soportar emoticonos y caracteres especiales
+            String data = utf8.decode(event, allowMalformed: true);
+            _handleData(data);
+          },
+          onDone: () {
+            print('⛔ [IRCService] SecureSocket closed');
+            _onDisconnect();
+          },
+          onError: (error) {
+            print('❌ [IRCService] SecureSocket error: $error');
+            _onDisconnect();
+          },
+        );
+      } else {
+        // Usar Socket normal para conexiones no seguras
+        _socket = await Socket.connect(host, port,
+            timeout: const Duration(seconds: 10));
+        print('✅ [IRCService] Socket connected');
+        
+        // Start listening to incoming data (non-blocking)
+        _socketSubscription = _socket!.listen(
+          (List<int> event) {
+            // Decodificar como UTF-8 para soportar emoticonos y caracteres especiales
+            String data = utf8.decode(event, allowMalformed: true);
+            _handleData(data);
+          },
+          onDone: () {
+            print('⛔ [IRCService] Socket closed');
+            _onDisconnect();
+          },
+          onError: (error) {
+            print('❌ [IRCService] Socket error: $error');
+            _onDisconnect();
+          },
+        );
+      }
       
       // Send initial IRC commands
       _sendCommand('NICK $nickname');
       _sendCommand('USER $nickname 0 * :$nickname');
       
       print('✅ [IRCService] Commands sent');
-      
-      // Start listening to incoming data (non-blocking)
-      _socketSubscription = _socket!.listen(
-        (List<int> event) {
-          // Decodificar como UTF-8 para soportar emoticonos y caracteres especiales
-          String data = utf8.decode(event, allowMalformed: true);
-          _handleData(data);
-        },
-        onDone: () {
-          print('⛔ [IRCService] Socket closed');
-          _onDisconnect();
-        },
-        onError: (error) {
-          print('❌ [IRCService] Socket error: $error');
-          _onDisconnect();
-        },
-      );
-
       print('✅ [IRCService] Listener registered');
       
       // Set connection as established
@@ -83,10 +131,17 @@ class IRCService {
   }
 
   void disconnect() {
-    if (_socket != null) {
+    if (_useSSL && _secureSocket != null) {
+      _sendCommand('QUIT :Goodbye');
+      _socketSubscription?.cancel();
+      _secureSocket?.close();
+      _secureSocket = null;
+      _isConnected = false;
+    } else if (_socket != null) {
       _sendCommand('QUIT :Goodbye');
       _socketSubscription?.cancel();
       _socket?.close();
+      _socket = null;
       _isConnected = false;
     }
   }
@@ -180,7 +235,7 @@ class IRCService {
     // Solicitar la lista de usuarios y el TOPIC después de unirse
     // Usar múltiples intentos para asegurar que se reciba la lista
     Future.delayed(const Duration(milliseconds: 500), () {
-      if (_socket != null) {
+      if (_isConnected && _hasActiveSocket) {
         print('🔍 [DEBUG] Requesting NAMES for $normalized (first attempt)');
         _sendCommand('NAMES $normalized');
         print('🔍 [DEBUG] Requesting TOPIC for $normalized (first attempt)');
@@ -189,7 +244,7 @@ class IRCService {
     });
     
     Future.delayed(const Duration(milliseconds: 1500), () {
-      if (_socket != null) {
+      if (_isConnected && _hasActiveSocket) {
         print('🔍 [DEBUG] Requesting NAMES for $normalized (second attempt)');
         _sendCommand('NAMES $normalized');
         print('🔍 [DEBUG] Requesting TOPIC for $normalized (second attempt)');
@@ -198,7 +253,7 @@ class IRCService {
     });
     
     Future.delayed(const Duration(milliseconds: 3000), () {
-      if (_socket != null) {
+      if (_isConnected && _hasActiveSocket) {
         print('🔍 [DEBUG] Requesting NAMES for $normalized (third attempt)');
         _sendCommand('NAMES $normalized');
         print('🔍 [DEBUG] Requesting TOPIC for $normalized (third attempt)');
@@ -244,8 +299,19 @@ class IRCService {
     }
   }
 
+  // Enviar mensaje privado a un servicio IRC (NickServ, ChanServ, HostServ, etc.)
+  void sendServiceMessage(String service, String message) {
+    // Los servicios IRC no usan #, solo el nombre del servicio
+    final serviceName = service.trim();
+    _sendCommand('PRIVMSG $serviceName :$message');
+    print('📤 [IRCService] Enviando mensaje a servicio $serviceName: $message');
+  }
+
   void _sendCommand(String command) {
-    if (_socket != null) {
+    if (_useSSL && _secureSocket != null) {
+      print('🔍 [DEBUG] Sending command (SSL): $command');
+      _secureSocket!.writeln(command);
+    } else if (_socket != null) {
       print('🔍 [DEBUG] Sending command: $command');
       _socket!.writeln(command);
     } else {
@@ -645,7 +711,7 @@ class IRCService {
               
               // También solicitar después de delays
               Future.delayed(const Duration(milliseconds: 500), () {
-                if (_socket != null) {
+                if (_isConnected && _hasActiveSocket) {
                   print('🔍 [DEBUG] Requesting NAMES for $channel (delayed 500ms)');
                   _sendCommand('NAMES $channel');
                   print('🔍 [DEBUG] Requesting TOPIC for $channel (delayed 500ms)');
@@ -654,7 +720,7 @@ class IRCService {
               });
               
               Future.delayed(const Duration(milliseconds: 1500), () {
-                if (_socket != null) {
+                if (_isConnected && _hasActiveSocket) {
                   print('🔍 [DEBUG] Requesting NAMES for $channel (delayed 1500ms)');
                   _sendCommand('NAMES $channel');
                   print('🔍 [DEBUG] Requesting TOPIC for $channel (delayed 1500ms)');
@@ -663,7 +729,7 @@ class IRCService {
               });
               
               Future.delayed(const Duration(milliseconds: 3000), () {
-                if (_socket != null) {
+                if (_isConnected && _hasActiveSocket) {
                   print('🔍 [DEBUG] Requesting NAMES for $channel (delayed 3000ms)');
                   _sendCommand('NAMES $channel');
                   print('🔍 [DEBUG] Requesting TOPIC for $channel (delayed 3000ms)');

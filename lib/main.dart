@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'dart:io';
 import 'screens/login_screen.dart';
+import 'providers/theme_provider.dart';
 
 final logFile = File('/tmp/irc_app.log');
 
@@ -33,29 +34,17 @@ void main() {
   );
 }
 
-class MyApp extends StatelessWidget {
+class MyApp extends ConsumerWidget {
   const MyApp({Key? key}) : super(key: key);
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final appTheme = ref.watch(themeProvider);
+    
     return MaterialApp(
       title: 'Cliente IRC',
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
-        useMaterial3: true,
-        appBarTheme: const AppBarTheme(
-          backgroundColor: Colors.deepPurple,
-          foregroundColor: Colors.white,
-        ),
-      ),
-      darkTheme: ThemeData.dark(
-        useMaterial3: true,
-      ).copyWith(
-        colorScheme: ColorScheme.dark(
-          primary: Colors.deepPurple,
-          secondary: Colors.deepPurpleAccent,
-        ),
-      ),
+      theme: appTheme.toThemeData(),
+      darkTheme: appTheme.toDarkThemeData(),
       themeMode: ThemeMode.light,
       home: const LoginScreen(),
     );

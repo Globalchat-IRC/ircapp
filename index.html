@@ -1,0 +1,1260 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Radio Online - GlobalChat</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" type="image/svg+xml" href="https://upload.wikimedia.org/wikipedia/commons/7/7c/LOS40_logo.svg">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@700&display=swap" rel="stylesheet">
+  <style>
+    body {
+      background: url('https://images.unsplash.com/photo-1462331940025-496dfbfc7564?auto=format&fit=crop&w=1500&q=80') no-repeat center center fixed;
+      background-size: cover;
+      color: #fff;
+      font-family: 'Montserrat', Arial, sans-serif;
+      min-height: 100vh;
+      margin: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      position: relative;
+    }
+    .radio-container {
+      background: rgba(20, 24, 40, 0.97);
+      border-radius: 16px;
+      box-shadow: 0 2px 24px #000a;
+      padding: 2.5rem 2rem 2rem 2rem;
+      max-width: 1200px;
+      width: 95%;
+      margin: 40px auto 0 auto;
+      position: relative;
+      z-index: 2;
+      text-align: center;
+    }
+    h1 {
+      color: #4fc3f7;
+      text-shadow: 0 0 8px #4fc3f7, 0 0 2px #4fc3f7;
+      font-weight: bold;
+      font-size: 2.1em;
+      margin-bottom: 0.5em;
+    }
+    .radio-desc {
+      color: #b0bec5;
+      font-size: 1.1em;
+      margin-bottom: 1.5em;
+    }
+    .main-player {
+      margin: 1.5em 0 2em 0;
+      background: #23284a;
+      border-radius: 12px;
+      box-shadow: 0 2px 12px #0006;
+      padding: 1.2em 1em;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 170px;
+    }
+    .main-player-title {
+      color: #ffd54f;
+      font-size: 1.15em;
+      font-weight: bold;
+      margin-bottom: 0.7em;
+      display: flex;
+      align-items: center;
+      gap: 0.7em;
+    }
+    .main-player-logo {
+      width: 48px; height: 48px; border-radius: 50%; background: #fff; display: inline-flex; align-items: center; justify-content: center; box-shadow: 0 0 8px #4fc3f7; margin-right: 0.5em;
+    }
+    .main-player-logo img {
+      width: 40px; height: 40px; object-fit: contain; border-radius: 50%;
+    }
+    .main-audio {
+      width: 100%;
+      margin: 0.5em 0 0.2em 0;
+      outline: none;
+      background: #23284a;
+      border-radius: 8px;
+    }
+    .stations-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1.8em;
+      justify-content: center;
+      margin-top: 2em;
+      max-width: 100%;
+    }
+    .station-card {
+      background: rgba(34,40,74,0.98);
+      border-radius: 12px;
+      box-shadow: 0 2px 12px #0006;
+      padding: 1.2em 1.2em 1.5em 1.2em;
+      color: #fff;
+      min-width: 200px;
+      max-width: 220px;
+      min-height: 260px;
+      flex: 1 1 200px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 1em;
+      transition: transform 0.15s;
+    }
+    .station-card:hover {
+      transform: translateY(-6px) scale(1.04);
+      box-shadow: 0 4px 24px #4fc3f7cc;
+    }
+    .station-logo {
+      width: 54px; height: 54px; border-radius: 50%; background: #fff; display: flex; align-items: center; justify-content: center; margin-bottom: 0.5em; box-shadow: 0 0 8px #ffd54f;
+    }
+    .station-logo img {
+      width: 44px; height: 44px; object-fit: contain; border-radius: 50%; background: #fff;
+    }
+    .station-name {
+      font-weight: bold; color: #ffd54f; font-size: 1.08em; margin-bottom: 0.3em;
+    }
+    .station-btn {
+      background: #4fc3f7;
+      color: #23284a;
+      border: none;
+      border-radius: 0.7em;
+      padding: 0.5em 1.2em;
+      font-weight: bold;
+      margin-top: 0.7em;
+      box-shadow: 0 2px 8px #4fc3f7aa;
+      transition: background 0.2s, color 0.2s;
+      cursor: pointer;
+    }
+    .station-btn:hover {
+      background: #ffd54f;
+      color: #23284a;
+    }
+    .footer {
+      color: #b0bec5;
+      font-family: 'Montserrat', Arial, sans-serif;
+      font-size: 14px;
+      text-align: center;
+      margin-top: 2em;
+      text-shadow: 0 0 2px #263238;
+    }
+    @media (max-width: 1200px) {
+      .radio-container { 
+        max-width: 95%; 
+        padding: 2rem 1.5rem 1.5rem 1.5rem; 
+      }
+      .main-flex { 
+        gap: 2em; 
+        justify-content: center; 
+      }
+    }
+    
+    @media (max-width: 900px) {
+      .radio-container { 
+        padding: 1.5em 1em; 
+        max-width: 98%; 
+      }
+      h1 { font-size: 1.4em; }
+      .main-flex { 
+        flex-direction: column; 
+        gap: 1.5em; 
+        align-items: center; 
+      }
+      .main-player { 
+        min-width: 100%; 
+        max-width: 100%; 
+      }
+      .dedicatoria-container { 
+        max-width: 100%; 
+        min-width: 100%; 
+        margin: 0 auto; 
+      }
+      .stations-grid { 
+        gap: 1.2em; 
+        justify-content: center; 
+      }
+      .station-card {
+        min-width: 180px;
+        max-width: 200px;
+        flex: 1 1 180px;
+      }
+    }
+    
+    @media (max-width: 600px) {
+      .radio-container { 
+        padding: 1em 0.8em; 
+        margin: 20px auto 0 auto; 
+      }
+      h1 { font-size: 1.2em; }
+      .station-card {
+        min-width: 160px;
+        max-width: 180px;
+        flex: 1 1 160px;
+        padding: 1em 0.8em 1.2em 0.8em;
+      }
+    }
+    .radio-station {
+      display: flex;
+      align-items: center;
+      gap: 1.5em;
+      background: rgba(34,40,74,0.98);
+      border-radius: 12px;
+      padding: 1.2em;
+      margin-bottom: 1em;
+      box-shadow: 0 2px 12px #0006;
+    }
+    .station-logo {
+      width: 80px;
+      height: 80px;
+      border-radius: 12px;
+      object-fit: cover;
+      box-shadow: 0 2px 8px #0004;
+    }
+    .station-info {
+      flex: 1;
+    }
+    .station-info h3 {
+      color: #4fc3f7;
+      margin: 0 0 0.3em 0;
+      font-size: 1.2em;
+    }
+    .station-info p {
+      color: #b0bec5;
+      margin: 0;
+      font-size: 0.95em;
+    }
+    .btn-play {
+      background: linear-gradient(90deg, #4fc3f7 0%, #2196F3 100%);
+      color: #23284a;
+      border: none;
+      border-radius: 8px;
+      padding: 0.7em 1.5em;
+      font-weight: bold;
+      cursor: pointer;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+    .btn-play:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px #4fc3f7cc;
+    }
+  </style>
+</head>
+<body>
+  <div class="radio-container">
+    <button id="adminBtn" style="position:absolute; top:15px; right:15px; background:linear-gradient(135deg, #667eea 0%, #764ba2 100%); color:#fff; border:none; padding:0.6em 1.2em; border-radius:8px; font-weight:bold; cursor:pointer; box-shadow:0 4px 15px rgba(102, 126, 234, 0.4); transition:all 0.3s; z-index:10;">
+      ⚙️ Panel Admin
+    </button>
+    <div class="manual-icon" style="font-size:2.2em; text-shadow:0 0 8px #ffd54f;">🎵</div>
+    <h1>Radio Online - GlobalChat</h1>
+    <div class="radio-desc">
+      Disfruta de las emisoras más populares de España y el mundo, en directo y sin salir de la comunidad.<br>
+      Haz clic en una emisora para escucharla al instante.
+    </div>
+    <div class="main-flex" style="display:flex; gap:2.5em; align-items:flex-start; flex-wrap:wrap; margin-bottom:2em; justify-content:center;">
+      <div class="main-player" id="mainPlayer" style="flex:2 1 400px; min-width:350px; max-width:500px;">
+        <div class="main-player-title" id="mainPlayerTitle">
+          <span class="main-player-logo" id="mainPlayerLogo"><img src="https://placehold.co/200x200/FFD54F/23284A/png?text=NV" alt="NuestrasVoces"></span>
+          NuestrasVoces
+        </div>
+        <audio id="mainAudio" class="main-audio" controls autoplay>
+          <source id="mainAudioSource" src="https://stream-179.zeno.fm/td7dw1np6s8uv?zt=eyJhbGciOiJIUzI1NiJ9.eyJzdHJlYW0iOiJ0ZDdkdzFucDZzOHV2IiwiaG9zdCI6InN0cmVhbS0xNzkuemVuby5mbSIsInJ0dGwiOjUsImp0aSI6ImZ6dGxpd002U0RlSmo0S3VfUE1xNWciLCJpYXQiOjE3NTg3NTU0MDMsImV4cCI6MTc1ODc1NTQ2M30.wl2oH7CHKjldHmqf3gkqqVhzl0lpJMTc3XebALO65l0" type="audio/mpeg">
+          Tu navegador no soporta audio HTML5.
+        </audio>
+        <div id="autoplayNotice" style="display:block; margin-top:0.7em; color:#ffd54f; font-size:0.98em;">
+          El navegador ha bloqueado la reproducción automática.<br>
+          <button id="playBtn" class="station-btn" style="margin-top:0.5em;">Activar radio</button>
+        </div>
+      </div>
+      <div class="dedicatoria-container" style="background:rgba(34,40,74,0.99); border:2px solid #ffd54f; border-radius:12px; min-width:280px; max-width:380px; padding:1.5em 1.2em; flex:1 1 280px;">
+        <h2 style="color:#ffd54f; font-size:1.1em; margin-bottom:0.7em;">Dedica una canción en el IRC</h2>
+        
+        <!-- Mensaje informativo para SoundMusic -->
+        <div id="soundmusicInfo" style="display:none; background:rgba(255,111,97,0.15); border:2px solid #ff6f61; border-radius:10px; padding:1em; margin-bottom:1em;">
+          <div style="color:#ff6f61; font-weight:bold; margin-bottom:0.5em; font-size:1em;">
+            ℹ️ Canal SoundMusic
+          </div>
+          <div style="color:#b0bec5; font-size:0.9em; line-height:1.5;">
+            El canal <strong style="color:#ff6f61;">#SoundMusic</strong> no acepta peticiones de canción vía web.<br><br>
+            Para solicitar canciones, conéctate al IRC:<br>
+            <a href="https://webchat.globalchat.org/#SoundMusic" target="_blank" style="color:#4fc3f7; text-decoration:underline; font-weight:bold; display:inline-block; margin-top:0.3em;">
+              🌐 GlobalChat WebChat
+            </a><br><br>
+            Envía un mensaje privado al robot:<br>
+            <code style="background:#23284a; color:#81c784; padding:0.3em 0.5em; border-radius:4px; display:inline-block; margin-top:0.3em; font-size:0.85em; word-break:break-all;">
+              /msg RadioSoundMusic !help
+            </code>
+          </div>
+        </div>
+        
+        <form id="dedicatoriaForm" autocomplete="off">
+          <div class="mb-2 text-start">
+            <label for="dedic-nick" class="form-label" style="color:#4fc3f7;">Tu nick (debe estar validado):</label>
+            <div class="input-group">
+              <input type="text" class="form-control" id="dedic-nick" maxlength="20" placeholder="Ej: Invitado123" required>
+              <button type="button" class="btn btn-outline-secondary" id="validarNickBtn" style="border-radius: 0 8px 8px 0; background: #23284a; color: #4fc3f7; border: 1px solid #4fc3f7;">
+                🔐 Validar
+              </button>
+            </div>
+            <div id="nick-status-dedic" style="margin-top:5px; font-size:0.9em;"></div>
+            <div class="form-text" style="color:#81c784; font-size:0.85em;">
+              Debes estar conectado al IRC y autenticado con Nick para enviar dedicatorias.
+            </div>
+          </div>
+                      <div class="mb-2 text-start">
+              <label for="dedic-password" class="form-label" style="color:#4fc3f7;">Contraseña del nick:</label>
+              <input type="password" class="form-control" id="dedic-password" maxlength="50" placeholder="Contraseña de tu nick en IRC" required>
+              <div class="form-text" style="color:#81c784; font-size:0.85em;">
+                Es la contraseña que usas para identificarte con Nick en IRC.
+              </div>
+            </div>
+            <div class="mb-2 text-start">
+              <label for="dedic-to" class="form-label" style="color:#4fc3f7;">Para (opcional):</label>
+              <input type="text" class="form-control" id="dedic-to" maxlength="30" placeholder="Ej: María, Juan, todos...">
+            </div>
+            <div class="mb-2 text-start">
+              <label for="dedic-canal" class="form-label" style="color:#4fc3f7;">Canal IRC (automático):</label>
+              <select class="form-control" id="dedic-canal" required style="background:linear-gradient(135deg, #667eea 0%, #764ba2 100%); color:#fff; font-weight:bold; pointer-events:none; border:2px solid #4fc3f7; box-shadow:0 0 10px rgba(79,195,247,0.3);">
+                <option value="#nuestrasvoces">#nuestrasvoces</option>
+              </select>
+              <div class="form-text" style="color:#81c784; font-size:0.85em;">
+                🔒 El canal se selecciona automáticamente según la radio que estés escuchando. <span id="canal-recomendacion"></span>
+              </div>
+            </div>
+          <div class="mb-2 text-start">
+            <label for="dedic-msg" class="form-label" style="color:#4fc3f7;">Dedicatoria o mensaje:</label>
+            <textarea class="form-control" id="dedic-msg" maxlength="180" rows="2" required placeholder="Escribe tu dedicatoria (máx. 180 caracteres)"></textarea>
+          </div>
+          <button type="submit" class="station-btn" id="enviarDedicBtn" style="width:100%;margin-top:0.7em;" disabled>🔒 Validar nick primero</button>
+          <div id="dedic-status" style="margin-top:0.7em; font-size:0.98em;"></div>
+        </form>
+        <div style="color:#b0bec5; font-size:0.93em; margin-top:0.7em;">
+          Las dedicatorias se publicarán en el canal IRC seleccionado de GlobalChat.<br>
+          <small style="color:#81c784;">🔒 Solo usuarios autenticados en IRC pueden enviar dedicatorias</small>
+        </div>
+      </div>
+    </div>
+    <div class="stations-grid" id="stationsGrid">
+      <!-- Las tarjetas se generarán dinámicamente en orden aleatorio -->
+      </div>
+    <div class="footer">
+      &copy; 2025 GlobalChat Network. Radio online para la comunidad.<br>
+      Fuentes: <a href="https://emisora.org.es/" target="_blank" style="color:#4fc3f7;">emisora.org.es</a> y los40.com
+      </div>
+      </div>
+
+  <!-- Modal Login Administración -->
+  <div id="loginModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.9); z-index:10000; overflow-y:auto;">
+    <div style="background:linear-gradient(135deg, #1a1f3a 0%, #2d1b3d 100%); max-width:450px; margin:100px auto; border-radius:16px; padding:2.5em; box-shadow:0 8px 32px rgba(0,0,0,0.7); border:2px solid #667eea;">
+      <div style="text-align:center; margin-bottom:2em;">
+        <div style="font-size:3em; margin-bottom:0.3em;">🔐</div>
+        <h2 style="color:#667eea; margin:0; font-size:1.8em; text-shadow:0 0 10px rgba(102,126,234,0.5);">Acceso Administrativo</h2>
+        <p style="color:#b0bec5; font-size:0.95em; margin-top:0.5em;">Introduce tus credenciales</p>
+      </div>
+      
+      <form id="loginForm" autocomplete="off">
+        <div style="margin-bottom:1.5em;">
+          <label style="color:#b0bec5; display:block; margin-bottom:0.5em; font-weight:bold;">Usuario:</label>
+          <input type="text" id="login-user" required style="width:100%; padding:0.8em; border-radius:8px; border:2px solid #667eea; background:#23284a; color:#fff; font-size:1em;" placeholder="admin">
+      </div>
+        
+        <div style="margin-bottom:1.5em;">
+          <label style="color:#b0bec5; display:block; margin-bottom:0.5em; font-weight:bold;">Contraseña:</label>
+          <input type="password" id="login-pass" required style="width:100%; padding:0.8em; border-radius:8px; border:2px solid #667eea; background:#23284a; color:#fff; font-size:1em;" placeholder="••••••••">
+    </div>
+        
+        <div id="login-error" style="display:none; background:rgba(244,67,54,0.2); border:1px solid #f44336; color:#f44336; padding:0.8em; border-radius:8px; margin-bottom:1em; text-align:center;">
+          ❌ Usuario o contraseña incorrectos
+        </div>
+        
+        <button type="submit" style="width:100%; background:linear-gradient(135deg, #667eea 0%, #764ba2 100%); color:#fff; border:none; padding:0.9em; border-radius:8px; cursor:pointer; font-weight:bold; font-size:1.05em; box-shadow:0 4px 15px rgba(102,126,234,0.4); transition:transform 0.2s;">
+          🔓 Iniciar Sesión
+        </button>
+        
+        <button type="button" id="cancelLoginBtn" style="width:100%; background:#6c757d; color:#fff; border:none; padding:0.8em; border-radius:8px; cursor:pointer; font-weight:bold; margin-top:0.8em;">
+          Cancelar
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal Panel de Administración -->
+  <div id="adminModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.85); z-index:9999; overflow-y:auto;">
+    <div style="background:linear-gradient(135deg, #1a1f3a 0%, #2d1b3d 100%); max-width:900px; margin:40px auto; border-radius:16px; padding:2em; box-shadow:0 8px 32px rgba(0,0,0,0.5); border:2px solid #667eea;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.5em;">
+        <h2 style="color:#667eea; margin:0; font-size:1.8em; text-shadow:0 0 10px rgba(102,126,234,0.5);">⚙️ Panel de Administración</h2>
+        <div style="display:flex; gap:0.5em;">
+          <button id="logoutBtn" style="background:#ff9800; color:#fff; border:none; padding:0.5em 1em; border-radius:8px; cursor:pointer; font-weight:bold; transition:background 0.3s;">🚪 Cerrar Sesión</button>
+          <button id="closeAdminBtn" style="background:#f44336; color:#fff; border:none; padding:0.5em 1em; border-radius:8px; cursor:pointer; font-weight:bold; transition:background 0.3s;">✖ Cerrar</button>
+        </div>
+      </div>
+      
+      <!-- Formulario de Nuevo Canal -->
+      <div style="background:rgba(102,126,234,0.1); border:2px solid #667eea; border-radius:12px; padding:1.5em; margin-bottom:1.5em;">
+        <h3 style="color:#4fc3f7; margin-top:0;">➕ Agregar/Editar Canal IRC</h3>
+        <form id="adminForm" autocomplete="off">
+          <input type="hidden" id="editIndex" value="">
+          
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:1em; margin-bottom:1em;">
+            <div>
+              <label style="color:#b0bec5; display:block; margin-bottom:0.3em;">Nombre del Canal IRC:</label>
+              <input type="text" id="admin-canal" placeholder="#nuestrasvoces" required style="width:100%; padding:0.6em; border-radius:6px; border:1px solid #667eea; background:#23284a; color:#fff;">
+            </div>
+            <div>
+              <label style="color:#b0bec5; display:block; margin-bottom:0.3em;">URL del Stream:</label>
+              <input type="url" id="admin-stream" placeholder="https://stream.zeno.fm/..." required style="width:100%; padding:0.6em; border-radius:6px; border:1px solid #667eea; background:#23284a; color:#fff;">
+            </div>
+          </div>
+          
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:1em; margin-bottom:1em;">
+            <div>
+              <label style="color:#b0bec5; display:block; margin-bottom:0.3em;">URL de la API:</label>
+              <input type="text" id="admin-api" placeholder="/api o https://creta.globalchat.org:5556/api" required style="width:100%; padding:0.6em; border-radius:6px; border:1px solid #667eea; background:#23284a; color:#fff;">
+            </div>
+            <div>
+              <label style="color:#b0bec5; display:block; margin-bottom:0.3em;">Nombre para mostrar:</label>
+              <input type="text" id="admin-nombre" placeholder="NuestrasVoces" required style="width:100%; padding:0.6em; border-radius:6px; border:1px solid #667eea; background:#23284a; color:#fff;">
+            </div>
+          </div>
+          
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:1em; margin-bottom:1em;">
+            <div>
+              <label style="color:#b0bec5; display:block; margin-bottom:0.3em;">URL del Logo:</label>
+              <input type="url" id="admin-logo" placeholder="https://placehold.co/200x200..." style="width:100%; padding:0.6em; border-radius:6px; border:1px solid #667eea; background:#23284a; color:#fff;">
+            </div>
+            <div>
+              <label style="color:#b0bec5; display:block; margin-bottom:0.3em;">Descripción:</label>
+              <input type="text" id="admin-desc" placeholder="🎵 Descripción del canal" style="width:100%; padding:0.6em; border-radius:6px; border:1px solid #667eea; background:#23284a; color:#fff;">
+            </div>
+          </div>
+          
+          <div style="margin-bottom:1em;">
+            <label style="color:#b0bec5; display:block; margin-bottom:0.3em;">
+              <input type="checkbox" id="admin-destacado" style="margin-right:0.5em;">
+              Canal destacado (con borde especial)
+            </label>
+          </div>
+          
+          <button type="submit" style="background:linear-gradient(135deg, #4fc3f7 0%, #2196F3 100%); color:#fff; border:none; padding:0.7em 2em; border-radius:8px; cursor:pointer; font-weight:bold; box-shadow:0 4px 12px rgba(79,195,247,0.4);">
+            💾 Guardar Canal
+          </button>
+          <button type="button" id="cancelEditBtn" style="display:none; background:#6c757d; color:#fff; border:none; padding:0.7em 2em; border-radius:8px; cursor:pointer; font-weight:bold; margin-left:1em;">
+            ❌ Cancelar
+          </button>
+        </form>
+      </div>
+      
+      <!-- Lista de Canales Configurados -->
+      <div>
+        <h3 style="color:#4fc3f7; margin-bottom:1em;">📋 Canales Configurados</h3>
+        <div id="canalesList" style="display:grid; gap:1em;">
+          <!-- Se generará dinámicamente con JavaScript -->
+        </div>
+      </div>
+      
+      <!-- Botones de Gestión -->
+      <div style="margin-top:2em; padding-top:1.5em; border-top:2px solid #667eea; display:flex; gap:1em; flex-wrap:wrap;">
+        <button id="exportConfigBtn" style="background:#4caf50; color:#fff; border:none; padding:0.7em 1.5em; border-radius:8px; cursor:pointer; font-weight:bold;">
+          📤 Exportar Configuración
+        </button>
+        <button id="importConfigBtn" style="background:#ff9800; color:#fff; border:none; padding:0.7em 1.5em; border-radius:8px; cursor:pointer; font-weight:bold;">
+          📥 Importar Configuración
+        </button>
+        <input type="file" id="importFileInput" accept=".json" style="display:none;">
+        <button id="resetConfigBtn" style="background:#f44336; color:#fff; border:none; padding:0.7em 1.5em; border-radius:8px; cursor:pointer; font-weight:bold;">
+          🔄 Resetear a Predeterminado
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Array de todas las estaciones de radio
+    const allStations = [
+      {
+        nombre: 'NuestrasVoces',
+        logo: 'https://placehold.co/200x200/FFD54F/23284A/png?text=NV',
+        stream: 'https://stream-179.zeno.fm/td7dw1np6s8uv?zt=eyJhbGciOiJIUzI1NiJ9.eyJzdHJlYW0iOiJ0ZDdkdzFucDZzOHV2IiwiaG9zdCI6InN0cmVhbS0xNzkuemVuby5mbSIsInJ0dGwiOjUsImp0aSI6ImZ6dGxpd006U0RlSmo0S3VfUE1xNWciLCJpYXQiOjE3NTg3NTU0MDMsImV4cCI6MTc1ODc1NTQ2M30.wl2oH7CHKjldHmqf3gkqqVhzl0lpJMTc3XebALO65l0',
+        link: 'https://globalchat.org/',
+        descripcion: '🎤✨ Nuevos talentos y dedicatorias',
+        destacado: true
+      },
+      {
+        nombre: 'SoundMusic',
+        logo: 'https://placehold.co/200x200/FF6F61/FFFFFF/png?text=SM',
+        stream: 'https://stream.zeno.fm/3ezwa4mtghmtv',
+        link: 'https://zeno.fm/radio/soundmusic/',
+        descripcion: '🎶🌟 Variado gusto musical',
+        destacado: true
+      },
+      {
+        nombre: 'Los 40 Principales',
+        logo: 'https://placehold.co/200x200/FF6B6B/FFFFFF/png?text=40',
+        stream: 'https://playerservices.streamtheworld.com/api/livestream-redirect/LOS40.mp3',
+        link: 'https://los40.com/',
+        descripcion: '🎧🔥 Éxitos del momento',
+        destacado: false
+      },
+      {
+        nombre: 'Los 40 Dance',
+        logo: 'https://placehold.co/200x200/96CEB4/FFFFFF/png?text=DANCE',
+        stream: 'https://playerservices.streamtheworld.com/api/livestream-redirect/LOS40_DANCE.mp3',
+        link: 'https://los40.com/los40dance/',
+        descripcion: '💃🪩 Música electrónica',
+        destacado: false
+      },
+      {
+        nombre: 'Los 40 Classic',
+        logo: 'https://placehold.co/200x200/FFEEAD/000000/png?text=CLASSIC',
+        stream: 'https://playerservices.streamtheworld.com/api/livestream-redirect/LOS40_CLASSIC.mp3',
+        link: 'https://los40.com/los40classic/',
+        descripcion: '🎸✨ Clásicos atemporales',
+        destacado: false
+      }
+    ];
+    
+    // Función para mezclar array aleatoriamente (Fisher-Yates shuffle)
+    function shuffleArray(array) {
+      const shuffled = [...array];
+      for (let i = shuffled.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+      }
+      return shuffled;
+    }
+    
+    // Colores para canales destacados (si hay múltiples)
+    const destacadoColors = [
+      { border: '#ffd54f', shadow: 'rgba(255, 213, 79, 0.5)', text: '#ffd54f' },  // Dorado
+      { border: '#ff6f61', shadow: 'rgba(255, 111, 97, 0.5)', text: '#ff6f61' }   // Coral
+    ];
+    
+    // Función para renderizar las tarjetas de estaciones
+    function renderStationCards() {
+      const container = document.getElementById('stationsGrid');
+      const shuffledStations = shuffleArray(allStations);
+      
+      // Contar canales destacados para asignar colores
+      let destacadoIndex = 0;
+      
+      container.innerHTML = shuffledStations.map((station, index) => {
+        let borderStyle = '';
+        let nameStyle = '';
+        let buttonIcon = '';
+        
+        if (station.destacado) {
+          const colorScheme = destacadoColors[destacadoIndex % destacadoColors.length];
+          borderStyle = `style="border: 3px solid ${colorScheme.border}; box-shadow: 0 0 20px ${colorScheme.shadow};"`;
+          nameStyle = `style="color: ${colorScheme.text}; font-weight: bold;"`;
+          buttonIcon = '🎧 ';
+          destacadoIndex++;
+        }
+        
+        const descripcionHTML = station.descripcion ? 
+          `<div style="color: #81c784; font-size: 0.9em; margin: 5px 0;">${station.descripcion}</div>` : '';
+        
+        // Escapar valores para evitar problemas con comillas
+        const nombre = station.nombre.replace(/'/g, "\\'");
+        const logo = station.logo.replace(/'/g, "\\'");
+        const stream = station.stream.replace(/'/g, "\\'");
+        const link = station.link.replace(/'/g, "\\'");
+        
+        return `
+          <div class="station-card" ${borderStyle}>
+            <div class="station-logo"><img src="${station.logo}" alt="${station.nombre}"></div>
+            <div class="station-name" ${nameStyle}>${station.nombre}</div>
+            ${descripcionHTML}
+            <button class="station-btn" onclick="setStation('${nombre}','${logo}','${stream}','${link}')">${buttonIcon}Escuchar</button>
+          </div>
+        `;
+      }).join('');
+    }
+    
+    // Mapeo de estaciones a sus canales IRC
+    const stationToChannel = {
+      'NuestrasVoces': '#nuestrasvoces',
+      'SoundMusic': '#soundmusic'
+    };
+    
+    // Función para actualizar la recomendación del canal
+    function updateChannelRecommendation(stationName) {
+      const channel = stationToChannel[stationName];
+      const soundmusicInfo = document.getElementById('soundmusicInfo');
+      const dedicatoriaForm = document.getElementById('dedicatoriaForm');
+      
+      if (channel) {
+        const recomendacionSpan = document.getElementById('canal-recomendacion');
+        if (recomendacionSpan) {
+          recomendacionSpan.innerHTML = `<strong>📻 Estás escuchando: ${stationName} → Canal: ${channel}</strong>`;
+        }
+        
+        // Mostrar/ocultar mensaje de SoundMusic y formulario
+        if (stationName === 'SoundMusic') {
+          // Mostrar info de SoundMusic
+          if (soundmusicInfo) soundmusicInfo.style.display = 'block';
+          // Ocultar formulario de dedicatorias
+          if (dedicatoriaForm) dedicatoriaForm.style.display = 'none';
+        } else {
+          // Ocultar info de SoundMusic
+          if (soundmusicInfo) soundmusicInfo.style.display = 'none';
+          // Mostrar formulario de dedicatorias
+          if (dedicatoriaForm) dedicatoriaForm.style.display = 'block';
+        }
+        
+        // Seleccionar automáticamente el canal en el selector
+        const selectCanal = document.getElementById('dedic-canal');
+        if (selectCanal) {
+          selectCanal.value = channel;
+        }
+      }
+    }
+    
+    function setStation(nombre, logo, stream, link) {
+      document.getElementById('mainPlayerTitle').innerHTML = `<span class='main-player-logo'><img src='${logo}' alt='${nombre}'></span> ${nombre}`;
+      var audio = document.getElementById('mainAudio');
+      var source = document.getElementById('mainAudioSource');
+      source.src = stream;
+      audio.load();
+      var playPromise = audio.play();
+      if (playPromise !== undefined) {
+        playPromise.catch(function(){});
+      }
+      // document.getElementById('mainPlayerLink').href = link; // No existe este elemento
+      
+      // Actualizar recomendación del canal
+      updateChannelRecommendation(nombre);
+    }
+    
+    // ============================================
+    // FUNCIONES GLOBALES PARA EL PANEL DE ADMINISTRACIÓN
+    // (Deben estar definidas ANTES de renderizar los botones)
+    // ============================================
+    
+    // Editar canal
+    window.editChannel = function(index) {
+      const channels = loadChannels();
+      const ch = channels[index];
+      
+      document.getElementById('editIndex').value = index;
+      document.getElementById('admin-canal').value = ch.canal;
+      document.getElementById('admin-stream').value = ch.stream;
+      document.getElementById('admin-api').value = ch.api;
+      document.getElementById('admin-nombre').value = ch.nombre;
+      document.getElementById('admin-logo').value = ch.logo || '';
+      document.getElementById('admin-desc').value = ch.descripcion || '';
+      document.getElementById('admin-destacado').checked = ch.destacado || false;
+      
+      document.getElementById('cancelEditBtn').style.display = 'inline-block';
+      document.querySelector('#adminForm button[type="submit"]').textContent = '💾 Actualizar Canal';
+      
+      // Scroll al formulario
+      document.getElementById('adminForm').scrollIntoView({ behavior: 'smooth' });
+    };
+
+    // Eliminar canal
+    window.deleteChannel = function(index) {
+      if (confirm('¿Estás seguro de eliminar este canal?')) {
+        const channels = loadChannels();
+        channels.splice(index, 1);
+        saveChannels(channels);
+      }
+    };
+
+    // Clonar canal
+    window.cloneChannel = function(index) {
+      const channels = loadChannels();
+      const ch = channels[index];
+      
+      // Limpiar el editIndex para que se cree uno nuevo
+      document.getElementById('editIndex').value = '';
+      
+      // Llenar el formulario con los datos del canal a clonar
+      document.getElementById('admin-canal').value = ch.canal + '_copia';
+      document.getElementById('admin-stream').value = ch.stream;
+      document.getElementById('admin-api').value = ch.api;
+      document.getElementById('admin-nombre').value = ch.nombre + ' (Copia)';
+      document.getElementById('admin-logo').value = ch.logo || '';
+      document.getElementById('admin-desc').value = ch.descripcion || '';
+      document.getElementById('admin-destacado').checked = ch.destacado || false;
+      
+      // Mostrar como un nuevo canal
+      document.getElementById('cancelEditBtn').style.display = 'inline-block';
+      document.querySelector('#adminForm button[type="submit"]').textContent = '💾 Guardar Canal';
+      
+      // Scroll al formulario
+      document.getElementById('adminForm').scrollIntoView({ behavior: 'smooth' });
+      
+      // Mensaje informativo
+      alert('📋 Canal clonado. Puedes modificar los datos antes de guardar.');
+    };
+    
+    // Manejar error de stream
+    document.addEventListener('DOMContentLoaded', function() {
+      // PRIMERO: Inicializar mapeos y selectores
+      updateCanalAPIs();
+      updateStationsFromChannels();
+      renderCanalSelector();
+      renderStationCards();
+      
+      // SEGUNDO: Seleccionar radio aleatoria por defecto entre NuestrasVoces y SoundMusic
+      const radiosDefault = [
+        {
+          nombre: 'NuestrasVoces',
+          logo: 'https://placehold.co/200x200/FFD54F/23284A/png?text=NV',
+          stream: 'https://stream-179.zeno.fm/td7dw1np6s8uv?zt=eyJhbGciOiJIUzI1NiJ9.eyJzdHJlYW0iOiJ0ZDdkdzFucDZzOHV2IiwiaG9zdCI6InN0cmVhbS0xNzkuemVuby5mbSIsInJ0dGwiOjUsImp0aSI6ImZ6dGxpd006U0RlSmo0S3VfUE1xNWciLCJpYXQiOjE3NTg3NTU0MDMsImV4cCI6MTc1ODc1NTQ2M30.wl2oH7CHKjldHmqf3gkqqVhzl0lpJMTc3XebALO65l0'
+        },
+        {
+          nombre: 'SoundMusic',
+          logo: 'https://placehold.co/200x200/FF6F61/FFFFFF/png?text=SM',
+          stream: 'https://stream.zeno.fm/3ezwa4mtghmtv'
+        }
+      ];
+      
+      const randomRadio = radiosDefault[Math.floor(Math.random() * radiosDefault.length)];
+      
+      // Actualizar el player con la radio seleccionada
+      document.getElementById('mainPlayerTitle').innerHTML = `<span class='main-player-logo'><img src='${randomRadio.logo}' alt='${randomRadio.nombre}'></span> ${randomRadio.nombre}`;
+      document.getElementById('mainAudioSource').src = randomRadio.stream;
+      
+      // TERCERO: Actualizar recomendación del canal según la radio aleatoria (DESPUÉS de renderizar selector)
+      updateChannelRecommendation(randomRadio.nombre);
+      
+      var audio = document.getElementById('mainAudio');
+      var notice = document.getElementById('autoplayNotice');
+      var playBtn = document.getElementById('playBtn');
+      if (audio) {
+        audio.load();
+        // El mensaje ya está visible por defecto
+        var playPromise = audio.play();
+        if (playPromise !== undefined) {
+          playPromise.catch(function() {
+            // Mantener el mensaje visible
+            notice.style.display = 'block';
+          });
+        }
+        audio.onerror = function() {
+          audio.pause();
+          audio.style.display = 'none';
+          var errMsg = document.createElement('div');
+          errMsg.style.color = '#ffd54f';
+          errMsg.style.marginTop = '1em';
+          errMsg.textContent = 'Stream no disponible en este momento.';
+          audio.parentNode.appendChild(errMsg);
+        };
+      }
+      if (playBtn) {
+        playBtn.onclick = function() {
+          audio.play();
+          notice.style.display = 'none';
+        };
+      }
+      // El formulario de dedicatorias se maneja en el código AJAX más abajo
+    });
+    // Variables globales para validación de nick
+    let nickValidado = false;
+    
+    // Mapeo de canales a APIs (usar proxy local de Apache)
+    const canalAPIs = {
+      '#nuestrasvoces': '/api',  // API en creta para nuestrasvoces (via proxy Apache - puerto 5555)
+      '#soundmusic': '/api-soundmusic',  // API en creta para soundmusic (via proxy Apache - puerto 5557)
+      'default': '/api'  // API por defecto
+    };
+    
+    // Función para obtener la URL de API según el canal
+    function getAPIUrl(canal) {
+      return canalAPIs[canal] || canalAPIs['default'];
+    }
+    
+    // Función para validar nick
+    async function validarNickDedicatoria() {
+      const nick = document.getElementById('dedic-nick').value.trim();
+      const password = document.getElementById('dedic-password').value;
+      const canal = document.getElementById('dedic-canal').value;
+      const statusSpan = document.getElementById('nick-status-dedic');
+      const validarBtn = document.getElementById('validarNickBtn');
+      
+      if (!nick || !password) {
+        statusSpan.textContent = '❌ Nick y contraseña requeridos.';
+        statusSpan.style.color = '#ffd54f';
+        return;
+      }
+      
+      validarBtn.innerHTML = '<span style="font-size:0.9em;">⏳</span>';
+      validarBtn.disabled = true;
+      statusSpan.textContent = 'Validando...';
+      statusSpan.style.color = '#4fc3f7';
+      
+      // Siempre validar el nick contra el bot principal (puerto 5555)
+      // porque todos los usuarios están en el mismo IRC
+      const apiUrl = '/api';
+      
+      try {
+        const res = await fetch(`${apiUrl}/validar_nick`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ nick, password })
+        });
+        
+        const result = await res.json();
+        if (result.status === 3) {
+          statusSpan.textContent = '✅ Nick autenticado correctamente';
+          statusSpan.style.color = '#81c784';
+          nickValidado = true;
+          validarBtn.innerHTML = '✅ Validado';
+          validarBtn.style.background = '#81c784';
+          validarBtn.style.color = '#23284a';
+          
+          // Habilitar botón de envío
+          const enviarBtn = document.getElementById('enviarDedicBtn');
+          enviarBtn.disabled = false;
+          enviarBtn.innerHTML = '💝 Enviar dedicatoria';
+          enviarBtn.style.background = '#4fc3f7';
+          enviarBtn.style.color = '#23284a';
+        } else if (result.status === 0) {
+          statusSpan.textContent = '❌ Debes estar conectado al IRC y autenticado con Nick.';
+          statusSpan.style.color = '#ffd54f';
+          nickValidado = false;
+        } else {
+          statusSpan.textContent = '❌ ' + (result.message || 'Error de validación');
+          statusSpan.style.color = '#ffd54f';
+          nickValidado = false;
+          
+          // Deshabilitar botón de envío
+          const enviarBtn = document.getElementById('enviarDedicBtn');
+          enviarBtn.disabled = true;
+          enviarBtn.innerHTML = '🔒 Validar nick primero';
+          enviarBtn.style.background = '#6c757d';
+          enviarBtn.style.color = '#fff';
+        }
+      } catch (err) {
+        statusSpan.textContent = '❌ Error de conexión.';
+        statusSpan.style.color = '#ffd54f';
+        nickValidado = false;
+        
+        // Deshabilitar botón de envío
+        const enviarBtn = document.getElementById('enviarDedicBtn');
+        enviarBtn.disabled = true;
+        enviarBtn.innerHTML = '🔒 Validar nick primero';
+        enviarBtn.style.background = '#6c757d';
+        enviarBtn.style.color = '#fff';
+      }
+      
+      validarBtn.disabled = false;
+      if (!nickValidado) {
+        validarBtn.innerHTML = '🔐 Validar';
+        validarBtn.style.background = '#23284a';
+        validarBtn.style.color = '#4fc3f7';
+      }
+    }
+    
+    // Event listener para el botón de validar
+    document.getElementById('validarNickBtn').addEventListener('click', validarNickDedicatoria);
+    
+    // Dedicatoria AJAX
+    document.getElementById('dedicatoriaForm').onsubmit = async function(e) {
+      e.preventDefault();
+      var nick = document.getElementById('dedic-nick').value.trim();
+      var to = document.getElementById('dedic-to').value.trim();
+      var canal = document.getElementById('dedic-canal').value;
+      var msg = document.getElementById('dedic-msg').value.trim();
+      var status = document.getElementById('dedic-status');
+      
+      if (!nickValidado) {
+        status.textContent = '❌ Debes validar tu nick antes de enviar la dedicatoria.';
+        status.style.color = '#ffd54f';
+        return;
+      }
+      
+      if (!msg) {
+        status.textContent = 'Por favor, escribe una dedicatoria.';
+        status.style.color = '#ffd54f';
+        return;
+      }
+      status.textContent = 'Enviando...';
+      status.style.color = '#4fc3f7';
+      
+      // Obtener la URL de API según el canal
+      const apiUrl = getAPIUrl(canal);
+      
+      console.log('📤 Enviando dedicatoria:');
+      console.log('  Canal:', canal);
+      console.log('  Nick:', nick);
+      console.log('  Para:', to);
+      console.log('  API URL:', apiUrl);
+      console.log('  Mensaje:', msg);
+      
+      try {
+        var res = await fetch(`${apiUrl}/dedicatoria`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ nick, to, canal, msg })
+        });
+        if (res.ok) {
+          status.textContent = '¡Dedicatoria enviada! Se publicará en el IRC.';
+          status.style.color = '#4fc3f7';
+          document.getElementById('dedic-msg').value = '';
+          document.getElementById('dedic-to').value = '';
+          
+          // Resetear estado de validación
+          nickValidado = false;
+          const validarBtn = document.getElementById('validarNickBtn');
+          const enviarBtn = document.getElementById('enviarDedicBtn');
+          const nickStatus = document.getElementById('nick-status-dedic');
+          
+          validarBtn.innerHTML = '🔐 Validar';
+          validarBtn.style.background = '#23284a';
+          validarBtn.style.color = '#4fc3f7';
+          
+          enviarBtn.disabled = true;
+          enviarBtn.innerHTML = '🔒 Validar nick primero';
+          enviarBtn.style.background = '#6c757d';
+          enviarBtn.style.color = '#fff';
+          
+          nickStatus.textContent = '';
+        } else {
+          status.textContent = 'Error al enviar la dedicatoria.';
+          status.style.color = '#ffd54f';
+        }
+      } catch (error) {
+        console.error('Error de conexión:', error);
+        if (error.name === 'TypeError' && error.message.includes('fetch')) {
+          status.textContent = 'No se pudo conectar con el bot IRC (puerto 5555). Verifica que esté corriendo.';
+        } else {
+          status.textContent = 'Error de conexión con el servidor.';
+        }
+        status.style.color = '#ffd54f';
+      }
+    };
+
+    // ============================================
+    // PANEL DE ADMINISTRACIÓN - GESTIÓN DE CANALES
+    // ============================================
+
+    // Configuración predeterminada de canales
+    const defaultChannels = [
+      {
+        canal: '#nuestrasvoces',
+        stream: 'https://stream-179.zeno.fm/td7dw1np6s8uv?zt=eyJhbGciOiJIUzI1NiJ9.eyJzdHJlYW0iOiJ0ZDdkdzFucDZzOHV2IiwiaG9zdCI6InN0cmVhbS0xNzkuemVuby5mbSIsInJ0dGwiOjUsImp0aSI6ImZ6dGxpd002U0RlSmo0S3VfUE1xNWciLCJpYXQiOjE3NTg3NTU0MDMsImV4cCI6MTc1ODc1NTQ2M30.wl2oH7CHKjldHmqf3gkqqVhzl0lpJMTc3XebALO65l0',
+        api: '/api',
+        nombre: 'NuestrasVoces',
+        logo: 'https://placehold.co/200x200/FFD54F/23284A/png?text=NV',
+        link: 'https://globalchat.org/',
+        descripcion: '🎤✨ Nuevos talentos y dedicatorias',
+        destacado: true
+      },
+      {
+        canal: '#soundmusic',
+        stream: 'https://stream.zeno.fm/3ezwa4mtghmtv',
+        api: '/api-soundmusic',
+        nombre: 'SoundMusic',
+        logo: 'https://placehold.co/200x200/FF6F61/FFFFFF/png?text=SM',
+        link: 'https://zeno.fm/radio/soundmusic/',
+        descripcion: '🎶🌟 Variado gusto musical',
+        destacado: true
+      }
+    ];
+
+    // Cargar canales desde localStorage o usar predeterminados
+    function loadChannels() {
+      const stored = localStorage.getItem('radioChannels');
+      return stored ? JSON.parse(stored) : defaultChannels;
+    }
+
+    // Guardar canales en localStorage
+    function saveChannels(channels) {
+      localStorage.setItem('radioChannels', JSON.stringify(channels));
+      updateCanalAPIs();
+      renderChannelsList();
+      renderCanalSelector();
+      updateStationsFromChannels();
+      renderStationCards();
+    }
+    
+    // Actualizar las estaciones de radio desde los canales guardados
+    function updateStationsFromChannels() {
+      const channels = loadChannels();
+      
+      // Actualizar el mapeo de estaciones a canales IRC
+      channels.forEach(ch => {
+        stationToChannel[ch.nombre] = ch.canal;
+      });
+      
+      // Convertir canales IRC a estaciones de radio
+      const newStations = channels.map(ch => ({
+        nombre: ch.nombre,
+        logo: ch.logo || 'https://placehold.co/200x200/4fc3f7/fff?text=' + ch.nombre.substring(0, 2),
+        stream: ch.stream,
+        link: ch.link || 'https://globalchat.org/',
+        descripcion: ch.descripcion || '🎵✨ Radio en vivo',
+        destacado: ch.destacado || false
+      }));
+      
+      // Combinar con las estaciones predeterminadas que no son canales IRC (Los 40)
+      const existingNonChannelStations = allStations.filter(station => {
+        return !channels.some(ch => ch.nombre === station.nombre);
+      });
+      
+      // Actualizar el array global
+      allStations.length = 0;
+      allStations.push(...newStations, ...existingNonChannelStations);
+    }
+
+    // Actualizar el objeto canalAPIs con los canales actuales
+    function updateCanalAPIs() {
+      const channels = loadChannels();
+      // Limpiar el objeto actual
+      for (let key in canalAPIs) {
+        if (key !== 'default') {
+          delete canalAPIs[key];
+        }
+      }
+      // Agregar los nuevos canales
+      channels.forEach(ch => {
+        canalAPIs[ch.canal] = ch.api;
+      });
+    }
+
+    // Renderizar lista de canales en el panel admin
+    function renderChannelsList() {
+      const channels = loadChannels();
+      const container = document.getElementById('canalesList');
+      
+      if (channels.length === 0) {
+        container.innerHTML = '<p style="color:#b0bec5; text-align:center;">No hay canales configurados.</p>';
+        return;
+      }
+      
+      container.innerHTML = channels.map((ch, index) => `
+        <div style="background:rgba(79,195,247,0.1); border:2px solid #4fc3f7; border-radius:10px; padding:1.2em; display:flex; gap:1em; align-items:center;">
+          <img src="${ch.logo || 'https://placehold.co/80x80/4fc3f7/fff?text=Logo'}" alt="${ch.nombre}" style="width:60px; height:60px; border-radius:8px; object-fit:cover;">
+          <div style="flex:1;">
+            <div style="color:#4fc3f7; font-weight:bold; font-size:1.1em; margin-bottom:0.3em;">
+              ${ch.nombre} ${ch.destacado ? '⭐' : ''}
+            </div>
+            <div style="color:#b0bec5; font-size:0.9em; margin-bottom:0.2em;">
+              <strong>Canal:</strong> ${ch.canal} | <strong>API:</strong> ${ch.api}
+            </div>
+            <div style="color:#81c784; font-size:0.85em;">${ch.descripcion || 'Sin descripción'}</div>
+          </div>
+          <div style="display:flex; gap:0.5em; flex-direction:column;">
+            <button onclick="editChannel(${index})" style="background:#4fc3f7; color:#fff; border:none; padding:0.5em 1em; border-radius:6px; cursor:pointer; font-weight:bold;">
+              ✏️ Editar
+            </button>
+            <button onclick="cloneChannel(${index})" style="background:#ff9800; color:#fff; border:none; padding:0.5em 1em; border-radius:6px; cursor:pointer; font-weight:bold;">
+              📋 Clonar
+            </button>
+            <button onclick="deleteChannel(${index})" style="background:#f44336; color:#fff; border:none; padding:0.5em 1em; border-radius:6px; cursor:pointer; font-weight:bold;">
+              🗑️ Eliminar
+            </button>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    // Renderizar selector de canales en el formulario de dedicatorias
+    function renderCanalSelector() {
+      const channels = loadChannels();
+      const select = document.getElementById('dedic-canal');
+      // Filtrar solo canales que aceptan dedicatorias (solo #nuestrasvoces)
+      const channelsConDedicatorias = channels.filter(ch => ch.canal === '#nuestrasvoces');
+      select.innerHTML = channelsConDedicatorias.map(ch => 
+        `<option value="${ch.canal}">${ch.canal}</option>`
+      ).join('');
+    }
+
+    // Formulario de administración
+    document.getElementById('adminForm').onsubmit = function(e) {
+      e.preventDefault();
+      
+      const channels = loadChannels();
+      const editIndex = document.getElementById('editIndex').value;
+      
+      const channelData = {
+        canal: document.getElementById('admin-canal').value.trim(),
+        stream: document.getElementById('admin-stream').value.trim(),
+        api: document.getElementById('admin-api').value.trim(),
+        nombre: document.getElementById('admin-nombre').value.trim(),
+        logo: document.getElementById('admin-logo').value.trim(),
+        descripcion: document.getElementById('admin-desc').value.trim(),
+        destacado: document.getElementById('admin-destacado').checked
+      };
+      
+      if (editIndex !== '') {
+        // Actualizar canal existente
+        channels[parseInt(editIndex)] = channelData;
+      } else {
+        // Agregar nuevo canal
+        channels.push(channelData);
+      }
+      
+      saveChannels(channels);
+      
+      // Resetear formulario
+      this.reset();
+      document.getElementById('editIndex').value = '';
+      document.getElementById('cancelEditBtn').style.display = 'none';
+      document.querySelector('#adminForm button[type="submit"]').textContent = '💾 Guardar Canal';
+      
+      alert('✅ Canal guardado correctamente');
+    };
+
+    // Cancelar edición
+    document.getElementById('cancelEditBtn').onclick = function() {
+      document.getElementById('adminForm').reset();
+      document.getElementById('editIndex').value = '';
+      this.style.display = 'none';
+      document.querySelector('#adminForm button[type="submit"]').textContent = '💾 Guardar Canal';
+    };
+
+    // ============================================
+    // SISTEMA DE AUTENTICACIÓN
+    // ============================================
+    
+    // Credenciales de administrador
+    const ADMIN_USER = 'admin';
+    const ADMIN_PASS = 'nerea0512';
+    
+    // Verificar si hay sesión activa
+    function isAuthenticated() {
+      const session = sessionStorage.getItem('adminAuth');
+      return session === 'authenticated';
+    }
+    
+    // Establecer sesión
+    function setAuthenticated() {
+      sessionStorage.setItem('adminAuth', 'authenticated');
+    }
+    
+    // Cerrar sesión
+    function logout() {
+      sessionStorage.removeItem('adminAuth');
+      document.getElementById('adminModal').style.display = 'none';
+      alert('✅ Sesión cerrada correctamente');
+    }
+    
+    // Formulario de login
+    document.getElementById('loginForm').onsubmit = function(e) {
+      e.preventDefault();
+      
+      const user = document.getElementById('login-user').value.trim();
+      const pass = document.getElementById('login-pass').value;
+      const errorDiv = document.getElementById('login-error');
+      
+      if (user === ADMIN_USER && pass === ADMIN_PASS) {
+        // Login exitoso
+        setAuthenticated();
+        document.getElementById('loginModal').style.display = 'none';
+        document.getElementById('adminModal').style.display = 'block';
+        renderChannelsList();
+        
+        // Limpiar formulario
+        this.reset();
+        errorDiv.style.display = 'none';
+      } else {
+        // Login fallido
+        errorDiv.style.display = 'block';
+        document.getElementById('login-pass').value = '';
+        document.getElementById('login-pass').focus();
+      }
+    };
+    
+    // Cancelar login
+    document.getElementById('cancelLoginBtn').onclick = function() {
+      document.getElementById('loginModal').style.display = 'none';
+      document.getElementById('loginForm').reset();
+      document.getElementById('login-error').style.display = 'none';
+    };
+    
+    // Botón de cerrar sesión
+    document.getElementById('logoutBtn').onclick = function() {
+      if (confirm('¿Deseas cerrar la sesión de administrador?')) {
+        logout();
+      }
+    };
+
+    // Abrir/Cerrar modal de administración
+    document.getElementById('adminBtn').onclick = function() {
+      if (isAuthenticated()) {
+        // Ya está autenticado, abrir panel directamente
+        document.getElementById('adminModal').style.display = 'block';
+        renderChannelsList();
+      } else {
+        // No autenticado, mostrar login
+        document.getElementById('loginModal').style.display = 'block';
+        document.getElementById('login-user').focus();
+      }
+    };
+
+    document.getElementById('closeAdminBtn').onclick = function() {
+      document.getElementById('adminModal').style.display = 'none';
+    };
+
+    // Cerrar modal al hacer clic fuera
+    document.getElementById('adminModal').onclick = function(e) {
+      if (e.target === this) {
+        this.style.display = 'none';
+      }
+    };
+    
+    // Cerrar modal de login al hacer clic fuera
+    document.getElementById('loginModal').onclick = function(e) {
+      if (e.target === this) {
+        this.style.display = 'none';
+        document.getElementById('loginForm').reset();
+        document.getElementById('login-error').style.display = 'none';
+      }
+    };
+
+    // Exportar configuración
+    document.getElementById('exportConfigBtn').onclick = function() {
+      const channels = loadChannels();
+      const dataStr = JSON.stringify(channels, null, 2);
+      const dataBlob = new Blob([dataStr], { type: 'application/json' });
+      const url = URL.createObjectURL(dataBlob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'radio-channels-config.json';
+      link.click();
+      URL.revokeObjectURL(url);
+      alert('✅ Configuración exportada correctamente');
+    };
+
+    // Importar configuración
+    document.getElementById('importConfigBtn').onclick = function() {
+      document.getElementById('importFileInput').click();
+    };
+
+    document.getElementById('importFileInput').onchange = function(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      
+      const reader = new FileReader();
+      reader.onload = function(event) {
+        try {
+          const channels = JSON.parse(event.target.result);
+          if (Array.isArray(channels)) {
+            saveChannels(channels);
+            alert('✅ Configuración importada correctamente');
+          } else {
+            alert('❌ Archivo inválido');
+          }
+        } catch (err) {
+          alert('❌ Error al leer el archivo: ' + err.message);
+        }
+      };
+      reader.readAsText(file);
+      e.target.value = '';
+    };
+
+    // Resetear a configuración predeterminada
+    document.getElementById('resetConfigBtn').onclick = function() {
+      if (confirm('¿Estás seguro de resetear la configuración a los valores predeterminados?')) {
+        saveChannels(defaultChannels);
+        alert('✅ Configuración reseteada');
+      }
+    };
+
+    // Ya no es necesario el listener 'load' porque todo se inicializa en DOMContentLoaded
+  </script>
+</body>
+</html>
