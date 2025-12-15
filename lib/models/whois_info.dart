@@ -13,6 +13,8 @@ class WhoisInfo {
   // Información de staff / operador
   final bool isStaff;
   final String? staffRole;
+  // Indica si la conexión del usuario es segura (SSL/TLS), si el servidor lo informa
+  final bool isSecureConnection;
 
   WhoisInfo({
     required this.nick,
@@ -28,6 +30,7 @@ class WhoisInfo {
     this.awayMessage,
     this.isStaff = false,
     this.staffRole,
+    this.isSecureConnection = false,
   });
 
   WhoisInfo copyWith({
@@ -44,6 +47,7 @@ class WhoisInfo {
     String? awayMessage,
     bool? isStaff,
     String? staffRole,
+    bool? isSecureConnection,
   }) {
     return WhoisInfo(
       nick: nick ?? this.nick,
@@ -59,6 +63,7 @@ class WhoisInfo {
       awayMessage: awayMessage ?? this.awayMessage,
       isStaff: isStaff ?? this.isStaff,
       staffRole: staffRole ?? this.staffRole,
+      isSecureConnection: isSecureConnection ?? this.isSecureConnection,
     );
   }
 }

@@ -3,7 +3,9 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 import '../models/irc_message.dart';
+import 'chat_history_service.dart';
 import '../models/whois_info.dart';
+import '../utils/irc_color_parser.dart';
 
 class IRCService {
   Socket? _socket;
@@ -32,6 +34,8 @@ class IRCService {
   Map<String, IRCChannel> get allChannels => channels;
   
   bool get _hasActiveSocket => _socket != null || _secureSocket != null;
+
+  String _currentServerId(String host, int port) => '$host:$port${_useSSL ? ':ssl' : ''}';
 
   Future<void> connect({
     required String host,
@@ -504,8 +508,11 @@ class IRCService {
               print('🔍 [DEBUG] 📌📌📌 Channel index: $channelIndex, Colon index after channel: $colonIndex');
               
               if (colonIndex != -1 && colonIndex < line.length - 1) {
-                topicText = line.substring(colonIndex + 1).trim();
-                print('🔍 [DEBUG] 📌📌📌 Topic text extracted: "$topicText"');
+                final rawTopic = line.substring(colonIndex + 1).trim();
+                // Limpiar códigos de formato IRC (colores, subrayado, etc.) para que se vean bien en el topic
+                topicText = IRCColorParser.stripIRCFormatting(rawTopic);
+                print('🔍 [DEBUG] 📌📌📌 Topic text extracted (raw): "$rawTopic"');
+                print('🔍 [DEBUG] 📌📌📌 Topic text cleaned: "$topicText"');
                 print('🔍 [DEBUG] 📌📌📌 Topic text length: ${topicText.length}');
               } else {
                 print('🔍 [DEBUG] 📌📌📌 ⚠️  No colon found after channel name');
@@ -1005,6 +1012,23 @@ class IRCService {
             print('🔍 [WHOIS] 319 - Channels for $targetNick: $channelsList');
           }
           break;
+
+        case '671': // WHOIS secure connection (RPL_WHOISSECURE): :server 671 nick target :is using a secure connection
+          if (args.length >= 2) {
+            final targetNick = args[1];
+            if (_pendingWhois.containsKey(targetNick)) {
+              _pendingWhois[targetNick] = _pendingWhois[targetNick]!.copyWith(
+                isSecureConnection: true,
+              );
+            } else {
+              _pendingWhois[targetNick] = WhoisInfo(
+                nick: targetNick,
+                isSecureConnection: true,
+              );
+            }
+            print('🔍 [WHOIS] 671 - $targetNick is using a secure connection (SSL/TLS)');
+          }
+          break;
         
         case '301': // AWAY message: :server 301 nick target :away message
           if (args.length >= 3) {
@@ -1136,6 +1160,17 @@ class IRCService {
                 print('🔍 [DEBUG] ✅ Canal existe en mapa: ${channels.containsKey(channelKey)}');
                 channels[channelKey]!.addMessage(msg);
                 print('🔍 [DEBUG] ✅ Mensaje añadido. Total mensajes en canal: ${channels[channelKey]!.messages.length}');
+                
+                // Guardar en historial local (no bloquear el hilo principal)
+                // Usamos el host actual como identificador de servidor
+                final serverId = (_secureSocket ?? _socket)?.remoteAddress.host ?? 'unknown';
+                // Ignorar errores de forma silenciosa dentro del Future
+                // para no afectar al flujo de mensajes
+                // ignore: unawaited_futures
+                ChatHistoryService().saveMessage(
+                  server: serverId,
+                  message: msg,
+                );
                 
                 // Notificar a los listeners de mensajes
                 _notifyMessageListeners(msg);

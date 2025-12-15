@@ -1,0 +1,334 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../providers/radio_provider.dart';
+import '../models/radio_station.dart';
+import '../services/radio_service.dart';
+import '../models/app_theme.dart';
+import '../providers/theme_provider.dart';
+import 'radio_stations_list.dart';
+
+class RadioControls extends ConsumerStatefulWidget {
+  const RadioControls({Key? key}) : super(key: key);
+
+  @override
+  ConsumerState<RadioControls> createState() => _RadioControlsState();
+}
+
+class _RadioControlsState extends ConsumerState<RadioControls> {
+  bool _showVolumeSlider = false;
+
+  @override
+  void initState() {
+    super.initState();
+    print('📻 RadioControls initState');
+    // Verificar estado actual
+    final currentState = ref.read(radioProvider);
+    print('📻 Estado actual: ${currentState.stations.length} estaciones');
+    
+    // Cargar estaciones al iniciar si no hay ninguna
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final state = ref.read(radioProvider);
+      if (state.stations.isEmpty) {
+        print('📻 No hay estaciones, cargando desde RadioControls...');
+        ref.read(radioProvider.notifier).loadStations();
+      } else {
+        print('📻 Ya hay ${state.stations.length} estaciones cargadas');
+      }
+    });
+  }
+
+  void _playStation([RadioStation? station]) {
+    final radioState = ref.read(radioProvider);
+    final radioService = ref.read(radioServiceProvider);
+    final stationToPlay = station ?? radioState.activeStation;
+    
+    print('📻 _playStation llamado');
+    print('📻 Estaciones disponibles: ${radioState.stations.length}');
+    print('📻 Estación a reproducir: ${stationToPlay?.name ?? "ninguna"}');
+    
+    if (stationToPlay == null) {
+      print('📻 No hay estación seleccionada');
+      // Si no hay estación activa, elegir una aleatoria
+      if (radioState.stations.isNotEmpty) {
+        final randomStation = radioState.stations[
+          (radioState.stations.length * 0.5).floor()
+        ];
+        print('📻 Seleccionando estación aleatoria: ${randomStation.name}');
+        ref.read(radioProvider.notifier).setActiveStation(randomStation);
+        radioService.playStation(randomStation).then((_) {
+          print('📻 Reproducción iniciada exitosamente');
+          ref.read(radioProvider.notifier).setPlaying(true);
+        }).catchError((e) {
+          print('❌ Error al reproducir: $e');
+          ref.read(radioProvider.notifier).setError(true);
+        });
+      } else {
+        print('❌ No hay estaciones disponibles');
+      }
+      return;
+    }
+
+    print('📻 Reproduciendo: ${stationToPlay.name}');
+    ref.read(radioProvider.notifier).setActiveStation(stationToPlay);
+    ref.read(radioProvider.notifier).setError(false);
+    radioService.playStation(stationToPlay).then((_) {
+      print('📻 Reproducción iniciada exitosamente');
+      ref.read(radioProvider.notifier).setPlaying(true);
+      ref.read(radioProvider.notifier).setError(false);
+    }).catchError((e) {
+      print('❌ Error al reproducir: $e');
+      ref.read(radioProvider.notifier).setError(true);
+      ref.read(radioProvider.notifier).setPlaying(false);
+      
+      // Mostrar mensaje al usuario
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'No se pudo reproducir ${stationToPlay.name}.\n'
+              'Algunos streams no son compatibles con el reproductor de macOS.\n'
+              'Intenta con otra estación.',
+              style: const TextStyle(color: Colors.white),
+            ),
+            backgroundColor: Colors.orange,
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
+    });
+  }
+
+  void _pauseStation() {
+    final radioService = ref.read(radioServiceProvider);
+    radioService.pause();
+    ref.read(radioProvider.notifier).setPlaying(false);
+  }
+
+  void _skipStation(int direction) {
+    final radioState = ref.read(radioProvider);
+    final stations = radioState.getStarredStations();
+    final stationList = stations.length > 1 ? stations : radioState.stations;
+    
+    if (stationList.isEmpty) return;
+
+    int currentIdx = -1;
+    if (radioState.activeStation != null) {
+      for (int i = 0; i < stationList.length; i++) {
+        if (stationList[i].name == radioState.activeStation!.name) {
+          currentIdx = i;
+          break;
+        }
+      }
+    }
+
+    int nextIdx;
+    if (currentIdx == -1) {
+      nextIdx = direction > 0 ? 0 : stationList.length - 1;
+    } else {
+      nextIdx = currentIdx + direction;
+      if (nextIdx >= stationList.length) {
+        nextIdx = 0;
+      } else if (nextIdx < 0) {
+        nextIdx = stationList.length - 1;
+      }
+    }
+
+    final nextStation = stationList[nextIdx];
+    if (radioState.isPlaying) {
+      _playStation(nextStation);
+    } else {
+      ref.read(radioProvider.notifier).setActiveStation(nextStation);
+    }
+  }
+
+  void _changeVolume(double volume) {
+    final radioService = ref.read(radioServiceProvider);
+    radioService.setVolume(volume);
+    ref.read(radioProvider.notifier).setVolume(volume);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final radioState = ref.watch(radioProvider);
+    final appTheme = ref.watch(themeProvider);
+    
+    // Debug: mostrar estado actual
+    if (radioState.stations.isEmpty) {
+      print('📻 [build] No hay estaciones cargadas aún');
+      // Intentar cargar si aún no se han cargado
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (ref.read(radioProvider).stations.isEmpty) {
+          print('📻 [build] Forzando carga de estaciones...');
+          ref.read(radioProvider.notifier).loadStations();
+        }
+      });
+    } else {
+      print('📻 [build] Estaciones: ${radioState.stations.length}, Activa: ${radioState.activeStation?.name ?? "ninguna"}, Reproduciendo: ${radioState.isPlaying}');
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: appTheme.surface,
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Botón anterior
+          _buildControlButton(
+            icon: Icons.skip_previous,
+            onPressed: () => _skipStation(-1),
+            tooltip: 'Anterior Radio',
+            appTheme: appTheme,
+          ),
+          const SizedBox(width: 4),
+          
+          // Botón play/pause
+          _buildControlButton(
+            icon: radioState.isPlaying ? Icons.pause : Icons.play_arrow,
+            onPressed: radioState.isPlaying ? _pauseStation : () => _playStation(),
+            tooltip: radioState.isPlaying ? 'Pausa' : 'Reproducir',
+            appTheme: appTheme,
+          ),
+          const SizedBox(width: 4),
+          
+          // Botón siguiente
+          _buildControlButton(
+            icon: Icons.skip_next,
+            onPressed: () => _skipStation(1),
+            tooltip: 'Siguiente Radio',
+            appTheme: appTheme,
+          ),
+          const SizedBox(width: 4),
+          
+          // Botón lista
+          _buildControlButton(
+            icon: Icons.list,
+            onPressed: () {
+              showDialog(
+                context: context,
+                builder: (context) => const RadioStationsList(),
+              );
+            },
+            tooltip: 'Buscar Radios',
+            appTheme: appTheme,
+          ),
+          const SizedBox(width: 4),
+          
+          // Control de volumen
+          MouseRegion(
+            onEnter: (_) => setState(() => _showVolumeSlider = true),
+            onExit: (_) => setState(() => _showVolumeSlider = false),
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                _buildControlButton(
+                  icon: radioState.volume == 0
+                      ? Icons.volume_off
+                      : radioState.volume >= 0.5
+                          ? Icons.volume_up
+                          : Icons.volume_down,
+                  onPressed: () {
+                    setState(() {
+                      _showVolumeSlider = !_showVolumeSlider;
+                    });
+                  },
+                  tooltip: 'Volumen: ${(radioState.volume * 100).toInt()}%',
+                  appTheme: appTheme,
+                ),
+                if (_showVolumeSlider)
+                  Positioned(
+                    bottom: 40,
+                    left: -30,
+                    child: Material(
+                      elevation: 8,
+                      borderRadius: BorderRadius.circular(8),
+                      child: Container(
+                        width: 100,
+                        height: 200,
+                        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
+                        decoration: BoxDecoration(
+                          color: appTheme.surface,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: appTheme.primary, width: 2),
+                        ),
+                        child: RotatedBox(
+                          quarterTurns: 3,
+                          child: Slider(
+                            value: radioState.volume,
+                            onChanged: (value) {
+                              _changeVolume(value);
+                              setState(() {}); // Forzar actualización
+                            },
+                            onChangeStart: (_) {
+                              // Mantener el slider visible mientras se arrastra
+                            },
+                            onChangeEnd: (_) {
+                              // Opcional: ocultar después de un tiempo
+                            },
+                            min: 0.0,
+                            max: 1.0,
+                            divisions: 20,
+                            activeColor: appTheme.primary,
+                            inactiveColor: appTheme.primary.withOpacity(0.3),
+                            label: '${(radioState.volume * 100).toInt()}%',
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          
+          const SizedBox(width: 8),
+          
+          // Nombre de la estación
+          Expanded(
+            child: Text(
+              radioState.activeStation?.name ?? 'Radio Nuestras Voces',
+              style: TextStyle(
+                color: radioState.hasError
+                    ? Colors.red
+                    : appTheme.textPrimary,
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+              ),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildControlButton({
+    required IconData icon,
+    required VoidCallback onPressed,
+    required String tooltip,
+    required AppTheme appTheme,
+  }) {
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onPressed,
+          borderRadius: BorderRadius.circular(4),
+          child: Padding(
+            padding: const EdgeInsets.all(4),
+            child: Icon(
+              icon,
+              size: 18,
+              color: appTheme.textPrimary,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+
+

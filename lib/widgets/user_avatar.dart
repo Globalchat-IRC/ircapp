@@ -54,8 +54,14 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
       _avatarUrl = null;
       _lastRefreshTimestamp = null;
       _loadAvatar();
-      // Registrar el nuevo nick para refresco
-      ref.read(avatarRefreshProvider.notifier).refreshAvatar(widget.nick);
+      // Registrar el nuevo nick para refresco fuera del ciclo de build
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          ref
+              .read(avatarRefreshProvider.notifier)
+              .refreshAvatar(widget.nick);
+        }
+      });
     }
   }
 

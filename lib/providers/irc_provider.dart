@@ -1,8 +1,11 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/irc_message.dart';
 import '../models/whois_info.dart';
 import '../models/emoji_config.dart';
+import '../models/server_profile.dart';
 import '../services/irc_service.dart';
 
 final ircServiceProvider = Provider((ref) {
@@ -30,6 +33,51 @@ final currentNicknameProvider = StateProvider<String?>((ref) {
 
 final currentChannelProvider = StateProvider<String?>((ref) {
   return null;
+});
+
+/// Último canal utilizado, para recordar la selección al volver al login
+final lastChannelProvider = StateProvider<String?>((ref) {
+  return null;
+});
+
+/// Canales/nicks marcados como favoritos (para autounirse y sección destacada)
+final favoritesProvider =
+    StateNotifierProvider<FavoritesNotifier, Set<String>>((ref) {
+  return FavoritesNotifier();
+});
+
+/// Lista de canales/nicks recientes (histórico ligero de uso)
+final recentChannelsProvider =
+    StateNotifierProvider<RecentChannelsNotifier, List<String>>((ref) {
+  return RecentChannelsNotifier();
+});
+
+/// Mensajes fijados por canal (avisos, reglas, enlaces importantes)
+final pinnedMessagesProvider = StateNotifierProvider<PinnedMessagesNotifier,
+    Map<String, List<IRCMessage>>>((ref) {
+  return PinnedMessagesNotifier();
+});
+
+/// Reglas de notificación por canal y tipo de sonido
+final notificationSettingsProvider =
+    StateNotifierProvider<NotificationSettingsNotifier, NotificationSettings>(
+        (ref) {
+  return NotificationSettingsNotifier();
+});
+
+/// Perfil de servidor actual (para multi-servidor/multi-red)
+final currentServerProfileProvider = StateProvider<ServerProfile?>((ref) {
+  // Por defecto, usar el primer perfil de GlobalChat (Ceres 6667)
+  return ServerProfile.defaultGlobalChatProfiles.firstWhere(
+    (p) => p.isDefault,
+    orElse: () => ServerProfile.defaultGlobalChatProfiles.first,
+  );
+});
+
+/// Lista de perfiles de servidor disponibles (inicialmente los de GlobalChat)
+final serverProfilesProvider =
+    StateNotifierProvider<ServerProfilesNotifier, List<ServerProfile>>((ref) {
+  return ServerProfilesNotifier();
 });
 
 final whoisProvider = StateNotifierProvider<WhoisNotifier, Map<String, WhoisInfo>>((ref) {
@@ -243,6 +291,362 @@ class UnreadMessagesNotifier extends StateNotifier<Map<String, int>> {
   }
 }
 
+/// Notifier para favoritos (canales y queries)
+class FavoritesNotifier extends StateNotifier<Set<String>> {
+  static const _prefsKey = 'favorite_channels';
+
+  FavoritesNotifier() : super(<String>{}) {
+    _loadFromPrefs();
+  }
+
+  Future<void> _loadFromPrefs() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final list = prefs.getStringList(_prefsKey) ?? <String>[];
+      state = list.map((e) => e.toLowerCase()).toSet();
+    } catch (_) {
+      // Si falla la lectura, simplemente dejamos los favoritos vacíos
+    }
+  }
+
+  Future<void> _saveToPrefs() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setStringList(_prefsKey, state.toList());
+    } catch (_) {
+      // Si falla el guardado, no rompemos la app; solo no se persisten cambios
+    }
+  }
+
+  String _normalize(String channel) => channel.toLowerCase();
+
+  void toggleFavorite(String channel) {
+    final key = _normalize(channel);
+    final newState = Set<String>.from(state);
+    if (newState.contains(key)) {
+      newState.remove(key);
+    } else {
+      newState.add(key);
+    }
+    state = newState;
+    _saveToPrefs();
+  }
+
+  bool isFavorite(String channel) => state.contains(_normalize(channel));
+}
+
+/// Notifier para canales/nicks recientes
+class RecentChannelsNotifier extends StateNotifier<List<String>> {
+  static const int maxItems = 20;
+
+  RecentChannelsNotifier() : super(const []);
+
+  String _normalize(String channel) => channel.toLowerCase();
+
+  void addRecent(String channel) {
+    final key = _normalize(channel);
+    // Evitar duplicados y mantener el orden (más reciente primero)
+    final filtered =
+        state.where((c) => _normalize(c) != key).toList(growable: true);
+    filtered.insert(0, channel);
+    if (filtered.length > maxItems) {
+      filtered.removeRange(maxItems, filtered.length);
+    }
+    state = filtered;
+  }
+
+  void removeRecent(String channel) {
+    final key = _normalize(channel);
+    state = state.where((c) => _normalize(c) != key).toList(growable: false);
+  }
+}
+
+/// Notifier para mensajes fijados por canal
+class PinnedMessagesNotifier
+    extends StateNotifier<Map<String, List<IRCMessage>>> {
+  static const int maxPinnedPerChannel = 5;
+  static const _prefsKey = 'pinned_messages_v1';
+
+  PinnedMessagesNotifier() : super({}) {
+    _loadFromPrefs();
+  }
+
+  String _normalize(String channel) => channel.toLowerCase();
+
+  bool _isSameMessage(IRCMessage a, IRCMessage b) {
+    return a.nick == b.nick &&
+        a.channel.toLowerCase() == b.channel.toLowerCase() &&
+        a.message == b.message &&
+        a.timestamp == b.timestamp;
+  }
+
+  List<IRCMessage> pinnedForChannel(String channel) {
+    return state[_normalize(channel)] ?? const [];
+  }
+
+  Future<void> _loadFromPrefs() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_prefsKey);
+      if (raw == null || raw.isEmpty) return;
+
+      final decoded = jsonDecode(raw) as Map<String, dynamic>;
+      final Map<String, List<IRCMessage>> restored = {};
+
+      decoded.forEach((channelKey, list) {
+        final items = (list as List<dynamic>).cast<Map<String, dynamic>>();
+        restored[channelKey] = items.map((m) {
+          return IRCMessage(
+            nick: m['nick'] as String? ?? '',
+            channel: m['channel'] as String? ?? channelKey,
+            message: m['message'] as String? ?? '',
+            timestamp: DateTime.fromMillisecondsSinceEpoch(
+              (m['ts'] as int?) ?? DateTime.now().millisecondsSinceEpoch,
+            ),
+            isSystem: m['isSystem'] as bool? ?? false,
+          );
+        }).toList();
+      });
+
+      state = restored;
+    } catch (_) {
+      // Si falla la carga, simplemente dejamos el estado vacío
+    }
+  }
+
+  Future<void> _saveToPrefs() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final Map<String, dynamic> data = {};
+
+      state.forEach((channelKey, messages) {
+        data[channelKey] = messages.map((m) {
+          return {
+            'nick': m.nick,
+            'channel': m.channel,
+            'message': m.message,
+            'ts': m.timestamp.millisecondsSinceEpoch,
+            'isSystem': m.isSystem,
+          };
+        }).toList();
+      });
+
+      await prefs.setString(_prefsKey, jsonEncode(data));
+    } catch (_) {
+      // Ignorar fallos de guardado para no romper la app
+    }
+  }
+
+  void togglePinned(IRCMessage message) {
+    final key = _normalize(message.channel);
+    final current = List<IRCMessage>.from(state[key] ?? const []);
+
+    final existingIndex =
+        current.indexWhere((m) => _isSameMessage(m, message));
+
+    if (existingIndex != -1) {
+      // Ya estaba fijado, lo quitamos
+      current.removeAt(existingIndex);
+    } else {
+      // Añadir al principio
+      current.insert(0, message);
+      if (current.length > maxPinnedPerChannel) {
+        current.removeRange(maxPinnedPerChannel, current.length);
+      }
+    }
+
+    state = {
+      ...state,
+      key: current,
+    };
+
+    _saveToPrefs();
+  }
+}
+
+enum NotificationLevel { allMessages, mentionsOnly, muted }
+
+enum MentionSound { cuack, systemAlert, systemClick }
+
+class NotificationSettings {
+  final Map<String, NotificationLevel> channelLevels;
+  final bool soundForPrivates;
+  final bool soundForMentions;
+  final Set<String> mutedUsers;
+  final MentionSound mentionSound;
+
+  const NotificationSettings({
+    this.channelLevels = const {},
+    this.soundForPrivates = true,
+    this.soundForMentions = true,
+    this.mutedUsers = const {},
+    this.mentionSound = MentionSound.cuack,
+  });
+
+  NotificationSettings copyWith({
+    Map<String, NotificationLevel>? channelLevels,
+    bool? soundForPrivates,
+    bool? soundForMentions,
+    Set<String>? mutedUsers,
+    MentionSound? mentionSound,
+  }) {
+    return NotificationSettings(
+      channelLevels: channelLevels ?? this.channelLevels,
+      soundForPrivates: soundForPrivates ?? this.soundForPrivates,
+      soundForMentions: soundForMentions ?? this.soundForMentions,
+      mutedUsers: mutedUsers ?? this.mutedUsers,
+      mentionSound: mentionSound ?? this.mentionSound,
+    );
+  }
+
+  NotificationLevel levelForChannel(String channel) {
+    final key = channel.toLowerCase();
+    return channelLevels[key] ?? NotificationLevel.allMessages;
+  }
+
+  bool isUserMuted(String nick) {
+    return mutedUsers.contains(nick.toLowerCase());
+  }
+}
+
+class NotificationSettingsNotifier
+    extends StateNotifier<NotificationSettings> {
+  static const _prefsKeyLevels = 'notification_channel_levels_v1';
+  static const _prefsKeyPrivates = 'notification_sound_privates';
+  static const _prefsKeyMentions = 'notification_sound_mentions';
+  static const _prefsKeyMutedUsers = 'notification_muted_users_v1';
+  static const _prefsKeyMentionSound = 'notification_mention_sound_v1';
+
+  NotificationSettingsNotifier() : super(const NotificationSettings()) {
+    _loadFromPrefs();
+  }
+
+  Future<void> _loadFromPrefs() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final rawLevels = prefs.getString(_prefsKeyLevels);
+      Map<String, NotificationLevel> levels = {};
+      if (rawLevels != null && rawLevels.isNotEmpty) {
+        final decoded = jsonDecode(rawLevels) as Map<String, dynamic>;
+        decoded.forEach((key, value) {
+          switch (value as String?) {
+            case 'mentions':
+              levels[key] = NotificationLevel.mentionsOnly;
+              break;
+            case 'muted':
+              levels[key] = NotificationLevel.muted;
+              break;
+            default:
+              levels[key] = NotificationLevel.allMessages;
+          }
+        });
+      }
+
+      final privates = prefs.getBool(_prefsKeyPrivates) ?? true;
+      final mentions = prefs.getBool(_prefsKeyMentions) ?? true;
+      final mutedList = prefs.getStringList(_prefsKeyMutedUsers) ?? <String>[];
+      final mentionSoundRaw =
+          prefs.getString(_prefsKeyMentionSound) ?? 'cuack';
+      final mentionSound = switch (mentionSoundRaw) {
+        'alert' => MentionSound.systemAlert,
+        'click' => MentionSound.systemClick,
+        _ => MentionSound.cuack,
+      };
+
+      state = NotificationSettings(
+        channelLevels: levels,
+        soundForPrivates: privates,
+        soundForMentions: mentions,
+        mutedUsers: mutedList.map((e) => e.toLowerCase()).toSet(),
+        mentionSound: mentionSound,
+      );
+    } catch (_) {
+      // Ignorar errores de carga
+    }
+  }
+
+  Future<void> _saveLevels() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final Map<String, String> data = {};
+      state.channelLevels.forEach((key, level) {
+        switch (level) {
+          case NotificationLevel.allMessages:
+            data[key] = 'all';
+            break;
+          case NotificationLevel.mentionsOnly:
+            data[key] = 'mentions';
+            break;
+          case NotificationLevel.muted:
+            data[key] = 'muted';
+            break;
+        }
+      });
+      await prefs.setString(_prefsKeyLevels, jsonEncode(data));
+    } catch (_) {}
+  }
+
+  Future<void> _saveFlags() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_prefsKeyPrivates, state.soundForPrivates);
+      await prefs.setBool(_prefsKeyMentions, state.soundForMentions);
+      await prefs.setStringList(
+        _prefsKeyMutedUsers,
+        state.mutedUsers.toList(),
+      );
+      String mentionValue = 'cuack';
+      switch (state.mentionSound) {
+        case MentionSound.systemAlert:
+          mentionValue = 'alert';
+          break;
+        case MentionSound.systemClick:
+          mentionValue = 'click';
+          break;
+        case MentionSound.cuack:
+        default:
+          mentionValue = 'cuack';
+      }
+      await prefs.setString(_prefsKeyMentionSound, mentionValue);
+    } catch (_) {}
+  }
+
+  void setChannelLevel(String channel, NotificationLevel level) {
+    final key = channel.toLowerCase();
+    final newLevels = Map<String, NotificationLevel>.from(state.channelLevels);
+    newLevels[key] = level;
+    state = state.copyWith(channelLevels: newLevels);
+    _saveLevels();
+  }
+
+  void toggleSoundForPrivates() {
+    state = state.copyWith(soundForPrivates: !state.soundForPrivates);
+    _saveFlags();
+  }
+
+  void toggleSoundForMentions() {
+    state = state.copyWith(soundForMentions: !state.soundForMentions);
+    _saveFlags();
+  }
+
+  void toggleMuteUser(String nick) {
+    final key = nick.toLowerCase();
+    final newMuted = Set<String>.from(state.mutedUsers);
+    if (newMuted.contains(key)) {
+      newMuted.remove(key);
+    } else {
+      newMuted.add(key);
+    }
+    state = state.copyWith(mutedUsers: newMuted);
+    _saveFlags();
+  }
+
+  void setMentionSound(MentionSound sound) {
+    state = state.copyWith(mentionSound: sound);
+    _saveFlags();
+  }
+}
+
 // Notifier para typing indicators
 class TypingIndicatorNotifier extends StateNotifier<Map<String, String?>> {
   TypingIndicatorNotifier() : super({});
@@ -416,3 +820,24 @@ class EmojiConfigNotifier extends StateNotifier<EmojiConfig> {
     state = state.copyWith(robotEmoji: emoji);
   }
 }
+
+/// Notifier para gestionar perfiles de servidor (multi-servidor / multi-red)
+class ServerProfilesNotifier extends StateNotifier<List<ServerProfile>> {
+  ServerProfilesNotifier()
+      : super(List<ServerProfile>.from(ServerProfile.defaultGlobalChatProfiles));
+
+  void addProfile(ServerProfile profile) {
+    state = [...state, profile];
+  }
+
+  void removeProfile(String id) {
+    state = state.where((p) => p.id != id).toList();
+  }
+
+  void updateProfile(ServerProfile profile) {
+    state = state
+        .map((p) => p.id == profile.id ? profile : p)
+        .toList(growable: false);
+  }
+}
+

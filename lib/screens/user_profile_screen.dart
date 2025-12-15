@@ -4,6 +4,7 @@ import '../providers/irc_provider.dart';
 import '../providers/theme_provider.dart';
 import '../models/app_theme.dart';
 import '../widgets/user_avatar.dart';
+import '../services/irc_service.dart';
 
 class UserProfileScreen extends ConsumerStatefulWidget {
   final String nick;
@@ -276,6 +277,56 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
                               whoisInfo.serverInfo!,
                               Icons.info,
                             ),
+                          if (whoisInfo.host != null)
+                            _buildInfoRow(
+                              appTheme,
+                              'IP Virtual',
+                              whoisInfo.host!,
+                              Icons.shield,
+                            ),
+                          // Información sobre si la conexión del usuario es segura (SSL/TLS)
+                          _buildInfoRow(
+                            appTheme,
+                            'Conexión',
+                            whoisInfo.isSecureConnection
+                                ? 'Segura (SSL/TLS)'
+                                : 'Sin información de SSL',
+                            whoisInfo.isSecureConnection
+                                ? Icons.lock
+                                : Icons.lock_open,
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      // Preferencias de notificación para este usuario
+                      _buildSection(
+                        appTheme,
+                        'Notificaciones',
+                        [
+                          Consumer(
+                            builder: (context, ref, _) {
+                              final settings =
+                                  ref.watch(notificationSettingsProvider);
+                              final isMuted =
+                                  settings.isUserMuted(widget.nick);
+                              return SwitchListTile(
+                                title: const Text(
+                                  'Silenciar notificaciones de este usuario',
+                                ),
+                                subtitle: const Text(
+                                  'No sonar cuack ni alertas cuando hable',
+                                ),
+                                value: isMuted,
+                                activeColor: appTheme.accent,
+                                onChanged: (_) {
+                                  ref
+                                      .read(notificationSettingsProvider
+                                          .notifier)
+                                      .toggleMuteUser(widget.nick);
+                                },
+                              );
+                            },
+                          ),
                         ],
                       ),
                       const SizedBox(height: 16),
@@ -343,6 +394,39 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
                               }).toList(),
                             ),
                           ],
+                        ),
+                      const SizedBox(height: 16),
+                      // Botón para gestionar IP virtual / vHost mediante el bot ipvirtual
+                      if (whoisInfo.host != null)
+                        Center(
+                          child: ElevatedButton.icon(
+                            onPressed: () {
+                              final ircService = ref.read(ircServiceProvider);
+                              // Enviar un mensaje de ayuda al bot ipvirtual para gestionar la IP virtual
+                              ircService.sendServiceMessage('ipvirtual', 'HELP');
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text(
+                                    'Se ha enviado una petición de ayuda al bot ipvirtual para cambiar tu IP virtual.',
+                                  ),
+                                  duration: Duration(seconds: 3),
+                                ),
+                              );
+                            },
+                            icon: const Icon(Icons.shield),
+                            label: const Text('Cambiar IP Virtual'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: appTheme.primary,
+                              foregroundColor: appTheme.textPrimary,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 20,
+                                vertical: 10,
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                          ),
                         ),
                     ],
                   ),

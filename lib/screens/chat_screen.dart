@@ -13,9 +13,12 @@ import 'package:pasteboard/pasteboard.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/irc_message.dart';
 import '../providers/irc_provider.dart';
+import '../models/server_profile.dart';
 import '../providers/theme_provider.dart';
 import '../models/app_theme.dart';
 import '../services/irc_service.dart';
+import '../services/chat_history_service.dart';
+import '../services/sound_service.dart';
 import 'login_screen.dart';
 import 'user_profile_screen.dart';
 import 'emoji_config_screen.dart';
@@ -23,6 +26,7 @@ import '../widgets/animated_topic_text.dart';
 import '../widgets/user_avatar.dart';
 import '../services/avatar_service.dart';
 import '../utils/irc_color_parser.dart';
+import '../widgets/radio_controls.dart';
 
 // Widget genérico para botones animados
 class AnimatedServiceButton extends StatefulWidget {
@@ -192,6 +196,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   final _channelController = TextEditingController();
   late IRCService _ircService;
   final ImagePicker _imagePicker = ImagePicker();
+  bool _initialJoinDone = false;
+  final Map<String, List<IRCMessage>> _loadedHistoryByChannel = {};
 
   @override
   void initState() {
@@ -209,7 +215,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     
     // Listen for new messages to auto-open private messages
     _ircService.addMessageListener(_onMessageReceived);
-    
+
     // Get the channel from provider (was set in LoginScreen)
     final channel = ref.read(currentChannelProvider);
     print('🎬 [ChatScreen] Got channel from provider: $channel');
@@ -219,16 +225,28 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       if (!mounted) return;
       final targetChannel = (channel != null && channel.isNotEmpty) ? channel : '#general';
       if (channel == null || channel.isEmpty) {
-      print('⚠️  [ChatScreen] No channel specified, using #general');
+        print('⚠️  [ChatScreen] No channel specified, using #general');
       }
       
       // Esperar un poco más para asegurar que el servidor haya terminado de registrar al usuario
       // El servidor envía el 001 (Welcome) cuando el usuario está registrado
-      print('📍 [ChatScreen] Waiting for server registration before joining channel: $targetChannel');
+      print('📍 [ChatScreen] Waiting for server registration before joining initial channels');
       Future.delayed(const Duration(milliseconds: 1500), () {
         if (!mounted) return;
-        print('📍 [ChatScreen] Joining channel after delay: $targetChannel');
-        _joinChannel(targetChannel);
+        if (_initialJoinDone) return;
+
+        final favoritesNow = ref.read(favoritesProvider).toList();
+        if (favoritesNow.isNotEmpty) {
+          _initialJoinDone = true;
+          print('📍 [ChatScreen] Joining favorite channels after delay: $favoritesNow');
+          for (final fav in favoritesNow) {
+            _joinChannel(fav);
+          }
+        } else {
+          _initialJoinDone = true;
+          print('📍 [ChatScreen] Joining channel after delay: $targetChannel');
+          _joinChannel(targetChannel);
+        }
       });
     });
   }
@@ -275,20 +293,79 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       if (message.nick.toLowerCase() != currentNick?.toLowerCase()) {
         ref.read(typingIndicatorProvider.notifier).setTyping(messageChannel, message.nick);
       }
+
+      // Añadir a recientes el canal de cualquier mensaje recibido
+      ref.read(recentChannelsProvider.notifier).addRecent(messageChannel);
       
+      // Notificaciones y sonidos según tipo de mensaje y reglas
+      final settings = ref.read(notificationSettingsProvider);
+      final level = settings.levelForChannel(messageChannel);
+      final isPrivate = !messageChannel.startsWith('#');
+      final isMention = !isPrivate &&
+          currentNick != null &&
+          message.message
+              .toLowerCase()
+              .contains(currentNick.toLowerCase());
+      final isFromMutedUser = settings.isUserMuted(message.nick);
+
+      if (!isFromMutedUser && level != NotificationLevel.muted) {
+        if (isMention && settings.soundForMentions) {
+          // Sonido de mención configurable
+          switch (settings.mentionSound) {
+            case MentionSound.cuack:
+              // ignore: unawaited_futures
+              SoundService().playMentionCuack();
+              break;
+            case MentionSound.systemAlert:
+              SystemSound.play(SystemSoundType.alert);
+              break;
+            case MentionSound.systemClick:
+              SystemSound.play(SystemSoundType.click);
+              break;
+          }
+        } else if (isPrivate && settings.soundForPrivates) {
+          SystemSound.play(SystemSoundType.alert);
+        } else if (level == NotificationLevel.allMessages && !isPrivate) {
+          SystemSound.play(SystemSoundType.click);
+        }
+      }
+
       // Si no estamos en el canal donde llegó el mensaje, incrementar contador de no leídos
       if (currentChannelLower != messageChannel) {
-        // Verificar si es un mensaje privado (no empieza con #)
-        if (!messageChannel.startsWith('#')) {
-          // Es un query (mensaje privado) - incrementar contador de no leídos
-          print('💬 📬 Mensaje privado no leído de: ${message.nick}');
-          ref.read(unreadMessagesProvider.notifier).incrementUnread(messageChannel);
-        }
+        // Incrementar no leídos tanto para canales como para privados
+        print('💬 📬 Mensaje no leído en $messageChannel de: ${message.nick}');
+        ref
+            .read(unreadMessagesProvider.notifier)
+            .incrementUnread(messageChannel);
       } else {
         // Estamos en el canal, marcar como leído
         ref.read(unreadMessagesProvider.notifier).markAsRead(messageChannel);
       }
     }
+  }
+
+  Future<void> _loadHistoryIfNeeded(String channel) async {
+    final normalized = channel.toLowerCase();
+    if (_loadedHistoryByChannel.containsKey(normalized)) return;
+
+    final socket = _ircService.isConnected
+        ? (_ircService is IRCService
+            ? (_ircService as dynamic)._secureSocket ??
+                (_ircService as dynamic)._socket
+            : null)
+        : null;
+    final serverId = socket?.remoteAddress.host ?? 'unknown';
+
+    final history = await ChatHistoryService().loadRecentMessages(
+      server: serverId,
+      channel: normalized,
+      limit: 200,
+    );
+
+    if (!mounted) return;
+    setState(() {
+      _loadedHistoryByChannel[normalized] = history;
+    });
   }
 
   @override
@@ -327,9 +404,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     
     print('🔍 [DEBUG] 🚪 Joining channel: "$channel" -> normalized: "$normalizedChannel"');
     _ircService.joinChannel(normalizedChannel);
+    // Guardar canal actual, último canal usado y añadir a recientes
     ref.read(currentChannelProvider.notifier).state = normalizedChannel;
+    ref.read(lastChannelProvider.notifier).state = normalizedChannel;
+    ref.read(recentChannelsProvider.notifier).addRecent(normalizedChannel);
     print('🔍 [DEBUG] ✅ Channel set in provider: $normalizedChannel');
     _channelController.clear();
+
+    // Cargar historial local para este canal en segundo plano
+    // ignore: unawaited_futures
+    _loadHistoryIfNeeded(normalizedChannel);
     
     // Force UI update
     print('🔍 [DEBUG] 🔄 Forcing channels provider update...');
@@ -349,6 +433,365 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         ref.read(channelsProvider.notifier).updateChannels();
       }
     });
+  }
+
+  void _showChannelNotificationMenu(BuildContext context, String channel) {
+    final settings = ref.read(notificationSettingsProvider);
+    final level = settings.levelForChannel(channel);
+    showModalBottomSheet(
+      context: context,
+      builder: (context) {
+        final appTheme = ref.read(themeProvider);
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                title: Text(
+                  'Notificaciones para $channel',
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ),
+              RadioListTile<NotificationLevel>(
+                value: NotificationLevel.allMessages,
+                groupValue: level,
+                title: const Text('Todas las mensajes'),
+                onChanged: (v) {
+                  ref
+                      .read(notificationSettingsProvider.notifier)
+                      .setChannelLevel(
+                          channel, NotificationLevel.allMessages);
+                  Navigator.pop(context);
+                },
+              ),
+              RadioListTile<NotificationLevel>(
+                value: NotificationLevel.mentionsOnly,
+                groupValue: level,
+                title: const Text('Solo menciones'),
+                onChanged: (v) {
+                  ref
+                      .read(notificationSettingsProvider.notifier)
+                      .setChannelLevel(
+                          channel, NotificationLevel.mentionsOnly);
+                  Navigator.pop(context);
+                },
+              ),
+              RadioListTile<NotificationLevel>(
+                value: NotificationLevel.muted,
+                groupValue: level,
+                title: const Text('Silenciado'),
+                onChanged: (v) {
+                  ref
+                      .read(notificationSettingsProvider.notifier)
+                      .setChannelLevel(channel, NotificationLevel.muted);
+                  Navigator.pop(context);
+                },
+              ),
+              const Divider(),
+              SwitchListTile(
+                title: const Text('Sonido para privados'),
+                value: settings.soundForPrivates,
+                activeColor: appTheme.accent,
+                onChanged: (_) {
+                  ref
+                      .read(notificationSettingsProvider.notifier)
+                      .toggleSoundForPrivates();
+                },
+              ),
+              SwitchListTile(
+                title: const Text('Sonido para menciones'),
+                value: settings.soundForMentions,
+                activeColor: appTheme.accent,
+                onChanged: (_) {
+                  ref
+                      .read(notificationSettingsProvider.notifier)
+                      .toggleSoundForMentions();
+                },
+              ),
+              ListTile(
+                title: const Text('Sonido de mención'),
+                subtitle: Text(
+                  switch (settings.mentionSound) {
+                    MentionSound.cuack => 'Cuack de IRCap',
+                    MentionSound.systemAlert => 'Alerta del sistema',
+                    MentionSound.systemClick => 'Click del sistema',
+                  },
+                ),
+                trailing: PopupMenuButton<MentionSound>(
+                  icon: const Icon(Icons.arrow_drop_down),
+                  onSelected: (value) {
+                    ref
+                        .read(notificationSettingsProvider.notifier)
+                        .setMentionSound(value);
+                  },
+                  itemBuilder: (context) => const [
+                    PopupMenuItem(
+                      value: MentionSound.cuack,
+                      child: Text('Cuack de IRCap'),
+                    ),
+                    PopupMenuItem(
+                      value: MentionSound.systemAlert,
+                      child: Text('Alerta del sistema'),
+                    ),
+                    PopupMenuItem(
+                      value: MentionSound.systemClick,
+                      child: Text('Click del sistema'),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  void _showSearchDialog(BuildContext context) {
+    final appTheme = ref.read(themeProvider);
+    final currentChannel = ref.read(currentChannelProvider);
+
+    final textController = TextEditingController();
+    final nickController = TextEditingController();
+    DateTime? fromDate;
+    DateTime? toDate;
+    bool channelOnly = true;
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return AlertDialog(
+              title: const Text('Buscar en historial'),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (currentChannel != null)
+                      SwitchListTile(
+                        title: const Text('Buscar solo en este canal'),
+                        value: channelOnly,
+                        onChanged: (v) {
+                          setState(() => channelOnly = v);
+                        },
+                      ),
+                    TextField(
+                      controller: textController,
+                      decoration: const InputDecoration(
+                        labelText: 'Texto contiene',
+                        prefixIcon: Icon(Icons.text_fields),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: nickController,
+                      decoration: const InputDecoration(
+                        labelText: 'Nick (exacto)',
+                        prefixIcon: Icon(Icons.person),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextButton.icon(
+                            onPressed: () async {
+                              final picked = await showDatePicker(
+                                context: context,
+                                initialDate: fromDate ?? DateTime.now(),
+                                firstDate: DateTime(2000),
+                                lastDate: DateTime.now(),
+                              );
+                              if (picked != null) {
+                                setState(() {
+                                  fromDate = picked;
+                                });
+                              }
+                            },
+                            icon: const Icon(Icons.calendar_today),
+                            label: Text(
+                              fromDate != null
+                                  ? 'Desde: ${DateFormat('dd/MM/yyyy').format(fromDate!)}'
+                                  : 'Desde...',
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextButton.icon(
+                            onPressed: () async {
+                              final picked = await showDatePicker(
+                                context: context,
+                                initialDate: toDate ?? DateTime.now(),
+                                firstDate: DateTime(2000),
+                                lastDate: DateTime.now(),
+                              );
+                              if (picked != null) {
+                                setState(() {
+                                  toDate = picked.add(
+                                    const Duration(hours: 23, minutes: 59),
+                                  );
+                                });
+                              }
+                            },
+                            icon: const Icon(Icons.calendar_today),
+                            label: Text(
+                              toDate != null
+                                  ? 'Hasta: ${DateFormat('dd/MM/yyyy').format(toDate!)}'
+                                  : 'Hasta...',
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Cancelar'),
+                ),
+                ElevatedButton.icon(
+                  icon: const Icon(Icons.search),
+                  label: const Text('Buscar'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: appTheme.primary,
+                    foregroundColor: appTheme.textPrimary,
+                  ),
+                  onPressed: () async {
+                    Navigator.pop(context);
+                    await _runHistorySearch(
+                      context: context,
+                      text: textController.text.trim(),
+                      nick: nickController.text.trim(),
+                      from: fromDate,
+                      to: toDate,
+                      channel: channelOnly ? currentChannel : null,
+                    );
+                  },
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _runHistorySearch({
+    required BuildContext context,
+    String? channel,
+    String? nick,
+    String? text,
+    DateTime? from,
+    DateTime? to,
+  }) async {
+    final socket = _ircService.isConnected
+        ? (_ircService is IRCService
+            ? (_ircService as dynamic)._secureSocket ??
+                (_ircService as dynamic)._socket
+            : null)
+        : null;
+    final serverId = socket?.remoteAddress.host ?? 'unknown';
+
+    final results = await ChatHistoryService().searchMessages(
+      server: serverId,
+      channel: channel?.toLowerCase(),
+      nick: nick?.isEmpty == true ? null : nick,
+      text: text?.isEmpty == true ? null : text,
+      from: from,
+      to: to,
+      limit: 300,
+    );
+
+    if (!mounted) return;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.black87,
+      builder: (context) {
+        final appTheme = ref.read(themeProvider);
+        return DraggableScrollableSheet(
+          expand: false,
+          builder: (context, scrollController) {
+            return Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: appTheme.surface.withOpacity(0.98),
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(16),
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        channel != null
+                            ? 'Resultados en $channel'
+                            : 'Resultados globales',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
+                      ),
+                      Text(
+                        '${results.length} mensajes',
+                        style: TextStyle(
+                          color: appTheme.textSecondary.withOpacity(0.8),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Expanded(
+                    child: results.isEmpty
+                        ? const Center(
+                            child: Text('Sin resultados'),
+                          )
+                        : ListView.builder(
+                            controller: scrollController,
+                            itemCount: results.length,
+                            itemBuilder: (context, index) {
+                              final msg = results[index];
+                              return ListTile(
+                                dense: true,
+                                title: Text(
+                                  '<${msg.nick}> ${msg.message}',
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                subtitle: Text(
+                                  '[${msg.channel}] ${DateFormat('dd/MM/yyyy HH:mm').format(msg.timestamp)}',
+                                  style: TextStyle(
+                                    color: appTheme.textSecondary
+                                        .withOpacity(0.8),
+                                  ),
+                                ),
+                                onTap: () {
+                                  Navigator.pop(context);
+                                  // Saltar al canal del mensaje
+                                  _joinChannel(msg.channel);
+                                },
+                              );
+                            },
+                          ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
   }
 
   void _sendMessage() {
@@ -375,6 +818,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       _ircService.sendPrivateMessage(normalizedChannel, message);
     }
     
+    // Añadir a recientes también al enviar mensaje
+    ref.read(recentChannelsProvider.notifier).addRecent(normalizedChannel);
+
     // Trigger UI update
     ref.read(messagesProvider.notifier);
   }
@@ -422,6 +868,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         
         // Cambiar al query (mensaje privado)
         ref.read(currentChannelProvider.notifier).state = queryNick;
+        ref.read(lastChannelProvider.notifier).state = queryNick;
+        ref.read(recentChannelsProvider.notifier).addRecent(queryNick);
         
         // Si hay un mensaje, enviarlo como PRIVMSG al nick
         if (message.isNotEmpty) {
@@ -546,6 +994,102 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         );
         break;
     }
+  }
+
+  /// Mostrar diálogo para cambiar de servidor / red mientras estamos conectados.
+  /// Nota: cambiar de servidor implica desconectar y volver al login.
+  void _showServerSwitchDialog() {
+    final appTheme = ref.read(themeProvider);
+    final profiles = ref.read(serverProfilesProvider);
+    final currentProfile = ref.read(currentServerProfileProvider);
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        ServerProfile? selected = currentProfile;
+
+        return AlertDialog(
+          backgroundColor: appTheme.surface,
+          title: const Text('Cambiar de servidor / red'),
+          content: StatefulBuilder(
+            builder: (context, setState) {
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Selecciona un servidor de GlobalChat.\n'
+                    'Se cerrará la conexión actual y volverás al login.',
+                    style: TextStyle(fontSize: 13),
+                  ),
+                  const SizedBox(height: 16),
+                  DropdownButtonFormField<ServerProfile>(
+                    value: selected,
+                    decoration: const InputDecoration(
+                      labelText: 'Servidor / Red',
+                    ),
+                    items: profiles
+                        .map(
+                          (p) => DropdownMenuItem<ServerProfile>(
+                            value: p,
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  p.useSSL ? Icons.lock : Icons.lock_open,
+                                  size: 18,
+                                  color: p.useSSL
+                                      ? Colors.greenAccent
+                                      : appTheme.textSecondary,
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  p.name,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ],
+                            ),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (p) {
+                      setState(() {
+                        selected = p;
+                      });
+                    },
+                  ),
+                ],
+              );
+            },
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Cancelar'),
+            ),
+            ElevatedButton(
+              onPressed: selected == null
+                  ? null
+                  : () {
+                      // Guardar perfil seleccionado y desconectar
+                      ref
+                          .read(currentServerProfileProvider.notifier)
+                          .state = selected;
+                      Navigator.of(context).pop();
+                      _disconnect();
+                      // Volver al login para reconectar con el nuevo servidor
+                      Navigator.of(context).pushReplacement(
+                        MaterialPageRoute(
+                          builder: (_) => const LoginScreen(),
+                        ),
+                      );
+                    },
+              child: const Text('Cambiar y reconectar'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   Future<void> _pickAndSendImage() async {
@@ -1053,6 +1597,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   }
 
   void _disconnect() {
+    // Antes de limpiar, recordar el último canal para el login
+    final currentChannel = ref.read(currentChannelProvider);
+    if (currentChannel != null && currentChannel.isNotEmpty) {
+      ref.read(lastChannelProvider.notifier).state = currentChannel;
+    }
+
     _ircService.disconnect();
     ref.read(currentNicknameProvider.notifier).state = null;
     ref.read(currentChannelProvider.notifier).state = null;
@@ -1139,8 +1689,22 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
     // Filtrar mensajes del canal actual (case-insensitive)
     final channelMessages = currentChannel != null
-        ? messages.where((m) => m.channel.toLowerCase() == currentChannel.toLowerCase()).toList()
+        ? messages
+            .where((m) =>
+                m.channel.toLowerCase() == currentChannel.toLowerCase())
+            .toList()
         : <IRCMessage>[];
+
+    // Añadir historial local si está cargado para este canal
+    final normalizedForHistory = currentChannel?.toLowerCase();
+    final history = normalizedForHistory != null
+        ? (_loadedHistoryByChannel[normalizedForHistory] ?? const <IRCMessage>[])
+        : const <IRCMessage>[];
+
+    final allMessages = [
+      ...history,
+      ...channelMessages,
+    ];
 
     // Normalizar el nombre del canal para búsqueda (case-insensitive)
     print('🔍 [DEBUG] 🖼️  ChatScreen build: currentChannel=$currentChannel');
@@ -1240,15 +1804,24 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   children: [
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 8),
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: isConnected ? Colors.green : Colors.red,
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                        child: Text(
-                          isConnected ? '● Conectado' : '● Desconectado',
-                          style: const TextStyle(color: Colors.white, fontSize: 11),
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(12),
+                        onTap: () {
+                          // Permitir cambiar de servidor desde el botón de estado
+                          _showServerSwitchDialog();
+                        },
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: isConnected ? Colors.green : Colors.red,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 4),
+                          child: Text(
+                            isConnected ? '● Conectado' : '● Desconectado',
+                            style: const TextStyle(
+                                color: Colors.white, fontSize: 11),
+                          ),
                         ),
                       ),
                     ),
@@ -1259,13 +1832,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         emoji: '💬',
                         label: 'CAU',
                         onPressed: () {
-                          _joinChannel('Ayuda');
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Uniéndote al canal #Ayuda...'),
-                              duration: Duration(seconds: 2),
-                            ),
-                          );
+                          _showSupportDialog(context);
                         },
                       ),
                       AnimatedServiceButton(
@@ -1314,13 +1881,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         onSelected: (value) {
                           switch (value) {
                             case 'cau':
-                              _joinChannel('Ayuda');
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text('Uniéndote al canal #Ayuda...'),
-                                  duration: Duration(seconds: 2),
-                                ),
-                              );
+                              _showSupportDialog(context);
                               break;
                             case 'nick':
                               _showNickRegistrationDialog(context);
@@ -1390,6 +1951,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       ),
                     ],
                     IconButton(
+                      icon: const Icon(Icons.search),
+                      tooltip: 'Buscar en historial',
+                      onPressed: () => _showSearchDialog(context),
+                    ),
+                    IconButton(
                       icon: const Icon(Icons.palette),
                       tooltip: 'Cambiar tema',
                       onPressed: () => _showThemeSelector(context),
@@ -1432,7 +1998,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             ),
           ],
         ),
-        body: Row(
+      body: Row(
           children: [
             // Channels sidebar
             Expanded(
@@ -1485,11 +2051,81 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                               queryList.add(channel);
                             }
                           }
+
+                          // Favoritos y recientes
+                          final favorites = ref.watch(favoritesProvider);
+                          final recent = ref.watch(recentChannelsProvider);
+
+                          final favoriteChannels = channelList
+                              .where((c) => favorites.contains(c.toLowerCase()))
+                              .toList();
+                          final favoriteQueries = queryList
+                              .where((c) => favorites.contains(c.toLowerCase()))
+                              .toList();
+
+                          final nonFavoriteChannels = channelList
+                              .where((c) => !favorites.contains(c.toLowerCase()))
+                              .toList();
+                          final nonFavoriteQueries = queryList
+                              .where((c) => !favorites.contains(c.toLowerCase()))
+                              .toList();
+
+                          // Recientes que ya no están abiertos
+                          final openKeys = {
+                            ...channelList.map((e) => e.toLowerCase()),
+                            ...queryList.map((e) => e.toLowerCase()),
+                          };
+                          final recentOnly = recent
+                              .where((c) => !openKeys.contains(c.toLowerCase()))
+                              .toList();
                           
                           return ListView(
                             children: [
-                              // Sección de Canales
-                              if (channelList.isNotEmpty) ...[
+                              // Sección de Favoritos (canales y privados)
+                              if (favoriteChannels.isNotEmpty || favoriteQueries.isNotEmpty) ...[
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                  child: Row(
+                                    children: [
+                                      const Icon(
+                                        Icons.star,
+                                        size: 16,
+                                        color: Colors.amber,
+                                      ),
+                                      const SizedBox(width: 6),
+                                      Text(
+                                        'FAVORITOS',
+                                        style: TextStyle(
+                                          color: appTheme.textPrimary.withOpacity(0.7),
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.bold,
+                                          letterSpacing: 1.2,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                ...favoriteChannels.map((channel) => _buildChannelItem(
+                                  context,
+                                  channel,
+                                  false,
+                                  appTheme,
+                                  currentChannel,
+                                  ref,
+                                )),
+                                ...favoriteQueries.map((channel) => _buildChannelItem(
+                                  context,
+                                  channel,
+                                  true,
+                                  appTheme,
+                                  currentChannel,
+                                  ref,
+                                )),
+                                const SizedBox(height: 8),
+                              ],
+
+                              // Sección de Canales (no favoritos)
+                              if (nonFavoriteChannels.isNotEmpty) ...[
                                 Container(
                                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                                   child: Row(
@@ -1512,9 +2148,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                     ],
                                   ),
                                 ),
-                                ...channelList.map((channel) => _buildChannelItem(
+                                ...nonFavoriteChannels.map((channel) => _buildChannelItem(
                                   context,
-                              channel,
+                                  channel,
                                   false,
                                   appTheme,
                                   currentChannel,
@@ -1523,8 +2159,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                 const SizedBox(height: 8),
                               ],
                               
-                              // Sección de Mensajes Privados
-                              if (queryList.isNotEmpty) ...[
+                              // Sección de Mensajes Privados (no favoritos)
+                              if (nonFavoriteQueries.isNotEmpty) ...[
                                 Container(
                                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                                   child: Row(
@@ -1537,7 +2173,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                       const SizedBox(width: 6),
                                       Text(
                                         'MENSAJES PRIVADOS',
-                              style: TextStyle(
+                                        style: TextStyle(
                                           color: appTheme.accent.withOpacity(0.8),
                                           fontSize: 11,
                                           fontWeight: FontWeight.bold,
@@ -1547,10 +2183,45 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                     ],
                                   ),
                                 ),
-                                ...queryList.map((channel) => _buildChannelItem(
+                                ...nonFavoriteQueries.map((channel) => _buildChannelItem(
                                   context,
                                   channel,
                                   true,
+                                  appTheme,
+                                  currentChannel,
+                                  ref,
+                                )),
+                              ],
+
+                              // Sección de Recientes cerrados
+                              if (recentOnly.isNotEmpty) ...[
+                                const SizedBox(height: 8),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                  child: Row(
+                                    children: [
+                                      Icon(
+                                        Icons.history,
+                                        size: 16,
+                                        color: appTheme.textPrimary.withOpacity(0.6),
+                                      ),
+                                      const SizedBox(width: 6),
+                                      Text(
+                                        'RECIENTES',
+                                        style: TextStyle(
+                                          color: appTheme.textPrimary.withOpacity(0.6),
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.bold,
+                                          letterSpacing: 1.2,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                ...recentOnly.map((channel) => _buildChannelItem(
+                                  context,
+                                  channel,
+                                  !channel.startsWith('#'),
                                   appTheme,
                                   currentChannel,
                                   ref,
@@ -1687,17 +2358,30 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                   ),
                                 ),
                               ),
-                              // Lista de mensajes
+                              // Lista de mensajes con barra de mensajes fijados arriba
                               Positioned.fill(
-                                child: ListView.builder(
-                            reverse: true,
-                                  padding: const EdgeInsets.symmetric(vertical: 8),
-                            itemCount: channelMessages.length,
-                            itemBuilder: (context, index) {
-                              final message =
-                                  channelMessages[channelMessages.length - 1 - index];
-                              return _buildMessageTile(message);
-                            },
+                                child: Column(
+                                  children: [
+                                    _buildPinnedMessagesBar(
+                                      currentChannel,
+                                      appTheme,
+                                    ),
+                                    Expanded(
+                                      child: ListView.builder(
+                                        reverse: true,
+                                        padding: const EdgeInsets.symmetric(
+                                            vertical: 8),
+                                        itemCount: allMessages.length,
+                                        itemBuilder: (context, index) {
+                                          final message = allMessages[
+                                              allMessages.length -
+                                                  1 -
+                                                  index];
+                                          return _buildMessageTile(message);
+                                        },
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
                             ],
@@ -1999,6 +2683,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               ),
           ],
         ),
+        bottomNavigationBar: const RadioControls(),
       ),
     );
   }
@@ -2102,6 +2787,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final nickHash = message.nick.hashCode;
     final userColor = isBot ? const Color(0xFFFFD700) : _getUserColor(nickHash); // Dorado para bots
     final appTheme = ref.read(themeProvider);
+    final pinnedMap = ref.watch(pinnedMessagesProvider);
+    final isPinned = (pinnedMap[channelKey] ?? const [])
+        .any((m) =>
+            m.nick == message.nick &&
+            m.message == message.message &&
+            m.timestamp == message.timestamp);
     
     // Obtener inicial del usuario para el avatar (o emoji para bots/modos especiales)
     final userIcon = _getUserIcon(userMode, isBot);
@@ -2228,8 +2919,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
         children: [
-                  // Nickname y hora en una fila más compacta
-          Row(
+                  // Nickname, hora y acciones rápidas (pin) en una fila compacta
+                  Row(
                     mainAxisSize: MainAxisSize.min,
             children: [
                       GestureDetector(
@@ -2270,23 +2961,45 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       ),
                       const SizedBox(width: 10),
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 2),
                         decoration: BoxDecoration(
                           color: isOwnMessage
                               ? Colors.white.withOpacity(0.2)
                               : appTheme.textPrimary.withOpacity(0.08),
                           borderRadius: BorderRadius.circular(8),
                         ),
-                        child: Text(
-                timeFormat.format(message.timestamp),
-                style: TextStyle(
-                            fontSize: 10,
-                            color: isOwnMessage 
-                                ? Colors.white.withOpacity(0.9)
-                                : appTheme.textPrimary.withOpacity(0.6),
-                            fontWeight: FontWeight.w500,
-                            letterSpacing: 0.3,
-                          ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              timeFormat.format(message.timestamp),
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: isOwnMessage
+                                    ? Colors.white.withOpacity(0.9)
+                                    : appTheme.textPrimary.withOpacity(0.6),
+                                fontWeight: FontWeight.w500,
+                                letterSpacing: 0.3,
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            InkWell(
+                              onTap: () {
+                                ref
+                                    .read(pinnedMessagesProvider.notifier)
+                                    .togglePinned(message);
+                              },
+                              child: Icon(
+                                Icons.push_pin,
+                                size: 14,
+                                color: isPinned
+                                    ? appTheme.accent
+                                    : appTheme.textPrimary
+                                        .withOpacity(0.4),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ],
@@ -2349,7 +3062,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   // Botón para abrir el formulario de registro
   Widget _buildRegistrationButton(BuildContext context, IRCMessage message) {
     final appTheme = ref.read(themeProvider);
-    
+
     return Container(
       margin: const EdgeInsets.only(top: 12),
       child: ElevatedButton.icon(
@@ -3027,8 +3740,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final normalizedCurrent = currentChannel?.toLowerCase();
     final normalizedChannel = channel.toLowerCase();
     final isSelected = normalizedChannel == normalizedCurrent;
-    final unreadCount = ref.watch(unreadMessagesProvider)[normalizedChannel] ?? 0;
-    final hasUnread = unreadCount > 0 && isQuery; // Solo mostrar para mensajes privados
+    final unreadCount =
+        ref.watch(unreadMessagesProvider)[normalizedChannel] ?? 0;
+    final hasUnread = unreadCount > 0;
+    final favorites = ref.watch(favoritesProvider);
+    final isFavorite = favorites.contains(normalizedChannel);
     
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
@@ -3121,36 +3837,193 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           ],
         ),
         onTap: () {
-          // Cambiar al canal y marcar como leído
+          // Cambiar al canal, marcar como leído y añadir a recientes
           ref.read(currentChannelProvider.notifier).state = channel;
+          ref.read(lastChannelProvider.notifier).state = channel;
+          ref.read(recentChannelsProvider.notifier).addRecent(channel);
           ref.read(unreadMessagesProvider.notifier).markAsRead(channel);
         },
-        trailing: IconButton(
-          icon: Icon(
-            Icons.close,
-            color: appTheme.textPrimary.withOpacity(0.5),
-            size: 16,
-          ),
-          onPressed: () {
-            // Si es un query (no empieza con #), solo removerlo de la lista
-            if (isQuery) {
-              _ircService.allChannels.remove(channel);
-              ref.read(channelsProvider.notifier).updateChannels();
-              final normalizedCurrentChannel = currentChannel?.toLowerCase();
-              if (normalizedCurrentChannel == normalizedChannel) {
-                ref.read(currentChannelProvider.notifier).state = null;
-              }
-            } else {
-              // Si es un canal, hacer PART
-              _ircService.partChannel(channel);
-              ref.read(channelsProvider.notifier).updateChannels();
-              final normalizedCurrentChannel = currentChannel?.toLowerCase();
-              if (normalizedCurrentChannel == normalizedChannel) {
-                ref.read(currentChannelProvider.notifier).state = null;
-              }
-            }
-          },
+        onLongPress: () {
+          _showChannelNotificationMenu(context, channel);
+        },
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (!isQuery && hasUnread) ...[
+              _UnreadBadge(
+                count: unreadCount,
+                appTheme: appTheme,
+              ),
+              const SizedBox(width: 4),
+            ],
+            IconButton(
+              tooltip: isFavorite
+                  ? 'Quitar de favoritos'
+                  : 'Marcar como favorito',
+              icon: Icon(
+                isFavorite ? Icons.star : Icons.star_border,
+                color: isFavorite
+                    ? Colors.amber
+                    : appTheme.textPrimary.withOpacity(0.5),
+                size: 18,
+              ),
+              onPressed: () {
+                ref
+                    .read(favoritesProvider.notifier)
+                    .toggleFavorite(channel);
+              },
+            ),
+            IconButton(
+              icon: Icon(
+                Icons.close,
+                color: appTheme.textPrimary.withOpacity(0.5),
+                size: 16,
+              ),
+              onPressed: () {
+                // Si es un query (no empieza con #), solo removerlo de la lista
+                if (isQuery) {
+                  _ircService.allChannels.remove(channel);
+                  ref.read(channelsProvider.notifier).updateChannels();
+                  final normalizedCurrentChannel =
+                      currentChannel?.toLowerCase();
+                  if (normalizedCurrentChannel == normalizedChannel) {
+                    ref.read(currentChannelProvider.notifier).state = null;
+                  }
+                } else {
+                  // Si es un canal, hacer PART
+                  _ircService.partChannel(channel);
+                  ref.read(channelsProvider.notifier).updateChannels();
+                  final normalizedCurrentChannel =
+                      currentChannel?.toLowerCase();
+                  if (normalizedCurrentChannel == normalizedChannel) {
+                    ref.read(currentChannelProvider.notifier).state = null;
+                  }
+                }
+              },
+            ),
+          ],
         ),
+      ),
+    );
+  }
+
+  /// Barra superior con los mensajes fijados del canal actual
+  Widget _buildPinnedMessagesBar(String? currentChannel, AppTheme appTheme) {
+    if (currentChannel == null || currentChannel.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    final pinnedMap = ref.watch(pinnedMessagesProvider);
+    final pinned = pinnedMap[currentChannel.toLowerCase()] ?? const [];
+
+    if (pinned.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: appTheme.surface.withOpacity(0.9),
+        border: Border(
+          bottom: BorderSide(
+            color: appTheme.textPrimary.withOpacity(0.1),
+            width: 1,
+          ),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.push_pin, size: 16, color: appTheme.accent),
+              const SizedBox(width: 6),
+              Text(
+                'Mensajes fijados',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                  color: appTheme.textPrimary.withOpacity(0.8),
+                  letterSpacing: 0.5,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          SizedBox(
+            height: 72,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: pinned.length,
+              separatorBuilder: (_, __) => const SizedBox(width: 8),
+              itemBuilder: (context, index) {
+                final msg = pinned[index];
+                return Container(
+                  width: 260,
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: appTheme.surface.withOpacity(0.95),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: appTheme.accent.withOpacity(0.4),
+                      width: 1,
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              msg.nick,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                color: appTheme.accent,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              msg.message,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 11,
+                                color:
+                                    appTheme.textPrimary.withOpacity(0.85),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        icon: Icon(
+                          Icons.close,
+                          size: 16,
+                          color: appTheme.textPrimary.withOpacity(0.6),
+                        ),
+                        tooltip: 'Quitar mensaje fijado',
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                        onPressed: () {
+                          ref
+                              .read(pinnedMessagesProvider.notifier)
+                              .togglePinned(msg);
+                        },
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -3188,6 +4061,199 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  void _showSupportDialog(BuildContext context) {
+    final appTheme = ref.read(themeProvider);
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (context) {
+        return Container(
+          margin: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(24),
+            gradient: LinearGradient(
+              colors: [
+                appTheme.primary.withOpacity(0.95),
+                appTheme.secondary.withOpacity(0.95),
+              ],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.45),
+                blurRadius: 24,
+                offset: const Offset(0, 12),
+              ),
+            ],
+          ),
+          child: SafeArea(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        gradient: LinearGradient(
+                          colors: [appTheme.accent, appTheme.secondary],
+                        ),
+                      ),
+                      child: const Center(
+                        child: Text(
+                          '💬',
+                          style: TextStyle(fontSize: 22),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Centro de Ayuda GlobalChat',
+                            style: TextStyle(
+                              color: appTheme.textPrimary,
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Elige cómo quieres contactar con soporte.',
+                            style: TextStyle(
+                              color: appTheme.textSecondary.withOpacity(0.9),
+                              fontSize: 13,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      icon: Icon(Icons.close,
+                          color: appTheme.textPrimary.withOpacity(0.7)),
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 18),
+                Row(
+                  children: [
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: () {
+                          Navigator.pop(context);
+                          _joinChannel('Ayuda');
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content:
+                                  Text('Uniéndote al canal #Ayuda...'),
+                              duration: Duration(seconds: 2),
+                            ),
+                          );
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: appTheme.accent,
+                          foregroundColor: appTheme.textPrimary,
+                          padding: const EdgeInsets.symmetric(
+                              vertical: 14, horizontal: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          textStyle: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: const [
+                            Icon(Icons.forum, size: 18),
+                            SizedBox(width: 8),
+                            Text('Entrar en #Ayuda'),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () async {
+                          const url =
+                              'http://soporte.globalchat.org/index.php?a=add';
+                          final uri = Uri.parse(url);
+                          if (await canLaunchUrl(uri)) {
+                            await launchUrl(uri,
+                                mode: LaunchMode.externalApplication);
+                          } else {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content:
+                                    Text('No se pudo abrir la página de soporte'),
+                                duration: Duration(seconds: 3),
+                              ),
+                            );
+                          }
+                        },
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: appTheme.textPrimary,
+                          side: BorderSide(
+                            color: appTheme.textPrimary.withOpacity(0.6),
+                          ),
+                          padding: const EdgeInsets.symmetric(
+                              vertical: 14, horizontal: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          textStyle: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: const [
+                            Icon(Icons.support_agent, size: 18),
+                            SizedBox(width: 8),
+                            Flexible(
+                              child: Text(
+                                'Enviar ticket en la web',
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'La web de soporte se abrirá en tu navegador para crear un ticket en el Centro de Ayuda de IRC GlobalChat.',
+                  style: TextStyle(
+                    color: appTheme.textSecondary.withOpacity(0.8),
+                    fontSize: 11,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 
