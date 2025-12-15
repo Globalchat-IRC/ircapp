@@ -1,5 +1,8 @@
+import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/irc_message.dart';
+import '../models/whois_info.dart';
+import '../models/emoji_config.dart';
 import '../services/irc_service.dart';
 
 final ircServiceProvider = Provider((ref) {
@@ -27,6 +30,20 @@ final currentNicknameProvider = StateProvider<String?>((ref) {
 
 final currentChannelProvider = StateProvider<String?>((ref) {
   return null;
+});
+
+final whoisProvider = StateNotifierProvider<WhoisNotifier, Map<String, WhoisInfo>>((ref) {
+  final service = ref.watch(ircServiceProvider);
+  return WhoisNotifier(service);
+});
+
+final emojiConfigProvider = StateNotifierProvider<EmojiConfigNotifier, EmojiConfig>((ref) {
+  return EmojiConfigNotifier();
+});
+
+// Provider para mensajes no leídos por canal
+final unreadMessagesProvider = StateNotifierProvider<UnreadMessagesNotifier, Map<String, int>>((ref) {
+  return UnreadMessagesNotifier();
 });
 
 class MessagesNotifier extends StateNotifier<List<IRCMessage>> {
@@ -69,12 +86,13 @@ class ChannelsNotifier extends StateNotifier<Map<String, IRCChannel>> {
     // Always update the entire state with current service state
     final newState = <String, IRCChannel>{};
     for (var entry in _service.channels.entries) {
-      // Crear una copia profunda del canal con sus usuarios, topic y hosts
+      // Crear una copia profunda del canal con sus usuarios, topic, hosts y modos
       final channelCopy = IRCChannel(
         name: entry.value.name,
         messages: List.from(entry.value.messages),
         users: List.from(entry.value.users),
         userHosts: Map<String, String>.from(entry.value.userHosts), // Copiar el mapa de hosts
+        userModes: Map<String, String>.from(entry.value.userModes), // Copiar el mapa de modos
         topic: entry.value.topic, // Incluir el topic en la copia
       );
       newState[entry.key] = channelCopy;
@@ -117,12 +135,13 @@ class ChannelsNotifier extends StateNotifier<Map<String, IRCChannel>> {
     // Crear una copia profunda del estado del servicio
     final newState = <String, IRCChannel>{};
     for (var entry in _service.channels.entries) {
-      // Crear una copia profunda del canal con sus usuarios, topic y hosts
+      // Crear una copia profunda del canal con sus usuarios, topic, hosts y modos
       final channelCopy = IRCChannel(
         name: entry.value.name,
         messages: List.from(entry.value.messages),
         users: List.from(entry.value.users),
         userHosts: Map<String, String>.from(entry.value.userHosts), // Copiar el mapa de hosts
+        userModes: Map<String, String>.from(entry.value.userModes), // Copiar el mapa de modos
         topic: entry.value.topic, // Incluir el topic en la copia
       );
       newState[entry.key] = channelCopy;
@@ -150,5 +169,250 @@ class ConnectionStatusNotifier extends StateNotifier<bool> {
     }
     _service.addConnectionListener(() => state = true);
     _service.addDisconnectionListener(() => state = false);
+  }
+}
+
+class WhoisNotifier extends StateNotifier<Map<String, WhoisInfo>> {
+  final IRCService _service;
+
+  WhoisNotifier(this._service) : super({}) {
+    _service.addWhoisListener(_onWhoisReceived);
+    // También cargar cualquier información que ya esté en caché
+    // (por si se solicitó antes de abrir el perfil)
+  }
+
+  void _onWhoisReceived(WhoisInfo info) {
+    print('🔍 [WHOIS NOTIFIER] Received whois info for: ${info.nick}');
+    print('🔍 [WHOIS NOTIFIER] Info: ${info.username}@${info.host}, realName: ${info.realName}');
+    final newState = {...state, info.nick.toLowerCase(): info};
+    state = newState;
+    print('🔍 [WHOIS NOTIFIER] Updated state, now has ${newState.length} entries');
+  }
+
+  WhoisInfo? getWhois(String nick) {
+    return state[nick.toLowerCase()];
+  }
+
+  void requestWhois(String nick) {
+    print('🔍 [WHOIS NOTIFIER] Requesting whois for: $nick');
+    // Verificar si ya tenemos la información en caché del servicio
+    final cachedInfo = _service.getWhoisInfo(nick);
+    if (cachedInfo != null) {
+      print('🔍 [WHOIS NOTIFIER] Found cached info, updating state');
+      _onWhoisReceived(cachedInfo);
+    } else {
+      print('🔍 [WHOIS NOTIFIER] No cached info, requesting from server');
+      _service.sendWhois(nick);
+    }
+  }
+
+  @override
+  void dispose() {
+    // No hay removeWhoisListener, pero podríamos agregarlo si es necesario
+    super.dispose();
+  }
+}
+
+// Notifier para mensajes no leídos
+class UnreadMessagesNotifier extends StateNotifier<Map<String, int>> {
+  UnreadMessagesNotifier() : super({});
+
+  void incrementUnread(String channel) {
+    final normalizedChannel = channel.toLowerCase();
+    state = {
+      ...state,
+      normalizedChannel: (state[normalizedChannel] ?? 0) + 1,
+    };
+  }
+
+  void markAsRead(String channel) {
+    final normalizedChannel = channel.toLowerCase();
+    if (state.containsKey(normalizedChannel)) {
+      final newState = {...state};
+      newState.remove(normalizedChannel);
+      state = newState;
+    }
+  }
+
+  int getUnreadCount(String channel) {
+    return state[channel.toLowerCase()] ?? 0;
+  }
+
+  bool hasUnread(String channel) {
+    return getUnreadCount(channel) > 0;
+  }
+}
+
+// Notifier para typing indicators
+class TypingIndicatorNotifier extends StateNotifier<Map<String, String?>> {
+  TypingIndicatorNotifier() : super({});
+  final Map<String, Timer> _timers = {};
+
+  void setTyping(String channel, String? nick) {
+    final normalizedChannel = channel.toLowerCase();
+    
+    // Cancelar timer anterior si existe
+    _timers[normalizedChannel]?.cancel();
+    
+    state = {
+      ...state,
+      normalizedChannel: nick,
+    };
+    
+    // Si hay un nick, programar que desaparezca después de 3 segundos
+    if (nick != null) {
+      _timers[normalizedChannel] = Timer(const Duration(seconds: 3), () {
+        if (state[normalizedChannel] == nick) {
+          state = {
+            ...state,
+            normalizedChannel: null,
+          };
+        }
+      });
+    }
+  }
+
+  void clearTyping(String channel) {
+    final normalizedChannel = channel.toLowerCase();
+    _timers[normalizedChannel]?.cancel();
+    _timers.remove(normalizedChannel);
+    state = {
+      ...state,
+      normalizedChannel: null,
+    };
+  }
+
+  String? getTyping(String channel) {
+    return state[channel.toLowerCase()];
+  }
+
+  @override
+  void dispose() {
+    for (var timer in _timers.values) {
+      timer.cancel();
+    }
+    _timers.clear();
+    super.dispose();
+  }
+}
+
+// Provider para typing indicators (quién está escribiendo en cada canal)
+final typingIndicatorProvider = StateNotifierProvider<TypingIndicatorNotifier, Map<String, String?>>((ref) {
+  return TypingIndicatorNotifier();
+});
+
+// Notifier para refrescar avatares en tiempo real
+class AvatarRefreshNotifier extends StateNotifier<Map<String, int>> {
+  Timer? _refreshTimer;
+  int _currentRefreshIndex = 0;
+  bool _isRefreshing = false;
+
+  AvatarRefreshNotifier() : super({}) {
+    _startRefreshCycle();
+  }
+  
+  void _startRefreshCycle() {
+    // Esperar 60 segundos antes de empezar el ciclo de refresco
+    Future.delayed(const Duration(seconds: 60), () {
+      if (!mounted) return;
+      _refreshNextAvatar();
+    });
+  }
+  
+  void _refreshNextAvatar() {
+    if (!mounted || _isRefreshing) return;
+    
+    final entries = state.entries.toList();
+    if (entries.isEmpty) {
+      _currentRefreshIndex = 0;
+      _startRefreshCycle();
+      return;
+    }
+    
+    // Actualizar solo un avatar a la vez
+    if (_currentRefreshIndex < entries.length) {
+      _isRefreshing = true;
+      final entry = entries[_currentRefreshIndex];
+      state = {
+        ...state,
+        entry.key: DateTime.now().millisecondsSinceEpoch,
+      };
+      _currentRefreshIndex++;
+      _isRefreshing = false;
+      
+      // Esperar 2 segundos antes de actualizar el siguiente avatar
+      Future.delayed(const Duration(seconds: 2), () {
+        if (mounted) {
+          _refreshNextAvatar();
+        }
+      });
+    } else {
+      // Reiniciar el ciclo cuando se hayan actualizado todos
+      _currentRefreshIndex = 0;
+      _startRefreshCycle();
+    }
+  }
+
+  void refreshAvatar(String nick) {
+    final normalizedNick = nick.toLowerCase();
+    state = {
+      ...state,
+      normalizedNick: DateTime.now().millisecondsSinceEpoch,
+    };
+  }
+
+  void refreshAllAvatars() {
+    final newState = <String, int>{};
+    for (var entry in state.entries) {
+      newState[entry.key] = DateTime.now().millisecondsSinceEpoch;
+    }
+    state = newState;
+  }
+
+  int? getRefreshTimestamp(String nick) {
+    return state[nick.toLowerCase()];
+  }
+
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    super.dispose();
+  }
+}
+
+// Provider para invalidar/refrescar avatares
+final avatarRefreshProvider = StateNotifierProvider<AvatarRefreshNotifier, Map<String, int>>((ref) {
+  return AvatarRefreshNotifier();
+});
+
+class EmojiConfigNotifier extends StateNotifier<EmojiConfig> {
+  EmojiConfigNotifier() : super(EmojiConfig.defaultConfig);
+
+  void updateConfig(EmojiConfig config) {
+    state = config;
+  }
+
+  void updateOwnerEmoji(String emoji) {
+    state = state.copyWith(ownerEmoji: emoji);
+  }
+
+  void updateOperatorEmoji(String emoji) {
+    state = state.copyWith(operatorEmoji: emoji);
+  }
+
+  void updateHalfopEmoji(String emoji) {
+    state = state.copyWith(halfopEmoji: emoji);
+  }
+
+  void updateVoiceEmoji(String emoji) {
+    state = state.copyWith(voiceEmoji: emoji);
+  }
+
+  void updateUserEmoji(String emoji) {
+    state = state.copyWith(userEmoji: emoji);
+  }
+
+  void updateRobotEmoji(String emoji) {
+    state = state.copyWith(robotEmoji: emoji);
   }
 }

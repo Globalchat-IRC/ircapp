@@ -218,12 +218,15 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       body: Container(
         decoration: BoxDecoration(
           gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
             colors: [
-              appTheme.primary.withOpacity(0.1),
-              appTheme.secondary.withOpacity(0.1),
+              appTheme.primary.withOpacity(0.15),
+              appTheme.secondary.withOpacity(0.12),
+              appTheme.accent.withOpacity(0.08),
+              appTheme.background,
             ],
+            stops: const [0.0, 0.3, 0.6, 1.0],
           ),
         ),
         child: Center(
@@ -362,13 +365,32 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   const SizedBox(height: 16),
                   TextField(
                     controller: _nickController,
+                    enabled: true,
+                    readOnly: false,
                     style: TextStyle(color: appTheme.textPrimary),
                     decoration: InputDecoration(
                       labelText: 'Apodo',
-                      hintText: 'FlutterUser',
+                      hintText: 'Escribe tu apodo o usa el generado',
+                      helperText: 'Puedes cambiar el apodo generado',
+                      helperMaxLines: 2,
                       prefixIcon: Icon(Icons.person, color: appTheme.primary),
+                      suffixIcon: IconButton(
+                        icon: Icon(Icons.edit, color: appTheme.primary.withOpacity(0.7)),
+                        onPressed: () {
+                          // Enfocar el campo para que sea más obvio que es editable
+                          FocusScope.of(context).requestFocus(FocusNode());
+                          Future.delayed(const Duration(milliseconds: 100), () {
+                            _nickController.selection = TextSelection(
+                              baseOffset: 0,
+                              extentOffset: _nickController.text.length,
+                            );
+                          });
+                        },
+                        tooltip: 'Editar apodo',
+                      ),
                       labelStyle: TextStyle(color: appTheme.primary),
                       hintStyle: TextStyle(color: appTheme.textSecondary),
+                      helperStyle: TextStyle(color: appTheme.textSecondary, fontSize: 11),
                       filled: true,
                       fillColor: appTheme.surface.withOpacity(0.9),
                       focusedBorder: OutlineInputBorder(
@@ -749,12 +771,14 @@ class _ChannelSelectorState extends State<_ChannelSelector> {
     final query = widget.controller.text.trim().toLowerCase();
     setState(() {
       if (query.isEmpty) {
-        _filteredChannels = widget.channels.take(20).toList();
+        // Mostrar todos los canales disponibles; el scroll del ListView
+        // se encargará de que la lista siga siendo usable.
+        _filteredChannels = widget.channels.toList();
       } else {
         _filteredChannels = widget.channels.where((channel) {
           return channel.name.toLowerCase().contains(query) ||
               channel.topic.toLowerCase().contains(query);
-        }).take(20).toList();
+        }).toList();
       }
       print('🔍 [DEBUG] _updateFilteredChannels: ${_filteredChannels.length} canales filtrados de ${widget.channels.length} totales');
     });
@@ -765,7 +789,8 @@ class _ChannelSelectorState extends State<_ChannelSelector> {
       // Si el campo está vacío, mostrar todos los canales automáticamente
       if (widget.controller.text.isEmpty) {
         setState(() {
-          _filteredChannels = widget.channels.take(20).toList();
+          // Sin límite artificial: se pueden recorrer todos los canales
+          _filteredChannels = widget.channels.toList();
         });
       }
       _showDropdownOverlay();
@@ -786,9 +811,15 @@ class _ChannelSelectorState extends State<_ChannelSelector> {
   }
 
   void _showDropdownOverlay() {
-    // Asegurar que los canales filtrados estén actualizados antes de mostrar
+    // Al abrir manualmente el desplegable queremos poder ver TODOS los canales,
+    // incluso si ya hay un canal escrito en el TextField (para poder cambiarlo).
+    // El filtrado por texto se seguirá aplicando solo cuando el usuario escriba.
     if (widget.controller.text.trim().isEmpty) {
       _updateFilteredChannels();
+    } else {
+      setState(() {
+        _filteredChannels = widget.channels.toList();
+      });
     }
     
     print('🔍 [DEBUG] _showDropdownOverlay: ${_filteredChannels.length} canales, ${widget.channels.length} totales');

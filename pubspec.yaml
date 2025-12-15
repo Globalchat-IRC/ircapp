@@ -43,6 +43,7 @@ dependencies:
   url_launcher: ^6.2.5
   file_picker: ^10.3.7
   just_audio: ^0.10.5
+  crypto: ^3.0.3
   icecast:
     git:
       url: https://github.com/sneurlax/icecast.git

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 import '../models/irc_message.dart';
+import '../models/whois_info.dart';
 
 class IRCService {
   Socket? _socket;
@@ -15,6 +16,10 @@ class IRCService {
   final List<Function(String)> _topicListeners = [];
   final List<Function()> _connectionListeners = [];
   final List<Function()> _disconnectionListeners = [];
+  final List<Function(WhoisInfo)> _whoisListeners = [];
+  Map<String, WhoisInfo> _whoisCache = {};
+  Map<String, WhoisInfo> _pendingWhois = {}; // Para acumular información de whois
+  final Set<String> _ignoredUsers = {}; // Lista de usuarios ignorados (en minúsculas)
   StreamSubscription? _socketSubscription;
   late Completer<void> _connectionCompleter;
   bool _isConnected = false;
@@ -308,6 +313,40 @@ class IRCService {
   }
 
   // Enviar mensaje privado a un nick (query)
+  void sendWhois(String nick) {
+    _sendCommand('WHOIS $nick');
+  }
+
+  void sendIgnore(String nick) {
+    final normalizedNick = nick.trim().toLowerCase();
+    if (normalizedNick.isEmpty) return;
+    
+    // Añadir a la lista local de ignorados
+    _ignoredUsers.add(normalizedNick);
+    print('🚫 [IRCService] Usuario añadido a lista de ignorados: $normalizedNick');
+    
+    _sendCommand('MODE $nick +b'); // Ignorar usando modo ban (depende del servidor IRC)
+    // Alternativa: algunos servidores usan /ignore directamente
+    _sendCommand('IGNORE $nick');
+  }
+
+  void sendUnignore(String nick) {
+    final normalizedNick = nick.trim().toLowerCase();
+    if (normalizedNick.isEmpty) return;
+    
+    // Remover de la lista local de ignorados
+    _ignoredUsers.remove(normalizedNick);
+    print('✅ [IRCService] Usuario removido de lista de ignorados: $normalizedNick');
+    
+    _sendCommand('MODE $nick -b'); // Designorar usando modo ban
+    // Alternativa: algunos servidores usan /unignore directamente
+    _sendCommand('UNIGNORE $nick');
+  }
+  
+  bool isUserIgnored(String nick) {
+    return _ignoredUsers.contains(nick.toLowerCase());
+  }
+
   void sendPrivateMessage(String nick, String message) {
     final normalizedNick = nick.trim();
     if (normalizedNick.isEmpty) return;
@@ -403,6 +442,10 @@ class IRCService {
       // Log todos los comandos numéricos (353, 366, etc.) para debug
       if (RegExp(r'^\d{3}$').hasMatch(command)) {
         print('🔍 [DEBUG] Received numeric command: $command (line: $line)');
+        // Log específico para comandos whois
+        if (['311', '312', '313', '317', '318', '319', '301'].contains(command)) {
+          print('🔍 [WHOIS DEBUG] Command: $command, Args: $args');
+        }
       }
       
       // Log si el mensaje contiene nuestro nickname
@@ -624,11 +667,31 @@ class IRCService {
               }
               
               int addedCount = 0;
+              int updatedCount = 0;
               // Agregar usuarios a la lista (addUser ya verifica duplicados)
               for (var user in users) {
-                // Remove IRC user modes: @(op), +(voice), %(halfop), :(other)
-                final cleanUser = user.replaceAll(RegExp(r'^[@+%:]'), '').trim();
-                print('🔍 [DEBUG] Processing user: "$user" -> cleaned: "$cleanUser"');
+                // Extraer el prefijo de modo IRC antes de limpiar
+                String? userMode;
+                String cleanUser = user.trim();
+                
+                // Detectar prefijos IRC: @ (op), + (voice), % (halfop), & (founder/owner)
+                if (cleanUser.startsWith('@')) {
+                  userMode = '@';
+                  cleanUser = cleanUser.substring(1).trim();
+                } else if (cleanUser.startsWith('&')) {
+                  userMode = '&';
+                  cleanUser = cleanUser.substring(1).trim();
+                } else if (cleanUser.startsWith('%')) {
+                  userMode = '%';
+                  cleanUser = cleanUser.substring(1).trim();
+                } else if (cleanUser.startsWith('+')) {
+                  userMode = '+';
+                  cleanUser = cleanUser.substring(1).trim();
+                } else if (cleanUser.startsWith(':')) {
+                  cleanUser = cleanUser.substring(1).trim();
+                }
+                
+                print('🔍 [DEBUG] Processing user: "$user" -> mode: "$userMode", cleaned: "$cleanUser"');
                 
                 // Validar que no sea un servidor/host (excluir nombres con múltiples puntos o que parezcan dominios)
                 final isServerHost = cleanUser.contains('.') && 
@@ -643,9 +706,24 @@ class IRCService {
                     !cleanUser.startsWith('#') &&
                     !isServerHost &&
                     RegExp(r'^[a-zA-Z_\-][a-zA-Z0-9_\-]*$').hasMatch(cleanUser)) { // Removido el punto de la regex
-                  print('🔍 [DEBUG] ➕ Adding user: "$cleanUser"');
-                  channels[channel]!.addUser(cleanUser);
-                  addedCount++;
+                  // Si el usuario ya existe, actualizar su modo
+                  if (channels[channel]!.users.contains(cleanUser)) {
+                    if (userMode != null) {
+                      channels[channel]!.addUser(cleanUser, mode: userMode);
+                      updatedCount++;
+                      print('🔍 [DEBUG] ✅ Updated mode for existing user: "$cleanUser" -> "$userMode"');
+                    } else {
+                      // Si no tiene modo en la lista actual, mantener el modo existente si lo tiene
+                      final existingMode = channels[channel]!.getUserMode(cleanUser);
+                      if (existingMode != null) {
+                        print('🔍 [DEBUG] ℹ️  Keeping existing mode for user: "$cleanUser" -> "$existingMode"');
+                      }
+                    }
+                  } else {
+                    print('🔍 [DEBUG] ➕ Adding new user: "$cleanUser" with mode: "$userMode"');
+                    channels[channel]!.addUser(cleanUser, mode: userMode);
+                    addedCount++;
+                  }
                 } else {
                   if (isServerHost) {
                     print('🔍 [DEBUG] ❌ Skipping server/host name: "$cleanUser"');
@@ -655,9 +733,16 @@ class IRCService {
                 }
               }
               
-              print('🔍 [DEBUG] Added $addedCount new users');
+              print('🔍 [DEBUG] Added $addedCount new users, updated $updatedCount existing users');
               print('🔍 [DEBUG] Total users in channel now: ${channels[channel]!.users.length}');
               print('🔍 [DEBUG] Users list: ${channels[channel]!.users}');
+              // Debug: mostrar modos de todos los usuarios
+              for (var u in channels[channel]!.users) {
+                final mode = channels[channel]!.getUserMode(u);
+                if (mode != null) {
+                  print('🔍 [DEBUG] User "$u" has mode: "$mode"');
+                }
+              }
               
               // Notificar que la lista de usuarios se actualizó
               print('🔍 [DEBUG] Notifying user list listeners for channel: $channel');
@@ -801,37 +886,223 @@ class IRCService {
           }
           break;
         
+        // WHOIS responses
+        case '311': // WHOIS user info: :server 311 nick target username host * :realname
+          if (args.length >= 5) {
+            final targetNick = args[1];
+            final username = args[2];
+            final host = args[3];
+            final realName = args.length > 5 ? args.sublist(4).join(' ').replaceFirst(':', '').trim() : null;
+            
+            _pendingWhois[targetNick] = WhoisInfo(
+              nick: targetNick,
+              username: username,
+              host: host,
+              realName: realName,
+            );
+            print('🔍 [WHOIS] 311 - User info for $targetNick: $username@$host ($realName)');
+          }
+          break;
+        
+        case '312': // WHOIS server info: :server 312 nick target server :server info
+          if (args.length >= 3) {
+            final targetNick = args[1];
+            final server = args[2];
+            final serverInfo = args.length > 3 ? args.sublist(3).join(' ').replaceFirst(':', '').trim() : null;
+            
+            if (_pendingWhois.containsKey(targetNick)) {
+              _pendingWhois[targetNick] = _pendingWhois[targetNick]!.copyWith(
+                server: server,
+                serverInfo: serverInfo,
+              );
+            } else {
+              _pendingWhois[targetNick] = WhoisInfo(
+                nick: targetNick,
+                server: server,
+                serverInfo: serverInfo,
+              );
+            }
+            print('🔍 [WHOIS] 312 - Server info for $targetNick: $server ($serverInfo)');
+          }
+          break;
+        
+        case '313': // WHOIS operator: :server 313 nick target :is an IRC Operator
+          if (args.length >= 3) {
+            final targetNick = args[1];
+            // El resto de args suele contener el texto con el rol
+            final roleText = args.sublist(2).join(' ').replaceFirst(':', '').trim();
+            
+            if (_pendingWhois.containsKey(targetNick)) {
+              _pendingWhois[targetNick] = _pendingWhois[targetNick]!.copyWith(
+                isStaff: true,
+                staffRole: roleText.isNotEmpty ? roleText : 'Operador IRC',
+              );
+            } else {
+              _pendingWhois[targetNick] = WhoisInfo(
+                nick: targetNick,
+                isStaff: true,
+                staffRole: roleText.isNotEmpty ? roleText : 'Operador IRC',
+              );
+            }
+            print('🔍 [WHOIS] 313 - $targetNick staff: ${_pendingWhois[targetNick]!.staffRole}');
+          }
+          break;
+        
+        case '317': // WHOIS idle/signon: :server 317 nick target idle signon :seconds idle, signon time
+          if (args.length >= 4) {
+            final targetNick = args[1];
+            final idleSeconds = int.tryParse(args[2]);
+            final signonTimestamp = int.tryParse(args[3]);
+            final signonTime = signonTimestamp != null 
+                ? DateTime.fromMillisecondsSinceEpoch(signonTimestamp * 1000)
+                : null;
+            
+            if (_pendingWhois.containsKey(targetNick)) {
+              _pendingWhois[targetNick] = _pendingWhois[targetNick]!.copyWith(
+                idleSeconds: idleSeconds,
+                signonTime: signonTime,
+              );
+            } else {
+              _pendingWhois[targetNick] = WhoisInfo(
+                nick: targetNick,
+                idleSeconds: idleSeconds,
+                signonTime: signonTime,
+              );
+            }
+            print('🔍 [WHOIS] 317 - Idle/signon for $targetNick: ${idleSeconds}s idle, signed on: $signonTime');
+          }
+          break;
+        
+        case '318': // End of WHOIS: :server 318 nick target :End of /WHOIS list.
+          if (args.length >= 2) {
+            final targetNick = args[1];
+            if (_pendingWhois.containsKey(targetNick)) {
+              final whoisInfo = _pendingWhois[targetNick]!;
+              _whoisCache[targetNick.toLowerCase()] = whoisInfo;
+              _notifyWhoisListeners(whoisInfo);
+              _pendingWhois.remove(targetNick);
+              print('🔍 [WHOIS] 318 - End of WHOIS for $targetNick');
+            }
+          }
+          break;
+        
+        case '319': // WHOIS channels: :server 319 nick target :#channel1 #channel2
+          if (args.length >= 3) {
+            final targetNick = args[1];
+            final channelsStr = args.sublist(2).join(' ').replaceFirst(':', '').trim();
+            final channelsList = channelsStr.split(' ').where((c) => c.isNotEmpty).toList();
+            
+            if (_pendingWhois.containsKey(targetNick)) {
+              _pendingWhois[targetNick] = _pendingWhois[targetNick]!.copyWith(
+                channels: channelsList,
+              );
+            } else {
+              _pendingWhois[targetNick] = WhoisInfo(
+                nick: targetNick,
+                channels: channelsList,
+              );
+            }
+            print('🔍 [WHOIS] 319 - Channels for $targetNick: $channelsList');
+          }
+          break;
+        
+        case '301': // AWAY message: :server 301 nick target :away message
+          if (args.length >= 3) {
+            final targetNick = args[1];
+            final awayMessage = args.sublist(2).join(' ').replaceFirst(':', '').trim();
+            
+            if (_pendingWhois.containsKey(targetNick)) {
+              _pendingWhois[targetNick] = _pendingWhois[targetNick]!.copyWith(
+                isAway: true,
+                awayMessage: awayMessage,
+              );
+            } else {
+              _pendingWhois[targetNick] = WhoisInfo(
+                nick: targetNick,
+                isAway: true,
+                awayMessage: awayMessage,
+              );
+            }
+            print('🔍 [WHOIS] 301 - $targetNick is away: $awayMessage');
+          }
+          break;
+        
         case 'PRIVMSG':
           if (args.isNotEmpty) {
+            print('🔍 [DEBUG] 📨 PRIVMSG recibido - Raw line: $line');
+            print('🔍 [DEBUG] 📨 PRIVMSG - nick del source: "$nick", args: $args');
+            
             var target = args[0];
+            print('🔍 [DEBUG] 📨 PRIVMSG - target original: "$target"');
+            print('🔍 [DEBUG] 📨 PRIVMSG - nuestro nickname: "$_nickname"');
+            
             var targetChannel = _normalizeChannelName(target);
             
             // Determinar si es un canal (#) o un mensaje privado (nick)
             bool isChannel = target.startsWith('#');
             String channelKey;
+            bool isPrivateMessageToUs = false;
+            
+            print('🔍 [DEBUG] 📨 PRIVMSG - isChannel: $isChannel');
             
             if (isChannel) {
               // Es un canal, usar el nombre del canal normalizado
               channelKey = targetChannel;
+              print('🔍 [DEBUG] 📨 PRIVMSG - Es un mensaje de canal: $channelKey');
             } else {
               // Es un mensaje privado
+              print('🔍 [DEBUG] 📨 PRIVMSG - Es un mensaje privado (target no empieza con #)');
+              print('🔍 [DEBUG] 📨 PRIVMSG - Comparando target "$target" (lowercase: ${target.toLowerCase()}) con nickname "$_nickname" (lowercase: ${_nickname?.toLowerCase()})');
+              
               // Si el target es nuestro nickname, es un mensaje que NOS ENVIAN
               // En ese caso, usar el nick del remitente como channelKey
               // Si el target NO es nuestro nickname, es un mensaje que ENVIAMOS
               // En ese caso, usar el target como channelKey
-              if (_nickname != null && target.toLowerCase() == _nickname!.toLowerCase()) {
+              
+              // Limpiar el target de posibles espacios o caracteres extra
+              final cleanTarget = target.trim();
+              final cleanNickname = _nickname?.trim();
+              
+              print('🔍 [DEBUG] 📨 PRIVMSG - Comparación detallada:');
+              print('🔍 [DEBUG] 📨 PRIVMSG - target limpio: "$cleanTarget" (length: ${cleanTarget.length})');
+              print('🔍 [DEBUG] 📨 PRIVMSG - nickname limpio: "$cleanNickname" (length: ${cleanNickname?.length ?? 0})');
+              print('🔍 [DEBUG] 📨 PRIVMSG - target.toLowerCase(): "${cleanTarget.toLowerCase()}"');
+              print('🔍 [DEBUG] 📨 PRIVMSG - nickname.toLowerCase(): "${cleanNickname?.toLowerCase() ?? "null"}"');
+              print('🔍 [DEBUG] 📨 PRIVMSG - ¿Son iguales?: ${cleanNickname != null && cleanTarget.toLowerCase() == cleanNickname.toLowerCase()}');
+              
+              if (cleanNickname != null && cleanTarget.toLowerCase() == cleanNickname.toLowerCase()) {
                 // Mensaje privado que nos envían, usar el nick del remitente
+                isPrivateMessageToUs = true;
                 channelKey = nick.toLowerCase();
-                print('🔍 [DEBUG] PRIVMSG: Mensaje privado recibido de "$nick", usando channelKey="$channelKey"');
+                print('🔍 [DEBUG] 📨 PRIVMSG: ✅✅✅ Mensaje privado RECIBIDO de "$nick", usando channelKey="$channelKey" ✅✅✅');
+                
+                // Verificar si el remitente está en la lista de ignorados (solo para mensajes que nos envían)
+                final senderNick = nick.toLowerCase();
+                if (_ignoredUsers.contains(senderNick)) {
+                  print('🚫 [IRCService] Mensaje privado ignorado de usuario: $nick (en lista de ignorados: $_ignoredUsers)');
+                  break; // Ignorar el mensaje completamente
+                }
+                print('✅ [IRCService] Mensaje privado de "$nick" NO está en lista de ignorados. Lista actual: $_ignoredUsers');
+                print('✅ [IRCService] Procediendo a procesar mensaje privado de "$nick"');
               } else {
                 // Mensaje privado que enviamos, usar el target
-                channelKey = target.toLowerCase();
-                print('🔍 [DEBUG] PRIVMSG: Mensaje privado enviado a "$target", usando channelKey="$channelKey"');
+                channelKey = cleanTarget.toLowerCase();
+                print('🔍 [DEBUG] 📨 PRIVMSG: Mensaje privado ENVIADO a "$cleanTarget", usando channelKey="$channelKey"');
+              }
+            }
+            
+            // Para mensajes de canal, también verificar si el remitente está ignorado
+            if (isChannel) {
+              final senderNick = nick.toLowerCase();
+              if (_ignoredUsers.contains(senderNick)) {
+                print('🚫 [IRCService] Mensaje de canal ignorado de usuario: $nick en $target');
+                break; // Ignorar el mensaje completamente
               }
             }
             
             // Crear el canal/query si no existe
-            if (!channels.containsKey(channelKey)) {
+            final isNewChannel = !channels.containsKey(channelKey);
+            if (isNewChannel) {
               channels[channelKey] = IRCChannel(name: channelKey);
               print('🔍 [DEBUG] Creado ${isChannel ? "canal" : "query"}: $channelKey');
             }
@@ -860,8 +1131,22 @@ class IRCService {
                   message: messageContent,
                   timestamp: DateTime.now(),
                 );
+                
+                print('🔍 [DEBUG] ✅ Añadiendo mensaje al canal/query: $channelKey');
+                print('🔍 [DEBUG] ✅ Canal existe en mapa: ${channels.containsKey(channelKey)}');
                 channels[channelKey]!.addMessage(msg);
+                print('🔍 [DEBUG] ✅ Mensaje añadido. Total mensajes en canal: ${channels[channelKey]!.messages.length}');
+                
+                // Notificar a los listeners de mensajes
                 _notifyMessageListeners(msg);
+                print('🔍 [DEBUG] ✅ Listeners notificados. Total listeners: ${_messageListeners.length}');
+                
+                // Si es un nuevo canal/query, notificar también a los listeners de lista de usuarios
+                // para que el provider se actualice y muestre el nuevo canal en la UI
+                if (isNewChannel) {
+                  print('🔍 [DEBUG] 🔄 Nuevo canal/query creado, notificando userListListeners para actualizar UI');
+                  _notifyUserListListeners(channelKey);
+                }
               } else {
                 print('🔍 [DEBUG] ⚠️  PRIVMSG: No colon found after target');
               }
@@ -941,6 +1226,24 @@ class IRCService {
 
   void removeTopicListener(Function(String) listener) {
     _topicListeners.remove(listener);
+  }
+
+  void addWhoisListener(Function(WhoisInfo) listener) {
+    _whoisListeners.add(listener);
+  }
+
+  void removeWhoisListener(Function(WhoisInfo) listener) {
+    _whoisListeners.remove(listener);
+  }
+
+  WhoisInfo? getWhoisInfo(String nick) {
+    return _whoisCache[nick.toLowerCase()];
+  }
+
+  void _notifyWhoisListeners(WhoisInfo info) {
+    for (var listener in _whoisListeners) {
+      listener(info);
+    }
   }
 
   void _notifyMessageListeners(IRCMessage message) {

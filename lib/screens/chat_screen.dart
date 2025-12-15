@@ -17,8 +17,12 @@ import '../providers/theme_provider.dart';
 import '../models/app_theme.dart';
 import '../services/irc_service.dart';
 import 'login_screen.dart';
+import 'user_profile_screen.dart';
+import 'emoji_config_screen.dart';
 import '../widgets/animated_topic_text.dart';
-import '../widgets/radio_controls.dart';
+import '../widgets/user_avatar.dart';
+import '../services/avatar_service.dart';
+import '../utils/irc_color_parser.dart';
 
 // Widget genérico para botones animados
 class AnimatedServiceButton extends StatefulWidget {
@@ -102,8 +106,8 @@ class _AnimatedServiceButtonState extends State<AnimatedServiceButton>
                               widget.appTheme.primary,
                             ]
                           : [
-                              widget.appTheme.primary.withOpacity(0.7),
-                              widget.appTheme.secondary.withOpacity(0.7),
+                              widget.appTheme.primary.withOpacity(0.8),
+                              widget.appTheme.secondary.withOpacity(0.8),
                             ],
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
@@ -112,7 +116,7 @@ class _AnimatedServiceButtonState extends State<AnimatedServiceButton>
                     boxShadow: _isHovered
                         ? [
                             BoxShadow(
-                              color: widget.appTheme.accent.withOpacity(0.5),
+                              color: widget.appTheme.accent.withOpacity(0.6),
                               blurRadius: 12,
                               spreadRadius: 2,
                               offset: const Offset(0, 4),
@@ -120,7 +124,7 @@ class _AnimatedServiceButtonState extends State<AnimatedServiceButton>
                           ]
                         : [
                             BoxShadow(
-                              color: widget.appTheme.primary.withOpacity(0.3),
+                              color: widget.appTheme.primary.withOpacity(0.4),
                               blurRadius: 6,
                               spreadRadius: 1,
                               offset: const Offset(0, 2),
@@ -140,13 +144,23 @@ class _AnimatedServiceButtonState extends State<AnimatedServiceButton>
                         ),
                       ),
                       const SizedBox(width: 6),
-                      Text(
-                        widget.label,
-                        style: TextStyle(
-                          color: widget.appTheme.textPrimary,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 12,
-                          letterSpacing: 1.0,
+                      Flexible(
+                        child: Text(
+                          widget.label,
+                          style: TextStyle(
+                            color: widget.appTheme.textPrimary,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
+                            letterSpacing: 1.0,
+                            shadows: [
+                              Shadow(
+                                color: Colors.black.withOpacity(0.3),
+                                blurRadius: 2,
+                                offset: const Offset(0, 1),
+                              ),
+                            ],
+                          ),
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ),
                     ],
@@ -192,6 +206,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     
     // Listen for topic changes
     _ircService.addTopicListener(_onTopicChanged);
+    
+    // Listen for new messages to auto-open private messages
+    _ircService.addMessageListener(_onMessageReceived);
     
     // Get the channel from provider (was set in LoginScreen)
     final channel = ref.read(currentChannelProvider);
@@ -244,10 +261,41 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     }
   }
 
+  void _onMessageReceived(IRCMessage message) {
+    print('💬 _onMessageReceived: nick="${message.nick}", channel="${message.channel}"');
+    
+    if (mounted) {
+      final currentChannel = ref.read(currentChannelProvider);
+      final messageChannel = message.channel.toLowerCase();
+      final currentChannelLower = currentChannel?.toLowerCase();
+      
+      // Establecer typing indicator cuando llega un mensaje (simula que el usuario estaba escribiendo)
+      // Solo si no es nuestro propio mensaje
+      final currentNick = ref.read(currentNicknameProvider);
+      if (message.nick.toLowerCase() != currentNick?.toLowerCase()) {
+        ref.read(typingIndicatorProvider.notifier).setTyping(messageChannel, message.nick);
+      }
+      
+      // Si no estamos en el canal donde llegó el mensaje, incrementar contador de no leídos
+      if (currentChannelLower != messageChannel) {
+        // Verificar si es un mensaje privado (no empieza con #)
+        if (!messageChannel.startsWith('#')) {
+          // Es un query (mensaje privado) - incrementar contador de no leídos
+          print('💬 📬 Mensaje privado no leído de: ${message.nick}');
+          ref.read(unreadMessagesProvider.notifier).incrementUnread(messageChannel);
+        }
+      } else {
+        // Estamos en el canal, marcar como leído
+        ref.read(unreadMessagesProvider.notifier).markAsRead(messageChannel);
+      }
+    }
+  }
+
   @override
   void dispose() {
     _ircService.removeUserListListener(_onUserListChanged);
     _ircService.removeTopicListener(_onTopicChanged);
+    _ircService.removeMessageListener(_onMessageReceived);
     _messageController.dispose();
     _channelController.dispose();
     super.dispose();
@@ -391,6 +439,99 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Abriendo mensaje privado con $nick...'),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+        break;
+        
+      case 'whois':
+        if (args.isEmpty) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Uso: /whois <nick>'),
+              duration: Duration(seconds: 2),
+            ),
+          );
+          return;
+        }
+        
+        final nick = args[0].trim();
+        if (nick.isEmpty) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Por favor ingresa un nick válido'),
+              duration: Duration(seconds: 2),
+            ),
+          );
+          return;
+        }
+        
+        _ircService.sendWhois(nick);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Solicitando información de $nick...'),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+        break;
+        
+      case 'ignore':
+        if (args.isEmpty) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Uso: /ignore <nick>'),
+              duration: Duration(seconds: 2),
+            ),
+          );
+          return;
+        }
+        
+        final nick = args[0].trim();
+        if (nick.isEmpty) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Por favor ingresa un nick válido'),
+              duration: Duration(seconds: 2),
+            ),
+          );
+          return;
+        }
+        
+        _ircService.sendIgnore(nick);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Ignorando mensajes de $nick...'),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+        break;
+        
+      case 'unignore':
+        if (args.isEmpty) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Uso: /unignore <nick>'),
+              duration: Duration(seconds: 2),
+            ),
+          );
+          return;
+        }
+        
+        final nick = args[0].trim();
+        if (nick.isEmpty) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Por favor ingresa un nick válido'),
+              duration: Duration(seconds: 2),
+            ),
+          );
+          return;
+        }
+        
+        _ircService.sendUnignore(nick);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Dejando de ignorar mensajes de $nick...'),
             duration: const Duration(seconds: 2),
           ),
         );
@@ -932,10 +1073,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
             colors: [
-              appTheme.primary.withOpacity(0.1),
-              appTheme.secondary.withOpacity(0.1),
+              appTheme.primary.withOpacity(0.15),
+              appTheme.secondary.withOpacity(0.12),
+              appTheme.accent.withOpacity(0.08),
               appTheme.background,
             ],
+            stops: const [0.0, 0.3, 0.6, 1.0],
           ),
         ),
         child: Center(
@@ -1061,94 +1204,231 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       },
       child: Scaffold(
         appBar: AppBar(
-          title: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(currentChannel ?? 'Cliente IRC'),
-              if (nickname != null)
-                Text(
-                  'como $nickname',
-                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.normal),
-                ),
-            ],
+          title: LayoutBuilder(
+            builder: (context, constraints) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  SizedBox(
+                    width: constraints.maxWidth > 0 ? constraints.maxWidth : 200,
+                    child: _buildChannelNameWithHash(currentChannel ?? 'Cliente IRC', appTheme),
+                  ),
+                  if (nickname != null)
+                    SizedBox(
+                      width: constraints.maxWidth > 0 ? constraints.maxWidth : 200,
+                      child: Text(
+                        'como $nickname',
+                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.normal),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                ],
+              );
+            },
           ),
           backgroundColor: appTheme.primary,
           foregroundColor: appTheme.textPrimary,
           actions: [
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Center(
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: isConnected ? Colors.green : Colors.red,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  child: Text(
-                    isConnected ? '● Conectado' : '● Desconectado',
-                    style: const TextStyle(color: Colors.white),
-                  ),
-                ),
-              ),
-            ),
-            AnimatedServiceButton(
-              appTheme: appTheme,
-              tooltip: 'Centro de Atención a Usuarios',
-              emoji: '💬',
-              label: 'CAU',
-              onPressed: () {
-                _joinChannel('Ayuda');
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Uniéndote al canal #Ayuda...'),
-                    duration: Duration(seconds: 2),
-                  ),
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final screenWidth = MediaQuery.of(context).size.width;
+                final showFullButtons = screenWidth > 800;
+                
+                return Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: isConnected ? Colors.green : Colors.red,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        child: Text(
+                          isConnected ? '● Conectado' : '● Desconectado',
+                          style: const TextStyle(color: Colors.white, fontSize: 11),
+                        ),
+                      ),
+                    ),
+                    if (showFullButtons) ...[
+                      AnimatedServiceButton(
+                        appTheme: appTheme,
+                        tooltip: 'Centro de Atención a Usuarios',
+                        emoji: '💬',
+                        label: 'CAU',
+                        onPressed: () {
+                          _joinChannel('Ayuda');
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Uniéndote al canal #Ayuda...'),
+                              duration: Duration(seconds: 2),
+                            ),
+                          );
+                        },
+                      ),
+                      AnimatedServiceButton(
+                        appTheme: appTheme,
+                        tooltip: 'Registro de Nick',
+                        emoji: '📝',
+                        label: 'Nick',
+                        onPressed: () {
+                          _showNickRegistrationDialog(context);
+                        },
+                      ),
+                      AnimatedServiceButton(
+                        appTheme: appTheme,
+                        tooltip: 'Registro de Canal',
+                        emoji: '📢',
+                        label: 'Canal',
+                        onPressed: () {
+                          _ircService.sendServiceMessage('ChanServ', 'HELP');
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Solicitando ayuda de registro de canal a ChanServ...'),
+                              duration: Duration(seconds: 2),
+                            ),
+                          );
+                        },
+                      ),
+                      AnimatedServiceButton(
+                        appTheme: appTheme,
+                        tooltip: 'Petición de IP Virtual',
+                        emoji: '🌐',
+                        label: 'IP Virtual',
+                        onPressed: () {
+                          _ircService.sendServiceMessage('HostServ', 'HELP');
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Solicitando ayuda de IP virtual a HostServ...'),
+                              duration: Duration(seconds: 2),
+                            ),
+                          );
+                        },
+                      ),
+                    ] else ...[
+                      // Menú para pantallas pequeñas
+                      PopupMenuButton<String>(
+                        icon: Icon(Icons.more_vert, color: appTheme.textPrimary),
+                        onSelected: (value) {
+                          switch (value) {
+                            case 'cau':
+                              _joinChannel('Ayuda');
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Uniéndote al canal #Ayuda...'),
+                                  duration: Duration(seconds: 2),
+                                ),
+                              );
+                              break;
+                            case 'nick':
+                              _showNickRegistrationDialog(context);
+                              break;
+                            case 'canal':
+                              _ircService.sendServiceMessage('ChanServ', 'HELP');
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Solicitando ayuda de registro de canal a ChanServ...'),
+                                  duration: Duration(seconds: 2),
+                                ),
+                              );
+                              break;
+                            case 'ip':
+                              _ircService.sendServiceMessage('HostServ', 'HELP');
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Solicitando ayuda de IP virtual a HostServ...'),
+                                  duration: Duration(seconds: 2),
+                                ),
+                              );
+                              break;
+                          }
+                        },
+                        itemBuilder: (context) => [
+                          const PopupMenuItem(
+                            value: 'cau',
+                            child: Row(
+                              children: [
+                                Text('💬'),
+                                SizedBox(width: 8),
+                                Text('CAU'),
+                              ],
+                            ),
+                          ),
+                          const PopupMenuItem(
+                            value: 'nick',
+                            child: Row(
+                              children: [
+                                Text('📝'),
+                                SizedBox(width: 8),
+                                Text('Registro de Nick'),
+                              ],
+                            ),
+                          ),
+                          const PopupMenuItem(
+                            value: 'canal',
+                            child: Row(
+                              children: [
+                                Text('📢'),
+                                SizedBox(width: 8),
+                                Text('Registro de Canal'),
+                              ],
+                            ),
+                          ),
+                          const PopupMenuItem(
+                            value: 'ip',
+                            child: Row(
+                              children: [
+                                Text('🌐'),
+                                SizedBox(width: 8),
+                                Text('IP Virtual'),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                    IconButton(
+                      icon: const Icon(Icons.palette),
+                      tooltip: 'Cambiar tema',
+                      onPressed: () => _showThemeSelector(context),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.exit_to_app),
+                      tooltip: 'Salir de la aplicación',
+                      onPressed: () {
+                        showDialog(
+                          context: context,
+                          builder: (context) => AlertDialog(
+                            title: const Text('¿Salir de la aplicación?'),
+                            content: const Text('¿Estás seguro de que deseas cerrar la aplicación?'),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.pop(context),
+                                child: const Text('Cancelar'),
+                              ),
+                              ElevatedButton(
+                                onPressed: () {
+                                  _disconnect();
+                                  Navigator.pop(context);
+                                  // Cerrar la aplicación completamente
+                                  exit(0);
+                                },
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.red,
+                                  foregroundColor: Colors.white,
+                                ),
+                                child: const Text('Salir'),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+                  ],
                 );
               },
-            ),
-            AnimatedServiceButton(
-              appTheme: appTheme,
-              tooltip: 'Registro de Nick',
-              emoji: '📝',
-              label: 'Nick',
-              onPressed: () {
-                _showNickRegistrationDialog(context);
-              },
-            ),
-            AnimatedServiceButton(
-              appTheme: appTheme,
-              tooltip: 'Registro de Canal',
-              emoji: '📢',
-              label: 'Canal',
-              onPressed: () {
-                _ircService.sendServiceMessage('ChanServ', 'HELP');
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Solicitando ayuda de registro de canal a ChanServ...'),
-                    duration: Duration(seconds: 2),
-                  ),
-                );
-              },
-            ),
-            AnimatedServiceButton(
-              appTheme: appTheme,
-              tooltip: 'Petición de IP Virtual',
-              emoji: '🌐',
-              label: 'IP Virtual',
-              onPressed: () {
-                _ircService.sendServiceMessage('HostServ', 'HELP');
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Solicitando ayuda de IP virtual a HostServ...'),
-                    duration: Duration(seconds: 2),
-                  ),
-                );
-              },
-            ),
-            IconButton(
-              icon: const Icon(Icons.palette),
-              tooltip: 'Cambiar tema',
-              onPressed: () => _showThemeSelector(context),
             ),
           ],
         ),
@@ -1234,7 +1514,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                 ),
                                 ...channelList.map((channel) => _buildChannelItem(
                                   context,
-                                  channel,
+                              channel,
                                   false,
                                   appTheme,
                                   currentChannel,
@@ -1257,7 +1537,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                       const SizedBox(width: 6),
                                       Text(
                                         'MENSAJES PRIVADOS',
-                                        style: TextStyle(
+                              style: TextStyle(
                                           color: appTheme.accent.withOpacity(0.8),
                                           fontSize: 11,
                                           fontWeight: FontWeight.bold,
@@ -1287,11 +1567,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         width: double.infinity,
                         child: ElevatedButton.icon(
                           onPressed: () => _showJoinDialog(context),
-                          icon: const Icon(Icons.add),
-                          label: const Text('Unirse'),
+                          icon: Icon(Icons.add, color: appTheme.textPrimary),
+                          label: Text('Unirse', style: TextStyle(color: appTheme.textPrimary)),
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFFFFA500), // Naranja
-                            foregroundColor: Colors.white,
+                            backgroundColor: appTheme.primary,
+                            foregroundColor: appTheme.textPrimary,
+                            elevation: 4,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
                           ),
                         ),
                       ),
@@ -1333,20 +1617,20 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                           )
                         : Stack(
                             children: [
-                              // Fondo degradado cálido (multi-tono) para resaltar el ASCII
+                              // Fondo degradado adaptado al tema
                               Positioned.fill(
                                 child: Container(
-                                  decoration: const BoxDecoration(
+                                  decoration: BoxDecoration(
                                     gradient: LinearGradient(
-                                      begin: Alignment.topCenter,
-                                      end: Alignment.bottomCenter,
+                                      begin: Alignment.topLeft,
+                                      end: Alignment.bottomRight,
                                       colors: [
-                                        Color(0xFF3B1F00), // tope cálido
-                                        Color(0xFF2F1600), // transición oscura
-                                        Color(0xFF3F1F00), // brillo medio
-                                        Color(0xFF2A1200), // sombra
+                                        appTheme.primary.withOpacity(0.08),
+                                        appTheme.secondary.withOpacity(0.06),
+                                        appTheme.accent.withOpacity(0.04),
+                                        appTheme.background,
                                       ],
-                                      stops: [0.0, 0.35, 0.65, 1.0],
+                                      stops: const [0.0, 0.35, 0.65, 1.0],
                                     ),
                                   ),
                                 ),
@@ -1359,7 +1643,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                       center: const Alignment(0, -0.05),
                                       radius: 1.1,
                                       colors: [
-                                        Colors.white.withOpacity(0.08),
+                                        appTheme.primary.withOpacity(0.12),
                                         Colors.transparent,
                                       ],
                                       stops: const [0.0, 1.0],
@@ -1367,11 +1651,25 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                   ),
                                 ),
                               ),
-                              // Logo ASCII con mayor opacidad
+                              // Logo de fondo (ASCII, Semana Santa o Canal Sur según el tema)
                               Positioned.fill(
                                 child: Opacity(
-                                  opacity: 0.38, // subir opacidad para que se lean mejor las letras
-                                  child: const _AsciiBackground(),
+                                  opacity: (appTheme.name == 'Semana Santa Sevilla' || appTheme.name == 'Canal Sur') ? 0.15 : 0.38,
+                                  child: Builder(
+                                    builder: (context) {
+                                      print('🎨 [Background] Tema activo: ${appTheme.name}');
+                                      if (appTheme.name == 'Semana Santa Sevilla') {
+                                        print('🎨 [Background] Mostrando logo Semana Santa Sevilla');
+                                        return const _SemanaSantaBackground();
+                                      } else if (appTheme.name == 'Canal Sur') {
+                                        print('🎨 [Background] Mostrando logo Canal Sur');
+                                        return const _CanalSurBackground();
+                                      } else {
+                                        print('🎨 [Background] Mostrando fondo ASCII');
+                                        return const _AsciiBackground();
+                                      }
+                                    },
+                                  ),
                                 ),
                               ),
                               // Capa de oscurecido muy ligera para conservar contraste sin tapar el logo
@@ -1380,8 +1678,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                   decoration: BoxDecoration(
                                     gradient: LinearGradient(
                                       colors: [
-                                        Colors.black.withOpacity(0.06),
-                                        Colors.black.withOpacity(0.12),
+                                        appTheme.background.withOpacity(0.3),
+                                        appTheme.background.withOpacity(0.5),
                                       ],
                                       begin: Alignment.topCenter,
                                       end: Alignment.bottomCenter,
@@ -1406,6 +1704,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                           ),
                   ),
                   const Divider(height: 1),
+                  // Typing indicator
+                  if (currentChannel != null)
+                    Consumer(
+                      builder: (context, ref, child) {
+                        final typingNick = ref.watch(typingIndicatorProvider)[currentChannel!.toLowerCase()];
+                        if (typingNick == null) return const SizedBox.shrink();
+                        return _buildTypingIndicator(currentChannel, appTheme, typingNick);
+                      },
+                    ),
                   // Input area
                   if (currentChannel != null)
                     Container(
@@ -1450,23 +1757,23 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                   ),
                                 },
                                 child: Focus(
-                                  child: TextField(
-                                    controller: _messageController,
-                                    decoration: InputDecoration(
+                            child: TextField(
+                              controller: _messageController,
+                              decoration: InputDecoration(
                                       hintText: 'Mensaje... (Pega imágenes con Cmd+V)',
-                                      border: OutlineInputBorder(
-                                        borderRadius: BorderRadius.circular(8),
-                                      ),
-                                      contentPadding: const EdgeInsets.symmetric(
-                                        horizontal: 12,
-                                        vertical: 8,
-                                      ),
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 8,
+                                ),
                                       fillColor: appTheme.surface,
                                       filled: true,
-                                    ),
-                                    onSubmitted: (_) => _sendMessage(),
-                                    minLines: 1,
-                                    maxLines: 3,
+                              ),
+                              onSubmitted: (_) => _sendMessage(),
+                              minLines: 1,
+                              maxLines: 3,
                                     keyboardType: TextInputType.multiline,
                                   ),
                                 ),
@@ -1536,32 +1843,152 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         )
                       else
                         Expanded(
-                          child: ListView.builder(
-                            itemCount: channelUsers.length,
-                            itemBuilder: (context, index) {
-                              final user = channelUsers[index];
-                              // Obtener el canal para verificar si el usuario es un robot
+                          child: Builder(
+                            builder: (context) {
+                              // Obtener el canal para acceder a los modos
                               IRCChannel? currentChannelData;
                               if (channelKey != null && channels.containsKey(channelKey)) {
                                 currentChannelData = channels[channelKey];
                               }
-                              // Verificar si el usuario es un robot
-                              final isRobot = currentChannelData?.isRobot(user) ?? false;
+                              
+                              // Organizar usuarios por tipo y ordenar
+                              final sortedUsers = <String>[];
+                              
+                              // Función para obtener la prioridad del modo
+                              int getModePriority(String? mode, bool isRobot) {
+                                if (isRobot) return 5;
+                                switch (mode) {
+                                  case '&': return 1; // Dueño (más alto)
+                                  case '@': return 2; // Operador
+                                  case '%': return 3; // Halfop
+                                  case '+': return 4; // Voz
+                                  default: return 6; // Usuario normal
+                                }
+                              }
+                              
+                              // Ordenar usuarios por prioridad y luego alfabéticamente
+                              sortedUsers.addAll(channelUsers);
+                              sortedUsers.sort((a, b) {
+                                final modeA = currentChannelData?.getUserMode(a);
+                                final modeB = currentChannelData?.getUserMode(b);
+                                final isRobotA = currentChannelData?.isRobot(a) ?? false;
+                                final isRobotB = currentChannelData?.isRobot(b) ?? false;
+                                
+                                final priorityA = getModePriority(modeA, isRobotA);
+                                final priorityB = getModePriority(modeB, isRobotB);
+                                
+                                if (priorityA != priorityB) {
+                                  return priorityA.compareTo(priorityB);
+                                }
+                                return a.toLowerCase().compareTo(b.toLowerCase());
+                              });
+                              
+                              return ListView.builder(
+                                itemCount: sortedUsers.length,
+                            itemBuilder: (context, index) {
+                                  final user = sortedUsers[index];
+                                  // Obtener el modo del usuario
+                                  final userMode = currentChannelData?.getUserMode(user);
+                                  final isRobot = currentChannelData?.isRobot(user) ?? false;
+                                  final userIcon = _getUserIcon(userMode, isRobot);
+                                  
+                                  final appTheme = ref.read(themeProvider);
+                                  // Generar color para el avatar
+                                  final nickHash = user.hashCode;
+                                  final userColor = isRobot ? const Color(0xFFFFD700) : _getUserColor(nickHash);
+                                  
                               return ListTile(
                                 dense: true,
-                                leading: Icon(
-                                  isRobot ? Icons.smart_toy : Icons.person,
-                                  color: isRobot ? const Color(0xFFFFD700) : Colors.white70,
-                                  size: 16,
-                                ),
-                                title: Text(
-                                  user,
-                                  style: TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 12,
-                                    fontWeight: isRobot ? FontWeight.bold : FontWeight.normal,
-                                  ),
-                                ),
+                                    leading: UserAvatar(
+                                      nick: user,
+                                      size: 32,
+                                      fallbackIcon: userIcon,
+                                      gradient: isRobot
+                                          ? LinearGradient(
+                                              colors: [
+                                                const Color(0xFFFFD700),
+                                                const Color(0xFFFFA500),
+                                              ],
+                                              begin: Alignment.topLeft,
+                                              end: Alignment.bottomRight,
+                                            )
+                                          : LinearGradient(
+                                              colors: [
+                                                userColor,
+                                                userColor.withOpacity(0.7),
+                                              ],
+                                              begin: Alignment.topLeft,
+                                              end: Alignment.bottomRight,
+                                            ),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: isRobot
+                                              ? const Color(0xFFFFD700).withOpacity(0.5)
+                                              : userColor.withOpacity(0.4),
+                                          blurRadius: 4,
+                                          offset: const Offset(0, 1),
+                                        ),
+                                      ],
+                                      border: isRobot
+                                          ? Border.all(
+                                              color: const Color(0xFFFFD700).withOpacity(0.6),
+                                              width: 1.5,
+                                            )
+                                          : null,
+                                    ),
+                                    title: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Flexible(
+                                          child: Text(
+                                            user,
+                                            style: TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 12,
+                                              fontWeight: (isRobot || userMode != null) ? FontWeight.bold : FontWeight.normal,
+                                            ),
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                        if (userMode == '@' || userMode == '&') ...[
+                                          const SizedBox(width: 6),
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                            decoration: BoxDecoration(
+                                              color: appTheme.primary.withOpacity(0.3),
+                                              borderRadius: BorderRadius.circular(8),
+                                              border: Border.all(
+                                                color: appTheme.primary.withOpacity(0.6),
+                                                width: 1,
+                                              ),
+                                            ),
+                                            child: Text(
+                                              userMode == '&' ? 'Dueño' : 'Operador',
+                                              style: TextStyle(
+                                                color: appTheme.primary,
+                                                fontSize: 9,
+                                                fontWeight: FontWeight.bold,
+                                                letterSpacing: 0.3,
+                                              ),
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ),
+                                        ],
+                                      ],
+                                    ),
+                                    onTap: () {
+                                      print('🔍 [DEBUG] Tapped on user: $user (mode: $userMode)');
+                                      print('🔍 [DEBUG] Calling _showUserContextMenu for: $user');
+                                      try {
+                                        _showUserContextMenu(context, user);
+                                        print('🔍 [DEBUG] _showUserContextMenu called successfully');
+                                      } catch (e, stackTrace) {
+                                        print('🔍 [ERROR] Error showing user context menu: $e');
+                                        print('🔍 [ERROR] Stack trace: $stackTrace');
+                                      }
+                                    },
+                                  );
+                                },
                               );
                             },
                           ),
@@ -1572,12 +1999,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               ),
           ],
         ),
-        floatingActionButton: FloatingActionButton(
-          onPressed: _disconnect,
-          backgroundColor: Colors.red,
-          child: const Icon(Icons.logout),
-        ),
-        bottomNavigationBar: const RadioControls(),
       ),
     );
   }
@@ -1670,132 +2091,240 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       );
     }
 
+    // Detectar si es un bot y obtener el modo del usuario
+    final channelKey = message.channel.toLowerCase();
+    final channels = ref.read(channelsProvider);
+    final channelData = channels[channelKey];
+    final isBot = channelData?.isRobot(message.nick) ?? false;
+    final userMode = channelData?.getUserMode(message.nick);
+    
     // Generar color basado en el hash del nickname para consistencia
     final nickHash = message.nick.hashCode;
-    final userColor = _getUserColor(nickHash);
+    final userColor = isBot ? const Color(0xFFFFD700) : _getUserColor(nickHash); // Dorado para bots
+    final appTheme = ref.read(themeProvider);
     
-    // Obtener inicial del usuario para el avatar
-    final userInitial = message.nick.isNotEmpty 
+    // Obtener inicial del usuario para el avatar (o emoji para bots/modos especiales)
+    final userIcon = _getUserIcon(userMode, isBot);
+    final userInitial = isBot || userMode != null ? userIcon : (message.nick.isNotEmpty 
         ? message.nick[0].toUpperCase() 
-        : '?';
+        : '?');
 
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 12),
+      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
       child: Row(
         mainAxisAlignment: isOwnMessage ? MainAxisAlignment.end : MainAxisAlignment.start,
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
           if (!isOwnMessage) ...[
-            // Avatar
-            Container(
-              width: 36,
-              height: 36,
-              decoration: BoxDecoration(
-                color: userColor.withOpacity(0.2),
-                shape: BoxShape.circle,
-                border: Border.all(
-                  color: userColor.withOpacity(0.5),
-                  width: 2,
-                ),
-              ),
-              child: Center(
-                child: Text(
-                  userInitial,
-                  style: TextStyle(
-                    color: userColor,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 14,
+            // Avatar moderno con gradiente (especial para bots) - clickeable
+            GestureDetector(
+              onTap: () => _showUserContextMenu(context, message.nick),
+              child: UserAvatar(
+                nick: message.nick,
+                size: 42,
+                fallbackIcon: userInitial,
+                gradient: isBot
+                    ? LinearGradient(
+                        colors: [
+                          const Color(0xFFFFD700),
+                          const Color(0xFFFFA500),
+                        ],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      )
+                    : LinearGradient(
+                        colors: [
+                          userColor,
+                          userColor.withOpacity(0.7),
+                        ],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                boxShadow: [
+                  BoxShadow(
+                    color: isBot
+                        ? const Color(0xFFFFD700).withOpacity(0.5)
+                        : userColor.withOpacity(0.4),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
                   ),
-                ),
+                ],
+                border: isBot
+                    ? Border.all(
+                        color: const Color(0xFFFFD700).withOpacity(0.6),
+                        width: 2,
+                      )
+                    : null,
               ),
             ),
-            const SizedBox(width: 8),
+            const SizedBox(width: 12),
           ],
-          // Burbuja de mensaje
+          // Burbuja de mensaje moderna
           Flexible(
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              constraints: const BoxConstraints(maxWidth: 500),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               decoration: BoxDecoration(
-                color: isOwnMessage 
-                    ? const Color(0xFFFFA500) // Naranja para mensajes propios
-                    : Colors.grey[100],
+                gradient: isOwnMessage 
+                    ? LinearGradient(
+                        colors: [
+                          appTheme.primary,
+                          appTheme.primary.withOpacity(0.9),
+                        ],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      )
+                    : isBot
+                        ? LinearGradient(
+                            colors: [
+                              const Color(0xFFFFF8DC), // Beige claro
+                              const Color(0xFFFFFACD), // Limón chiffon
+                            ],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          )
+                        : LinearGradient(
+                            colors: [
+                              appTheme.surface,
+                              appTheme.surface.withOpacity(0.95),
+                            ],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
                 borderRadius: BorderRadius.only(
-                  topLeft: const Radius.circular(18),
-                  topRight: const Radius.circular(18),
-                  bottomLeft: Radius.circular(isOwnMessage ? 18 : 4),
-                  bottomRight: Radius.circular(isOwnMessage ? 4 : 18),
+                  topLeft: const Radius.circular(20),
+                  topRight: const Radius.circular(20),
+                  bottomLeft: Radius.circular(isOwnMessage ? 20 : 4),
+                  bottomRight: Radius.circular(isOwnMessage ? 4 : 20),
                 ),
                 boxShadow: [
+                  BoxShadow(
+                    color: isOwnMessage
+                        ? appTheme.primary.withOpacity(0.3)
+                        : Colors.black.withOpacity(0.1),
+                    blurRadius: 12,
+                    offset: const Offset(0, 4),
+                    spreadRadius: 0,
+                  ),
                   BoxShadow(
                     color: Colors.black.withOpacity(0.05),
                     blurRadius: 4,
                     offset: const Offset(0, 2),
                   ),
                 ],
+                border: isOwnMessage
+                    ? null
+                    : isBot
+                        ? Border.all(
+                            color: const Color(0xFFFFD700).withOpacity(0.4),
+                            width: 2,
+                          )
+                        : Border.all(
+                            color: appTheme.textPrimary.withOpacity(0.1),
+                            width: 1,
+                          ),
               ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
         children: [
-                  // Nickname y hora
+                  // Nickname y hora en una fila más compacta
           Row(
                     mainAxisSize: MainAxisSize.min,
             children: [
+                      GestureDetector(
+                        onTap: () => _showUserContextMenu(context, message.nick),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (isBot || userMode != null) ...[
+                              Text('$userIcon ', style: const TextStyle(fontSize: 14)),
+                            ],
               Text(
                 message.nick,
-                        style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                          fontSize: 13,
-                          color: isOwnMessage 
-                              ? Colors.white 
-                              : userColor,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Text(
+                              style: TextStyle(
+                                fontWeight: (isBot || userMode != null) ? FontWeight.bold : FontWeight.w600,
+                                fontSize: (isBot || userMode != null) ? 15 : 14,
+                                color: isOwnMessage 
+                                    ? Colors.white 
+                                    : isBot
+                                        ? const Color(0xFFB8860B) // Dark goldenrod
+                                        : userMode == '@' || userMode == '&'
+                                            ? const Color(0xFFFFD700) // Dorado para ops
+                                            : userMode == '%'
+                                                ? const Color(0xFFFFA500) // Naranja para halfop
+                                                : userMode == '+'
+                                                    ? const Color(0xFF87CEEB) // Azul cielo para voz
+                                                    : userColor,
+                                letterSpacing: 0.2,
+                                decoration: TextDecoration.underline,
+                                decorationColor: isOwnMessage 
+                                    ? Colors.white.withOpacity(0.5)
+                                    : isBot
+                                        ? const Color(0xFFB8860B).withOpacity(0.5)
+                                        : userColor.withOpacity(0.5),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: isOwnMessage
+                              ? Colors.white.withOpacity(0.2)
+                              : appTheme.textPrimary.withOpacity(0.08),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
                 timeFormat.format(message.timestamp),
                 style: TextStyle(
-                          fontSize: 11,
-                          color: isOwnMessage 
-                              ? Colors.white70 
-                              : Colors.grey[600],
-                          fontWeight: FontWeight.w400,
-                ),
-              ),
-            ],
-          ),
-                  const SizedBox(height: 6),
+                            fontSize: 10,
+                            color: isOwnMessage 
+                                ? Colors.white.withOpacity(0.9)
+                                : appTheme.textPrimary.withOpacity(0.6),
+                            fontWeight: FontWeight.w500,
+                            letterSpacing: 0.3,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
                   // Contenido del mensaje con soporte para imágenes
-                  _buildMessageContent(message.message, isOwnMessage),
+                  _buildMessageContent(message.message, isOwnMessage, isBot: isBot),
+                  // Botón de registro si es mensaje de NickServ sobre registro
+                  if (_isNickRegistrationMessage(message))
+                    _buildRegistrationButton(context, message),
                 ],
               ),
             ),
           ),
           if (isOwnMessage) ...[
-            const SizedBox(width: 8),
-            // Avatar para mensajes propios
-            Container(
-              width: 36,
-              height: 36,
-              decoration: BoxDecoration(
-                color: const Color(0xFFFFA500).withOpacity(0.2),
-                shape: BoxShape.circle,
-                border: Border.all(
-                  color: const Color(0xFFFFA500).withOpacity(0.5),
-                  width: 2,
-                ),
+            const SizedBox(width: 12),
+            // Avatar moderno para mensajes propios
+            UserAvatar(
+              nick: currentNick ?? '',
+              size: 42,
+              fallbackIcon: currentNick != null && currentNick.isNotEmpty
+                  ? currentNick[0].toUpperCase()
+                  : 'Y',
+              gradient: LinearGradient(
+                colors: [
+                  appTheme.primary,
+                  appTheme.primary.withOpacity(0.8),
+                ],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
               ),
-              child: Center(
-                child: Text(
-                  currentNick != null && currentNick.isNotEmpty
-                      ? currentNick[0].toUpperCase()
-                      : 'Y',
-                  style: const TextStyle(
-                    color: Color(0xFFFF8C00), // Naranja oscuro
-                    fontWeight: FontWeight.bold,
-                    fontSize: 14,
-                  ),
+              boxShadow: [
+                BoxShadow(
+                  color: appTheme.primary.withOpacity(0.4),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
                 ),
-              ),
+              ],
             ),
           ],
         ],
@@ -1803,7 +2332,46 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     );
   }
 
-  Widget _buildMessageContent(String messageText, bool isOwnMessage) {
+  // Detectar si es un mensaje de NickServ sobre registro
+  bool _isNickRegistrationMessage(IRCMessage message) {
+    final messageLower = message.message.toLowerCase();
+    final isNickServ = message.nick.toLowerCase() == 'nickserv' || 
+                       message.nick.toLowerCase().contains('nick');
+    return isNickServ && (
+      messageLower.contains('no está registrado') ||
+      messageLower.contains('no esta registrado') ||
+      messageLower.contains('registrar') ||
+      messageLower.contains('register') ||
+      (messageLower.contains('/msg') && messageLower.contains('register'))
+    );
+  }
+
+  // Botón para abrir el formulario de registro
+  Widget _buildRegistrationButton(BuildContext context, IRCMessage message) {
+    final appTheme = ref.read(themeProvider);
+    
+    return Container(
+      margin: const EdgeInsets.only(top: 12),
+      child: ElevatedButton.icon(
+        onPressed: () {
+          _showNickRegistrationDialog(context);
+        },
+        icon: const Icon(Icons.person_add, size: 18),
+        label: const Text('Registrar Nick'),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: appTheme.primary,
+          foregroundColor: appTheme.textPrimary,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          elevation: 2,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMessageContent(String messageText, bool isOwnMessage, {bool isBot = false}) {
     // Detectar si el mensaje contiene una imagen (data URI)
     if (messageText.contains('data:image/')) {
       final parts = messageText.split('data:image/');
@@ -1852,9 +2420,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 style: TextStyle(
                   color: isOwnMessage 
                       ? Colors.white 
-                      : Colors.black87,
-                  fontSize: 14,
-                  height: 1.4,
+                      : isBot
+                          ? const Color(0xFF8B6914)
+                          : ref.read(themeProvider).textPrimary,
+                  fontSize: isBot ? 16 : 15,
+                  height: 1.6,
+                  fontWeight: isBot ? FontWeight.w500 : FontWeight.w400,
+                  letterSpacing: isBot ? 0.3 : 0.0,
                 ),
               ),
           ],
@@ -1876,16 +2448,41 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       for (var match in videoMatches) {
         // Texto antes de la URL
         if (match.start > lastEnd) {
-          parts.add(Text(
-            messageText.substring(lastEnd, match.start),
-            style: TextStyle(
-              color: isOwnMessage 
-                  ? Colors.white 
-                  : Colors.black87,
-              fontSize: 14,
-              height: 1.4,
-            ),
-          ));
+          final textBefore = messageText.substring(lastEnd, match.start);
+          if (isBot && (textBefore.contains('\x03') || textBefore.contains('\x02'))) {
+            final defaultColor = isOwnMessage 
+                ? Colors.white 
+                : isBot
+                    ? const Color(0xFF8B6914)
+                    : ref.read(themeProvider).textPrimary;
+            final spans = IRCColorParser.parseIRCMessage(textBefore, defaultColor: defaultColor);
+            parts.add(RichText(
+              text: TextSpan(
+                children: spans,
+                style: TextStyle(
+                  fontSize: isBot ? 16 : 15,
+                  height: 1.6,
+                  fontWeight: isBot ? FontWeight.w500 : FontWeight.w400,
+                  letterSpacing: isBot ? 0.3 : 0.0,
+                ),
+              ),
+            ));
+          } else {
+            parts.add(Text(
+              textBefore,
+              style: TextStyle(
+                color: isOwnMessage 
+                    ? Colors.white 
+                    : isBot
+                        ? const Color(0xFF8B6914)
+                        : ref.read(themeProvider).textPrimary,
+                fontSize: isBot ? 16 : 15,
+                height: 1.6,
+                fontWeight: isBot ? FontWeight.w500 : FontWeight.w400,
+                letterSpacing: isBot ? 0.3 : 0.0,
+              ),
+            ));
+          }
         }
         
         // Widget del video
@@ -1958,15 +2555,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         '🎥 Video - Toca para reproducir',
                         style: const TextStyle(
                           color: Colors.white,
-                          fontSize: 12,
+                  fontSize: 12,
                         ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
-                    ),
-                  ),
-                ],
+                ),
               ),
+            ],
+          ),
             ),
           ),
         );
@@ -1976,16 +2573,38 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       
       // Texto después de la última URL
       if (lastEnd < messageText.length) {
-        parts.add(Text(
-          messageText.substring(lastEnd),
-          style: TextStyle(
-            color: isOwnMessage 
-                ? Colors.white 
-                : Colors.black87,
-            fontSize: 14,
-            height: 1.4,
-          ),
-        ));
+        final textAfter = messageText.substring(lastEnd);
+        if (isBot && (textAfter.contains('\x03') || textAfter.contains('\x02'))) {
+          final defaultColor = isOwnMessage 
+              ? Colors.white 
+              : isBot
+                  ? const Color(0xFF8B6914)
+                  : ref.read(themeProvider).textPrimary;
+          final spans = IRCColorParser.parseIRCMessage(textAfter, defaultColor: defaultColor);
+          parts.add(RichText(
+            text: TextSpan(
+              children: spans,
+              style: TextStyle(
+                fontSize: isBot ? 16 : 15,
+                height: 1.6,
+                fontWeight: isBot ? FontWeight.w500 : FontWeight.w400,
+                letterSpacing: isBot ? 0.3 : 0.0,
+              ),
+            ),
+          ));
+        } else {
+          parts.add(Text(
+            textAfter,
+            style: TextStyle(
+              color: isOwnMessage 
+                  ? Colors.white 
+                  : ref.read(themeProvider).textPrimary,
+              fontSize: 15,
+              height: 1.5,
+              fontWeight: FontWeight.w400,
+            ),
+          ));
+        }
       }
       
       return Column(
@@ -2008,16 +2627,41 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       for (var match in matches) {
         // Texto antes de la URL
         if (match.start > lastEnd) {
-          parts.add(Text(
-            messageText.substring(lastEnd, match.start),
-            style: TextStyle(
-              color: isOwnMessage 
-                  ? Colors.white 
-                  : Colors.black87,
-              fontSize: 14,
-              height: 1.4,
-            ),
-          ));
+          final textBefore = messageText.substring(lastEnd, match.start);
+          if (isBot && (textBefore.contains('\x03') || textBefore.contains('\x02'))) {
+            final defaultColor = isOwnMessage 
+                ? Colors.white 
+                : isBot
+                    ? const Color(0xFF8B6914)
+                    : ref.read(themeProvider).textPrimary;
+            final spans = IRCColorParser.parseIRCMessage(textBefore, defaultColor: defaultColor);
+            parts.add(RichText(
+              text: TextSpan(
+                children: spans,
+                style: TextStyle(
+                  fontSize: isBot ? 16 : 15,
+                  height: 1.6,
+                  fontWeight: isBot ? FontWeight.w500 : FontWeight.w400,
+                  letterSpacing: isBot ? 0.3 : 0.0,
+                ),
+              ),
+            ));
+          } else {
+            parts.add(Text(
+              textBefore,
+              style: TextStyle(
+                color: isOwnMessage 
+                    ? Colors.white 
+                    : isBot
+                        ? const Color(0xFF8B6914)
+                        : ref.read(themeProvider).textPrimary,
+                fontSize: isBot ? 16 : 15,
+                height: 1.6,
+                fontWeight: isBot ? FontWeight.w500 : FontWeight.w400,
+                letterSpacing: isBot ? 0.3 : 0.0,
+              ),
+            ));
+          }
         }
         
         // Imagen
@@ -2065,16 +2709,41 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       
       // Texto después de la última URL
       if (lastEnd < messageText.length) {
-        parts.add(Text(
-          messageText.substring(lastEnd),
-          style: TextStyle(
-            color: isOwnMessage 
-                ? Colors.white 
-                : Colors.black87,
-            fontSize: 14,
-            height: 1.4,
-          ),
-        ));
+        final textAfter = messageText.substring(lastEnd);
+        if (isBot && (textAfter.contains('\x03') || textAfter.contains('\x02'))) {
+          final defaultColor = isOwnMessage 
+              ? Colors.white 
+              : isBot
+                  ? const Color(0xFF8B6914)
+                  : ref.read(themeProvider).textPrimary;
+          final spans = IRCColorParser.parseIRCMessage(textAfter, defaultColor: defaultColor);
+          parts.add(RichText(
+            text: TextSpan(
+              children: spans,
+              style: TextStyle(
+                fontSize: isBot ? 16 : 15,
+                height: 1.6,
+                fontWeight: isBot ? FontWeight.w500 : FontWeight.w400,
+                letterSpacing: isBot ? 0.3 : 0.0,
+              ),
+            ),
+          ));
+        } else {
+          parts.add(Text(
+            textAfter,
+            style: TextStyle(
+              color: isOwnMessage 
+                  ? Colors.white 
+                  : isBot
+                      ? const Color(0xFF8B6914)
+                      : ref.read(themeProvider).textPrimary,
+              fontSize: isBot ? 16 : 15,
+              height: 1.6,
+              fontWeight: isBot ? FontWeight.w500 : FontWeight.w400,
+              letterSpacing: isBot ? 0.3 : 0.0,
+            ),
+          ));
+        }
       }
       
       return Column(
@@ -2084,16 +2753,79 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     }
     
     // Mensaje normal sin imágenes
+    final appTheme = ref.read(themeProvider);
+    
+    // Siempre parsear códigos IRC si están presentes (para bots y mensajes con formato)
+    // También parsear si es un bot para asegurar que se limpien todos los códigos
+    if (isBot || messageText.contains('\x03') || messageText.contains('\x02') || 
+        messageText.contains('\x1F') || messageText.contains('\x1D') || messageText.contains('\x0F')) {
+      final defaultColor = isOwnMessage 
+          ? Colors.white 
+          : isBot
+              ? const Color(0xFF8B6914) // Marrón oscuro para mejor contraste
+              : appTheme.textPrimary;
+      
+      final spans = IRCColorParser.parseIRCMessage(messageText, defaultColor: defaultColor);
+      
+      // Si no se generaron spans (mensaje vacío después de parsear), mostrar mensaje limpio
+      if (spans.isEmpty || (spans.length == 1 && spans[0].text?.isEmpty == true)) {
+        final cleaned = IRCColorParser.stripIRCFormatting(messageText);
+        if (cleaned.isNotEmpty) {
+          return Text(
+            cleaned,
+            style: TextStyle(
+              color: defaultColor,
+              fontSize: isBot ? 16 : 15,
+              height: 1.6,
+              fontWeight: isBot ? FontWeight.w500 : FontWeight.w400,
+              letterSpacing: isBot ? 0.3 : 0.0,
+            ),
+          );
+        }
+      }
+      
+      return RichText(
+        text: TextSpan(
+          children: spans,
+          style: TextStyle(
+            fontSize: isBot ? 16 : 15,
+            height: 1.6,
+            fontWeight: isBot ? FontWeight.w500 : FontWeight.w400,
+            letterSpacing: isBot ? 0.3 : 0.0,
+          ),
+        ),
+      );
+    }
+    
     return Text(
       messageText,
       style: TextStyle(
         color: isOwnMessage 
             ? Colors.white 
-            : Colors.black87,
-        fontSize: 14,
-        height: 1.4,
+            : appTheme.textPrimary,
+        fontSize: 15,
+        height: 1.6,
+        fontWeight: FontWeight.w400,
       ),
     );
+  }
+
+  // Obtener el emoticono según el modo del usuario
+  String _getUserIcon(String? mode, bool isRobot) {
+    final emojiConfig = ref.read(emojiConfigProvider);
+    if (isRobot) return emojiConfig.robotEmoji;
+    switch (mode) {
+      case '@': // Operador
+        return emojiConfig.operatorEmoji;
+      case '&': // Dueño/Founder
+        return emojiConfig.ownerEmoji;
+      case '%': // Halfop
+        return emojiConfig.halfopEmoji;
+      case '+': // Voz
+        return emojiConfig.voiceEmoji;
+      default: // Sin voz
+        return emojiConfig.userEmoji;
+    }
   }
 
   // Generar color consistente basado en el hash del nickname
@@ -2113,9 +2845,67 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     return colors[hash.abs() % colors.length];
   }
 
+  // Widget para mostrar el nombre del canal con el # en color dorado para Semana Santa Sevilla
+  Widget _buildChannelNameWithHash(
+    String channelName,
+    AppTheme appTheme, {
+    bool isSelected = false,
+    bool isQuery = false,
+    double fontSize = 16,
+  }) {
+    // Si el tema es "Semana Santa Sevilla" y el canal empieza con "#", mostrar el # en dorado
+    final isSemanaSantaTheme = appTheme.name == 'Semana Santa Sevilla';
+    
+    if (isSemanaSantaTheme && channelName.startsWith('#')) {
+      final hashSymbol = '#';
+      final channelWithoutHash = channelName.substring(1);
+      
+      return RichText(
+        overflow: TextOverflow.ellipsis,
+        text: TextSpan(
+          children: [
+            TextSpan(
+              text: hashSymbol,
+              style: TextStyle(
+                color: appTheme.accent, // Dorado
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                fontSize: fontSize,
+              ),
+            ),
+            TextSpan(
+              text: channelWithoutHash,
+              style: TextStyle(
+                color: isSelected
+                    ? (isQuery ? appTheme.accent : appTheme.accent)
+                    : appTheme.textPrimary,
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                fontSize: fontSize,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+    
+    // Para otros temas o canales sin #, mostrar normalmente
+    return Text(
+      channelName,
+      style: TextStyle(
+        color: isSelected
+            ? (isQuery ? appTheme.accent : appTheme.accent)
+            : appTheme.textPrimary,
+        fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+        fontSize: fontSize,
+      ),
+      overflow: TextOverflow.ellipsis,
+    );
+  }
+
   // Widget para mostrar el topic con animación moderna
   Widget _buildTopicBar(String? channel, Map<String, IRCChannel> channels, AppTheme appTheme) {
     if (channel == null) return const SizedBox.shrink();
+    
+    final isQuery = !channel.startsWith('#');
     
     // Buscar el canal de forma case-insensitive
     IRCChannel? channelData;
@@ -2127,6 +2917,52 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     }
     
     final topic = channelData?.topic;
+    
+    // Si es un mensaje privado y no tiene topic, mostrar "Mensaje Privado con <nick>"
+    if (isQuery && (topic == null || topic.isEmpty)) {
+      // El nick es el nombre del canal (query)
+      final nick = channel;
+      return Container(
+        height: 40,
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [
+              appTheme.accent.withOpacity(0.2),
+              appTheme.accent.withOpacity(0.1),
+            ],
+          ),
+        ),
+        child: Center(
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.person,
+                size: 16,
+                color: appTheme.accent,
+              ),
+              const SizedBox(width: 6),
+          Text(
+                'Mensaje Privado con ',
+                style: TextStyle(
+                  color: appTheme.textSecondary,
+                  fontSize: 12,
+                  fontStyle: FontStyle.italic,
+                ),
+              ),
+              Text(
+                nick,
+                style: TextStyle(
+                  color: appTheme.accent,
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
     
     if (topic == null || topic.isEmpty) {
       return Container(
@@ -2171,10 +3007,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       ),
       child: ClipRect(
         clipBehavior: Clip.hardEdge,
-        child: OverflowBox(
-          minWidth: 0,
-          minHeight: 0,
-          maxHeight: 40,
+        child: SizedBox(
+          width: double.infinity,
+          height: 40,
           child: AnimatedTopicText(topic: topic),
         ),
       ),
@@ -2192,6 +3027,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final normalizedCurrent = currentChannel?.toLowerCase();
     final normalizedChannel = channel.toLowerCase();
     final isSelected = normalizedChannel == normalizedCurrent;
+    final unreadCount = ref.watch(unreadMessagesProvider)[normalizedChannel] ?? 0;
+    final hasUnread = unreadCount > 0 && isQuery; // Solo mostrar para mensajes privados
     
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
@@ -2201,7 +3038,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 ? appTheme.accent.withOpacity(0.2)
                 : appTheme.accent.withOpacity(0.3))
             : (isQuery
-                ? appTheme.accent.withOpacity(0.05)
+                ? appTheme.accent.withOpacity(hasUnread ? 0.15 : 0.05)
                 : Colors.transparent),
         borderRadius: BorderRadius.circular(10),
         border: isSelected
@@ -2211,8 +3048,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               )
             : (isQuery
                 ? Border.all(
-                    color: appTheme.accent.withOpacity(0.3),
-                    width: 1,
+                    color: hasUnread 
+                        ? appTheme.accent.withOpacity(0.6)
+                        : appTheme.accent.withOpacity(0.3),
+                    width: hasUnread ? 2 : 1,
                   )
                 : null),
       ),
@@ -2241,21 +3080,20 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           ),
         ),
         title: Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Expanded(
-              child: Text(
+            Flexible(
+              flex: 1,
+              child: _buildChannelNameWithHash(
                 isQuery ? channel : channel,
-                style: TextStyle(
-                  color: isSelected
-                      ? (isQuery ? appTheme.accent : appTheme.accent)
-                      : appTheme.textPrimary,
-                  fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-                  fontSize: 13,
-                ),
-                overflow: TextOverflow.ellipsis,
+                appTheme,
+                isSelected: isSelected,
+                isQuery: isQuery,
+                fontSize: 13,
               ),
             ),
-            if (isQuery)
+            if (isQuery) ...[
+              const SizedBox(width: 4),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                 decoration: BoxDecoration(
@@ -2272,10 +3110,20 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   ),
                 ),
               ),
+              if (hasUnread) ...[
+                const SizedBox(width: 4),
+                _UnreadBadge(
+                  count: unreadCount,
+                  appTheme: appTheme,
+                ),
+              ],
+            ],
           ],
         ),
         onTap: () {
+          // Cambiar al canal y marcar como leído
           ref.read(currentChannelProvider.notifier).state = channel;
+          ref.read(unreadMessagesProvider.notifier).markAsRead(channel);
         },
         trailing: IconButton(
           icon: Icon(
@@ -2317,7 +3165,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         content: TextField(
           controller: controller,
           decoration: const InputDecoration(
-            hintText: '#channelname',
+            // Placeholder más claro y en español
+            hintText: '#canal',
             prefixIcon: Icon(Icons.tag),
           ),
         ),
@@ -2657,6 +3506,423 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     );
   }
 
+  void _showUserContextMenu(BuildContext context, String nick) {
+    print('🔍 [MENU] _showUserContextMenu called for nick: "$nick"');
+    final appTheme = ref.read(themeProvider);
+    final currentNick = ref.read(currentNicknameProvider);
+    print('🔍 [MENU] Current nick: "$currentNick", Selected nick: "$nick"');
+    
+    final isOwnNick = currentNick != null && currentNick.toLowerCase() == nick.toLowerCase();
+    
+    // Si es el propio nick, mostrar menú de configuración de perfil
+    if (isOwnNick) {
+      _showProfileConfigMenu(context, nick);
+      return;
+    }
+    
+    print('🔍 [MENU] Showing menu for nick: "$nick"');
+    
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [
+              appTheme.surface,
+              appTheme.surface.withOpacity(0.95),
+            ],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: const BorderRadius.only(
+            topLeft: Radius.circular(24),
+            topRight: Radius.circular(24),
+          ),
+        ),
+        child: SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Header
+              Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      appTheme.primary,
+                      appTheme.secondary,
+                    ],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: const BorderRadius.only(
+                    topLeft: Radius.circular(24),
+                    topRight: Radius.circular(24),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 60,
+                      height: 60,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.2),
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: Colors.white.withOpacity(0.3),
+                          width: 2,
+                        ),
+                      ),
+                      child: UserAvatar(
+                        nick: nick,
+                        size: 60,
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            nick,
+                            style: TextStyle(
+                              color: appTheme.textPrimary,
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Opciones de usuario',
+                            style: TextStyle(
+                              color: appTheme.textPrimary.withOpacity(0.9),
+                              fontSize: 14,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              // Opciones del menú
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: appTheme.primary.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.message, color: Colors.orange),
+                ),
+                title: const Text('Mensaje privado'),
+                subtitle: const Text('Abrir conversación privada'),
+                onTap: () {
+                  Navigator.pop(context);
+                  // Abrir mensaje privado
+                  final queryNick = nick.toLowerCase();
+                  if (!_ircService.allChannels.containsKey(queryNick)) {
+                    _ircService.allChannels[queryNick] = IRCChannel(name: queryNick);
+                  }
+                  ref.read(currentChannelProvider.notifier).state = queryNick;
+                  ref.read(channelsProvider.notifier).updateChannels();
+                },
+              ),
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.purple.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.person, color: Colors.purple),
+                ),
+                title: const Text('Ver perfil'),
+                subtitle: const Text('Ver información completa del usuario'),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => UserProfileScreen(nick: nick),
+                    ),
+                  );
+                },
+              ),
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.info, color: Colors.blue),
+                ),
+                title: const Text('Whois'),
+                subtitle: const Text('Solicitar información del usuario'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _ircService.sendWhois(nick);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Solicitando información de $nick...'),
+                      duration: const Duration(seconds: 2),
+                    ),
+                  );
+                },
+              ),
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.red.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.block, color: Colors.red),
+                ),
+                title: const Text('Ignorar'),
+                subtitle: const Text('Ignorar mensajes de este usuario'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _ircService.sendIgnore(nick);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Ignorando mensajes de $nick...'),
+                      duration: const Duration(seconds: 2),
+                    ),
+                  );
+                },
+              ),
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.green.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.check_circle, color: Colors.green),
+                ),
+                title: const Text('Designorar'),
+                subtitle: const Text('Dejar de ignorar mensajes de este usuario'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _ircService.sendUnignore(nick);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Dejando de ignorar mensajes de $nick...'),
+                      duration: const Duration(seconds: 2),
+                    ),
+                  );
+                },
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showProfileConfigMenu(BuildContext context, String nick) {
+    final appTheme = ref.read(themeProvider);
+    
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [
+              appTheme.surface,
+              appTheme.surface.withOpacity(0.95),
+            ],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: const BorderRadius.only(
+            topLeft: Radius.circular(24),
+            topRight: Radius.circular(24),
+          ),
+        ),
+        child: SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Header
+              Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      appTheme.primary,
+                      appTheme.secondary,
+                    ],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: const BorderRadius.only(
+                    topLeft: Radius.circular(24),
+                    topRight: Radius.circular(24),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Icon(
+                        Icons.settings,
+                        color: Colors.white,
+                        size: 24,
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Mi Perfil',
+                            style: TextStyle(
+                              color: appTheme.textPrimary,
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Configuración de cuenta',
+                            style: TextStyle(
+                              color: appTheme.textPrimary.withOpacity(0.9),
+                              fontSize: 14,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              // Opciones del menú
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.person, color: Colors.blue),
+                ),
+                title: const Text('Ver mi perfil'),
+                subtitle: const Text('Ver información completa de mi cuenta'),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => UserProfileScreen(nick: nick),
+                    ),
+                  );
+                },
+              ),
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.purple.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.account_circle, color: Colors.purple),
+                ),
+                title: const Text('Configurar Avatar'),
+                subtitle: const Text('Gestionar avatar en panel de GlobalChat'),
+                onTap: () {
+                  Navigator.pop(context);
+                  // Abrir panel de GlobalChat en navegador
+                  launchUrl(
+                    Uri.parse('https://xmlrpc.globalchat.org/panel-anope/panel-perfil-usuario.html'),
+                    mode: LaunchMode.externalApplication,
+                  );
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: const Text('Abriendo panel de configuración de perfil...'),
+                      backgroundColor: appTheme.primary,
+                      duration: const Duration(seconds: 2),
+                    ),
+                  );
+                },
+              ),
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.green.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.palette, color: Colors.green),
+                ),
+                title: const Text('Configuración de Tema'),
+                subtitle: const Text('Cambiar tema de la aplicación'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _showThemeSelector(context);
+                },
+              ),
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.pink.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.emoji_emotions, color: Colors.pink),
+                ),
+                title: const Text('Configurar Emoticonos'),
+                subtitle: const Text('Personalizar emoticonos de roles de usuario'),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const EmojiConfigScreen(),
+                    ),
+                  );
+                },
+              ),
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.info, color: Colors.orange),
+                ),
+                title: const Text('Whois'),
+                subtitle: const Text('Ver información de mi cuenta'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _ircService.sendWhois(nick);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Solicitando información de $nick...'),
+                      duration: const Duration(seconds: 2),
+                    ),
+                  );
+                },
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   void _showThemeSelector(BuildContext context) {
     final currentTheme = ref.read(themeProvider);
     
@@ -2716,6 +3982,44 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       ),
     );
   }
+
+  // Widget para mostrar el indicador de typing
+  Widget _buildTypingIndicator(String channel, AppTheme appTheme, String typingNick) {
+    return Container(
+      height: 24,
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      decoration: BoxDecoration(
+        color: appTheme.surface.withOpacity(0.5),
+        border: Border(
+          bottom: BorderSide(
+            color: appTheme.primary.withOpacity(0.2),
+            width: 1,
+          ),
+        ),
+      ),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 12,
+            height: 12,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              valueColor: AlwaysStoppedAnimation<Color>(appTheme.accent),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            '$typingNick está escribiendo...',
+            style: TextStyle(
+              color: appTheme.textSecondary,
+              fontSize: 11,
+              fontStyle: FontStyle.italic,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 // Fondo tipo ASCII con letras en gradiente cálido inspirado en la imagen de referencia
@@ -2726,6 +4030,151 @@ class _AsciiBackground extends StatelessWidget {
   Widget build(BuildContext context) {
     return CustomPaint(
       painter: _AsciiBackgroundPainter(),
+    );
+  }
+}
+
+// Fondo con logo de la Semana Santa de Sevilla
+class _SemanaSantaBackground extends StatelessWidget {
+  const _SemanaSantaBackground();
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Image.network(
+        'http://www.semana-santa.org/wp-content/uploads/2017/01/logo.png',
+        fit: BoxFit.contain,
+        width: double.infinity,
+        height: double.infinity,
+        alignment: Alignment.center,
+        errorBuilder: (context, error, stackTrace) {
+          // Si falla la carga, mostrar un placeholder
+          return const SizedBox.shrink();
+        },
+        loadingBuilder: (context, child, loadingProgress) {
+          if (loadingProgress == null) {
+            return child;
+          }
+          return const SizedBox.shrink();
+        },
+      ),
+    );
+  }
+}
+
+// Fondo con logo de Canal Sur
+class _CanalSurBackground extends StatelessWidget {
+  const _CanalSurBackground();
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Image.network(
+        'https://www.canalsur.es/resources/archivos_offline/2020/3/27/158530909845827_LogoCSRTV.jpg',
+        fit: BoxFit.contain,
+        width: double.infinity,
+        height: double.infinity,
+        alignment: Alignment.center,
+        errorBuilder: (context, error, stackTrace) {
+          // Log del error para debug
+          print('❌ [CanalSurBackground] Error cargando logo: $error');
+          print('❌ [CanalSurBackground] StackTrace: $stackTrace');
+          // Mostrar un placeholder en lugar de ocultar
+          return Container(
+            color: Colors.transparent,
+            child: const Center(
+              child: Icon(Icons.image_not_supported, color: Colors.grey, size: 64),
+            ),
+          );
+        },
+        loadingBuilder: (context, child, loadingProgress) {
+          if (loadingProgress == null) {
+            print('✅ [CanalSurBackground] Logo cargado correctamente');
+            return child;
+          }
+          // Mostrar un indicador de carga
+          return Container(
+            color: Colors.transparent,
+            child: const Center(
+              child: CircularProgressIndicator(),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+// Badge parpadeante para mensajes no leídos
+class _UnreadBadge extends StatefulWidget {
+  final int count;
+  final AppTheme appTheme;
+
+  const _UnreadBadge({
+    required this.count,
+    required this.appTheme,
+  });
+
+  @override
+  State<_UnreadBadge> createState() => _UnreadBadgeState();
+}
+
+class _UnreadBadgeState extends State<_UnreadBadge>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _animation;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1000),
+    )..repeat(reverse: true);
+    
+    _animation = Tween<double>(
+      begin: 0.5,
+      end: 1.0,
+    ).animate(CurvedAnimation(
+      parent: _controller,
+      curve: Curves.easeInOut,
+    ));
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _animation,
+      builder: (context, child) {
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+          decoration: BoxDecoration(
+            color: widget.appTheme.accent.withOpacity(_animation.value),
+            borderRadius: BorderRadius.circular(10),
+            boxShadow: [
+              BoxShadow(
+                color: widget.appTheme.accent.withOpacity(_animation.value * 0.5),
+                blurRadius: 6,
+                spreadRadius: 1,
+              ),
+            ],
+          ),
+          child: Text(
+            widget.count > 99 ? '99+' : widget.count.toString(),
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 10,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        );
+      },
     );
   }
 }
@@ -2955,3 +4404,4 @@ class _AsciiBackgroundPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
+
