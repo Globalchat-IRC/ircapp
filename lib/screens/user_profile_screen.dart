@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/irc_provider.dart';
 import '../providers/theme_provider.dart';
 import '../models/app_theme.dart';
 import '../widgets/user_avatar.dart';
 import '../services/irc_service.dart';
+import '../models/channel_info.dart';
+import '../models/irc_message.dart';
 
 class UserProfileScreen extends ConsumerStatefulWidget {
   final String nick;
@@ -17,6 +20,7 @@ class UserProfileScreen extends ConsumerStatefulWidget {
 
 class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
   bool _isLoading = true;
+  bool _hasRequestedWhois = false;
 
   @override
   void initState() {
@@ -25,16 +29,32 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       print('🔍 [PROFILE] Requesting whois for: ${widget.nick}');
       ref.read(whoisProvider.notifier).requestWhois(widget.nick);
-      // Esperar más tiempo para que llegue la información (el servidor puede tardar)
-      Future.delayed(const Duration(milliseconds: 3000), () {
+      _hasRequestedWhois = true;
+      
+      // Verificar si ya tenemos información en caché
+      final cachedInfo = ref.read(whoisProvider)[widget.nick.toLowerCase()];
+      if (cachedInfo != null) {
+        print('🔍 [PROFILE] Found cached whois info');
         if (mounted) {
-          final whoisInfo = ref.read(whoisProvider)[widget.nick.toLowerCase()];
-          print('🔍 [PROFILE] After delay, whoisInfo: ${whoisInfo != null ? "found" : "null"}');
           setState(() {
             _isLoading = false;
           });
         }
-      });
+      } else {
+        // Si no hay información en caché, esperar un poco menos tiempo antes de mostrar error
+        // Esto evita que la pantalla se quede en negro por mucho tiempo
+        Future.delayed(const Duration(milliseconds: 2000), () {
+          if (mounted && _isLoading) {
+            final whoisInfo = ref.read(whoisProvider)[widget.nick.toLowerCase()];
+            if (whoisInfo == null) {
+              print('🔍 [PROFILE] Timeout: No whois info received after 2 seconds, showing error');
+              setState(() {
+                _isLoading = false;
+              });
+            }
+          }
+        });
+      }
     });
   }
 
@@ -44,6 +64,17 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
     final whoisMap = ref.watch(whoisProvider);
     final whoisInfo = whoisMap[widget.nick.toLowerCase()];
     
+    // Si tenemos información y aún estamos cargando, actualizar el estado
+    if (whoisInfo != null && _isLoading && _hasRequestedWhois) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          setState(() {
+            _isLoading = false;
+          });
+        }
+      });
+    }
+    
     // Debug: verificar qué hay en el mapa
     if (whoisInfo == null) {
       print('🔍 [PROFILE] No whois info found for ${widget.nick.toLowerCase()}');
@@ -52,17 +83,47 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
       print('🔍 [PROFILE] Found whois info for ${widget.nick}: ${whoisInfo.username}@${whoisInfo.host}');
     }
 
-    return Scaffold(
-      backgroundColor: appTheme.background,
-      appBar: AppBar(
-        title: Text('Perfil de ${widget.nick}'),
-        backgroundColor: appTheme.primary,
-        foregroundColor: appTheme.textPrimary,
-      ),
+    return PopScope(
+      canPop: true,
+      onPopInvokedWithResult: (bool didPop, dynamic result) {
+        if (!didPop) {
+          Navigator.of(context).pop();
+        }
+      },
+      child: Scaffold(
+        backgroundColor: appTheme.background,
+        appBar: AppBar(
+          title: Text('Perfil de ${widget.nick}'),
+          backgroundColor: appTheme.primary,
+          foregroundColor: appTheme.textPrimary,
+          automaticallyImplyLeading: true,
+          leading: BackButton(
+            color: appTheme.textPrimary,
+            onPressed: () {
+              Navigator.of(context).pop();
+            },
+          ),
+        ),
       body: _isLoading
-          ? Center(
-              child: CircularProgressIndicator(
-                color: appTheme.primary,
+          ? Container(
+              color: appTheme.background,
+              child: Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    CircularProgressIndicator(
+                      color: appTheme.primary,
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      'Cargando información...',
+                      style: TextStyle(
+                        color: appTheme.textSecondary,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             )
           : whoisInfo == null
@@ -168,6 +229,9 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
                                   if (whoisInfo.isStaff) ...[
                                     const SizedBox(height: 8),
                                     Container(
+                                      constraints: BoxConstraints(
+                                        maxWidth: MediaQuery.of(context).size.width - 120, // Ajustar al ancho disponible
+                                      ),
                                       padding: const EdgeInsets.symmetric(
                                         horizontal: 12,
                                         vertical: 4,
@@ -189,25 +253,18 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
                                             color: Colors.amberAccent,
                                           ),
                                           const SizedBox(width: 6),
-                                          Text(
-                                            'Staff GlobalChat',
-                                            style: TextStyle(
-                                              color: appTheme.textPrimary,
-                                              fontSize: 12,
-                                              fontWeight: FontWeight.bold,
+                                          Flexible(
+                                            child: Text(
+                                              'Staff GlobalChat${whoisInfo.staffRole != null && whoisInfo.staffRole!.isNotEmpty ? ' · ${whoisInfo.staffRole}' : ''}',
+                                              style: TextStyle(
+                                                color: appTheme.textPrimary,
+                                                fontSize: 12,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                              overflow: TextOverflow.ellipsis,
+                                              maxLines: 1,
                                             ),
                                           ),
-                                          if (whoisInfo.staffRole != null &&
-                                              whoisInfo.staffRole!.isNotEmpty) ...[
-                                            const SizedBox(width: 4),
-                                            Text(
-                                              '· ${whoisInfo.staffRole}',
-                                              style: TextStyle(
-                                                color: appTheme.textSecondary,
-                                                fontSize: 11,
-                                              ),
-                                            ),
-                                          ],
                                         ],
                                       ),
                                     ),
@@ -396,6 +453,31 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
                           ],
                         ),
                       const SizedBox(height: 16),
+                      // Botón para abrir mensaje privado
+                      Center(
+                        child: ElevatedButton.icon(
+                          onPressed: () {
+                            if (!mounted) return;
+                            
+                            // Hacer pop con el nick como resultado para que el chat_screen lo maneje
+                            Navigator.of(context).pop({'openPrivateMessage': widget.nick});
+                          },
+                          icon: const Icon(Icons.message),
+                          label: const Text('Mensaje Privado'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: appTheme.primary,
+                            foregroundColor: appTheme.textPrimary,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 20,
+                              vertical: 12,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
                       // Botón para gestionar IP virtual / vHost mediante el bot ipvirtual
                       if (whoisInfo.host != null)
                         Center(
@@ -431,6 +513,7 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
                     ],
                   ),
                 ),
+      ),
     );
   }
 

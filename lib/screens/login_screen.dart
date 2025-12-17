@@ -7,7 +7,6 @@ import '../providers/irc_provider.dart';
 import '../providers/theme_provider.dart';
 import '../models/app_theme.dart';
 import '../models/channel_info.dart';
-import '../models/server_profile.dart';
 import 'chat_screen.dart';
 import '../main.dart' show globalLog;
 
@@ -28,7 +27,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   String? _errorMessage;
   List<ChannelInfo> _channels = [];
   bool _loadingChannels = false;
-  ServerProfile? _selectedProfile;
   
   // Lista de canales prohibidos que no se mostrarán en el combo
   static const List<String> _prohibitedChannels = ['#opers', '#services'];
@@ -40,25 +38,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     final random = Random();
     final randomNumber = random.nextInt(90000) + 10000; // Número entre 10000 y 99999
     _nickController = TextEditingController(text: 'GlobalChat-$randomNumber');
-
-    // Inicializar perfil de servidor actual y último canal usado
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      final initialProfile = ref.read(currentServerProfileProvider);
-      if (initialProfile != null) {
-        setState(() {
-          _selectedProfile = initialProfile;
-          _hostController.text = initialProfile.host;
-          _portController.text = initialProfile.port.toString();
-        });
-      }
-
-      // Rellenar el canal con el último canal utilizado si existe
-      final lastChannel = ref.read(lastChannelProvider);
-      if (lastChannel != null && lastChannel.isNotEmpty) {
-        _channelController.text = lastChannel;
-      }
-    });
-
     _loadChannels();
   }
 
@@ -220,7 +199,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     final appTheme = ref.watch(themeProvider);
-    final serverProfiles = ref.watch(serverProfilesProvider);
     
     return Scaffold(
       appBar: AppBar(
@@ -332,81 +310,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     ],
                   ),
                   const SizedBox(height: 24),
-                  // Selector de servidor / red
-                  const SizedBox(height: 16),
-                  DropdownButtonFormField<ServerProfile>(
-                    value: _selectedProfile ??
-                        ref.read(currentServerProfileProvider),
-                    decoration: InputDecoration(
-                      labelText: 'Servidor / Red',
-                      prefixIcon:
-                          Icon(Icons.cloud, color: appTheme.primary),
-                      labelStyle:
-                          TextStyle(color: appTheme.primary),
-                      filled: true,
-                      fillColor: appTheme.surface.withOpacity(0.9),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                        borderSide: BorderSide(
-                            color: appTheme.primary, width: 2),
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                        borderSide: BorderSide(
-                            color: appTheme.primary.withOpacity(0.6),
-                            width: 1.5),
-                      ),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                        borderSide: BorderSide(
-                            color: appTheme.primary.withOpacity(0.4),
-                            width: 1),
-                      ),
-                    ),
-                    icon: Icon(Icons.arrow_drop_down,
-                        color: appTheme.primary),
-                    items: serverProfiles
-                        .map(
-                          (profile) => DropdownMenuItem<ServerProfile>(
-                            value: profile,
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  profile.useSSL
-                                      ? Icons.lock
-                                      : Icons.lock_open,
-                                  size: 18,
-                                  color: profile.useSSL
-                                      ? Colors.greenAccent
-                                      : appTheme.textSecondary,
-                                ),
-                                const SizedBox(width: 8),
-                                Text(
-                                  profile.name,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ],
-                            ),
-                          ),
-                        )
-                        .toList(),
-                    onChanged: (profile) {
-                      if (profile == null) return;
-                      setState(() {
-                        _selectedProfile = profile;
-                        _hostController.text = profile.host;
-                        _portController.text = profile.port.toString();
-                      });
-                      ref
-                          .read(currentServerProfileProvider.notifier)
-                          .state = profile;
-                    },
-                  ),
-                  const SizedBox(height: 16),
                   TextField(
                     controller: _hostController,
-                    readOnly: true,
                     style: TextStyle(color: appTheme.textPrimary),
                     decoration: InputDecoration(
                       labelText: 'Servidor',
@@ -433,7 +338,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   const SizedBox(height: 16),
                   TextField(
                     controller: _portController,
-                    readOnly: true,
                     style: TextStyle(color: appTheme.textPrimary),
                     decoration: InputDecoration(
                       labelText: 'Puerto',

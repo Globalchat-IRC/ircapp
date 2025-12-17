@@ -2683,7 +2683,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               ),
           ],
         ),
-        bottomNavigationBar: const RadioControls(),
+        bottomNavigationBar: RadioControls(),
       ),
     );
   }

@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'dart:async';
 import '../models/radio_station.dart';
 import '../services/radio_service.dart';
 
@@ -50,9 +51,12 @@ class RadioState {
 }
 
 class RadioNotifier extends StateNotifier<RadioState> {
+  Timer? _nowPlayingTimer;
+
   RadioNotifier() : super(RadioState(stations: [])) {
     print('📻 RadioNotifier inicializado');
     _loadSettings();
+    _startNowPlayingRefresh();
   }
 
   Future<void> _loadSettings() async {
@@ -82,6 +86,69 @@ class RadioNotifier extends StateNotifier<RadioState> {
     } catch (e, stackTrace) {
       print('❌ Error cargando configuración de radio: $e');
       print('❌ Stack trace: $stackTrace');
+    }
+  }
+
+  void _startNowPlayingRefresh() {
+    // Actualizar la canción en curso cada 30 segundos
+    _nowPlayingTimer?.cancel();
+    _nowPlayingTimer = Timer.periodic(
+      const Duration(seconds: 30),
+      (_) => _refreshNowPlaying(),
+    );
+  }
+
+  Future<void> _refreshNowPlaying() async {
+    if (state.stations.isEmpty) return;
+
+    try {
+      final url =
+          'https://webchat.globalchat.org/static/plugins/stations.json';
+      final response = await http
+          .get(Uri.parse(url))
+          .timeout(const Duration(seconds: 8));
+
+      if (response.statusCode != 200) return;
+
+      final List<dynamic> jsonList = jsonDecode(response.body);
+      final allStations =
+          jsonList.map((json) => RadioStation.fromJson(json)).toList();
+
+      // Mapear por nombre para actualizar datos actuales
+      final Map<String, RadioStation> byName = {
+        for (final s in allStations) s.name: s
+      };
+
+      final updatedStations = state.stations.map((old) {
+        final fresh = byName[old.name];
+        if (fresh == null) return old;
+        return RadioStation(
+          id: old.id,
+          name: old.name,
+          description: old.description,
+          source: old.source,
+          namesite: old.namesite,
+          salon: old.salon,
+          genre: fresh.genre ?? old.genre,
+          bitrate: fresh.bitrate ?? old.bitrate,
+          currentArtistSong: fresh.currentArtistSong ?? old.currentArtistSong,
+        );
+      }).toList();
+
+      RadioStation? updatedActive;
+      if (state.activeStation != null) {
+        updatedActive = updatedStations.firstWhere(
+          (s) => s.name == state.activeStation!.name,
+          orElse: () => state.activeStation!,
+        );
+      }
+
+      state = state.copyWith(
+        stations: updatedStations,
+        activeStation: updatedActive,
+      );
+    } catch (_) {
+      // Silencioso: si falla, mantenemos el último título conocido
     }
   }
 
@@ -268,6 +335,12 @@ class RadioNotifier extends StateNotifier<RadioState> {
 
   void setError(bool hasError) {
     state = state.copyWith(hasError: hasError);
+  }
+
+  @override
+  void dispose() {
+    _nowPlayingTimer?.cancel();
+    super.dispose();
   }
 }
 

@@ -35,6 +35,16 @@ class IRCService {
   
   bool get _hasActiveSocket => _socket != null || _secureSocket != null;
 
+  /// Obtiene el host del servidor conectado
+  String? get serverHost {
+    if (_useSSL && _secureSocket != null) {
+      return _secureSocket!.remoteAddress.host;
+    } else if (_socket != null) {
+      return _socket!.remoteAddress.host;
+    }
+    return null;
+  }
+
   String _currentServerId(String host, int port) => '$host:$port${_useSSL ? ':ssl' : ''}';
 
   Future<void> connect({

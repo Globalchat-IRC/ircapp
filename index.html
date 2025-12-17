@@ -189,9 +189,26 @@
       h1 { font-size: 1.2em; }
       .station-card {
         min-width: 160px;
-        max-width: 180px;
-        flex: 1 1 160px;
+        max-width: 100%;
+        width: 100%;
+        flex: 1 1 100%;
         padding: 1em 0.8em 1.2em 0.8em;
+      }
+      body {
+        /* En móviles el fondo fijo queda raro y consume recursos */
+        background-attachment: scroll;
+        align-items: stretch;
+      }
+      .stations-grid {
+        flex-direction: column;
+        align-items: stretch;
+      }
+      .main-player {
+        padding: 1em 0.8em;
+      }
+      .main-player-title {
+        justify-content: center;
+        text-align: center;
       }
     }
     .radio-station {
