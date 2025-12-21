@@ -7,6 +7,7 @@ import '../providers/irc_provider.dart';
 import '../providers/theme_provider.dart';
 import '../models/app_theme.dart';
 import '../models/channel_info.dart';
+import '../models/server_profile.dart';
 import 'chat_screen.dart';
 import '../main.dart' show globalLog;
 
@@ -27,6 +28,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   String? _errorMessage;
   List<ChannelInfo> _channels = [];
   bool _loadingChannels = false;
+  ServerProfile? _selectedServer;
   
   // Lista de canales prohibidos que no se mostrarán en el combo
   static const List<String> _prohibitedChannels = ['#opers', '#services'];
@@ -38,7 +40,18 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     final random = Random();
     final randomNumber = random.nextInt(90000) + 10000; // Número entre 10000 y 99999
     _nickController = TextEditingController(text: 'GlobalChat-$randomNumber');
+    // Seleccionar el servidor por defecto
+    _selectedServer = ServerProfile.defaultGlobalChatProfiles.firstWhere(
+      (profile) => profile.isDefault,
+      orElse: () => ServerProfile.defaultGlobalChatProfiles.first,
+    );
+    _updateServerFields(_selectedServer!);
     _loadChannels();
+  }
+
+  void _updateServerFields(ServerProfile profile) {
+    _hostController.text = profile.host;
+    _portController.text = profile.port.toString();
   }
 
   Future<void> _loadChannels() async {
@@ -119,9 +132,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       globalLog('🔵 [LOGIN] Got IRCService instance');
       globalLog('🔵 [LOGIN] Calling connect() with $host:$port as $nick');
       
-      // Detectar automáticamente SSL basado en el puerto
-      // Puerto 6697 es estándar para IRC SSL/TLS
-      final useSSL = port == 6697;
+      // Usar SSL si el servidor seleccionado lo requiere
+      final useSSL = _selectedServer?.useSSL ?? (port == 6697);
       
       await ircService.connect(
         host: host,
@@ -310,57 +322,68 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     ],
                   ),
                   const SizedBox(height: 24),
-                  TextField(
-                    controller: _hostController,
-                    style: TextStyle(color: appTheme.textPrimary),
-                    decoration: InputDecoration(
-                      labelText: 'Servidor',
-                      hintText: 'ceres.globalchat.org',
-                      prefixIcon: Icon(Icons.language, color: appTheme.primary),
-                      labelStyle: TextStyle(color: appTheme.primary),
-                      hintStyle: TextStyle(color: appTheme.textSecondary),
-                      filled: true,
-                      fillColor: appTheme.surface.withOpacity(0.9),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                        borderSide: BorderSide(color: appTheme.primary, width: 2),
+                  // Selector de servidor
+                  SizedBox(
+                    height: 56,
+                    child: DropdownButtonFormField<ServerProfile>(
+                      value: _selectedServer,
+                      isExpanded: true,
+                      decoration: InputDecoration(
+                        labelText: 'Servidor',
+                        prefixIcon: Icon(Icons.language, color: appTheme.primary),
+                        labelStyle: TextStyle(color: appTheme.primary),
+                        filled: true,
+                        fillColor: appTheme.surface.withOpacity(0.9),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                          borderSide: BorderSide(color: appTheme.primary, width: 2),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                          borderSide: BorderSide(color: appTheme.primary.withOpacity(0.6), width: 1.5),
+                        ),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                          borderSide: BorderSide(color: appTheme.primary.withOpacity(0.4), width: 1),
+                        ),
                       ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                        borderSide: BorderSide(color: appTheme.primary.withOpacity(0.6), width: 1.5),
-                      ),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                        borderSide: BorderSide(color: appTheme.primary.withOpacity(0.4), width: 1),
-                      ),
+                      dropdownColor: appTheme.surface,
+                      style: TextStyle(color: appTheme.textPrimary),
+                      items: ServerProfile.defaultGlobalChatProfiles.map((profile) {
+                        return DropdownMenuItem<ServerProfile>(
+                          value: profile,
+                          child: Row(
+                            children: [
+                              Icon(
+                                profile.useSSL ? Icons.lock : Icons.lock_open,
+                                size: 18,
+                                color: profile.useSSL ? Colors.green : appTheme.textSecondary,
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  profile.name,
+                                  style: TextStyle(
+                                    color: appTheme.textPrimary,
+                                    fontWeight: profile.isDefault ? FontWeight.bold : FontWeight.normal,
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      }).toList(),
+                      onChanged: (ServerProfile? newProfile) {
+                        if (newProfile != null) {
+                          setState(() {
+                            _selectedServer = newProfile;
+                            _updateServerFields(newProfile);
+                          });
+                        }
+                      },
                     ),
-                  ),
-                  const SizedBox(height: 16),
-                  TextField(
-                    controller: _portController,
-                    style: TextStyle(color: appTheme.textPrimary),
-                    decoration: InputDecoration(
-                      labelText: 'Puerto',
-                      hintText: '6667',
-                      prefixIcon: Icon(Icons.vpn_lock, color: appTheme.primary),
-                      labelStyle: TextStyle(color: appTheme.primary),
-                      hintStyle: TextStyle(color: appTheme.textSecondary),
-                      filled: true,
-                      fillColor: appTheme.surface.withOpacity(0.9),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                        borderSide: BorderSide(color: appTheme.primary, width: 2),
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                        borderSide: BorderSide(color: appTheme.primary.withOpacity(0.6), width: 1.5),
-                      ),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                        borderSide: BorderSide(color: appTheme.primary.withOpacity(0.4), width: 1),
-                      ),
-                    ),
-                    keyboardType: TextInputType.number,
                   ),
                   const SizedBox(height: 16),
                   TextField(

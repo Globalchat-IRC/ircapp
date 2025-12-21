@@ -215,6 +215,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     
     // Listen for new messages to auto-open private messages
     _ircService.addMessageListener(_onMessageReceived);
+    
+    // Listen for nickname changes
+    _ircService.addNickChangeListener(_onNickChanged);
 
     // Get the channel from provider (was set in LoginScreen)
     final channel = ref.read(currentChannelProvider);
@@ -276,6 +279,34 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           print('  🔄 setState after post-frame for topic');
         });
       });
+    }
+  }
+
+  void _onNickChanged(String newNick) {
+    print('🔄 [ChatScreen] _onNickChanged called: $newNick');
+    print('🔄 [ChatScreen] mounted: $mounted');
+    if (mounted) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        print('🔄 [ChatScreen] PostFrameCallback ejecutado, mounted: $mounted');
+        if (!mounted) {
+          print('🔄 [ChatScreen] ❌ Widget no está montado, cancelando actualización');
+          return;
+        }
+        final oldNick = ref.read(currentNicknameProvider);
+        print('🔄 [ChatScreen] Nick anterior en provider: $oldNick');
+        print('🔄 [ChatScreen] Actualizando provider a: $newNick');
+        ref.read(currentNicknameProvider.notifier).state = newNick;
+        final updatedNick = ref.read(currentNicknameProvider);
+        print('🔄 [ChatScreen] ✅ Provider actualizado, nuevo valor: $updatedNick');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Nick cambiado a $newNick'),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      });
+    } else {
+      print('🔄 [ChatScreen] ❌ Widget no está montado, no se puede actualizar');
     }
   }
 
@@ -373,6 +404,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     _ircService.removeUserListListener(_onUserListChanged);
     _ircService.removeTopicListener(_onTopicChanged);
     _ircService.removeMessageListener(_onMessageReceived);
+    _ircService.removeNickChangeListener(_onNickChanged);
     _messageController.dispose();
     _channelController.dispose();
     super.dispose();
@@ -918,6 +950,39 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Solicitando información de $nick...'),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+        break;
+        
+      case 'nick':
+        if (args.isEmpty) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Uso: /nick <nuevonick>'),
+              duration: Duration(seconds: 2),
+            ),
+          );
+          return;
+        }
+        
+        final newNick = args[0].trim();
+        if (newNick.isEmpty) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Por favor ingresa un nick válido'),
+              duration: Duration(seconds: 2),
+            ),
+          );
+          return;
+        }
+        
+        _ircService.changeNick(newNick);
+        // No actualizar el provider aquí, esperar a que el servidor confirme el cambio
+        // El listener _onNickChanged actualizará el provider cuando el servidor confirme
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Cambiando nick a $newNick...'),
             duration: const Duration(seconds: 2),
           ),
         );
@@ -1672,6 +1737,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   @override
   Widget build(BuildContext context) {
     final nickname = ref.watch(currentNicknameProvider);
+    print('🔄 [ChatScreen] build() - nickname from provider: "$nickname"');
+    print('🔄 [ChatScreen] build() - AppBar mostrará: "como $nickname"');
     final currentChannel = ref.watch(currentChannelProvider);
     final messages = ref.watch(messagesProvider);
     final channels = ref.watch(channelsProvider);
@@ -1682,8 +1749,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final serviceConnected = _ircService.isConnected;
 
     // Solo redirigir a LoginScreen si realmente no está conectado
-    // (ni el provider ni el servicio indican conexión)
+    // Y solo si ya pasó un tiempo razonable desde la inicialización (evitar bucles en Android)
+    // Si estamos en proceso de conexión o hay un canal configurado, mostrar pantalla de carga
     if (!isConnected && !serviceConnected) {
+      // Si hay un canal configurado o ya intentamos unirnos, mostrar carga en lugar de redirigir
+      // Esto evita pantallas negras durante la transición en Android
+      if (currentChannel != null || _initialJoinDone) {
+        return _buildLoadingScreen(appTheme, currentChannel ?? 'Conectando...');
+      }
+      // Solo redirigir si realmente no hay nada configurado
       return const LoginScreen();
     }
 
@@ -1754,10 +1828,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         channelKey != null && 
         channels.containsKey(channelKey);
 
-    // Si el canal no está cargado, mostrar pantalla de carga
-    if (!isChannelLoaded && currentChannel != null && isConnected) {
-      return _buildLoadingScreen(appTheme, currentChannel);
+    // Si el canal no está cargado O si estamos conectados pero aún no hay canal,
+    // mostrar pantalla de carga (evita pantalla negra en Android durante inicialización)
+    if (!isChannelLoaded && (isConnected || serviceConnected)) {
+      final channelName = currentChannel ?? 'Conectando...';
+      print('🔍 [DEBUG] 🖼️  ChatScreen: Mostrando pantalla de carga - isChannelLoaded=$isChannelLoaded, isConnected=$isConnected, serviceConnected=$serviceConnected, channelName=$channelName');
+      return _buildLoadingScreen(appTheme, channelName);
     }
+
+    print('🔍 [DEBUG] 🖼️  ChatScreen: Renderizando contenido principal - isChannelLoaded=$isChannelLoaded, currentChannel=$currentChannel, channels=${channels.keys.toList()}');
+    print('🔍 [DEBUG] 🖼️  ChatScreen: appTheme.background=${appTheme.background}');
 
     return PopScope(
       canPop: false,
@@ -1767,6 +1847,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         }
       },
       child: Scaffold(
+        backgroundColor: appTheme.background,
         appBar: AppBar(
           title: LayoutBuilder(
             builder: (context, constraints) {
@@ -1998,10 +2079,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             ),
           ],
         ),
-      body: Row(
-          children: [
-            // Channels sidebar
-            Expanded(
+      body: Builder(
+        builder: (context) {
+          print('🔍 [DEBUG] 🖼️  ChatScreen body: Construyendo Row con ${channels.length} canales');
+          print('🔍 [DEBUG] 🖼️  ChatScreen body: currentChannel=$currentChannel, isChannelLoaded=$isChannelLoaded');
+          return Row(
+            children: [
+              // Channels sidebar
+              Expanded(
               flex: 1,
               child: Container(
                 color: Colors.grey[900],
@@ -2258,15 +2343,22 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             // Chat area
             Expanded(
               flex: 3,
-              child: Column(
-                children: [
-                  // Topic bar con animación
-                  if (currentChannel != null)
-                    _buildTopicBar(currentChannel, channels, appTheme),
-                  // Messages
-                  Expanded(
-                    child: currentChannel == null
-                        ? Center(
+              child: Builder(
+                builder: (context) {
+                  print('🔍 [DEBUG] 🖼️  ChatScreen chat area Column: currentChannel=$currentChannel');
+                  return Column(
+                    children: [
+                      // Topic bar con animación
+                      if (currentChannel != null)
+                        _buildTopicBar(currentChannel, channels, appTheme),
+                      // Messages
+                      Expanded(
+                        child: Builder(
+                          builder: (context) {
+                            print('🔍 [DEBUG] 🖼️  ChatScreen messages area: currentChannel=$currentChannel');
+                        if (currentChannel == null) {
+                          print('🔍 [DEBUG] 🖼️  ChatScreen: Mostrando mensaje de selección de canal');
+                          return Center(
                             child: Column(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
@@ -2285,107 +2377,104 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                 ),
                               ],
                             ),
-                          )
-                        : Stack(
+                          );
+                        }
+                        print('🔍 [DEBUG] 🖼️  ChatScreen: Construyendo Stack con fondo ASCII para canal $currentChannel');
+                        print('🔍 [DEBUG] 🖼️  ChatScreen: Construyendo Stack con ${allMessages.length} mensajes');
+                        // Para Android: estructura ultra-simplificada sin Stack ni fondos decorativos
+                        if (Platform.isAndroid) {
+                          print('🔍 [DEBUG] 🖼️  ChatScreen: Modo Android - estructura simplificada');
+                          // Estructura mínima: ListView directamente sin contenedores adicionales
+                          return ListView.builder(
+                            reverse: true,
+                            padding: const EdgeInsets.symmetric(vertical: 8),
+                            itemCount: allMessages.length,
+                            itemBuilder: (context, index) {
+                              print('🔍 [DEBUG] 🖼️  ChatScreen: Construyendo mensaje $index de ${allMessages.length}');
+                              final message = allMessages[
+                                  allMessages.length - 1 - index];
+                              return _buildMessageTile(message);
+                            },
+                          );
+                        }
+                        // Para otras plataformas: estructura completa con fondos decorativos
+                        return Container(
+                          color: appTheme.background,
+                          child: Column(
                             children: [
-                              // Fondo degradado adaptado al tema
-                              Positioned.fill(
+                              _buildPinnedMessagesBar(
+                                currentChannel,
+                                appTheme,
+                              ),
+                              Expanded(
                                 child: Container(
-                                  decoration: BoxDecoration(
-                                    gradient: LinearGradient(
-                                      begin: Alignment.topLeft,
-                                      end: Alignment.bottomRight,
-                                      colors: [
-                                        appTheme.primary.withOpacity(0.08),
-                                        appTheme.secondary.withOpacity(0.06),
-                                        appTheme.accent.withOpacity(0.04),
-                                        appTheme.background,
-                                      ],
-                                      stops: const [0.0, 0.35, 0.65, 1.0],
-                                    ),
-                                  ),
-                                ),
-                              ),
-                              // Resalte radial suave para dar profundidad
-                              Positioned.fill(
-                                child: Container(
-                                  decoration: BoxDecoration(
-                                    gradient: RadialGradient(
-                                      center: const Alignment(0, -0.05),
-                                      radius: 1.1,
-                                      colors: [
-                                        appTheme.primary.withOpacity(0.12),
-                                        Colors.transparent,
-                                      ],
-                                      stops: const [0.0, 1.0],
-                                    ),
-                                  ),
-                                ),
-                              ),
-                              // Logo de fondo (ASCII, Semana Santa o Canal Sur según el tema)
-                              Positioned.fill(
-                                child: Opacity(
-                                  opacity: (appTheme.name == 'Semana Santa Sevilla' || appTheme.name == 'Canal Sur') ? 0.15 : 0.38,
-                                  child: Builder(
-                                    builder: (context) {
-                                      print('🎨 [Background] Tema activo: ${appTheme.name}');
-                                      if (appTheme.name == 'Semana Santa Sevilla') {
-                                        print('🎨 [Background] Mostrando logo Semana Santa Sevilla');
-                                        return const _SemanaSantaBackground();
-                                      } else if (appTheme.name == 'Canal Sur') {
-                                        print('🎨 [Background] Mostrando logo Canal Sur');
-                                        return const _CanalSurBackground();
-                                      } else {
-                                        print('🎨 [Background] Mostrando fondo ASCII');
-                                        return const _AsciiBackground();
-                                      }
-                                    },
-                                  ),
-                                ),
-                              ),
-                              // Capa de oscurecido muy ligera para conservar contraste sin tapar el logo
-                              Positioned.fill(
-                                child: Container(
-                                  decoration: BoxDecoration(
-                                    gradient: LinearGradient(
-                                      colors: [
-                                        appTheme.background.withOpacity(0.3),
-                                        appTheme.background.withOpacity(0.5),
-                                      ],
-                                      begin: Alignment.topCenter,
-                                      end: Alignment.bottomCenter,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                              // Lista de mensajes con barra de mensajes fijados arriba
-                              Positioned.fill(
-                                child: Column(
-                                  children: [
-                                    _buildPinnedMessagesBar(
-                                      currentChannel,
-                                      appTheme,
-                                    ),
-                                    Expanded(
-                                      child: ListView.builder(
-                                        reverse: true,
-                                        padding: const EdgeInsets.symmetric(
-                                            vertical: 8),
-                                        itemCount: allMessages.length,
-                                        itemBuilder: (context, index) {
-                                          final message = allMessages[
-                                              allMessages.length -
-                                                  1 -
-                                                  index];
-                                          return _buildMessageTile(message);
-                                        },
+                                  color: appTheme.background,
+                                  child: Stack(
+                                    children: [
+                                      // Fondo decorativo
+                                      Positioned.fill(
+                                        child: Container(
+                                          decoration: BoxDecoration(
+                                            gradient: LinearGradient(
+                                              begin: Alignment.topLeft,
+                                              end: Alignment.bottomRight,
+                                              colors: [
+                                                appTheme.primary.withOpacity(0.08),
+                                                appTheme.secondary.withOpacity(0.06),
+                                                appTheme.accent.withOpacity(0.04),
+                                                appTheme.background,
+                                              ],
+                                              stops: const [0.0, 0.35, 0.65, 1.0],
+                                            ),
+                                          ),
+                                          child: Opacity(
+                                            opacity: (appTheme.name == 'Semana Santa Sevilla' || appTheme.name == 'Canal Sur') ? 0.15 : 0.38,
+                                            child: Builder(
+                                              builder: (context) {
+                                                print('🎨 [Background] Tema activo: ${appTheme.name}');
+                                                try {
+                                                  if (appTheme.name == 'Semana Santa Sevilla') {
+                                                    print('🎨 [Background] Mostrando logo Semana Santa Sevilla');
+                                                    return const _SemanaSantaBackground();
+                                                  } else if (appTheme.name == 'Canal Sur') {
+                                                    print('🎨 [Background] Mostrando logo Canal Sur');
+                                                    return const _CanalSurBackground();
+                                                  } else {
+                                                    print('🎨 [Background] Mostrando fondo ASCII');
+                                                    return const _AsciiBackground();
+                                                  }
+                                                } catch (e) {
+                                                  print('🎨 [Background] Error al renderizar fondo: $e');
+                                                  return const SizedBox.shrink();
+                                                }
+                                              },
+                                            ),
+                                          ),
+                                        ),
                                       ),
-                                    ),
-                                  ],
+                                      // Lista de mensajes
+                                      Positioned.fill(
+                                        child: ListView.builder(
+                                          reverse: true,
+                                          padding: const EdgeInsets.symmetric(vertical: 8),
+                                          itemCount: allMessages.length,
+                                          itemBuilder: (context, index) {
+                                            print('🔍 [DEBUG] 🖼️  ChatScreen: Construyendo mensaje $index de ${allMessages.length}');
+                                            final message = allMessages[
+                                                allMessages.length - 1 - index];
+                                            return _buildMessageTile(message);
+                                          },
+                                        ),
+                                      ),
+                                    ],
+                                  ),
                                 ),
                               ),
                             ],
                           ),
+                        );
+                        },
+                      ),
                   ),
                   const Divider(height: 1),
                   // Typing indicator
@@ -2440,25 +2529,28 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                     },
                                   ),
                                 },
-                                child: Focus(
-                            child: TextField(
-                              controller: _messageController,
-                              decoration: InputDecoration(
+                                child: FocusScope(
+                                  child: TextField(
+                                    controller: _messageController,
+                                    decoration: InputDecoration(
                                       hintText: 'Mensaje... (Pega imágenes con Cmd+V)',
-                                border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 12,
-                                  vertical: 8,
-                                ),
+                                      border: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                      contentPadding: const EdgeInsets.symmetric(
+                                        horizontal: 12,
+                                        vertical: 8,
+                                      ),
                                       fillColor: appTheme.surface,
                                       filled: true,
-                              ),
-                              onSubmitted: (_) => _sendMessage(),
-                              minLines: 1,
-                              maxLines: 3,
+                                    ),
+                                    onSubmitted: (_) => _sendMessage(),
+                                    minLines: 1,
+                                    maxLines: 3,
                                     keyboardType: TextInputType.multiline,
+                                    enabled: true,
+                                    readOnly: false,
+                                    autofocus: false,
                                   ),
                                 ),
                               ),
@@ -2474,7 +2566,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         ],
                       ),
                     ),
-                ],
+                    ],
+                  );
+                },
               ),
             ),
             // Users sidebar - Solo mostrar para canales, no para queries (mensajes privados)
@@ -2681,8 +2775,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   ),
                 ),
               ),
-          ],
-        ),
+            ],
+          );
+        },
+      ),
         bottomNavigationBar: RadioControls(),
       ),
     );
@@ -4899,6 +4995,22 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 leading: Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
+                    color: Colors.teal.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.edit, color: Colors.teal),
+                ),
+                title: const Text('Cambiar Nick'),
+                subtitle: const Text('Cambiar mi nombre de usuario'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _showChangeNickDialog(context, nick);
+                },
+              ),
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
                     color: Colors.purple.withOpacity(0.2),
                     borderRadius: BorderRadius.circular(8),
                   ),
@@ -4985,6 +5097,105 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  void _showChangeNickDialog(BuildContext context, String currentNick) {
+    final appTheme = ref.read(themeProvider);
+    final nickController = TextEditingController(text: currentNick);
+    
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: appTheme.surface,
+        title: Text(
+          'Cambiar Nick',
+          style: TextStyle(color: appTheme.textPrimary),
+        ),
+        content: TextField(
+          controller: nickController,
+          autofocus: true,
+          style: TextStyle(color: appTheme.textPrimary),
+          decoration: InputDecoration(
+            labelText: 'Nuevo nick',
+            labelStyle: TextStyle(color: appTheme.primary),
+            hintText: 'Escribe el nuevo nick',
+            hintStyle: TextStyle(color: appTheme.textSecondary),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide(color: appTheme.primary),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide(color: appTheme.primary, width: 2),
+            ),
+            filled: true,
+            fillColor: appTheme.background,
+          ),
+          onSubmitted: (value) {
+            final newNick = value.trim();
+            if (newNick.isNotEmpty && newNick != currentNick) {
+              _ircService.changeNick(newNick);
+              Navigator.pop(context);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Cambiando nick a $newNick...'),
+                  duration: const Duration(seconds: 2),
+                ),
+              );
+            } else if (newNick.isEmpty) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Por favor ingresa un nick válido'),
+                  duration: Duration(seconds: 2),
+                ),
+              );
+            } else {
+              Navigator.pop(context);
+            }
+          },
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(
+              'Cancelar',
+              style: TextStyle(color: appTheme.textSecondary),
+            ),
+          ),
+          TextButton(
+            onPressed: () {
+              final newNick = nickController.text.trim();
+              if (newNick.isNotEmpty && newNick != currentNick) {
+                _ircService.changeNick(newNick);
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Cambiando nick a $newNick...'),
+                    duration: const Duration(seconds: 2),
+                  ),
+                );
+              } else if (newNick.isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Por favor ingresa un nick válido'),
+                    duration: Duration(seconds: 2),
+                  ),
+                );
+              } else {
+                Navigator.pop(context);
+              }
+            },
+            child: Text(
+              'Cambiar',
+              style: TextStyle(
+                color: appTheme.primary,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

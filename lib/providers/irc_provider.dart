@@ -170,7 +170,7 @@ class ChannelsNotifier extends StateNotifier<Map<String, IRCChannel>> {
     
     // Always update to ensure UI reflects current state
     print('🔍 [DEBUG] ✅ Updating state with new channels');
-    state = newState;
+      state = newState;
     print('🔍 [DEBUG] ✅ State updated, now has ${state.length} channels');
   }
 

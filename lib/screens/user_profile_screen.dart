@@ -301,6 +301,45 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
                         ),
                       ),
                       const SizedBox(height: 24),
+                      // Cambio de nick (solo si es el propio usuario)
+                      Consumer(
+                        builder: (context, ref, _) {
+                          final currentNick = ref.watch(currentNicknameProvider);
+                          final isOwnProfile = currentNick != null && 
+                              currentNick.toLowerCase() == widget.nick.toLowerCase();
+                          
+                          if (!isOwnProfile) {
+                            return const SizedBox.shrink();
+                          }
+                          
+                          return Column(
+                            children: [
+                              _buildSection(
+                                appTheme,
+                                'Cambiar Nick',
+                                [
+                                  _ChangeNickWidget(
+                                    appTheme: appTheme,
+                                    onNickChanged: (newNick) {
+                                      final ircService = ref.read(ircServiceProvider);
+                                      ircService.changeNick(newNick);
+                                      // No actualizar el provider aquí, esperar a que el servidor confirme el cambio
+                                      // El listener en chat_screen actualizará el provider cuando el servidor confirme
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        SnackBar(
+                                          content: Text('Cambiando nick a $newNick...'),
+                                          duration: const Duration(seconds: 2),
+                                        ),
+                                      );
+                                    },
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 16),
+                            ],
+                          );
+                        },
+                      ),
                       // Información básica
                       _buildSection(
                         appTheme,
@@ -617,6 +656,156 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
     } else {
       return '${dateTime.day}/${dateTime.month}/${dateTime.year}';
     }
+  }
+}
+
+// Widget para cambiar el nick
+class _ChangeNickWidget extends ConsumerStatefulWidget {
+  final dynamic appTheme;
+  final Function(String) onNickChanged;
+
+  const _ChangeNickWidget({
+    required this.appTheme,
+    required this.onNickChanged,
+  });
+
+  @override
+  ConsumerState<_ChangeNickWidget> createState() => _ChangeNickWidgetState();
+}
+
+class _ChangeNickWidgetState extends ConsumerState<_ChangeNickWidget> {
+  late TextEditingController _nickController;
+  bool _isEditing = false;
+  String? _lastKnownNick;
+
+  @override
+  void initState() {
+    super.initState();
+    final currentNick = ref.read(currentNicknameProvider) ?? 'Usuario';
+    _lastKnownNick = currentNick;
+    _nickController = TextEditingController(text: currentNick);
+  }
+
+  @override
+  void dispose() {
+    _nickController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Escuchar cambios en el provider para actualizar el nick mostrado
+    final currentNickFromProvider = ref.watch(currentNicknameProvider) ?? 'Usuario';
+    print('🔄 [ChangeNickWidget] build() - currentNickFromProvider: "$currentNickFromProvider", _lastKnownNick: "$_lastKnownNick", _isEditing: $_isEditing');
+    
+    // Actualizar el controlador si el nick cambió desde el provider
+    if (currentNickFromProvider != _lastKnownNick && !_isEditing) {
+      print('🔄 [ChangeNickWidget] ✅ Actualizando controlador de "$_lastKnownNick" a "$currentNickFromProvider"');
+      _lastKnownNick = currentNickFromProvider;
+      _nickController.text = currentNickFromProvider;
+    } else if (currentNickFromProvider != _lastKnownNick && _isEditing) {
+      print('🔄 [ChangeNickWidget] ⚠️  Nick cambió pero estamos editando, no actualizamos el controlador');
+    }
+    
+    if (!_isEditing) {
+      return ListTile(
+        leading: Icon(Icons.edit, color: widget.appTheme.primary),
+        title: const Text('Nick actual'),
+        subtitle: Text(
+          currentNickFromProvider,
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            color: widget.appTheme.textPrimary,
+          ),
+        ),
+        trailing: IconButton(
+          icon: Icon(Icons.edit, color: widget.appTheme.primary),
+          onPressed: () {
+            setState(() {
+              _isEditing = true;
+            });
+          },
+        ),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.all(8.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          TextField(
+            controller: _nickController,
+            style: TextStyle(color: widget.appTheme.textPrimary),
+            decoration: InputDecoration(
+              labelText: 'Nuevo nick',
+              hintText: 'Escribe el nuevo nick',
+              prefixIcon: Icon(Icons.person, color: widget.appTheme.primary),
+              labelStyle: TextStyle(color: widget.appTheme.primary),
+              filled: true,
+              fillColor: widget.appTheme.surface.withOpacity(0.9),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+                borderSide: BorderSide(color: widget.appTheme.primary, width: 2),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+                borderSide: BorderSide(color: widget.appTheme.primary.withOpacity(0.6), width: 1.5),
+              ),
+            ),
+            onSubmitted: (value) {
+              final newNick = value.trim();
+              if (newNick.isNotEmpty && newNick != currentNickFromProvider) {
+                widget.onNickChanged(newNick);
+                setState(() {
+                  _isEditing = false;
+                });
+              } else {
+                setState(() {
+                  _isEditing = false;
+                });
+              }
+            },
+          ),
+          const SizedBox(height: 8),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              TextButton(
+                onPressed: () {
+                  setState(() {
+                    _isEditing = false;
+                    _nickController.text = currentNickFromProvider;
+                  });
+                },
+                child: const Text('Cancelar'),
+              ),
+              const SizedBox(width: 8),
+              ElevatedButton(
+                onPressed: () {
+                  final newNick = _nickController.text.trim();
+                  if (newNick.isNotEmpty && newNick != currentNickFromProvider) {
+                    widget.onNickChanged(newNick);
+                    setState(() {
+                      _isEditing = false;
+                    });
+                  } else {
+                    setState(() {
+                      _isEditing = false;
+                    });
+                  }
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: widget.appTheme.primary,
+                  foregroundColor: widget.appTheme.textPrimary,
+                ),
+                child: const Text('Cambiar'),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
   }
 }
 

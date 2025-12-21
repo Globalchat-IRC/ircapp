@@ -19,6 +19,7 @@ class IRCService {
   final List<Function()> _connectionListeners = [];
   final List<Function()> _disconnectionListeners = [];
   final List<Function(WhoisInfo)> _whoisListeners = [];
+  final List<Function(String)> _nickChangeListeners = []; // Listeners para cambios de nick
   Map<String, WhoisInfo> _whoisCache = {};
   Map<String, WhoisInfo> _pendingWhois = {}; // Para acumular información de whois
   final Set<String> _ignoredUsers = {}; // Lista de usuarios ignorados (en minúsculas)
@@ -103,28 +104,28 @@ class IRCService {
         );
       } else {
         // Usar Socket normal para conexiones no seguras
-        _socket = await Socket.connect(host, port,
-            timeout: const Duration(seconds: 10));
-        print('✅ [IRCService] Socket connected');
-        
-        // Start listening to incoming data (non-blocking)
-        _socketSubscription = _socket!.listen(
-          (List<int> event) {
+      _socket = await Socket.connect(host, port,
+          timeout: const Duration(seconds: 10));
+      print('✅ [IRCService] Socket connected');
+      
+      // Start listening to incoming data (non-blocking)
+      _socketSubscription = _socket!.listen(
+        (List<int> event) {
             // Decodificar como UTF-8 para soportar emoticonos y caracteres especiales
             String data = utf8.decode(event, allowMalformed: true);
-            _handleData(data);
-          },
-          onDone: () {
-            print('⛔ [IRCService] Socket closed');
-            _onDisconnect();
-          },
-          onError: (error) {
-            print('❌ [IRCService] Socket error: $error');
-            _onDisconnect();
-          },
-        );
+          _handleData(data);
+        },
+        onDone: () {
+          print('⛔ [IRCService] Socket closed');
+          _onDisconnect();
+        },
+        onError: (error) {
+          print('❌ [IRCService] Socket error: $error');
+          _onDisconnect();
+        },
+      );
       }
-      
+
       // Send initial IRC commands
       _sendCommand('NICK $nickname');
       _sendCommand('USER $nickname 0 * :$nickname');
@@ -385,13 +386,32 @@ class IRCService {
     final msg = IRCMessage(
       nick: _nickname ?? 'You',
       channel: queryChannel,
-      message: message,
-      timestamp: DateTime.now(),
-    );
+        message: message,
+        timestamp: DateTime.now(),
+      );
     channels[queryChannel]!.addMessage(msg);
-    _notifyMessageListeners(msg);
+      _notifyMessageListeners(msg);
     
     print('📤 [IRCService] Mensaje privado enviado a $normalizedNick: $message');
+  }
+
+  // Cambiar el nickname
+  void changeNick(String newNick) {
+    final trimmedNick = newNick.trim();
+    if (trimmedNick.isEmpty) {
+      print('⚠️  [IRCService] No se puede cambiar a un nick vacío');
+      return;
+    }
+    
+    if (trimmedNick == _nickname) {
+      print('ℹ️  [IRCService] Ya estás usando ese nick');
+      return;
+    }
+    
+    print('🔄 [IRCService] Cambiando nick de "$_nickname" a "$trimmedNick"');
+    _sendCommand('NICK $trimmedNick');
+    // El servidor confirmará el cambio con un mensaje NICK, entonces actualizaremos _nickname
+    // cuando recibamos la confirmación del servidor
   }
 
   void _sendCommand(String command) {
@@ -413,8 +433,8 @@ class IRCService {
       if (line.isEmpty) continue;
       print('IRC >> $line');
       
-      // Log especial para comandos JOIN, 353, 366, 332 (TOPIC)
-      if (line.contains(' JOIN ') || line.contains(' 353 ') || line.contains(' 366 ') || line.contains(' 332 ')) {
+      // Log especial para comandos JOIN, 353, 366, 332 (TOPIC), NICK
+      if (line.contains(' JOIN ') || line.contains(' 353 ') || line.contains(' 366 ') || line.contains(' 332 ') || line.contains(' NICK ')) {
         print('🔍 [DEBUG] ⭐ Important IRC message: $line');
       }
       
@@ -423,6 +443,11 @@ class IRCService {
         print('🔍 [DEBUG] 📌📌📌 RAW TOPIC MESSAGE RECEIVED: $line');
         print('🔍 [DEBUG] 📌📌📌 Full raw line length: ${line.length}');
         print('🔍 [DEBUG] 📌📌📌 Line bytes: ${line.codeUnits}');
+      }
+      
+      // Log específico para NICK
+      if (line.contains(' NICK ')) {
+        print('🔄 [DEBUG] 🔄🔴 RAW NICK MESSAGE RECEIVED: $line');
       }
       
       _parseIRCMessage(line);
@@ -784,6 +809,77 @@ class IRCService {
               _notifyUserListListeners(channel);
               print('  ✅ Final user count for $channel: ${channels[channel]!.users.length}');
             }
+          }
+          break;
+        
+        case 'NICK':
+          // El servidor confirma el cambio de nick
+          // Formato: :oldnick!user@host NICK :newnick
+          // O: :oldnick NICK :newnick
+          print('🔄 [IRCService] 🔴🔴🔴 NICK command received - Full line: $line');
+          print('🔄 [IRCService] NICK command - source: $source, command: $command, args: $args');
+          print('🔄 [IRCService] NICK command - parts: $parts');
+          print('🔄 [IRCService] NICK command - nick from source: $nick');
+          
+          if (args.isNotEmpty) {
+            // El nuevo nick puede estar en args[0] con o sin ':'
+            var newNick = args[0];
+            if (newNick.startsWith(':')) {
+              newNick = newNick.substring(1);
+            }
+            newNick = newNick.trim();
+            
+            // El oldNick viene del source (antes del !)
+            final oldNick = nick;
+            
+            print('🔄 [IRCService] NICK parsed - oldNick="$oldNick", newNick="$newNick", our nickname="$_nickname"');
+            print('🔄 [IRCService] Comparación: oldNick.toLowerCase()="${oldNick?.toLowerCase()}" == _nickname.toLowerCase()="${_nickname?.toLowerCase()}"');
+            print('🔄 [IRCService] ¿Son iguales?: ${oldNick != null && _nickname != null && oldNick.toLowerCase() == _nickname!.toLowerCase()}');
+            
+            // Si es nuestro propio cambio de nick
+            if (oldNick != null && _nickname != null && oldNick.toLowerCase() == _nickname!.toLowerCase()) {
+              print('🔄 [IRCService] ✅✅✅ Nuestro nick cambió de "$oldNick" a "$newNick"');
+              _nickname = newNick;
+              print('🔄 [IRCService] _nickname actualizado a: "$_nickname"');
+              
+              // Actualizar el nick en todos los canales donde aparezca nuestro nick antiguo
+              print('🔄 [IRCService] Actualizando nick en canales...');
+              for (var channel in channels.values) {
+                if (channel.users.contains(oldNick)) {
+                  print('🔄 [IRCService] Actualizando nick en canal "${channel.name}": "$oldNick" -> "$newNick"');
+                  channel.users.remove(oldNick);
+                  channel.users.add(newNick);
+                  _notifyUserListListeners(channel.name);
+                }
+              }
+              
+              print('🔄 [IRCService] Notificando ${_nickChangeListeners.length} listeners...');
+              // Notificar a los listeners del cambio de nick
+              for (var i = 0; i < _nickChangeListeners.length; i++) {
+                try {
+                  print('🔄 [IRCService] Llamando listener $i con: "$newNick"');
+                  _nickChangeListeners[i](newNick);
+                  print('🔄 [IRCService] Listener $i llamado exitosamente');
+                } catch (e, stackTrace) {
+                  print('⚠️  [IRCService] Error en listener $i de cambio de nick: $e');
+                  print('⚠️  [IRCService] Stack trace: $stackTrace');
+                }
+              }
+              print('🔄 [IRCService] ✅ Todos los listeners notificados');
+            } else {
+              // Es el cambio de nick de otro usuario
+              print('🔄 [IRCService] Usuario "$oldNick" cambió su nick a "$newNick" (no es nuestro)');
+              // Actualizar el nick en todos los canales donde aparezca
+              for (var channel in channels.values) {
+                if (channel.users.contains(oldNick)) {
+                  channel.users.remove(oldNick);
+                  channel.users.add(newNick);
+                  _notifyUserListListeners(channel.name);
+                }
+              }
+            }
+          } else {
+            print('⚠️  [IRCService] NICK command sin argumentos: $line');
           }
           break;
         
@@ -1158,13 +1254,13 @@ class IRCService {
                 final messageContent = line.substring(colonIndex + 1).trim();
                 
                 print('🔍 [DEBUG] PRIVMSG parsed: nick="$nick", target="$target", channelKey="$channelKey", message="$messageContent"');
-                
-                final msg = IRCMessage(
-                  nick: nick,
+            
+            final msg = IRCMessage(
+              nick: nick,
                   channel: channelKey,
-                  message: messageContent,
-                  timestamp: DateTime.now(),
-                );
+              message: messageContent,
+              timestamp: DateTime.now(),
+            );
                 
                 print('🔍 [DEBUG] ✅ Añadiendo mensaje al canal/query: $channelKey');
                 print('🔍 [DEBUG] ✅ Canal existe en mapa: ${channels.containsKey(channelKey)}');
@@ -1183,7 +1279,7 @@ class IRCService {
                 );
                 
                 // Notificar a los listeners de mensajes
-                _notifyMessageListeners(msg);
+            _notifyMessageListeners(msg);
                 print('🔍 [DEBUG] ✅ Listeners notificados. Total listeners: ${_messageListeners.length}');
                 
                 // Si es un nuevo canal/query, notificar también a los listeners de lista de usuarios
@@ -1271,6 +1367,14 @@ class IRCService {
 
   void removeTopicListener(Function(String) listener) {
     _topicListeners.remove(listener);
+  }
+
+  void addNickChangeListener(Function(String) listener) {
+    _nickChangeListeners.add(listener);
+  }
+
+  void removeNickChangeListener(Function(String) listener) {
+    _nickChangeListeners.remove(listener);
   }
 
   void addWhoisListener(Function(WhoisInfo) listener) {
