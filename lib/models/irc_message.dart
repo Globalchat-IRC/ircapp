@@ -4,6 +4,9 @@ class IRCMessage {
   final String message;
   final DateTime timestamp;
   final bool isSystem;
+  final bool isPending; // Mensaje enviado pero aún no confirmado por el servidor
+  final String? pendingId; // ID único para identificar mensajes pendientes
+  final int? delaySeconds; // Delay configurado para este mensaje
 
   IRCMessage({
     required this.nick,
@@ -11,10 +14,36 @@ class IRCMessage {
     required this.message,
     required this.timestamp,
     this.isSystem = false,
+    this.isPending = false,
+    this.pendingId,
+    this.delaySeconds,
   });
 
+  // Crear una copia con campos modificados
+  IRCMessage copyWith({
+    String? nick,
+    String? channel,
+    String? message,
+    DateTime? timestamp,
+    bool? isSystem,
+    bool? isPending,
+    String? pendingId,
+    int? delaySeconds,
+  }) {
+    return IRCMessage(
+      nick: nick ?? this.nick,
+      channel: channel ?? this.channel,
+      message: message ?? this.message,
+      timestamp: timestamp ?? this.timestamp,
+      isSystem: isSystem ?? this.isSystem,
+      isPending: isPending ?? this.isPending,
+      pendingId: pendingId ?? this.pendingId,
+      delaySeconds: delaySeconds ?? this.delaySeconds,
+    );
+  }
+
   @override
-  String toString() => '[$channel] <$nick> $message';
+  String toString() => '[$channel] <$nick> $message${isPending ? " [PENDIENTE]" : ""}';
 }
 
 class IRCChannel {

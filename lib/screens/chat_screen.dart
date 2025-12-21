@@ -27,6 +27,8 @@ import '../widgets/user_avatar.dart';
 import '../services/avatar_service.dart';
 import '../utils/irc_color_parser.dart';
 import '../widgets/radio_controls.dart';
+import '../services/emoji_service.dart';
+import '../widgets/emoji_picker.dart';
 
 // Widget genérico para botones animados
 class AnimatedServiceButton extends StatefulWidget {
@@ -198,6 +200,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   final ImagePicker _imagePicker = ImagePicker();
   bool _initialJoinDone = false;
   final Map<String, List<IRCMessage>> _loadedHistoryByChannel = {};
+  bool _showEmojiPicker = false;
+  final FocusNode _messageFocusNode = FocusNode();
 
   @override
   void initState() {
@@ -407,6 +411,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     _ircService.removeNickChangeListener(_onNickChanged);
     _messageController.dispose();
     _channelController.dispose();
+    _messageFocusNode.dispose();
     super.dispose();
   }
 
@@ -839,15 +844,19 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       return;
     }
 
+    // Obtener el delay configurado
+    final delaySeconds = ref.read(messageSendDelayProvider);
+    print('🔍 [ChatScreen] Delay configurado: ${delaySeconds}s');
+    
     // Normalizar el nombre del canal antes de enviar
     final normalizedChannel = channel.toLowerCase();
     
     // Si el canal no empieza con #, es un query (mensaje privado)
     if (normalizedChannel.startsWith('#')) {
-      _ircService.sendMessage(normalizedChannel, message);
+      _ircService.sendMessage(normalizedChannel, message, delaySeconds: delaySeconds);
     } else {
       // Es un query, enviar mensaje privado
-      _ircService.sendPrivateMessage(normalizedChannel, message);
+      _ircService.sendPrivateMessage(normalizedChannel, message, delaySeconds: delaySeconds);
     }
     
     // Añadir a recientes también al enviar mensaje
@@ -1931,13 +1940,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         emoji: '📢',
                         label: 'Canal',
                         onPressed: () {
-                          _ircService.sendServiceMessage('ChanServ', 'HELP');
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Solicitando ayuda de registro de canal a ChanServ...'),
-                              duration: Duration(seconds: 2),
-                            ),
-                          );
+                          _showChannelRegistrationDialog(context);
                         },
                       ),
                       AnimatedServiceButton(
@@ -1946,13 +1949,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         emoji: '🌐',
                         label: 'IP Virtual',
                         onPressed: () {
-                          _ircService.sendServiceMessage('HostServ', 'HELP');
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Solicitando ayuda de IP virtual a HostServ...'),
-                              duration: Duration(seconds: 2),
-                            ),
-                          );
+                          _showVirtualIPDialog(context);
                         },
                       ),
                     ] else ...[
@@ -1977,13 +1974,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                               );
                               break;
                             case 'ip':
-                              _ircService.sendServiceMessage('HostServ', 'HELP');
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text('Solicitando ayuda de IP virtual a HostServ...'),
-                                  duration: Duration(seconds: 2),
-                                ),
-                              );
+                              _showVirtualIPDialog(context);
                               break;
                           }
                         },
@@ -2492,6 +2483,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       padding: const EdgeInsets.all(12),
                       child: Row(
                         children: [
+                          IconButton(
+                            icon: Icon(Icons.emoji_emotions, color: appTheme.primary),
+                            tooltip: 'Emoticonos',
+                            onPressed: () {
+                              setState(() {
+                                _showEmojiPicker = !_showEmojiPicker;
+                              });
+                            },
+                          ),
                           PopupMenuButton<String>(
                             icon: Icon(Icons.image, color: appTheme.primary),
                             tooltip: 'Adjuntar imagen',
@@ -2529,29 +2529,29 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                     },
                                   ),
                                 },
-                                child: FocusScope(
-                                  child: TextField(
-                                    controller: _messageController,
-                                    decoration: InputDecoration(
-                                      hintText: 'Mensaje... (Pega imágenes con Cmd+V)',
-                                      border: OutlineInputBorder(
-                                        borderRadius: BorderRadius.circular(8),
-                                      ),
-                                      contentPadding: const EdgeInsets.symmetric(
-                                        horizontal: 12,
-                                        vertical: 8,
-                                      ),
-                                      fillColor: appTheme.surface,
-                                      filled: true,
+                                child: TextField(
+                                  controller: _messageController,
+                                  focusNode: _messageFocusNode,
+                                  decoration: InputDecoration(
+                                    hintText: 'Mensaje... (Pega imágenes con Cmd+V)',
+                                    border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(8),
                                     ),
-                                    onSubmitted: (_) => _sendMessage(),
-                                    minLines: 1,
-                                    maxLines: 3,
-                                    keyboardType: TextInputType.multiline,
-                                    enabled: true,
-                                    readOnly: false,
-                                    autofocus: false,
+                                    contentPadding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 8,
+                                    ),
+                                    fillColor: appTheme.surface,
+                                    filled: true,
                                   ),
+                                  onSubmitted: (_) => _sendMessage(),
+                                  minLines: 1,
+                                  maxLines: 3,
+                                  keyboardType: TextInputType.multiline,
+                                  textInputAction: TextInputAction.newline,
+                                  enabled: true,
+                                  readOnly: false,
+                                  autofocus: false,
                                 ),
                               ),
                             ),
@@ -2566,6 +2566,22 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         ],
                       ),
                     ),
+                    // Selector de emoticonos
+                    if (_showEmojiPicker && currentChannel != null)
+                      EmojiPicker(
+                        appTheme: appTheme,
+                        onEmojiSelected: (emojiCode) {
+                          final currentText = _messageController.text;
+                          final cursorPosition = _messageController.selection.baseOffset;
+                          final newText = currentText.substring(0, cursorPosition) +
+                              emojiCode +
+                              currentText.substring(cursorPosition);
+                          _messageController.text = newText;
+                          _messageController.selection = TextSelection.collapsed(
+                            offset: cursorPosition + emojiCode.length,
+                          );
+                        },
+                      ),
                     ],
                   );
                 },
@@ -3103,6 +3119,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   const SizedBox(height: 8),
                   // Contenido del mensaje con soporte para imágenes
                   _buildMessageContent(message.message, isOwnMessage, isBot: isBot),
+                  // Indicador de "enviando..." y botón de eliminar para mensajes pendientes
+                  if (message.isPending && isOwnMessage)
+                    _buildPendingMessageIndicator(context, message),
                   // Botón de registro si es mensaje de NickServ sobre registro
                   if (_isNickRegistrationMessage(message))
                     _buildRegistrationButton(context, message),
@@ -3138,6 +3157,100 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           ],
         ],
       ),
+    );
+  }
+
+  // Widget para mostrar el indicador de mensaje pendiente con contador
+  Widget _buildPendingMessageIndicator(BuildContext context, IRCMessage message) {
+    return Consumer(
+      builder: (context, ref, _) {
+            final delaySeconds = message.delaySeconds ?? ref.read(messageSendDelayProvider);
+            return StatefulBuilder(
+              builder: (context, setState) {
+                // Calcular tiempo restante
+                final elapsed = DateTime.now().difference(message.timestamp).inSeconds;
+                final delayValue = delaySeconds ?? 0;
+                final remaining = delayValue > 0 ? (delayValue - elapsed).clamp(0, delayValue) : 0;
+                
+                // Actualizar cada segundo si hay tiempo restante
+                if (remaining > 0 && message.isPending) {
+                  Future.delayed(const Duration(seconds: 1), () {
+                    if (mounted && message.isPending) {
+                      setState(() {});
+                    }
+                  });
+                }
+                
+                return Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      SizedBox(
+                        width: 12,
+                        height: 12,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            Colors.white.withOpacity(0.7),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        delayValue > 0 && remaining > 0
+                            ? 'Enviando en ${remaining}s...'
+                            : 'Enviando...',
+                    style: TextStyle(
+                      color: Colors.white.withOpacity(0.7),
+                      fontSize: 11,
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
+                  const Spacer(),
+                  IconButton(
+                    icon: const Icon(Icons.close, size: 16),
+                    color: Colors.white.withOpacity(0.7),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                    onPressed: () {
+                      if (message.pendingId != null) {
+                        final success = _ircService.removePendingMessage(message.channel, message.pendingId!);
+                        if (success) {
+                          // Forzar actualización del provider de mensajes sincronizando con el canal
+                          final currentChannel = ref.read(currentChannelProvider);
+                          if (currentChannel != null) {
+                            final normalizedChannel = currentChannel.toLowerCase();
+                            final channelObj = _ircService.allChannels[normalizedChannel];
+                            if (channelObj != null) {
+                              // Obtener todos los mensajes del provider actual
+                              final allMessages = ref.read(messagesProvider);
+                              // Filtrar y actualizar solo los mensajes de este canal
+                              final otherChannelMessages = allMessages.where(
+                                (m) => m.channel.toLowerCase() != normalizedChannel
+                              ).toList();
+                              // Añadir los mensajes actualizados del canal
+                              final updatedMessages = [...otherChannelMessages, ...channelObj.messages];
+                              ref.read(messagesProvider.notifier).state = updatedMessages;
+                            }
+                          }
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Mensaje eliminado antes de enviar'),
+                              duration: Duration(seconds: 2),
+                            ),
+                          );
+                        }
+                      }
+                    },
+                    tooltip: 'Eliminar mensaje',
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
     );
   }
 
@@ -3224,19 +3337,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 ),
               ),
             if (remainingText.isNotEmpty)
-          Text(
+              _buildTextWithEmojis(
                 remainingText,
-                style: TextStyle(
-                  color: isOwnMessage 
-                      ? Colors.white 
-                      : isBot
-                          ? const Color(0xFF8B6914)
-                          : ref.read(themeProvider).textPrimary,
-                  fontSize: isBot ? 16 : 15,
-                  height: 1.6,
-                  fontWeight: isBot ? FontWeight.w500 : FontWeight.w400,
-                  letterSpacing: isBot ? 0.3 : 0.0,
-                ),
+                isOwnMessage: isOwnMessage,
+                isBot: isBot,
               ),
           ],
         );
@@ -3277,19 +3381,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               ),
             ));
           } else {
-            parts.add(Text(
+            parts.add(_buildTextWithEmojis(
               textBefore,
-              style: TextStyle(
-                color: isOwnMessage 
-                    ? Colors.white 
-                    : isBot
-                        ? const Color(0xFF8B6914)
-                        : ref.read(themeProvider).textPrimary,
-                fontSize: isBot ? 16 : 15,
-                height: 1.6,
-                fontWeight: isBot ? FontWeight.w500 : FontWeight.w400,
-                letterSpacing: isBot ? 0.3 : 0.0,
-              ),
+              isOwnMessage: isOwnMessage,
+              isBot: isBot,
             ));
           }
         }
@@ -3402,16 +3497,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             ),
           ));
         } else {
-          parts.add(Text(
+          parts.add(_buildTextWithEmojis(
             textAfter,
-            style: TextStyle(
-              color: isOwnMessage 
-                  ? Colors.white 
-                  : ref.read(themeProvider).textPrimary,
-              fontSize: 15,
-              height: 1.5,
-              fontWeight: FontWeight.w400,
-            ),
+            isOwnMessage: isOwnMessage,
+            isBot: isBot,
           ));
         }
       }
@@ -3456,19 +3545,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               ),
             ));
           } else {
-            parts.add(Text(
+            parts.add(_buildTextWithEmojis(
               textBefore,
-              style: TextStyle(
-                color: isOwnMessage 
-                    ? Colors.white 
-                    : isBot
-                        ? const Color(0xFF8B6914)
-                        : ref.read(themeProvider).textPrimary,
-                fontSize: isBot ? 16 : 15,
-                height: 1.6,
-                fontWeight: isBot ? FontWeight.w500 : FontWeight.w400,
-                letterSpacing: isBot ? 0.3 : 0.0,
-              ),
+              isOwnMessage: isOwnMessage,
+              isBot: isBot,
             ));
           }
         }
@@ -3538,19 +3618,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             ),
           ));
         } else {
-          parts.add(Text(
+          parts.add(_buildTextWithEmojis(
             textAfter,
-            style: TextStyle(
-              color: isOwnMessage 
-                  ? Colors.white 
-                  : isBot
-                      ? const Color(0xFF8B6914)
-                      : ref.read(themeProvider).textPrimary,
-              fontSize: isBot ? 16 : 15,
-              height: 1.6,
-              fontWeight: isBot ? FontWeight.w500 : FontWeight.w400,
-              letterSpacing: isBot ? 0.3 : 0.0,
-            ),
+            isOwnMessage: isOwnMessage,
+            isBot: isBot,
           ));
         }
       }
@@ -3580,15 +3651,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       if (spans.isEmpty || (spans.length == 1 && spans[0].text?.isEmpty == true)) {
         final cleaned = IRCColorParser.stripIRCFormatting(messageText);
         if (cleaned.isNotEmpty) {
-          return Text(
+          return _buildTextWithEmojis(
             cleaned,
-            style: TextStyle(
-              color: defaultColor,
-              fontSize: isBot ? 16 : 15,
-              height: 1.6,
-              fontWeight: isBot ? FontWeight.w500 : FontWeight.w400,
-              letterSpacing: isBot ? 0.3 : 0.0,
-            ),
+            isOwnMessage: isOwnMessage,
+            isBot: isBot,
           );
         }
       }
@@ -3606,15 +3672,97 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       );
     }
     
-    return Text(
+    return _buildTextWithEmojis(
       messageText,
-      style: TextStyle(
-        color: isOwnMessage 
-            ? Colors.white 
-            : appTheme.textPrimary,
-        fontSize: 15,
-        height: 1.6,
-        fontWeight: FontWeight.w400,
+      isOwnMessage: isOwnMessage,
+      isBot: isBot,
+    );
+  }
+
+  // Construir texto con emoticonos
+  Widget _buildTextWithEmojis(
+    String text, {
+    required bool isOwnMessage,
+    bool isBot = false,
+  }) {
+    final appTheme = ref.read(themeProvider);
+    final defaultColor = isOwnMessage 
+        ? Colors.white 
+        : isBot
+            ? const Color(0xFF8B6914)
+            : appTheme.textPrimary;
+    
+    final parts = EmojiService.parseEmojiCodes(text);
+    final textSpans = <InlineSpan>[];
+    
+    for (final part in parts) {
+      if (part.startsWith(':') && part.endsWith(':')) {
+        // Es un código de emoticono
+        final emojiUrl = EmojiService.getEmojiUrl(part);
+        if (emojiUrl != null) {
+          textSpans.add(
+            WidgetSpan(
+              alignment: PlaceholderAlignment.middle,
+              child: Image.network(
+                emojiUrl,
+                width: 20,
+                height: 20,
+                errorBuilder: (context, error, stackTrace) {
+                  return Text(
+                    part,
+                    style: TextStyle(
+                      color: defaultColor,
+                      fontSize: 15,
+                    ),
+                  );
+                },
+              ),
+            ),
+          );
+        } else {
+          // Emoticono no encontrado, mostrar como texto
+          textSpans.add(
+            TextSpan(
+              text: part,
+              style: TextStyle(
+                color: defaultColor,
+                fontSize: 15,
+              ),
+            ),
+          );
+        }
+      } else {
+        // Es texto normal
+        if (isBot && (part.contains('\x03') || part.contains('\x02'))) {
+          // Parsear códigos IRC
+          final spans = IRCColorParser.parseIRCMessage(part, defaultColor: defaultColor);
+          textSpans.addAll(spans);
+        } else {
+          textSpans.add(
+            TextSpan(
+              text: part,
+              style: TextStyle(
+                color: defaultColor,
+                fontSize: isBot ? 16 : 15,
+                height: 1.6,
+                fontWeight: isBot ? FontWeight.w500 : FontWeight.w400,
+                letterSpacing: isBot ? 0.3 : 0.0,
+              ),
+            ),
+          );
+        }
+      }
+    }
+    
+    return RichText(
+      text: TextSpan(
+        children: textSpans,
+        style: TextStyle(
+          fontSize: isBot ? 16 : 15,
+          height: 1.6,
+          fontWeight: isBot ? FontWeight.w500 : FontWeight.w400,
+          letterSpacing: isBot ? 0.3 : 0.0,
+        ),
       ),
     );
   }
@@ -5007,6 +5155,27 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   _showChangeNickDialog(context, nick);
                 },
               ),
+              Consumer(
+                builder: (context, ref, _) {
+                  final delaySeconds = ref.watch(messageSendDelayProvider);
+                  return ListTile(
+                    leading: Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.amber.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Icon(Icons.timer, color: Colors.amber),
+                    ),
+                    title: const Text('Delay de Envío'),
+                    subtitle: Text('Esperar ${delaySeconds}s antes de enviar (${delaySeconds == 0 ? "desactivado" : "activado"})'),
+                    onTap: () {
+                      Navigator.pop(context);
+                      _showMessageDelayDialog(context);
+                    },
+                  );
+                },
+              ),
               ListTile(
                 leading: Container(
                   padding: const EdgeInsets.all(8),
@@ -5196,6 +5365,1011 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  void _showMessageDelayDialog(BuildContext context) {
+    final appTheme = ref.read(themeProvider);
+    final currentDelay = ref.read(messageSendDelayProvider);
+    final delayController = TextEditingController(text: currentDelay.toString());
+    
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: appTheme.surface,
+        title: Text(
+          'Delay de Envío de Mensajes',
+          style: TextStyle(color: appTheme.textPrimary),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Configura cuántos segundos esperar antes de enviar mensajes al servidor. Durante este tiempo puedes eliminar el mensaje antes de que se envíe.',
+              style: TextStyle(
+                color: appTheme.textSecondary,
+                fontSize: 14,
+              ),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: delayController,
+              keyboardType: TextInputType.number,
+              style: TextStyle(color: appTheme.textPrimary),
+              decoration: InputDecoration(
+                labelText: 'Segundos de delay (0-300)',
+                labelStyle: TextStyle(color: appTheme.primary),
+                hintText: '30',
+                hintStyle: TextStyle(color: appTheme.textSecondary),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: BorderSide(color: appTheme.primary),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: BorderSide(color: appTheme.primary, width: 2),
+                ),
+                filled: true,
+                fillColor: appTheme.background,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Valor actual: ${currentDelay}s ${currentDelay == 0 ? "(desactivado)" : ""}',
+              style: TextStyle(
+                color: appTheme.textSecondary,
+                fontSize: 12,
+                fontStyle: FontStyle.italic,
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(
+              'Cancelar',
+              style: TextStyle(color: appTheme.textSecondary),
+            ),
+          ),
+          TextButton(
+            onPressed: () {
+              final delayText = delayController.text.trim();
+              final delay = int.tryParse(delayText);
+              if (delay != null && delay >= 0 && delay <= 300) {
+                ref.read(messageSendDelayProvider.notifier).setDelay(delay);
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      delay == 0 
+                        ? 'Delay desactivado. Los mensajes se enviarán inmediatamente.'
+                        : 'Delay configurado a ${delay}s. Los mensajes esperarán ${delay} segundos antes de enviarse.',
+                    ),
+                    duration: const Duration(seconds: 3),
+                  ),
+                );
+              } else {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Por favor ingresa un número entre 0 y 300'),
+                    duration: Duration(seconds: 2),
+                  ),
+                );
+              }
+            },
+            child: Text(
+              'Guardar',
+              style: TextStyle(
+                color: appTheme.primary,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showChannelRegistrationDialog(BuildContext context) async {
+    final appTheme = ref.read(themeProvider);
+    final currentNick = ref.read(currentNicknameProvider) ?? '';
+    
+    if (currentNick.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No estás conectado. Por favor, conéctate primero.'),
+          duration: Duration(seconds: 3),
+        ),
+      );
+      return;
+    }
+    
+    // Verificar el status del nick primero
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        backgroundColor: appTheme.surface,
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const CircularProgressIndicator(),
+            const SizedBox(height: 16),
+            Text(
+              'Verificando registro del nick...',
+              style: TextStyle(color: appTheme.textPrimary),
+            ),
+          ],
+        ),
+      ),
+    );
+    
+    final statusCompleter = _ircService.checkNickStatus(currentNick);
+    final status = await statusCompleter.future;
+    
+    if (!context.mounted) return;
+    Navigator.pop(context); // Cerrar diálogo de carga
+    
+    if (status != 3) {
+      // El nick no está registrado
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          backgroundColor: appTheme.surface,
+          title: Text(
+            'Nick no registrado',
+            style: TextStyle(color: appTheme.textPrimary),
+          ),
+          content: Text(
+            'Tu nick "$currentNick" no está registrado (status: ${status ?? "desconocido"}). '
+            'Debes registrar tu nick primero antes de poder registrar un canal.\n\n'
+            'Status 3 = Registrado\n'
+            'Status 0 = No registrado',
+            style: TextStyle(color: appTheme.textSecondary),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text(
+                'Cerrar',
+                style: TextStyle(color: appTheme.textSecondary),
+              ),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.pop(context);
+                _showNickRegistrationDialog(context);
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: appTheme.primary,
+              ),
+              child: const Text('Registrar Nick'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+    
+    // El nick está registrado, mostrar el formulario
+    final channelController = TextEditingController();
+    final logoController = TextEditingController();
+    final descriptionController = TextEditingController();
+    final emailController = TextEditingController();
+    final webController = TextEditingController();
+    final topicController = TextEditingController();
+    final passwordController = TextEditingController();
+    final antispamController = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+    bool _obscurePassword = true;
+    bool _isSubmitting = false;
+    
+    showDialog(
+      context: context,
+      barrierColor: Colors.black54,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => Dialog(
+          backgroundColor: Colors.transparent,
+          child: Container(
+            constraints: const BoxConstraints(maxWidth: 600, maxHeight: 800),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  appTheme.surface,
+                  appTheme.surface.withOpacity(0.95),
+                ],
+              ),
+              borderRadius: BorderRadius.circular(24),
+              boxShadow: [
+                BoxShadow(
+                  color: appTheme.primary.withOpacity(0.3),
+                  blurRadius: 20,
+                  spreadRadius: 5,
+                  offset: const Offset(0, 10),
+                ),
+              ],
+            ),
+            child: Form(
+              key: formKey,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Header
+                  Container(
+                    padding: const EdgeInsets.all(24),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [
+                          appTheme.primary,
+                          appTheme.secondary,
+                        ],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      borderRadius: const BorderRadius.only(
+                        topLeft: Radius.circular(24),
+                        topRight: Radius.circular(24),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.2),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: const Text(
+                            '📢',
+                            style: TextStyle(fontSize: 24),
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Registro de Canal',
+                                style: TextStyle(
+                                  color: appTheme.textPrimary,
+                                  fontSize: 22,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'Registra un nuevo canal en GlobalChat',
+                                style: TextStyle(
+                                  color: appTheme.textPrimary.withOpacity(0.9),
+                                  fontSize: 14,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  // Contenido con scroll
+                  Flexible(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.all(24),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          // Nombre del canal
+                          TextFormField(
+                            controller: channelController,
+                            style: TextStyle(color: appTheme.textPrimary),
+                            decoration: InputDecoration(
+                              labelText: 'Nombre del canal *',
+                              labelStyle: TextStyle(color: appTheme.primary),
+                              hintText: '#micanal',
+                              hintStyle: TextStyle(color: appTheme.textSecondary),
+                              prefixIcon: const Icon(Icons.tag),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              filled: true,
+                              fillColor: appTheme.background,
+                            ),
+                            validator: (value) {
+                              if (value == null || value.isEmpty) {
+                                return 'El nombre del canal es requerido';
+                              }
+                              if (!value.startsWith('#')) {
+                                return 'El canal debe comenzar con #';
+                              }
+                              if (value.length < 3) {
+                                return 'El canal debe tener al menos 3 caracteres';
+                              }
+                              if (!RegExp(r'^#[a-zA-Z0-9\[\]\-_]+$').hasMatch(value)) {
+                                return 'Solo se permiten letras, números, [], - y _';
+                              }
+                              return null;
+                            },
+                          ),
+                          const SizedBox(height: 16),
+                          // Logo del canal (opcional)
+                          TextFormField(
+                            controller: logoController,
+                            style: TextStyle(color: appTheme.textPrimary),
+                            decoration: InputDecoration(
+                              labelText: 'Logo del canal (opcional)',
+                              labelStyle: TextStyle(color: appTheme.primary),
+                              hintText: 'URL del logo',
+                              hintStyle: TextStyle(color: appTheme.textSecondary),
+                              prefixIcon: const Icon(Icons.image),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              filled: true,
+                              fillColor: appTheme.background,
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          // Descripción
+                          TextFormField(
+                            controller: descriptionController,
+                            style: TextStyle(color: appTheme.textPrimary),
+                            maxLines: 3,
+                            decoration: InputDecoration(
+                              labelText: 'Descripción *',
+                              labelStyle: TextStyle(color: appTheme.primary),
+                              hintText: 'Describe tu canal',
+                              hintStyle: TextStyle(color: appTheme.textSecondary),
+                              prefixIcon: const Icon(Icons.description),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              filled: true,
+                              fillColor: appTheme.background,
+                            ),
+                            validator: (value) {
+                              if (value == null || value.isEmpty) {
+                                return 'La descripción es requerida';
+                              }
+                              return null;
+                            },
+                          ),
+                          const SizedBox(height: 16),
+                          // Email
+                          TextFormField(
+                            controller: emailController,
+                            keyboardType: TextInputType.emailAddress,
+                            style: TextStyle(color: appTheme.textPrimary),
+                            decoration: InputDecoration(
+                              labelText: 'Email de contacto *',
+                              labelStyle: TextStyle(color: appTheme.primary),
+                              hintText: 'tu@email.com',
+                              hintStyle: TextStyle(color: appTheme.textSecondary),
+                              prefixIcon: const Icon(Icons.email),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              filled: true,
+                              fillColor: appTheme.background,
+                            ),
+                            validator: (value) {
+                              if (value == null || value.isEmpty) {
+                                return 'El email es requerido';
+                              }
+                              if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(value)) {
+                                return 'Email inválido';
+                              }
+                              return null;
+                            },
+                          ),
+                          const SizedBox(height: 16),
+                          // Web (opcional)
+                          TextFormField(
+                            controller: webController,
+                            keyboardType: TextInputType.url,
+                            style: TextStyle(color: appTheme.textPrimary),
+                            decoration: InputDecoration(
+                              labelText: 'Web (opcional)',
+                              labelStyle: TextStyle(color: appTheme.primary),
+                              hintText: 'https://tuweb.com',
+                              hintStyle: TextStyle(color: appTheme.textSecondary),
+                              prefixIcon: const Icon(Icons.language),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              filled: true,
+                              fillColor: appTheme.background,
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          // Topic (opcional)
+                          TextFormField(
+                            controller: topicController,
+                            style: TextStyle(color: appTheme.textPrimary),
+                            maxLines: 2,
+                            decoration: InputDecoration(
+                              labelText: 'Topic (opcional)',
+                              labelStyle: TextStyle(color: appTheme.primary),
+                              hintText: 'Tema del canal',
+                              hintStyle: TextStyle(color: appTheme.textSecondary),
+                              prefixIcon: const Icon(Icons.topic),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              filled: true,
+                              fillColor: appTheme.background,
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          // Nick de IRC (readonly)
+                          TextFormField(
+                            initialValue: currentNick,
+                            readOnly: true,
+                            style: TextStyle(color: appTheme.textPrimary),
+                            decoration: InputDecoration(
+                              labelText: 'Nick de IRC *',
+                              labelStyle: TextStyle(color: appTheme.primary),
+                              prefixIcon: const Icon(Icons.person),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              filled: true,
+                              fillColor: appTheme.background.withOpacity(0.5),
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          // Contraseña del nick
+                          TextFormField(
+                            controller: passwordController,
+                            obscureText: _obscurePassword,
+                            style: TextStyle(color: appTheme.textPrimary),
+                            decoration: InputDecoration(
+                              labelText: 'Contraseña del nick *',
+                              labelStyle: TextStyle(color: appTheme.primary),
+                              hintText: 'Contraseña de tu nick',
+                              hintStyle: TextStyle(color: appTheme.textSecondary),
+                              prefixIcon: const Icon(Icons.lock),
+                              suffixIcon: IconButton(
+                                icon: Icon(
+                                  _obscurePassword ? Icons.visibility : Icons.visibility_off,
+                                ),
+                                onPressed: () {
+                                  setDialogState(() {
+                                    _obscurePassword = !_obscurePassword;
+                                  });
+                                },
+                              ),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              filled: true,
+                              fillColor: appTheme.background,
+                            ),
+                            validator: (value) {
+                              if (value == null || value.isEmpty) {
+                                return 'La contraseña es requerida';
+                              }
+                              return null;
+                            },
+                          ),
+                          const SizedBox(height: 16),
+                          // Pregunta antispam
+                          TextFormField(
+                            controller: antispamController,
+                            keyboardType: TextInputType.number,
+                            style: TextStyle(color: appTheme.textPrimary),
+                            decoration: InputDecoration(
+                              labelText: 'Pregunta antispam: ¿Cuánto es 3 + 4? *',
+                              labelStyle: TextStyle(color: appTheme.primary),
+                              hintText: '7',
+                              hintStyle: TextStyle(color: appTheme.textSecondary),
+                              prefixIcon: const Icon(Icons.security),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              filled: true,
+                              fillColor: appTheme.background,
+                            ),
+                            validator: (value) {
+                              if (value == null || value.isEmpty) {
+                                return 'La respuesta es requerida';
+                              }
+                              if (value.trim() != '7') {
+                                return 'Respuesta incorrecta';
+                              }
+                              return null;
+                            },
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  // Botones
+                  Container(
+                    padding: const EdgeInsets.all(24),
+                    decoration: BoxDecoration(
+                      color: appTheme.surface.withOpacity(0.5),
+                      borderRadius: const BorderRadius.only(
+                        bottomLeft: Radius.circular(24),
+                        bottomRight: Radius.circular(24),
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        TextButton(
+                          onPressed: _isSubmitting ? null : () => Navigator.pop(context),
+                          style: TextButton.styleFrom(
+                            foregroundColor: appTheme.textPrimary.withOpacity(0.7),
+                            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                          ),
+                          child: const Text('Cancelar'),
+                        ),
+                        const SizedBox(width: 12),
+                        Container(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: [
+                                appTheme.primary,
+                                appTheme.secondary,
+                              ],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            ),
+                            borderRadius: BorderRadius.circular(12),
+                            boxShadow: [
+                              BoxShadow(
+                                color: appTheme.primary.withOpacity(0.4),
+                                blurRadius: 8,
+                                offset: const Offset(0, 4),
+                              ),
+                            ],
+                          ),
+                          child: ElevatedButton(
+                            onPressed: _isSubmitting ? null : () async {
+                              if (formKey.currentState!.validate()) {
+                                setDialogState(() {
+                                  _isSubmitting = true;
+                                });
+                                
+                                // Abrir el formulario web con los datos
+                                final url = Uri.parse('https://registro-chan.globalchat.org/formulario.html');
+                                if (await canLaunchUrl(url)) {
+                                  await launchUrl(url, mode: LaunchMode.externalApplication);
+                                  if (context.mounted) {
+                                    Navigator.pop(context);
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: const Text(
+                                          'Formulario abierto en el navegador. Por favor, completa el registro allí.',
+                                        ),
+                                        duration: const Duration(seconds: 4),
+                                        backgroundColor: appTheme.primary,
+                                      ),
+                                    );
+                                  }
+                                } else {
+                                  setDialogState(() {
+                                    _isSubmitting = false;
+                                  });
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text('No se pudo abrir el formulario web'),
+                                      duration: Duration(seconds: 2),
+                                    ),
+                                  );
+                                }
+                              }
+                            },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.transparent,
+                              shadowColor: Colors.transparent,
+                              padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
+                            ),
+                            child: _isSubmitting
+                                ? SizedBox(
+                                    width: 20,
+                                    height: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      valueColor: AlwaysStoppedAnimation<Color>(
+                                        appTheme.textPrimary,
+                                      ),
+                                    ),
+                                  )
+                                : const Text('Registrar Canal'),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showVirtualIPDialog(BuildContext context) async {
+    final appTheme = ref.read(themeProvider);
+    final currentNick = ref.read(currentNicknameProvider) ?? '';
+    
+    if (currentNick.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No estás conectado. Por favor, conéctate primero.'),
+          duration: Duration(seconds: 3),
+        ),
+      );
+      return;
+    }
+    
+    // Verificar el status del nick primero
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        backgroundColor: appTheme.surface,
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const CircularProgressIndicator(),
+            const SizedBox(height: 16),
+            Text(
+              'Verificando registro del nick...',
+              style: TextStyle(color: appTheme.textPrimary),
+            ),
+          ],
+        ),
+      ),
+    );
+    
+    final statusCompleter = _ircService.checkNickStatus(currentNick);
+    final status = await statusCompleter.future;
+    
+    if (!context.mounted) return;
+    Navigator.pop(context); // Cerrar diálogo de carga
+    
+    if (status != 3) {
+      // El nick no está registrado
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          backgroundColor: appTheme.surface,
+          title: Text(
+            'Nick no registrado',
+            style: TextStyle(color: appTheme.textPrimary),
+          ),
+          content: Text(
+            'Tu nick "$currentNick" no está registrado (status: ${status ?? "desconocido"}). '
+            'Debes registrar tu nick primero antes de poder solicitar una IP virtual.\n\n'
+            'Status 3 = Registrado\n'
+            'Status 0 = No registrado',
+            style: TextStyle(color: appTheme.textSecondary),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text(
+                'Cerrar',
+                style: TextStyle(color: appTheme.textSecondary),
+              ),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.pop(context);
+                _showNickRegistrationDialog(context);
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: appTheme.primary,
+              ),
+              child: const Text('Registrar Nick'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+    
+    // El nick está registrado, mostrar el formulario
+    final vhostController = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+    bool _isSubmitting = false;
+    
+    showDialog(
+      context: context,
+      barrierColor: Colors.black54,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => Dialog(
+          backgroundColor: Colors.transparent,
+          child: Container(
+            constraints: const BoxConstraints(maxWidth: 500),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  appTheme.surface,
+                  appTheme.surface.withOpacity(0.95),
+                ],
+              ),
+              borderRadius: BorderRadius.circular(24),
+              boxShadow: [
+                BoxShadow(
+                  color: appTheme.primary.withOpacity(0.3),
+                  blurRadius: 20,
+                  spreadRadius: 5,
+                  offset: const Offset(0, 10),
+                ),
+              ],
+            ),
+            child: Form(
+              key: formKey,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Header
+                  Container(
+                    padding: const EdgeInsets.all(24),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [
+                          appTheme.primary,
+                          appTheme.secondary,
+                        ],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      borderRadius: const BorderRadius.only(
+                        topLeft: Radius.circular(24),
+                        topRight: Radius.circular(24),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.2),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: const Text(
+                            '🌐',
+                            style: TextStyle(fontSize: 24),
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Solicitar IP Virtual',
+                                style: TextStyle(
+                                  color: appTheme.textPrimary,
+                                  fontSize: 22,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'Solicita un host virtual (vhost) para tu nick',
+                                style: TextStyle(
+                                  color: appTheme.textPrimary.withOpacity(0.9),
+                                  fontSize: 14,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  // Contenido
+                  Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        // Información
+                        Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: appTheme.primary.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: appTheme.primary.withOpacity(0.3),
+                            ),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Icon(
+                                    Icons.info_outline,
+                                    color: appTheme.primary,
+                                    size: 20,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    'Información',
+                                    style: TextStyle(
+                                      color: appTheme.primary,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 14,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                'Un host virtual (vhost) te permite ocultar tu IP real y mostrar un host personalizado. '
+                                'Ejemplo: usuario.globalchat.org',
+                                style: TextStyle(
+                                  color: appTheme.textSecondary,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 24),
+                        // Vhost
+                        TextFormField(
+                          controller: vhostController,
+                          style: TextStyle(color: appTheme.textPrimary),
+                          decoration: InputDecoration(
+                            labelText: 'Host Virtual (vhost) *',
+                            labelStyle: TextStyle(color: appTheme.primary),
+                            hintText: 'usuario.globalchat.org',
+                            hintStyle: TextStyle(color: appTheme.textSecondary),
+                            prefixIcon: const Icon(Icons.dns),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            filled: true,
+                            fillColor: appTheme.background,
+                            helperText: 'El vhost debe ser un nombre de host válido',
+                            helperStyle: TextStyle(
+                              color: appTheme.textSecondary,
+                              fontSize: 11,
+                            ),
+                          ),
+                          validator: (value) {
+                            if (value == null || value.isEmpty) {
+                              return 'El vhost es requerido';
+                            }
+                            // Validar formato de host (ej: usuario.globalchat.org)
+                            if (!RegExp(r'^[a-zA-Z0-9][a-zA-Z0-9\-\.]*[a-zA-Z0-9]$').hasMatch(value)) {
+                              return 'Formato de host inválido';
+                            }
+                            if (value.length < 3) {
+                              return 'El vhost debe tener al menos 3 caracteres';
+                            }
+                            return null;
+                          },
+                        ),
+                        const SizedBox(height: 16),
+                        // Nick de IRC (readonly)
+                        TextFormField(
+                          initialValue: currentNick,
+                          readOnly: true,
+                          style: TextStyle(color: appTheme.textPrimary),
+                          decoration: InputDecoration(
+                            labelText: 'Nick de IRC *',
+                            labelStyle: TextStyle(color: appTheme.primary),
+                            prefixIcon: const Icon(Icons.person),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            filled: true,
+                            fillColor: appTheme.background.withOpacity(0.5),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  // Botones
+                  Container(
+                    padding: const EdgeInsets.all(24),
+                    decoration: BoxDecoration(
+                      color: appTheme.surface.withOpacity(0.5),
+                      borderRadius: const BorderRadius.only(
+                        bottomLeft: Radius.circular(24),
+                        bottomRight: Radius.circular(24),
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        TextButton(
+                          onPressed: _isSubmitting ? null : () => Navigator.pop(context),
+                          style: TextButton.styleFrom(
+                            foregroundColor: appTheme.textPrimary.withOpacity(0.7),
+                            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                          ),
+                          child: const Text('Cancelar'),
+                        ),
+                        const SizedBox(width: 12),
+                        Container(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: [
+                                appTheme.primary,
+                                appTheme.secondary,
+                              ],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            ),
+                            borderRadius: BorderRadius.circular(12),
+                            boxShadow: [
+                              BoxShadow(
+                                color: appTheme.primary.withOpacity(0.4),
+                                blurRadius: 8,
+                                offset: const Offset(0, 4),
+                              ),
+                            ],
+                          ),
+                          child: ElevatedButton(
+                            onPressed: _isSubmitting ? null : () async {
+                              if (formKey.currentState!.validate()) {
+                                setDialogState(() {
+                                  _isSubmitting = true;
+                                });
+                                
+                                final vhost = vhostController.text.trim();
+                                
+                                // Enviar comando REQUEST al bot ipvirtual
+                                _ircService.sendServiceMessage('ipvirtual', 'REQUEST $vhost');
+                                
+                                if (context.mounted) {
+                                  Navigator.pop(context);
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(
+                                        'Solicitando IP virtual "$vhost" a IpVirtual...',
+                                      ),
+                                      duration: const Duration(seconds: 3),
+                                      backgroundColor: appTheme.primary,
+                                    ),
+                                  );
+                                }
+                              }
+                            },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.transparent,
+                              shadowColor: Colors.transparent,
+                              padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
+                            ),
+                            child: _isSubmitting
+                                ? SizedBox(
+                                    width: 20,
+                                    height: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      valueColor: AlwaysStoppedAnimation<Color>(
+                                        appTheme.textPrimary,
+                                      ),
+                                    ),
+                                  )
+                                : const Text('Solicitar IP Virtual'),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }

@@ -31,6 +31,42 @@ final currentNicknameProvider = StateProvider<String?>((ref) {
   return null;
 });
 
+/// Delay en segundos antes de enviar mensajes al servidor (configurable)
+final messageSendDelayProvider = StateNotifierProvider<MessageSendDelayNotifier, int>((ref) {
+  return MessageSendDelayNotifier();
+});
+
+class MessageSendDelayNotifier extends StateNotifier<int> {
+  static const _prefsKey = 'message_send_delay_seconds';
+  static const int _defaultDelay = 30; // 30 segundos por defecto
+
+  MessageSendDelayNotifier() : super(_defaultDelay) {
+    _loadFromPrefs();
+  }
+
+  Future<void> _loadFromPrefs() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final delay = prefs.getInt(_prefsKey) ?? _defaultDelay;
+      state = delay;
+    } catch (_) {
+      // Ignorar errores de carga
+    }
+  }
+
+  Future<void> setDelay(int seconds) async {
+    if (seconds < 0) seconds = 0;
+    if (seconds > 300) seconds = 300; // Máximo 5 minutos
+    state = seconds;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt(_prefsKey, seconds);
+    } catch (_) {
+      // Ignorar errores de guardado
+    }
+  }
+}
+
 final currentChannelProvider = StateProvider<String?>((ref) {
   return null;
 });

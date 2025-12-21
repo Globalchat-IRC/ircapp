@@ -23,6 +23,8 @@ class IRCService {
   Map<String, WhoisInfo> _whoisCache = {};
   Map<String, WhoisInfo> _pendingWhois = {}; // Para acumular información de whois
   final Set<String> _ignoredUsers = {}; // Lista de usuarios ignorados (en minúsculas)
+  final Map<String, Timer> _pendingMessageTimers = {}; // Timers para mensajes pendientes
+  final Map<String, Completer<int?>> _statusCheckCompleters = {}; // Completers para verificaciones de status
   StreamSubscription? _socketSubscription;
   late Completer<void> _connectionCompleter;
   bool _isConnected = false;
@@ -160,6 +162,9 @@ class IRCService {
     } else if (_socket != null) {
       _sendCommand('QUIT :Goodbye');
       _socketSubscription?.cancel();
+      // Cancelar todos los timers pendientes
+      _pendingMessageTimers.values.forEach((timer) => timer.cancel());
+      _pendingMessageTimers.clear();
       _socket?.close();
       _socket = null;
       _isConnected = false;
@@ -292,31 +297,147 @@ class IRCService {
     }
   }
 
-  void sendMessage(String channel, String message) {
+  void sendMessage(String channel, String message, {int delaySeconds = 0}) {
     // Normalizar el nombre del canal
     final normalized = _normalizeChannelName(channel);
     
-    // Dividir el mensaje en líneas y enviar cada línea como un PRIVMSG separado
-    // pero mostrar el mensaje completo en la UI
-    final lines = message.split('\n');
-    for (var line in lines) {
-      line = line.trim();
-      if (line.isNotEmpty) {
-        _sendCommand('PRIVMSG $normalized :$line');
-      }
-    }
+    // Generar un ID único para este mensaje pendiente
+    final pendingId = '${DateTime.now().millisecondsSinceEpoch}_${message.hashCode}';
     
-    // Add to local channel (el mensaje completo, no dividido)
+    // Add to local channel (el mensaje completo, no dividido) como PENDIENTE
     if (channels.containsKey(normalized)) {
       final msg = IRCMessage(
         nick: _nickname ?? 'You',
         channel: normalized,
         message: message, // Mensaje completo con saltos de línea
         timestamp: DateTime.now(),
+        isPending: true,
+        pendingId: pendingId,
+        delaySeconds: delaySeconds > 0 ? delaySeconds : null,
       );
       channels[normalized]!.addMessage(msg);
       _notifyMessageListeners(msg);
+      print('📤 [IRCService] Mensaje marcado como PENDIENTE: $pendingId (delay: ${delaySeconds}s)');
+      
+      // Programar el envío después del delay
+      if (delaySeconds > 0) {
+        print('⏱️  [IRCService] Programando envío de mensaje $pendingId en ${delaySeconds}s');
+        final timer = Timer(Duration(seconds: delaySeconds), () {
+          print('⏱️  [IRCService] Timer ejecutado, enviando mensaje $pendingId');
+          // Dividir el mensaje en líneas y enviar cada línea como un PRIVMSG separado
+          final lines = message.split('\n');
+          for (var line in lines) {
+            line = line.trim();
+            if (line.isNotEmpty) {
+              print('📤 [IRCService] Enviando línea: $line');
+              _sendCommand('PRIVMSG $normalized :$line');
+            }
+          }
+          print('📤 [IRCService] Mensaje enviado al servidor después de delay: $pendingId');
+          // Confirmar el mensaje inmediatamente después de enviarlo
+          // (algunos servidores IRC no devuelven el PRIVMSG de vuelta)
+          confirmPendingMessage(normalized, message, DateTime.now());
+          // Eliminar el timer del mapa después de ejecutarse
+          _pendingMessageTimers.remove(pendingId);
+        });
+        _pendingMessageTimers[pendingId] = timer;
+      } else {
+        // Sin delay, enviar inmediatamente
+        final lines = message.split('\n');
+        for (var line in lines) {
+          line = line.trim();
+          if (line.isNotEmpty) {
+            _sendCommand('PRIVMSG $normalized :$line');
+          }
+        }
+        // Confirmar el mensaje inmediatamente después de enviarlo
+        // (algunos servidores IRC no devuelven el PRIVMSG de vuelta)
+        confirmPendingMessage(normalized, message, DateTime.now());
+      }
     }
+  }
+  
+  // Eliminar un mensaje pendiente antes de que llegue al servidor
+  bool removePendingMessage(String channel, String pendingId) {
+    final normalized = _normalizeChannelName(channel);
+    if (!channels.containsKey(normalized)) {
+      return false;
+    }
+    
+    // Cancelar el timer si existe
+    final timer = _pendingMessageTimers.remove(pendingId);
+    if (timer != null) {
+      timer.cancel();
+      print('⏱️  [IRCService] Timer cancelado para mensaje: $pendingId');
+    }
+    
+    final channelObj = channels[normalized]!;
+    final index = channelObj.messages.indexWhere(
+      (msg) => msg.isPending && msg.pendingId == pendingId,
+    );
+    
+    if (index != -1) {
+      channelObj.messages.removeAt(index);
+      print('🗑️  [IRCService] Mensaje pendiente eliminado: $pendingId');
+      // Notificar a los listeners para actualizar la UI
+      _notifyMessageListeners(channelObj.messages.isNotEmpty 
+          ? channelObj.messages.last 
+          : IRCMessage(
+              nick: '',
+              channel: normalized,
+              message: '',
+              timestamp: DateTime.now(),
+            ));
+      return true;
+    }
+    
+    return false;
+  }
+  
+  // Confirmar un mensaje pendiente cuando el servidor lo confirma
+  // Retorna true si se confirmó un mensaje, false si no se encontró
+  bool confirmPendingMessage(String channel, String message, DateTime timestamp) {
+    final normalized = _normalizeChannelName(channel);
+    if (!channels.containsKey(normalized)) {
+      print('⚠️  [IRCService] Canal no existe para confirmar: $normalized');
+      return false;
+    }
+    
+    final channelObj = channels[normalized]!;
+    // Buscar mensaje pendiente que coincida (mismo canal, mismo mensaje, mismo timestamp aproximado)
+    // Comparar mensajes normalizados (sin espacios extra, case-insensitive para el contenido)
+    final normalizedReceivedMessage = message.trim();
+    print('🔍 [IRCService] Buscando mensaje pendiente para confirmar: "$normalizedReceivedMessage" en canal $normalized');
+    print('🔍 [IRCService] Total mensajes en canal: ${channelObj.messages.length}');
+    
+    for (var i = 0; i < channelObj.messages.length; i++) {
+      final msg = channelObj.messages[i];
+      if (msg.isPending && msg.channel == normalized) {
+        // Comparar mensajes normalizados (trim y comparar)
+        final normalizedPendingMessage = msg.message.trim();
+        print('🔍 [IRCService] Comparando pendiente: "$normalizedPendingMessage" con recibido: "$normalizedReceivedMessage"');
+        // También verificar si el mensaje recibido contiene el mensaje pendiente o viceversa
+        // (por si hay diferencias menores en el formato)
+        if (normalizedPendingMessage == normalizedReceivedMessage ||
+            normalizedReceivedMessage.contains(normalizedPendingMessage) ||
+            normalizedPendingMessage.contains(normalizedReceivedMessage)) {
+          // Confirmar el mensaje (marcar como no pendiente)
+          final confirmedMsg = msg.copyWith(isPending: false, pendingId: null);
+          channelObj.messages[i] = confirmedMsg;
+          print('✅ [IRCService] Mensaje confirmado: ${msg.pendingId}');
+          _notifyMessageListeners(confirmedMsg);
+          return true;
+        }
+      }
+    }
+    print('⚠️  [IRCService] No se encontró mensaje pendiente para confirmar: "$normalizedReceivedMessage" en canal $normalized');
+    // Listar todos los mensajes pendientes para debug
+    final pendingMessages = channelObj.messages.where((m) => m.isPending).toList();
+    print('🔍 [IRCService] Mensajes pendientes en canal: ${pendingMessages.length}');
+    for (var pending in pendingMessages) {
+      print('🔍 [IRCService]   - Pending: "${pending.message}" (ID: ${pending.pendingId})');
+    }
+    return false;
   }
 
   // Enviar mensaje privado a un servicio IRC (NickServ, ChanServ, HostServ, etc.)
@@ -325,6 +446,31 @@ class IRCService {
     final serviceName = service.trim();
     _sendCommand('PRIVMSG $serviceName :$message');
     print('📤 [IRCService] Enviando mensaje a servicio $serviceName: $message');
+  }
+
+  // Verificar el status de un nick (STATUS nick)
+  // Retorna un Completer que se completa con el status (3 = registrado)
+  Completer<int?> checkNickStatus(String nick) {
+    final completer = Completer<int?>();
+    final normalizedNick = nick.trim().toLowerCase();
+    
+    // Guardar el completer para que el parser de NOTICE lo pueda completar
+    _statusCheckCompleters[normalizedNick] = completer;
+    
+    // Enviar comando STATUS
+    _sendCommand('PRIVMSG NickServ :STATUS $nick');
+    print('📋 [IRCService] Verificando status del nick: $nick');
+    
+    // Timeout después de 5 segundos
+    Timer(const Duration(seconds: 5), () {
+      if (!completer.isCompleted) {
+        print('⏱️  [IRCService] Timeout verificando status del nick: $nick');
+        _statusCheckCompleters.remove(normalizedNick);
+        completer.complete(null);
+      }
+    });
+    
+    return completer;
   }
 
   // Enviar mensaje privado a un nick (query)
@@ -362,7 +508,7 @@ class IRCService {
     return _ignoredUsers.contains(nick.toLowerCase());
   }
 
-  void sendPrivateMessage(String nick, String message) {
+  void sendPrivateMessage(String nick, String message, {int delaySeconds = 0}) {
     final normalizedNick = nick.trim();
     if (normalizedNick.isEmpty) return;
     
@@ -373,26 +519,57 @@ class IRCService {
       print('📤 [IRCService] Creado canal privado para: $queryChannel');
     }
     
-    // Enviar el mensaje
-    final lines = message.split('\n');
-    for (var line in lines) {
-      line = line.trim();
-      if (line.isNotEmpty) {
-        _sendCommand('PRIVMSG $normalizedNick :$line');
-      }
-    }
+    // Generar un ID único para este mensaje pendiente
+    final pendingId = '${DateTime.now().millisecondsSinceEpoch}_${message.hashCode}';
     
-    // Agregar el mensaje al canal privado local
+    // Agregar el mensaje al canal privado local como PENDIENTE
     final msg = IRCMessage(
       nick: _nickname ?? 'You',
       channel: queryChannel,
-        message: message,
-        timestamp: DateTime.now(),
-      );
+      message: message,
+      timestamp: DateTime.now(),
+      isPending: true,
+      pendingId: pendingId,
+      delaySeconds: delaySeconds > 0 ? delaySeconds : null,
+    );
     channels[queryChannel]!.addMessage(msg);
-      _notifyMessageListeners(msg);
+    _notifyMessageListeners(msg);
     
-    print('📤 [IRCService] Mensaje privado enviado a $normalizedNick: $message');
+    print('📤 [IRCService] Mensaje privado marcado como PENDIENTE: $pendingId (delay: ${delaySeconds}s)');
+    
+    // Programar el envío después del delay
+    if (delaySeconds > 0) {
+      print('⏱️  [IRCService] Programando envío de mensaje privado $pendingId en ${delaySeconds}s');
+      final timer = Timer(Duration(seconds: delaySeconds), () {
+        print('⏱️  [IRCService] Timer ejecutado, enviando mensaje privado $pendingId');
+        // Enviar el mensaje
+        final lines = message.split('\n');
+        for (var line in lines) {
+          line = line.trim();
+          if (line.isNotEmpty) {
+            print('📤 [IRCService] Enviando línea privada: $line');
+            _sendCommand('PRIVMSG $normalizedNick :$line');
+          }
+        }
+        print('📤 [IRCService] Mensaje privado enviado al servidor después de delay: $pendingId');
+        // Confirmar el mensaje inmediatamente después de enviarlo
+        confirmPendingMessage(queryChannel, message, DateTime.now());
+        // Eliminar el timer del mapa después de ejecutarse
+        _pendingMessageTimers.remove(pendingId);
+      });
+      _pendingMessageTimers[pendingId] = timer;
+    } else {
+      // Sin delay, enviar inmediatamente
+      final lines = message.split('\n');
+      for (var line in lines) {
+        line = line.trim();
+        if (line.isNotEmpty) {
+          _sendCommand('PRIVMSG $normalizedNick :$line');
+        }
+      }
+      // Confirmar el mensaje inmediatamente después de enviarlo
+      confirmPendingMessage(queryChannel, message, DateTime.now());
+    }
   }
 
   // Cambiar el nickname
@@ -1253,33 +1430,78 @@ class IRCService {
                 // El mensaje es todo lo que viene después del ':'
                 final messageContent = line.substring(colonIndex + 1).trim();
                 
+                // Verificar si es una respuesta de STATUS de NickServ (viene como NOTICE pero se procesa como PRIVMSG)
+                // Formato: :NickServ!NickServ@services.globalchat.org NOTICE nick :STATUS nick 3
+                // O como PRIVMSG: :NickServ!NickServ@services.globalchat.org PRIVMSG nick :STATUS nick 3
+                if ((nick.toLowerCase() == 'nickserv' || nick.toLowerCase() == 'nick') && 
+                    messageContent.contains('STATUS')) {
+                  final match = RegExp(r'STATUS\s+(\S+)\s+(\d+)').firstMatch(messageContent);
+                  if (match != null) {
+                    final checkedNick = match.group(1)!.toLowerCase();
+                    final status = int.tryParse(match.group(2)!);
+                    print('📋 [IRCService] Status recibido para nick "$checkedNick": $status');
+                    final completer = _statusCheckCompleters.remove(checkedNick);
+                    if (completer != null && !completer.isCompleted) {
+                      completer.complete(status);
+                    }
+                    // No procesar como mensaje normal si es una respuesta de STATUS
+                    return;
+                  }
+                }
+                
                 print('🔍 [DEBUG] PRIVMSG parsed: nick="$nick", target="$target", channelKey="$channelKey", message="$messageContent"');
             
-            final msg = IRCMessage(
-              nick: nick,
-                  channel: channelKey,
-              message: messageContent,
-              timestamp: DateTime.now(),
-            );
-                
-                print('🔍 [DEBUG] ✅ Añadiendo mensaje al canal/query: $channelKey');
-                print('🔍 [DEBUG] ✅ Canal existe en mapa: ${channels.containsKey(channelKey)}');
-                channels[channelKey]!.addMessage(msg);
-                print('🔍 [DEBUG] ✅ Mensaje añadido. Total mensajes en canal: ${channels[channelKey]!.messages.length}');
-                
-                // Guardar en historial local (no bloquear el hilo principal)
-                // Usamos el host actual como identificador de servidor
-                final serverId = (_secureSocket ?? _socket)?.remoteAddress.host ?? 'unknown';
-                // Ignorar errores de forma silenciosa dentro del Future
-                // para no afectar al flujo de mensajes
-                // ignore: unawaited_futures
-                ChatHistoryService().saveMessage(
-                  server: serverId,
-                  message: msg,
+                // Verificar si es nuestro propio mensaje (confirmación del servidor)
+                // Para mensajes de canal, el nick del remitente debe ser nuestro nick
+                // Para mensajes privados, el target debe ser nuestro nick
+                final cleanTargetForCheck = target.trim();
+                final cleanNicknameForCheck = _nickname?.trim();
+                final isOurOwnMessage = _nickname != null && (
+                  (isChannel && nick.toLowerCase() == _nickname!.toLowerCase()) ||
+                  (!isChannel && cleanNicknameForCheck != null && cleanTargetForCheck.toLowerCase() == cleanNicknameForCheck.toLowerCase())
                 );
                 
-                // Notificar a los listeners de mensajes
-            _notifyMessageListeners(msg);
+                print('🔍 [IRCService] Verificando si es nuestro mensaje: nick="$nick", nuestroNick="$_nickname", isChannel=$isChannel, isOurOwnMessage=$isOurOwnMessage');
+                
+                if (isOurOwnMessage) {
+                  // Es nuestro propio mensaje, confirmar el mensaje pendiente en lugar de añadir uno nuevo
+                  print('✅ [IRCService] Confirmando mensaje pendiente propio: "$messageContent" en canal "$channelKey"');
+                  final confirmed = confirmPendingMessage(channelKey, messageContent, DateTime.now());
+                  if (confirmed) {
+                    print('✅ [IRCService] Mensaje pendiente confirmado, no se añadirá duplicado');
+                    return; // Salir temprano para evitar añadir un mensaje duplicado
+                  } else {
+                    print('⚠️  [IRCService] No se encontró mensaje pendiente para confirmar, puede ser un mensaje ya confirmado');
+                    return; // Aún así no añadir duplicado
+                  }
+                } else {
+                  // Es un mensaje de otro usuario, añadirlo normalmente
+                  final msg = IRCMessage(
+                    nick: nick,
+                    channel: channelKey,
+                    message: messageContent,
+                    timestamp: DateTime.now(),
+                  );
+                  
+                  print('🔍 [DEBUG] ✅ Añadiendo mensaje al canal/query: $channelKey');
+                  print('🔍 [DEBUG] ✅ Canal existe en mapa: ${channels.containsKey(channelKey)}');
+                  channels[channelKey]!.addMessage(msg);
+                  print('🔍 [DEBUG] ✅ Mensaje añadido. Total mensajes en canal: ${channels[channelKey]!.messages.length}');
+                  
+                  // Guardar en historial local (no bloquear el hilo principal)
+                  // Usamos el host actual como identificador de servidor
+                  final serverId = (_secureSocket ?? _socket)?.remoteAddress.host ?? 'unknown';
+                  // Ignorar errores de forma silenciosa dentro del Future
+                  // para no afectar al flujo de mensajes
+                  // ignore: unawaited_futures
+                  ChatHistoryService().saveMessage(
+                    server: serverId,
+                    message: msg,
+                  );
+                  
+                  // Notificar a los listeners de mensajes
+                  _notifyMessageListeners(msg);
+                }
                 print('🔍 [DEBUG] ✅ Listeners notificados. Total listeners: ${_messageListeners.length}');
                 
                 // Si es un nuevo canal/query, notificar también a los listeners de lista de usuarios
@@ -1293,6 +1515,39 @@ class IRCService {
               }
             } else {
               print('🔍 [DEBUG] ⚠️  PRIVMSG: PRIVMSG keyword not found in line');
+            }
+          }
+          break;
+        
+        case 'NOTICE':
+          // Los NOTICE de NickServ con STATUS se procesan aquí
+          if (args.isNotEmpty) {
+            var target = args[0];
+            final noticeIndex = line.indexOf('NOTICE');
+            if (noticeIndex != -1) {
+              final targetEndIndex = line.indexOf(target, noticeIndex) + target.length;
+              final colonIndex = line.indexOf(':', targetEndIndex);
+              
+              if (colonIndex != -1) {
+                final messageContent = line.substring(colonIndex + 1).trim();
+                
+                // Verificar si es una respuesta de STATUS de NickServ
+                if ((nick.toLowerCase() == 'nickserv' || nick.toLowerCase() == 'nick') && 
+                    messageContent.contains('STATUS')) {
+                  final match = RegExp(r'STATUS\s+(\S+)\s+(\d+)').firstMatch(messageContent);
+                  if (match != null) {
+                    final checkedNick = match.group(1)!.toLowerCase();
+                    final status = int.tryParse(match.group(2)!);
+                    print('📋 [IRCService] Status recibido (NOTICE) para nick "$checkedNick": $status');
+                    final completer = _statusCheckCompleters.remove(checkedNick);
+                    if (completer != null && !completer.isCompleted) {
+                      completer.complete(status);
+                    }
+                    // No procesar como mensaje normal si es una respuesta de STATUS
+                    break;
+                  }
+                }
+              }
             }
           }
           break;
