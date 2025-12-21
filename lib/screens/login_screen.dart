@@ -23,12 +23,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _portController = TextEditingController(text: '6667');
   late final TextEditingController _nickController;
   final _channelController = TextEditingController(); // Vacío por defecto
+  final _passwordController = TextEditingController(); // Contraseña para identificación
   final _channelFocusNode = FocusNode();
   bool _isLoading = false;
   String? _errorMessage;
   List<ChannelInfo> _channels = [];
   bool _loadingChannels = false;
   ServerProfile? _selectedServer;
+  bool _identifyWithNick = false; // Checkbox para identificar con nick registrado
   
   // Lista de canales prohibidos que no se mostrarán en el combo
   static const List<String> _prohibitedChannels = ['#opers', '#services'];
@@ -102,6 +104,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     _portController.dispose();
     _nickController.dispose();
     _channelController.dispose();
+    _passwordController.dispose();
     _channelFocusNode.dispose();
     super.dispose();
   }
@@ -143,6 +146,16 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       );
 
       globalLog('🔵 [LOGIN] connect() returned successfully');
+      
+      // Si se proporcionó una contraseña y se marcó la opción de identificar, identificar el nick
+      if (_identifyWithNick && _passwordController.text.trim().isNotEmpty) {
+        globalLog('🔐 [LOGIN] Identificando nick con bot "nick"...');
+        // Esperar un poco más para que la conexión se establezca completamente
+        // y el servidor procese los mensajes iniciales
+        await Future.delayed(const Duration(milliseconds: 2000));
+        globalLog('🔐 [LOGIN] Enviando comando IDENTIFY al bot "nick"...');
+        ircService.identifyNick(_passwordController.text.trim());
+      }
       
       ref.read(currentNicknameProvider.notifier).state = nick;
       globalLog('🔵 [LOGIN] Set nickname in provider');
@@ -430,6 +443,75 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       ),
                     ),
                   ),
+                  const SizedBox(height: 16),
+                  // Checkbox para identificar con nick registrado
+                  Row(
+                    children: [
+                      Checkbox(
+                        value: _identifyWithNick,
+                        onChanged: (value) {
+                          setState(() {
+                            _identifyWithNick = value ?? false;
+                            if (!_identifyWithNick) {
+                              _passwordController.clear();
+                            }
+                          });
+                        },
+                        activeColor: appTheme.primary,
+                      ),
+                      Expanded(
+                        child: GestureDetector(
+                          onTap: () {
+                            setState(() {
+                              _identifyWithNick = !_identifyWithNick;
+                              if (!_identifyWithNick) {
+                                _passwordController.clear();
+                              }
+                            });
+                          },
+                          child: Text(
+                            'Identificarse con nick registrado',
+                            style: TextStyle(
+                              color: appTheme.textPrimary,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  // Campo de contraseña (solo visible si se marca el checkbox)
+                  if (_identifyWithNick) ...[
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: _passwordController,
+                      obscureText: true,
+                      style: TextStyle(color: appTheme.textPrimary),
+                      decoration: InputDecoration(
+                        labelText: 'Contraseña del nick',
+                        hintText: 'Contraseña para identificar el nick',
+                        prefixIcon: Icon(Icons.lock, color: appTheme.primary),
+                        labelStyle: TextStyle(color: appTheme.primary),
+                        hintStyle: TextStyle(color: appTheme.textSecondary),
+                        helperText: 'Se identificará automáticamente con NickServ al conectar',
+                        helperStyle: TextStyle(color: appTheme.textSecondary, fontSize: 11),
+                        filled: true,
+                        fillColor: appTheme.surface.withOpacity(0.9),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                          borderSide: BorderSide(color: appTheme.primary, width: 2),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                          borderSide: BorderSide(color: appTheme.primary.withOpacity(0.6), width: 1.5),
+                        ),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                          borderSide: BorderSide(color: appTheme.primary.withOpacity(0.4), width: 1),
+                        ),
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 16),
                   _ChannelSelector(
                     controller: _channelController,

@@ -20,8 +20,10 @@ class IRCService {
   final List<Function()> _disconnectionListeners = [];
   final List<Function(WhoisInfo)> _whoisListeners = [];
   final List<Function(String)> _nickChangeListeners = []; // Listeners para cambios de nick
+  final List<Function()> _ircopListeners = []; // Listeners para cuando se identifica como IRCop
   Map<String, WhoisInfo> _whoisCache = {};
   Map<String, WhoisInfo> _pendingWhois = {}; // Para acumular información de whois
+  bool _isIRCOp = false; // Cache del estado de IRCop del usuario actual
   final Set<String> _ignoredUsers = {}; // Lista de usuarios ignorados (en minúsculas)
   final Map<String, Timer> _pendingMessageTimers = {}; // Timers para mensajes pendientes
   final Map<String, Completer<int?>> _statusCheckCompleters = {}; // Completers para verificaciones de status
@@ -35,6 +37,7 @@ class IRCService {
   String? get currentChannel => _currentChannel;
   String? get nickname => _nickname;
   Map<String, IRCChannel> get allChannels => channels;
+  bool get isIRCOp => _isIRCOp;
   
   bool get _hasActiveSocket => _socket != null || _secureSocket != null;
 
@@ -451,6 +454,28 @@ class IRCService {
     print('📤 [IRCService] Enviando mensaje a servicio $serviceName: $message');
   }
 
+  // Identificar el nick con el bot "nick" usando IDENTIFY
+  void identifyNick(String password) {
+    if (_nickname == null || _nickname!.isEmpty) {
+      print('⚠️ [IRCService] No hay nick para identificar');
+      return;
+    }
+    
+    final trimmedPassword = password.trim();
+    if (trimmedPassword.isEmpty) {
+      print('⚠️ [IRCService] La contraseña está vacía');
+      return;
+    }
+    
+    // Enviar IDENTIFY al bot "nick" (no "NickServ") con la contraseña
+    // Formato: PRIVMSG nick :IDENTIFY nick password
+    // Algunos bots requieren el nick en el comando
+    final command = 'PRIVMSG nick :IDENTIFY ${_nickname} $trimmedPassword';
+    print('🔐 [IRCService] Identificando nick ${_nickname} con bot "nick"');
+    print('🔐 [IRCService] Comando completo: $command');
+    _sendCommand(command);
+  }
+
   // Verificar el status de un nick (STATUS nick)
   // Retorna un Completer que se completa con el status (3 = registrado)
   Completer<int?> checkNickStatus(String nick) {
@@ -479,6 +504,300 @@ class IRCService {
   // Enviar mensaje privado a un nick (query)
   void sendWhois(String nick) {
     _sendCommand('WHOIS $nick');
+  }
+
+  // Comandos de moderación
+  void kickUser(String channel, String nick, [String? reason]) {
+    final normalized = _normalizeChannelName(channel);
+    if (reason != null && reason.isNotEmpty) {
+      _sendCommand('KICK $normalized $nick :$reason');
+    } else {
+      _sendCommand('KICK $normalized $nick');
+    }
+    print('👢 [IRCService] Expulsando $nick de $normalized${reason != null ? " (razón: $reason)" : ""}');
+  }
+
+  void banUser(String channel, String nick) {
+    final normalized = _normalizeChannelName(channel);
+    _sendCommand('MODE $normalized +b $nick');
+    print('🚫 [IRCService] Baneando $nick en $normalized');
+  }
+
+  void unbanUser(String channel, String nick) {
+    final normalized = _normalizeChannelName(channel);
+    _sendCommand('MODE $normalized -b $nick');
+    print('✅ [IRCService] Desbaneando $nick en $normalized');
+  }
+
+  void setChannelMode(String channel, String modes, [String? target]) {
+    final normalized = _normalizeChannelName(channel);
+    if (target != null && target.isNotEmpty) {
+      _sendCommand('MODE $normalized $modes $target');
+    } else {
+      _sendCommand('MODE $normalized $modes');
+    }
+    print('⚙️  [IRCService] Cambiando modo de $normalized: $modes${target != null ? " $target" : ""}');
+  }
+
+  void setChannelTopic(String channel, String topic) {
+    final normalized = _normalizeChannelName(channel);
+    _sendCommand('TOPIC $normalized :$topic');
+    print('📌 [IRCService] Cambiando topic de $normalized: $topic');
+  }
+
+  // ========== COMANDOS DE IRCOP (UnrealIRCd) ==========
+  
+  // OPER: Autenticarse como operador IRC
+  void oper(String nick, String password) {
+    _sendCommand('OPER $nick $password');
+    print('🔐 [IRCService] Intentando autenticarse como operador: $nick');
+  }
+  
+  // KILL: Desconectar a un usuario del servidor
+  void killUser(String nick, [String? reason]) {
+    if (reason != null && reason.isNotEmpty) {
+      _sendCommand('KILL $nick :$reason');
+    } else {
+      _sendCommand('KILL $nick');
+    }
+    print('💀 [IRCService] KILL: Desconectando $nick${reason != null ? " (razón: $reason)" : ""}');
+  }
+
+  // GLINE: Prohibir a un usuario o rango de IPs conectarse al servidor
+  void glineUser(String userhost, [String? duration, String? reason]) {
+    String command = 'GLINE $userhost';
+    if (duration != null && duration.isNotEmpty) {
+      command += ' $duration';
+    }
+    if (reason != null && reason.isNotEmpty) {
+      command += ' :$reason';
+    }
+    _sendCommand(command);
+    print('🚫 [IRCService] GLINE: $userhost${duration != null ? " por $duration" : ""}${reason != null ? " (razón: $reason)" : ""}');
+  }
+
+  // KLINE: Similar a GLINE pero solo para el servidor local
+  void klineUser(String userhost, [String? duration, String? reason]) {
+    String command = 'KLINE $userhost';
+    if (duration != null && duration.isNotEmpty) {
+      command += ' $duration';
+    }
+    if (reason != null && reason.isNotEmpty) {
+      command += ' :$reason';
+    }
+    _sendCommand(command);
+    print('🚫 [IRCService] KLINE: $userhost${duration != null ? " por $duration" : ""}${reason != null ? " (razón: $reason)" : ""}');
+  }
+
+  // ZLINE: Banear una IP específica
+  void zlineIP(String ip, [String? duration, String? reason]) {
+    String command = 'ZLINE $ip';
+    if (duration != null && duration.isNotEmpty) {
+      command += ' $duration';
+    }
+    if (reason != null && reason.isNotEmpty) {
+      command += ' :$reason';
+    }
+    _sendCommand(command);
+    print('🚫 [IRCService] ZLINE: $ip${duration != null ? " por $duration" : ""}${reason != null ? " (razón: $reason)" : ""}');
+  }
+
+  // SHUN: Silenciar a un usuario
+  void shunUser(String userhost, [String? duration, String? reason]) {
+    String command = 'SHUN $userhost';
+    if (duration != null && duration.isNotEmpty) {
+      command += ' $duration';
+    }
+    if (reason != null && reason.isNotEmpty) {
+      command += ' :$reason';
+    }
+    _sendCommand(command);
+    print('🔇 [IRCService] SHUN: $userhost${duration != null ? " por $duration" : ""}${reason != null ? " (razón: $reason)" : ""}');
+  }
+
+  // SAJOIN: Forzar a un usuario a unirse a un canal
+  void sajoinUser(String nick, String channel) {
+    final normalized = _normalizeChannelName(channel);
+    _sendCommand('SAJOIN $nick $normalized');
+    print('➡️ [IRCService] SAJOIN: Forzando a $nick a unirse a $normalized');
+  }
+
+  // SAPART: Forzar a un usuario a salir de un canal
+  void sapartUser(String nick, String channel) {
+    final normalized = _normalizeChannelName(channel);
+    _sendCommand('SAPART $nick $normalized');
+    print('⬅️ [IRCService] SAPART: Forzando a $nick a salir de $normalized');
+  }
+
+  // SAMODE: Cambiar los modos de un canal sin ser operador
+  void samodeChannel(String channel, String modes, [String? target]) {
+    final normalized = _normalizeChannelName(channel);
+    if (target != null && target.isNotEmpty) {
+      _sendCommand('SAMODE $normalized $modes $target');
+    } else {
+      _sendCommand('SAMODE $normalized $modes');
+    }
+    print('⚙️ [IRCService] SAMODE: Cambiando modo de $normalized: $modes${target != null ? " $target" : ""}');
+  }
+
+  // SANICK: Cambiar el nick de un usuario
+  void sanickUser(String nick, String newNick) {
+    _sendCommand('SANICK $nick $newNick');
+    print('👤 [IRCService] SANICK: Cambiando nick de $nick a $newNick');
+  }
+
+  // SAPRIVMSG: Enviar mensaje privado como servicio
+  void saprivmsgUser(String nick, String message) {
+    _sendCommand('SAPRIVMSG $nick :$message');
+    print('📨 [IRCService] SAPRIVMSG: Enviando mensaje a $nick: $message');
+  }
+
+  // SQUIT: Desconectar un servidor de la red
+  void squitServer(String server, [String? reason]) {
+    if (reason != null && reason.isNotEmpty) {
+      _sendCommand('SQUIT $server :$reason');
+    } else {
+      _sendCommand('SQUIT $server');
+    }
+    print('🔌 [IRCService] SQUIT: Desconectando servidor $server${reason != null ? " (razón: $reason)" : ""}');
+  }
+
+  // REHASH: Recargar la configuración del servidor
+  void rehashServer() {
+    _sendCommand('REHASH');
+    print('🔄 [IRCService] REHASH: Recargando configuración del servidor');
+  }
+
+  // RESTART: Reiniciar el servidor
+  void restartServer([String? reason]) {
+    if (reason != null && reason.isNotEmpty) {
+      _sendCommand('RESTART :$reason');
+    } else {
+      _sendCommand('RESTART');
+    }
+    print('🔄 [IRCService] RESTART: Reiniciando servidor${reason != null ? " (razón: $reason)" : ""}');
+  }
+
+  // DIE: Apagar el servidor
+  void dieServer([String? reason]) {
+    if (reason != null && reason.isNotEmpty) {
+      _sendCommand('DIE :$reason');
+    } else {
+      _sendCommand('DIE');
+    }
+    print('💀 [IRCService] DIE: Apagando servidor${reason != null ? " (razón: $reason)" : ""}');
+  }
+
+  // CONNECT: Conectar un servidor a la red
+  void connectServer(String server, int port, [String? password]) {
+    String command = 'CONNECT $server $port';
+    if (password != null && password.isNotEmpty) {
+      command += ' $password';
+    }
+    _sendCommand(command);
+    print('🔗 [IRCService] CONNECT: Conectando servidor $server:$port');
+  }
+
+  // DCCDENY: Denegar DCC de un usuario
+  void dccdenyUser(String nick) {
+    _sendCommand('DCCDENY $nick');
+    print('🚫 [IRCService] DCCDENY: Denegando DCC de $nick');
+  }
+
+  // UNDCCDENY: Permitir DCC de un usuario
+  void undccdenyUser(String nick) {
+    _sendCommand('UNDCCDENY $nick');
+    print('✅ [IRCService] UNDCCDENY: Permitiendo DCC de $nick');
+  }
+
+  // TSCTL: Comandos de control de timestamp
+  void tsctlCommand(String command) {
+    _sendCommand('TSCTL $command');
+    print('⏰ [IRCService] TSCTL: $command');
+  }
+
+  // MKPASSWD: Generar hash de contraseña
+  void mkpasswd(String password) {
+    _sendCommand('MKPASSWD $password');
+    print('🔐 [IRCService] MKPASSWD: Generando hash de contraseña');
+  }
+
+  // STATS: Obtener estadísticas del servidor
+  void statsCommand(String type) {
+    _sendCommand('STATS $type');
+    print('📊 [IRCService] STATS: Solicitando estadísticas tipo $type');
+  }
+
+  // TRACE: Rastrear la ruta de un usuario o servidor
+  void traceTarget(String target) {
+    _sendCommand('TRACE $target');
+    print('🔍 [IRCService] TRACE: Rastreando $target');
+  }
+
+  // LINKS: Listar servidores conectados
+  void linksCommand() {
+    _sendCommand('LINKS');
+    print('🔗 [IRCService] LINKS: Solicitando lista de servidores');
+  }
+
+  // MAP: Mapa de la red
+  void mapCommand() {
+    _sendCommand('MAP');
+    print('🗺️ [IRCService] MAP: Solicitando mapa de la red');
+  }
+
+  // MOTD: Mensaje del día
+  void motdCommand() {
+    _sendCommand('MOTD');
+    print('📝 [IRCService] MOTD: Solicitando mensaje del día');
+  }
+
+  // VERSION: Versión del servidor
+  void versionCommand() {
+    _sendCommand('VERSION');
+    print('ℹ️ [IRCService] VERSION: Solicitando versión del servidor');
+  }
+
+  // ADMIN: Información de administración
+  void adminCommand() {
+    _sendCommand('ADMIN');
+    print('👨‍💼 [IRCService] ADMIN: Solicitando información de administración');
+  }
+
+  // LUSERS: Estadísticas de usuarios
+  void lusersCommand() {
+    _sendCommand('LUSERS');
+    print('👥 [IRCService] LUSERS: Solicitando estadísticas de usuarios');
+  }
+
+  // TIME: Hora del servidor
+  void timeCommand() {
+    _sendCommand('TIME');
+    print('🕐 [IRCService] TIME: Solicitando hora del servidor');
+  }
+
+  // WALLOPS: Mensaje a todos los operadores
+  void wallops(String message) {
+    _sendCommand('WALLOPS :$message');
+    print('📢 [IRCService] WALLOPS: $message');
+  }
+
+  // GLOBOPS: Mensaje global a todos los operadores
+  void globops(String message) {
+    _sendCommand('GLOBOPS :$message');
+    print('🌍 [IRCService] GLOBOPS: $message');
+  }
+
+  // ADMIND: Mensaje a administradores
+  void admind(String message) {
+    _sendCommand('ADMIND :$message');
+    print('👨‍💼 [IRCService] ADMIND: $message');
+  }
+
+  // LOCOPS: Mensaje a operadores locales
+  void locops(String message) {
+    _sendCommand('LOCOPS :$message');
+    print('🏠 [IRCService] LOCOPS: $message');
   }
 
   void sendIgnore(String nick) {
@@ -1237,7 +1556,39 @@ class IRCService {
                 staffRole: roleText.isNotEmpty ? roleText : 'Operador IRC',
               );
             }
+            
+            // Actualizar cache de IRCop si es el usuario actual
+            if (targetNick.toLowerCase() == _nickname?.toLowerCase()) {
+              _isIRCOp = true;
+            }
+            
             print('🔍 [WHOIS] 313 - $targetNick staff: ${_pendingWhois[targetNick]!.staffRole}');
+          }
+          break;
+        
+        case '381': // RPL_YOUREOPER: :server 381 nick :You are now an IRC Operator
+          // El código 381 siempre es para el usuario que ejecutó OPER
+          // Formato típico: :server 381 nick :You are now an IRC Operator
+          print('🔍 [IRCService] Código 381 recibido, línea completa: $line');
+          print('🔍 [IRCService] Args: $args, nuestro nick: $_nickname');
+          
+          // El código 381 siempre es para nosotros si lo recibimos
+          // No necesitamos verificar el nick
+          _isIRCOp = true;
+          print('✅ [IRCService] Identificado como IRCop exitosamente (código 381)');
+          
+          // Notificar a los listeners de IRCop
+          for (var listener in _ircopListeners) {
+            listener();
+          }
+          break;
+        
+        case '491': // ERR_NOOPERHOST: :server 491 nick :No O-lines for your host
+          if (args.length >= 2) {
+            final targetNick = args[1];
+            if (targetNick.toLowerCase() == _nickname?.toLowerCase()) {
+              print('❌ [IRCService] Error: No tienes permisos de operador para este host');
+            }
           }
           break;
         
@@ -1275,7 +1626,26 @@ class IRCService {
               _notifyWhoisListeners(whoisInfo);
               _pendingWhois.remove(targetNick);
               print('🔍 [WHOIS] 318 - End of WHOIS for $targetNick');
+            } else {
+              // Si no hay información pendiente, crear una entrada básica para notificar
+              // Esto puede pasar si el servidor envía 318 sin enviar otros códigos
+              print('⚠️  [WHOIS] 318 recibido pero no hay información pendiente para $targetNick');
+              final basicInfo = WhoisInfo(nick: targetNick);
+              _whoisCache[targetNick.toLowerCase()] = basicInfo;
+              _notifyWhoisListeners(basicInfo);
             }
+          }
+          break;
+        
+        case '401': // ERR_NOSUCHNICK: :server 401 nick target :No such nick/channel
+          if (args.length >= 2) {
+            final targetNick = args[1];
+            print('⚠️  [WHOIS] 401 - No such nick: $targetNick');
+            // Notificar que el nick no existe
+            final errorInfo = WhoisInfo(nick: targetNick);
+            _whoisCache[targetNick.toLowerCase()] = errorInfo;
+            _notifyWhoisListeners(errorInfo);
+            _pendingWhois.remove(targetNick);
           }
           break;
         
@@ -1452,6 +1822,14 @@ class IRCService {
                   }
                 }
                 
+                // Ignorar mensajes que enviamos al bot "nick" (como IDENTIFY)
+                // Estos no deben aparecer como mensajes en el canal
+                if (nick.toLowerCase() == 'nick' && 
+                    messageContent.toUpperCase().startsWith('IDENTIFY')) {
+                  print('🔐 [IRCService] Ignorando mensaje IDENTIFY al bot "nick" (no debe aparecer en el canal)');
+                  return;
+                }
+                
                 print('🔍 [DEBUG] PRIVMSG parsed: nick="$nick", target="$target", channelKey="$channelKey", message="$messageContent"');
             
                 // Verificar si es nuestro propio mensaje (confirmación del servidor)
@@ -1467,15 +1845,40 @@ class IRCService {
                 print('🔍 [IRCService] Verificando si es nuestro mensaje: nick="$nick", nuestroNick="$_nickname", isChannel=$isChannel, isOurOwnMessage=$isOurOwnMessage');
                 
                 if (isOurOwnMessage) {
-                  // Es nuestro propio mensaje, confirmar el mensaje pendiente en lugar de añadir uno nuevo
-                  print('✅ [IRCService] Confirmando mensaje pendiente propio: "$messageContent" en canal "$channelKey"');
-                  final confirmed = confirmPendingMessage(channelKey, messageContent, DateTime.now());
-                  if (confirmed) {
-                    print('✅ [IRCService] Mensaje pendiente confirmado, no se añadirá duplicado');
-                    return; // Salir temprano para evitar añadir un mensaje duplicado
+                  // Es nuestro propio mensaje, verificar si hay un mensaje pendiente
+                  print('✅ [IRCService] Mensaje propio detectado: "$messageContent" en canal "$channelKey"');
+                  
+                  // Buscar mensaje pendiente que coincida
+                  final channelObj = channels[channelKey]!;
+                  final pendingMsgIndex = channelObj.messages.indexWhere(
+                    (msg) => msg.isPending && 
+                             msg.channel == channelKey &&
+                             msg.message.trim() == messageContent.trim(),
+                  );
+                  
+                  if (pendingMsgIndex != -1) {
+                    final pendingMsg = channelObj.messages[pendingMsgIndex];
+                    // Verificar si el mensaje pendiente tiene un timer activo
+                    final hasActiveTimer = pendingMsg.pendingId != null && 
+                                          _pendingMessageTimers.containsKey(pendingMsg.pendingId);
+                    
+                    if (hasActiveTimer) {
+                      // El timer aún está activo, el mensaje aún no se ha enviado
+                      // El servidor está respondiendo a un mensaje anterior o hay un problema
+                      print('⏱️  [IRCService] Mensaje pendiente aún tiene timer activo (delay en curso), ignorando confirmación temprana del servidor');
+                      return; // Ignorar la confirmación temprana del servidor
+                    } else {
+                      // El timer ya se ejecutó, confirmar el mensaje
+                      print('✅ [IRCService] Timer ya ejecutado, confirmando mensaje pendiente');
+                      final confirmed = confirmPendingMessage(channelKey, messageContent, DateTime.now());
+                      if (confirmed) {
+                        print('✅ [IRCService] Mensaje pendiente confirmado, no se añadirá duplicado');
+                        return; // Salir temprano para evitar añadir un mensaje duplicado
+                      }
+                    }
                   } else {
                     print('⚠️  [IRCService] No se encontró mensaje pendiente para confirmar, puede ser un mensaje ya confirmado');
-                    return; // Aún así no añadir duplicado
+                    return; // No añadir duplicado
                   }
                 } else {
                   // Es un mensaje de otro usuario, añadirlo normalmente
@@ -1641,6 +2044,14 @@ class IRCService {
 
   void removeWhoisListener(Function(WhoisInfo) listener) {
     _whoisListeners.remove(listener);
+  }
+
+  void addIRCOpListener(Function() listener) {
+    _ircopListeners.add(listener);
+  }
+
+  void removeIRCOpListener(Function() listener) {
+    _ircopListeners.remove(listener);
   }
 
   WhoisInfo? getWhoisInfo(String nick) {
