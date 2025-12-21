@@ -138,6 +138,40 @@ class MessagesNotifier extends StateNotifier<List<IRCMessage>> {
   }
 
   void _onMessage(IRCMessage message) {
+    // Si el mensaje tiene un pendingId, buscar si ya existe un mensaje pendiente con ese ID
+    if (message.pendingId != null) {
+      final index = state.indexWhere((m) => m.pendingId == message.pendingId);
+      if (index != -1) {
+        // Actualizar el mensaje existente en lugar de añadir uno nuevo
+        final updatedState = List<IRCMessage>.from(state);
+        updatedState[index] = message;
+        state = updatedState;
+        return;
+      }
+    }
+    
+    // Si el mensaje no tiene pendingId o no se encontró uno existente, verificar si es una actualización
+    // de un mensaje pendiente (isPending cambió de true a false)
+    if (!message.isPending) {
+      // Buscar mensaje con mismo contenido, canal y nick que sea pendiente
+      final index = state.indexWhere((m) => 
+        m.isPending && 
+        m.channel.toLowerCase() == message.channel.toLowerCase() &&
+        m.nick == message.nick &&
+        m.message.trim() == message.message.trim() &&
+        // Timestamp similar (dentro de 5 segundos)
+        (m.timestamp.difference(message.timestamp).inSeconds.abs() < 5)
+      );
+      if (index != -1) {
+        // Actualizar el mensaje existente
+        final updatedState = List<IRCMessage>.from(state);
+        updatedState[index] = message;
+        state = updatedState;
+        return;
+      }
+    }
+    
+    // Si no es una actualización, añadir como nuevo mensaje
     state = [...state, message];
   }
 

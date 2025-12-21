@@ -425,7 +425,10 @@ class IRCService {
           final confirmedMsg = msg.copyWith(isPending: false, pendingId: null);
           channelObj.messages[i] = confirmedMsg;
           print('✅ [IRCService] Mensaje confirmado: ${msg.pendingId}');
+          // Notificar a los listeners de mensajes para actualizar la UI
           _notifyMessageListeners(confirmedMsg);
+          // También notificar a los listeners de lista de usuarios para forzar actualización del provider
+          _notifyUserListListeners(normalized);
           return true;
         }
       }
