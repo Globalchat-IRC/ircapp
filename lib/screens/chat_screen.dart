@@ -4346,21 +4346,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                           ),
                           const SizedBox(width: 4),
                           // Botón para enviar inmediatamente (sin delay)
-                          Consumer(
-                            builder: (context, ref, _) {
-                              final delaySeconds = ref.watch(messageSendDelayProvider);
-                              // Solo mostrar el botón de envío inmediato si hay delay configurado
-                              if (delaySeconds > 0) {
-                                return FloatingActionButton(
-                                  onPressed: () => _sendMessage(forceImmediate: true),
-                                  mini: true,
-                                  backgroundColor: appTheme.accent,
-                                  tooltip: 'Enviar inmediatamente (sin delay)',
-                                  child: const Icon(Icons.flash_on, size: 18),
-                                );
-                              }
-                              return const SizedBox.shrink();
+                          FloatingActionButton(
+                            onPressed: () {
+                              print('⚡⚡⚡ [ChatScreen] Botón de rayo presionado, enviando con forceImmediate=true');
+                              _sendMessage(forceImmediate: true);
                             },
+                            mini: true,
+                            backgroundColor: appTheme.accent,
+                            tooltip: 'Enviar inmediatamente (sin delay)',
+                            child: const Icon(Icons.flash_on, size: 18),
                           ),
                         ],
                       ),
@@ -5185,6 +5179,31 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   // Indicador de "enviando..." y botón de eliminar para mensajes pendientes
                   if (message.isPending && isOwnMessage)
                     _buildPendingMessageIndicator(context, message),
+                  // Indicador de mensaje editado
+                  if (message.isEdited)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Row(
+                        children: [
+                          Icon(Icons.edit, size: 12, color: appTheme.textSecondary.withOpacity(0.6)),
+                          const SizedBox(width: 4),
+                          Text(
+                            'editado',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontStyle: FontStyle.italic,
+                              color: appTheme.textSecondary.withOpacity(0.6),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  // Mostrar mensaje al que se responde (si existe)
+                  if (message.replyToMessageId != null)
+                    _buildReplyPreview(context, message, appTheme),
+                  // Reacciones y acciones del mensaje
+                  if (!message.isSystem && message.messageId != null)
+                    _buildMessageActions(context, message, isOwnMessage, appTheme),
                   // Botón de registro si es mensaje de NickServ sobre registro
                   if (_isNickRegistrationMessage(message))
                     _buildRegistrationButton(context, message),
@@ -5364,6 +5383,315 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           ),
           elevation: 2,
         ),
+      ),
+    );
+  }
+
+  // Widget para mostrar preview del mensaje al que se responde
+  Widget _buildReplyPreview(BuildContext context, IRCMessage message, AppTheme appTheme) {
+    final replyToMessage = _ircService.getMessageById(message.channel, message.replyToMessageId!);
+    if (replyToMessage == null) return const SizedBox.shrink();
+    
+    return Container(
+      margin: const EdgeInsets.only(top: 8, bottom: 4),
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: appTheme.primary.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(8),
+        border: Border(
+          left: BorderSide(color: appTheme.primary, width: 3),
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.reply, size: 14, color: appTheme.primary),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  replyToMessage.nick,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: appTheme.primary,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  replyToMessage.message.length > 50
+                      ? '${replyToMessage.message.substring(0, 50)}...'
+                      : replyToMessage.message,
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: appTheme.textSecondary,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+  
+  // Widget para mostrar acciones del mensaje (editar, reacciones, responder)
+  Widget _buildMessageActions(BuildContext context, IRCMessage message, bool isOwnMessage, AppTheme appTheme) {
+    return Container(
+      margin: const EdgeInsets.only(top: 8),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Botón de responder
+          IconButton(
+            icon: const Icon(Icons.reply, size: 16),
+            color: appTheme.textSecondary.withOpacity(0.6),
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
+            tooltip: 'Responder',
+            onPressed: () => _showReplyDialog(context, message),
+          ),
+          const SizedBox(width: 4),
+          // Reacciones rápidas
+          PopupMenuButton<String>(
+            icon: Icon(Icons.add_reaction, size: 16, color: appTheme.textSecondary.withOpacity(0.6)),
+            tooltip: 'Reaccionar',
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
+            itemBuilder: (context) => [
+              const PopupMenuItem(value: '👍', child: Text('👍')),
+              const PopupMenuItem(value: '❤️', child: Text('❤️')),
+              const PopupMenuItem(value: '😂', child: Text('😂')),
+              const PopupMenuItem(value: '😮', child: Text('😮')),
+              const PopupMenuItem(value: '😢', child: Text('😢')),
+              const PopupMenuItem(value: '🔥', child: Text('🔥')),
+              const PopupMenuItem(value: '⭐', child: Text('⭐')),
+            ],
+            onSelected: (emoji) {
+              if (message.messageId != null) {
+                _ircService.toggleReaction(message.channel, message.messageId!, emoji);
+              }
+            },
+          ),
+          // Mostrar reacciones existentes
+          if (message.reactions.isNotEmpty) ...[
+            const SizedBox(width: 8),
+            ...message.reactions.entries.map((entry) {
+              return GestureDetector(
+                onTap: () {
+                  if (message.messageId != null) {
+                    _ircService.toggleReaction(message.channel, message.messageId!, entry.key);
+                  }
+                },
+                child: Container(
+                  margin: const EdgeInsets.only(right: 4),
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: appTheme.surface,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: appTheme.primary.withOpacity(0.3)),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(entry.key, style: const TextStyle(fontSize: 12)),
+                      const SizedBox(width: 4),
+                      Text(
+                        '${entry.value}',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: appTheme.textSecondary,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }),
+          ],
+          // Botón de editar (solo para mensajes propios con delay que aún no se han enviado)
+          if (isOwnMessage && !message.isSystem && message.isPending && message.delaySeconds != null && message.delaySeconds! > 0) ...[
+            const SizedBox(width: 4),
+            IconButton(
+              icon: const Icon(Icons.edit, size: 16),
+              color: appTheme.textSecondary.withOpacity(0.6),
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(),
+              tooltip: 'Editar',
+              onPressed: () => _showEditMessageDialog(context, message),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+  
+  // Diálogo para editar un mensaje
+  void _showEditMessageDialog(BuildContext context, IRCMessage message) {
+    final appTheme = ref.read(themeProvider);
+    final editController = TextEditingController(text: message.message);
+    
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: appTheme.surface,
+        title: Text('Editar mensaje', style: TextStyle(color: appTheme.textPrimary)),
+        content: TextField(
+          controller: editController,
+          autofocus: true,
+          maxLines: 5,
+          style: TextStyle(color: appTheme.textPrimary),
+          decoration: InputDecoration(
+            hintText: 'Mensaje...',
+            hintStyle: TextStyle(color: appTheme.textSecondary),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide(color: appTheme.primary),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide(color: appTheme.primary, width: 2),
+            ),
+            filled: true,
+            fillColor: appTheme.background,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text('Cancelar', style: TextStyle(color: appTheme.textSecondary)),
+          ),
+          TextButton(
+            onPressed: () {
+              if (editController.text.trim().isNotEmpty && message.messageId != null) {
+                _ircService.editMessage(message.channel, message.messageId!, editController.text.trim());
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Mensaje editado')),
+                );
+              }
+            },
+            child: Text('Guardar', style: TextStyle(color: appTheme.primary, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+  }
+  
+  // Diálogo para responder a un mensaje
+  void _showReplyDialog(BuildContext context, IRCMessage message) {
+    final appTheme = ref.read(themeProvider);
+    final replyController = TextEditingController();
+    final currentChannel = ref.read(currentChannelProvider);
+    
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: appTheme.surface,
+        title: Row(
+          children: [
+            Icon(Icons.reply, color: appTheme.primary, size: 20),
+            const SizedBox(width: 8),
+            Text('Responder a ${message.nick}', style: TextStyle(color: appTheme.textPrimary)),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Preview del mensaje original
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: appTheme.primary.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+                border: Border(
+                  left: BorderSide(color: appTheme.primary, width: 3),
+                ),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          message.nick,
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: appTheme.primary,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          message.message.length > 100
+                              ? '${message.message.substring(0, 100)}...'
+                              : message.message,
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: appTheme.textSecondary,
+                          ),
+                          maxLines: 3,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: replyController,
+              autofocus: true,
+              maxLines: 5,
+              style: TextStyle(color: appTheme.textPrimary),
+              decoration: InputDecoration(
+                hintText: 'Tu respuesta...',
+                hintStyle: TextStyle(color: appTheme.textSecondary),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: BorderSide(color: appTheme.primary),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: BorderSide(color: appTheme.primary, width: 2),
+                ),
+                filled: true,
+                fillColor: appTheme.background,
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text('Cancelar', style: TextStyle(color: appTheme.textSecondary)),
+          ),
+          TextButton(
+            onPressed: () {
+              if (replyController.text.trim().isNotEmpty && 
+                  message.messageId != null && 
+                  currentChannel != null) {
+                _ircService.replyToMessage(
+                  currentChannel,
+                  message.messageId!,
+                  replyController.text.trim(),
+                );
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Respuesta enviada')),
+                );
+              }
+            },
+            child: Text('Enviar', style: TextStyle(color: appTheme.primary, fontWeight: FontWeight.bold)),
+          ),
+        ],
       ),
     );
   }

@@ -313,7 +313,7 @@ class IRCService {
     }
   }
 
-  void sendMessage(String channel, String message, {int delaySeconds = 0}) {
+  void sendMessage(String channel, String message, {int delaySeconds = 0, String? replyToMessageId}) {
     // Normalizar el nombre del canal
     final normalized = _normalizeChannelName(channel);
     
@@ -330,6 +330,8 @@ class IRCService {
         isPending: true,
         pendingId: pendingId,
         delaySeconds: delaySeconds > 0 ? delaySeconds : null,
+        messageId: IRCMessage.generateMessageId(),
+        replyToMessageId: replyToMessageId,
       );
       channels[normalized]!.addMessage(msg);
       _notifyMessageListeners(msg);
@@ -350,25 +352,55 @@ class IRCService {
             }
           }
           print('📤 [IRCService] Mensaje enviado al servidor después de delay: $pendingId');
-          // Confirmar el mensaje inmediatamente después de enviarlo
-          // (algunos servidores IRC no devuelven el PRIVMSG de vuelta)
-          confirmPendingMessage(normalized, message, DateTime.now());
+          // NO confirmar aquí - esperar a que el servidor devuelva el PRIVMSG
+          // confirmPendingMessage(normalized, message, DateTime.now());
           // Eliminar el timer del mapa después de ejecutarse
           _pendingMessageTimers.remove(pendingId);
         });
         _pendingMessageTimers[pendingId] = timer;
       } else {
         // Sin delay, enviar inmediatamente
+        print('📤 [IRCService] Enviando mensaje sin delay inmediatamente: $pendingId');
         final lines = message.split('\n');
         for (var line in lines) {
           line = line.trim();
           if (line.isNotEmpty) {
+            print('📤 [IRCService] Enviando línea sin delay: $line');
             _sendCommand('PRIVMSG $normalized :$line');
           }
         }
-        // Confirmar el mensaje inmediatamente después de enviarlo
-        // (algunos servidores IRC no devuelven el PRIVMSG de vuelta)
-        confirmPendingMessage(normalized, message, DateTime.now());
+        print('✅ [IRCService] Mensaje sin delay enviado, esperando confirmación del servidor (pendingId: $pendingId)');
+        
+        // Si el servidor no devuelve el PRIVMSG como eco, confirmar automáticamente después de un breve delay
+        // Esto es necesario porque algunos servidores IRC no devuelven el PRIVMSG como eco
+        Timer(const Duration(milliseconds: 500), () {
+          // Verificar si el mensaje aún está pendiente (no fue confirmado por el servidor)
+          final channelObj = channels[normalized];
+          if (channelObj != null) {
+            final pendingMsg = channelObj.messages.firstWhere(
+              (msg) => msg.pendingId == pendingId && msg.isPending,
+              orElse: () => IRCMessage(
+                nick: _nickname ?? 'You',
+                channel: normalized,
+                message: '',
+                timestamp: DateTime.now(),
+              ),
+            );
+            
+            // Si el mensaje aún está pendiente, confirmarlo automáticamente
+            if (pendingMsg.isPending && pendingMsg.pendingId == pendingId) {
+              print('⏰ [IRCService] Servidor no devolvió PRIVMSG, confirmando automáticamente después de 500ms');
+              final confirmed = confirmPendingMessage(normalized, message, DateTime.now());
+              if (confirmed) {
+                print('✅ [IRCService] Mensaje confirmado automáticamente: $pendingId');
+              } else {
+                print('⚠️  [IRCService] No se pudo confirmar automáticamente el mensaje: $pendingId');
+              }
+            } else {
+              print('✅ [IRCService] Mensaje ya fue confirmado por el servidor: $pendingId');
+            }
+          }
+        });
       }
     }
   }
@@ -403,6 +435,7 @@ class IRCService {
               channel: normalized,
               message: '',
               timestamp: DateTime.now(),
+              messageId: IRCMessage.generateMessageId(),
             ));
       return true;
     }
@@ -450,9 +483,9 @@ class IRCService {
       }
     }
     
-    // Confirmar el mensaje inmediatamente
-    confirmPendingMessage(normalized, message, DateTime.now());
-    print('✅ [IRCService] Mensaje enviado inmediatamente: $pendingId');
+    // NO confirmar aquí - esperar a que el servidor devuelva el PRIVMSG
+    // confirmPendingMessage(normalized, message, DateTime.now());
+    print('✅ [IRCService] Mensaje enviado inmediatamente: $pendingId (esperando confirmación del servidor)');
     return true;
   }
   
@@ -522,21 +555,26 @@ class IRCService {
     print('🔍 [IRCService] Buscando mensaje pendiente para confirmar: "$normalizedReceivedMessage" en canal $normalized');
     print('🔍 [IRCService] Total mensajes en canal: ${channelObj.messages.length}');
     
-    for (var i = 0; i < channelObj.messages.length; i++) {
+    // Buscar desde el final (más reciente) hacia el principio para encontrar el mensaje más reciente primero
+    for (var i = channelObj.messages.length - 1; i >= 0; i--) {
       final msg = channelObj.messages[i];
       if (msg.isPending && msg.channel == normalized) {
         // Comparar mensajes normalizados (trim y comparar)
         final normalizedPendingMessage = msg.message.trim();
-        print('🔍 [IRCService] Comparando pendiente: "$normalizedPendingMessage" con recibido: "$normalizedReceivedMessage"');
+        print('🔍 [IRCService] Comparando pendiente[$i]: "$normalizedPendingMessage" con recibido: "$normalizedReceivedMessage"');
         // También verificar si el mensaje recibido contiene el mensaje pendiente o viceversa
         // (por si hay diferencias menores en el formato)
         if (normalizedPendingMessage == normalizedReceivedMessage ||
             normalizedReceivedMessage.contains(normalizedPendingMessage) ||
             normalizedPendingMessage.contains(normalizedReceivedMessage)) {
-          // Confirmar el mensaje (marcar como no pendiente)
-          final confirmedMsg = msg.copyWith(isPending: false, pendingId: null);
+          // Confirmar el mensaje (marcar como no pendiente, preservando todos los campos)
+          final confirmedMsg = msg.copyWith(
+            isPending: false, 
+            pendingId: null,
+            // Preservar replyToMessageId y otros campos
+          );
           channelObj.messages[i] = confirmedMsg;
-          print('✅ [IRCService] Mensaje confirmado: ${msg.pendingId}');
+          print('✅ [IRCService] Mensaje confirmado en índice $i: ${msg.pendingId}');
           // Notificar a los listeners de mensajes para actualizar la UI
           _notifyMessageListeners(confirmedMsg);
           // También notificar a los listeners de lista de usuarios para forzar actualización del provider
@@ -1161,6 +1199,7 @@ class IRCService {
       isPending: true,
       pendingId: pendingId,
       delaySeconds: delaySeconds > 0 ? delaySeconds : null,
+      messageId: IRCMessage.generateMessageId(),
       );
     channels[queryChannel]!.addMessage(msg);
       _notifyMessageListeners(msg);
@@ -1731,6 +1770,7 @@ class IRCService {
               message: 'se unió al canal',
               timestamp: DateTime.now(),
               isSystem: true,
+              messageId: IRCMessage.generateMessageId(),
             );
             channels[channel]!.addMessage(msg);
             _notifyMessageListeners(msg);
@@ -1796,6 +1836,7 @@ class IRCService {
                 channel: channel,
                 message: 'dejó el canal',
                 timestamp: DateTime.now(),
+                messageId: IRCMessage.generateMessageId(),
                 isSystem: true,
               );
               channels[channel]!.addMessage(msg);
@@ -1830,6 +1871,7 @@ class IRCService {
                     : 'expulsó a $kickedNick',
                 timestamp: DateTime.now(),
                 isSystem: true,
+                messageId: IRCMessage.generateMessageId(),
               );
               channels[channel]!.addMessage(msg);
               _notifyMessageListeners(msg);
@@ -2157,12 +2199,12 @@ class IRCService {
         
         case 'PRIVMSG':
           if (args.isNotEmpty) {
-            print('🔍 [DEBUG] 📨 PRIVMSG recibido - Raw line: $line');
-            print('🔍 [DEBUG] 📨 PRIVMSG - nick del source: "$nick", args: $args');
+            print('🔍🔍🔍 [DEBUG PRIVMSG] 📨 PRIVMSG recibido - Raw line: $line');
+            print('🔍🔍🔍 [DEBUG PRIVMSG] 📨 PRIVMSG - nick del source: "$nick", args: $args');
             
             var target = args[0];
-            print('🔍 [DEBUG] 📨 PRIVMSG - target original: "$target"');
-            print('🔍 [DEBUG] 📨 PRIVMSG - nuestro nickname: "$_nickname"');
+            print('🔍🔍🔍 [DEBUG PRIVMSG] 📨 PRIVMSG - target original: "$target"');
+            print('🔍🔍🔍 [DEBUG PRIVMSG] 📨 PRIVMSG - nuestro nickname: "$_nickname"');
             
             var targetChannel = _normalizeChannelName(target);
             
@@ -2298,7 +2340,7 @@ class IRCService {
                   return;
                 }
                 
-                print('🔍 [DEBUG] PRIVMSG parsed: nick="$nick", target="$target", channelKey="$channelKey", message="$messageContent"');
+                print('🔍🔍🔍 [DEBUG PRIVMSG] PRIVMSG parsed: nick="$nick", target="$target", channelKey="$channelKey", message="$messageContent"');
             
                 // Verificar si es nuestro propio mensaje (confirmación del servidor)
                 // - Para mensajes de canal: el nick del remitente debe ser nuestro nick
@@ -2307,22 +2349,64 @@ class IRCService {
                 final isOurOwnMessage = _nickname != null &&
                     nick.toLowerCase() == _nickname!.toLowerCase();
                 
-                print('🔍 [IRCService] Verificando si es nuestro mensaje: nick="$nick", nuestroNick="$_nickname", isChannel=$isChannel, isOurOwnMessage=$isOurOwnMessage');
+                print('🔍🔍🔍 [DEBUG PRIVMSG] Verificando si es nuestro mensaje:');
+                print('  - nick del source: "$nick"');
+                print('  - nuestro nickname: "$_nickname"');
+                print('  - isChannel: $isChannel');
+                print('  - Comparación: "${nick.toLowerCase()}" == "${_nickname?.toLowerCase()}" = $isOurOwnMessage');
+                print('  - Mensaje recibido: "$messageContent"');
+                print('  - Canal: "$channelKey"');
                 
                 if (isOurOwnMessage) {
                   // Es nuestro propio mensaje, verificar si hay un mensaje pendiente
-                  print('✅ [IRCService] Mensaje propio detectado: "$messageContent" en canal "$channelKey"');
+                  print('✅✅✅ [DEBUG PRIVMSG] Mensaje propio detectado: "$messageContent" en canal "$channelKey"');
                   
                   // Buscar mensaje pendiente que coincida
-                  final channelObj = channels[channelKey]!;
-                  final pendingMsgIndex = channelObj.messages.indexWhere(
-                    (msg) => msg.isPending && 
-                             msg.channel == channelKey &&
-                             msg.message.trim() == messageContent.trim(),
-                  );
+                  if (!channels.containsKey(channelKey)) {
+                    print('❌❌❌ [DEBUG PRIVMSG] ERROR: Canal "$channelKey" no existe en channels!');
+                    print('❌❌❌ [DEBUG PRIVMSG] Canales disponibles: ${channels.keys.toList()}');
+                    return;
+                  }
                   
-                  if (pendingMsgIndex != -1) {
-                    final pendingMsg = channelObj.messages[pendingMsgIndex];
+                  final channelObj = channels[channelKey]!;
+                  
+                  // Buscar el mensaje pendiente más reciente que coincida
+                  int pendingMsgIndex = -1;
+                  IRCMessage? pendingMsg;
+                  
+                  // Buscar desde el final (más reciente) hacia el principio
+                  print('🔍🔍🔍 [DEBUG PRIVMSG] Buscando mensaje pendiente. Total mensajes: ${channelObj.messages.length}');
+                  for (int i = channelObj.messages.length - 1; i >= 0; i--) {
+                    final msg = channelObj.messages[i];
+                    if (msg.isPending && 
+                        msg.channel == channelKey &&
+                        msg.nick == _nickname) {
+                      // Verificar si el contenido coincide (exacto o similar)
+                      final msgContent = msg.message.trim();
+                      final receivedContent = messageContent.trim();
+                      print('🔍 [IRCService] Comparando pendiente[$i]: "$msgContent" con recibido: "$receivedContent"');
+                      if (msgContent == receivedContent ||
+                          receivedContent.contains(msgContent) ||
+                          msgContent.contains(receivedContent)) {
+                        pendingMsgIndex = i;
+                        pendingMsg = msg;
+                        print('✅ [IRCService] Mensaje pendiente encontrado en índice $i: "${msg.message}" (pendingId: ${msg.pendingId})');
+                        break;
+                      }
+                    }
+                  }
+                  
+                  if (pendingMsgIndex == -1) {
+                    print('⚠️  [IRCService] No se encontró mensaje pendiente. Listando todos los pendientes:');
+                    for (int i = 0; i < channelObj.messages.length; i++) {
+                      final msg = channelObj.messages[i];
+                      if (msg.isPending && msg.channel == channelKey && msg.nick == _nickname) {
+                        print('  - [$i] "${msg.message}" (pendingId: ${msg.pendingId})');
+                      }
+                    }
+                  }
+                  
+                  if (pendingMsgIndex != -1 && pendingMsg != null) {
                     // Verificar si el mensaje pendiente tiene un timer activo
                     final hasActiveTimer = pendingMsg.pendingId != null && 
                                           _pendingMessageTimers.containsKey(pendingMsg.pendingId);
@@ -2333,16 +2417,20 @@ class IRCService {
                       print('⏱️  [IRCService] Mensaje pendiente aún tiene timer activo (delay en curso), ignorando confirmación temprana del servidor');
                       return; // Ignorar la confirmación temprana del servidor
                     } else {
-                      // El timer ya se ejecutó, confirmar el mensaje
-                      print('✅ [IRCService] Timer ya ejecutado, confirmando mensaje pendiente');
+                      // El timer ya se ejecutó o no había timer (envío inmediato), confirmar el mensaje
+                      print('✅ [IRCService] Timer ya ejecutado o sin delay, confirmando mensaje pendiente');
                       final confirmed = confirmPendingMessage(channelKey, messageContent, DateTime.now());
                       if (confirmed) {
                         print('✅ [IRCService] Mensaje pendiente confirmado, no se añadirá duplicado');
                         return; // Salir temprano para evitar añadir un mensaje duplicado
+                      } else {
+                        print('⚠️  [IRCService] No se pudo confirmar el mensaje pendiente, pero es nuestro mensaje, no añadir duplicado');
+                        return; // No añadir duplicado aunque no se confirmó
                       }
                     }
                   } else {
-                    print('⚠️  [IRCService] No se encontró mensaje pendiente para confirmar, puede ser un mensaje ya confirmado');
+                    print('⚠️  [IRCService] No se encontró mensaje pendiente para confirmar, puede ser un mensaje ya confirmado o de otro usuario');
+                    // Si es nuestro mensaje pero no hay pendiente, no añadir duplicado
                     return; // No añadir duplicado
                   }
                 } else {
@@ -2353,6 +2441,7 @@ class IRCService {
               message: messageContent,
               timestamp: DateTime.now(),
               isAction: isAction,
+              messageId: IRCMessage.generateMessageId(),
             );
                   
                   print('🔍 [DEBUG] ✅ Añadiendo mensaje al canal/query: $channelKey');
@@ -2652,6 +2741,173 @@ class IRCService {
     print('🔔 _notifyTopicListeners: channel=$channel, listeners=${_topicListeners.length}');
     for (var listener in _topicListeners) {
       listener(channel);
+    }
+  }
+  
+  // Editar un mensaje propio
+  bool editMessage(String channel, String messageId, String newMessage) {
+    final normalized = _normalizeChannelName(channel);
+    if (!channels.containsKey(normalized)) return false;
+    
+    final channelObj = channels[normalized]!;
+    final messageIndex = channelObj.messages.indexWhere(
+      (msg) => msg.messageId == messageId && msg.nick == _nickname,
+    );
+    
+    if (messageIndex == -1) return false;
+    
+    final oldMessage = channelObj.messages[messageIndex];
+    
+    // Si el mensaje está pendiente, actualizar el mensaje que se enviará
+    if (oldMessage.isPending && oldMessage.pendingId != null) {
+      final pendingId = oldMessage.pendingId!;
+      
+      // Verificar si el mensaje ya fue enviado (timer ya ejecutado o fue forzado)
+      final hasActiveTimer = _pendingMessageTimers.containsKey(pendingId);
+      
+      // Cancelar el timer anterior si existe
+      final oldTimer = _pendingMessageTimers.remove(pendingId);
+      if (oldTimer != null) {
+        oldTimer.cancel();
+        print('⏱️  [IRCService] Timer cancelado para editar mensaje pendiente: $pendingId');
+      }
+      
+      // Actualizar el mensaje pendiente con el nuevo contenido
+      // IMPORTANTE: Si el mensaje ya fue enviado (fuerza envío), eliminar el delaySeconds
+      // para que no se cree un nuevo timer cuando se edite
+      final updatedMessage = oldMessage.copyWith(
+        message: newMessage,
+        isEdited: true,
+        editedAt: DateTime.now(),
+        delaySeconds: hasActiveTimer ? oldMessage.delaySeconds : null, // Si ya fue enviado, quitar delay
+      );
+      channelObj.messages[messageIndex] = updatedMessage;
+      _notifyMessageListeners(updatedMessage);
+      
+      // Si el mensaje ya fue enviado (no tenía timer activo), enviar el nuevo contenido inmediatamente
+      // Esto ocurre cuando se fuerza el envío y luego se edita
+      if (!hasActiveTimer) {
+        // El mensaje ya fue enviado, pero ahora tiene contenido nuevo, enviarlo inmediatamente
+        print('📤 [IRCService] Mensaje ya fue enviado (fuerza envío), enviando contenido editado inmediatamente');
+        final lines = newMessage.split('\n');
+        for (var line in lines) {
+          line = line.trim();
+          if (line.isNotEmpty) {
+            print('📤 [IRCService] Enviando línea editada: $line');
+            _sendCommand('PRIVMSG $normalized :$line');
+          }
+        }
+        print('✅ [IRCService] Mensaje editado enviado inmediatamente (mensaje ya estaba enviado)');
+      } else {
+        // El mensaje aún tiene timer activo, crear un nuevo timer con el contenido editado
+        // Si hay un delay configurado, crear un nuevo timer con el mensaje actualizado
+        if (updatedMessage.delaySeconds != null && updatedMessage.delaySeconds! > 0) {
+          final delaySeconds = updatedMessage.delaySeconds!;
+          print('⏱️  [IRCService] Programando envío de mensaje editado $pendingId en ${delaySeconds}s');
+          final timer = Timer(Duration(seconds: delaySeconds), () {
+            print('⏱️  [IRCService] Timer ejecutado, enviando mensaje editado $pendingId');
+            final lines = newMessage.split('\n');
+            for (var line in lines) {
+              line = line.trim();
+              if (line.isNotEmpty) {
+                print('📤 [IRCService] Enviando línea editada: $line');
+                _sendCommand('PRIVMSG $normalized :$line');
+              }
+            }
+            print('📤 [IRCService] Mensaje editado enviado al servidor después de delay: $pendingId');
+            // NO confirmar aquí - esperar a que el servidor devuelva el PRIVMSG
+            _pendingMessageTimers.remove(pendingId);
+          });
+          _pendingMessageTimers[pendingId] = timer;
+          print('✅ [IRCService] Timer creado para mensaje editado, se enviará en ${delaySeconds}s');
+        } else {
+          // Sin delay, enviar inmediatamente
+          print('📤 [IRCService] Enviando mensaje editado inmediatamente (sin delay)');
+          final lines = newMessage.split('\n');
+          for (var line in lines) {
+            line = line.trim();
+            if (line.isNotEmpty) {
+              print('📤 [IRCService] Enviando línea editada: $line');
+              _sendCommand('PRIVMSG $normalized :$line');
+            }
+          }
+          // NO confirmar aquí - esperar a que el servidor devuelva el PRIVMSG
+          print('✅ [IRCService] Mensaje editado enviado inmediatamente');
+        }
+      }
+      
+      print('✏️  [IRCService] Mensaje pendiente editado: $messageId en $normalized');
+      return true;
+    } else {
+      // Mensaje ya enviado, solo actualizar el contenido localmente
+      final updatedMessage = oldMessage.copyWith(
+        message: newMessage,
+        isEdited: true,
+        editedAt: DateTime.now(),
+      );
+      
+      channelObj.messages[messageIndex] = updatedMessage;
+      _notifyMessageListeners(updatedMessage);
+      
+      // Enviar comando de edición al servidor (si el servidor lo soporta)
+      // Nota: IRC no tiene un comando estándar para editar mensajes
+      // Esto es una funcionalidad del cliente
+      print('✏️  [IRCService] Mensaje confirmado editado: $messageId en $normalized');
+      return true;
+    }
+  }
+  
+  // Añadir o quitar una reacción a un mensaje
+  bool toggleReaction(String channel, String messageId, String emoji) {
+    final normalized = _normalizeChannelName(channel);
+    if (!channels.containsKey(normalized)) return false;
+    
+    final channelObj = channels[normalized]!;
+    final messageIndex = channelObj.messages.indexWhere(
+      (msg) => msg.messageId == messageId,
+    );
+    
+    if (messageIndex == -1) return false;
+    
+    final oldMessage = channelObj.messages[messageIndex];
+    final currentReactions = Map<String, int>.from(oldMessage.reactions);
+    
+    // Toggle: si existe, incrementar; si no, añadir con 1
+    if (currentReactions.containsKey(emoji)) {
+      currentReactions[emoji] = (currentReactions[emoji] ?? 0) + 1;
+    } else {
+      currentReactions[emoji] = 1;
+    }
+    
+    final updatedMessage = oldMessage.copyWith(reactions: currentReactions);
+    channelObj.messages[messageIndex] = updatedMessage;
+    _notifyMessageListeners(updatedMessage);
+    
+    print('👍 [IRCService] Reacción añadida: $emoji a mensaje $messageId');
+    return true;
+  }
+  
+  // Responder a un mensaje específico
+  void replyToMessage(String channel, String replyToMessageId, String message, {int delaySeconds = 0}) {
+    final normalized = _normalizeChannelName(channel);
+    
+    // Enviar el mensaje directamente con la referencia al mensaje original
+    sendMessage(normalized, message, delaySeconds: delaySeconds, replyToMessageId: replyToMessageId);
+    
+    print('💬 [IRCService] Respondiendo a mensaje $replyToMessageId en $normalized');
+  }
+  
+  // Obtener un mensaje por su ID
+  IRCMessage? getMessageById(String channel, String messageId) {
+    final normalized = _normalizeChannelName(channel);
+    if (!channels.containsKey(normalized)) return null;
+    
+    try {
+      return channels[normalized]!.messages.firstWhere(
+        (msg) => msg.messageId == messageId,
+      );
+    } catch (e) {
+      return null;
     }
   }
 }

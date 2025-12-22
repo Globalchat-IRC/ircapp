@@ -8,6 +8,11 @@ class IRCMessage {
   final String? pendingId; // ID único para identificar mensajes pendientes
   final int? delaySeconds; // Delay configurado para este mensaje
   final bool isAction; // Mensaje de acción (/me)
+  final String? messageId; // ID único del mensaje para edición/reacciones/respuestas
+  final bool isEdited; // Indica si el mensaje fue editado
+  final DateTime? editedAt; // Timestamp de la última edición
+  final String? replyToMessageId; // ID del mensaje al que responde (para threads)
+  final Map<String, int> reactions; // Reacciones: emoji -> cantidad
 
   IRCMessage({
     required this.nick,
@@ -19,7 +24,12 @@ class IRCMessage {
     this.pendingId,
     this.delaySeconds,
     this.isAction = false,
-  });
+    this.messageId,
+    this.isEdited = false,
+    this.editedAt,
+    this.replyToMessageId,
+    Map<String, int>? reactions,
+  }) : reactions = reactions ?? {};
 
   // Crear una copia con campos modificados
   IRCMessage copyWith({
@@ -32,6 +42,11 @@ class IRCMessage {
     String? pendingId,
     int? delaySeconds,
     bool? isAction,
+    String? messageId,
+    bool? isEdited,
+    DateTime? editedAt,
+    String? replyToMessageId,
+    Map<String, int>? reactions,
   }) {
     return IRCMessage(
       nick: nick ?? this.nick,
@@ -43,7 +58,17 @@ class IRCMessage {
       pendingId: pendingId ?? this.pendingId,
       delaySeconds: delaySeconds ?? this.delaySeconds,
       isAction: isAction ?? this.isAction,
+      messageId: messageId ?? this.messageId,
+      isEdited: isEdited ?? this.isEdited,
+      editedAt: editedAt ?? this.editedAt,
+      replyToMessageId: replyToMessageId ?? this.replyToMessageId,
+      reactions: reactions ?? this.reactions,
     );
+  }
+  
+  // Generar un ID único para el mensaje basado en timestamp y contenido
+  static String generateMessageId() {
+    return 'msg_${DateTime.now().millisecondsSinceEpoch}_${DateTime.now().microsecondsSinceEpoch}';
   }
 
   @override
