@@ -49,3 +49,4 @@ rm -rf "$TEMP_DMG_DIR"
 
 echo "✅ DMG creado: $DMG_PATH"
 
+

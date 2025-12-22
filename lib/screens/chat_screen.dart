@@ -4623,6 +4623,19 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           ],
         ),
         onTap: () {
+          // Asegurarse de que el canal/query existe en el servicio
+          // Si es un canal reciente cerrado, volver a hacer JOIN antes de seleccionarlo
+          if (!isQuery && channel.startsWith('#')) {
+            final channelsMap = ref.read(channelsProvider);
+            final normalizedChannelLower = channel.toLowerCase();
+            final isAlreadyOpen = channelsMap.keys.any(
+              (key) => key.toLowerCase() == normalizedChannelLower,
+            );
+            if (!isAlreadyOpen) {
+              _ircService.joinChannel(channel);
+            }
+          }
+
           // Cambiar al canal, marcar como leído y añadir a recientes
           ref.read(currentChannelProvider.notifier).state = channel;
           ref.read(lastChannelProvider.notifier).state = channel;
@@ -4673,7 +4686,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   final normalizedCurrentChannel =
                       currentChannel?.toLowerCase();
                   if (normalizedCurrentChannel == normalizedChannel) {
-                    ref.read(currentChannelProvider.notifier).state = null;
+                    // Si es el canal actual, seleccionar otro canal disponible
+                    final remainingChannels = ref.read(channelsProvider).keys
+                        .where((c) => c.toLowerCase() != normalizedChannel)
+                        .toList();
+                    if (remainingChannels.isNotEmpty) {
+                      ref.read(currentChannelProvider.notifier).state = remainingChannels.first;
+                    } else {
+                      ref.read(currentChannelProvider.notifier).state = null;
+                    }
                   }
                 } else {
                   // Si es un canal, hacer PART
@@ -4682,7 +4703,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   final normalizedCurrentChannel =
                       currentChannel?.toLowerCase();
                   if (normalizedCurrentChannel == normalizedChannel) {
-                    ref.read(currentChannelProvider.notifier).state = null;
+                    // Si es el canal actual, seleccionar otro canal disponible
+                    final remainingChannels = ref.read(channelsProvider).keys
+                        .where((c) => c.toLowerCase() != normalizedChannel)
+                        .toList();
+                    if (remainingChannels.isNotEmpty) {
+                      ref.read(currentChannelProvider.notifier).state = remainingChannels.first;
+                    } else {
+                      ref.read(currentChannelProvider.notifier).state = null;
+                    }
                   }
                 }
               },

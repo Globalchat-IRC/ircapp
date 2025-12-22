@@ -400,7 +400,11 @@ class IRCService {
   // Confirmar un mensaje pendiente cuando el servidor lo confirma
   // Retorna true si se confirmó un mensaje, false si no se encontró
   bool confirmPendingMessage(String channel, String message, DateTime timestamp) {
-    final normalized = _normalizeChannelName(channel);
+    // Para canales normales, normalizar con '#'. Para queries privados (nick),
+    // usar el nombre tal cual en minúsculas.
+    final normalized = channel.startsWith('#')
+        ? _normalizeChannelName(channel)
+        : channel.trim().toLowerCase();
     if (!channels.containsKey(normalized)) {
       print('⚠️  [IRCService] Canal no existe para confirmar: $normalized');
       return false;
@@ -476,17 +480,17 @@ class IRCService {
     _sendCommand(command);
   }
 
-  // Verificar el status de un nick (STATUS nick)
-  // Retorna un Completer que se completa con el status (3 = registrado)
-  Completer<int?> checkNickStatus(String nick) {
-    final completer = Completer<int?>();
-    final normalizedNick = nick.trim().toLowerCase();
-    
-    // Guardar el completer para que el parser de NOTICE lo pueda completar
-    _statusCheckCompleters[normalizedNick] = completer;
-    
-    // Enviar comando STATUS
-    _sendCommand('PRIVMSG NickServ :STATUS $nick');
+        // Verificar el status de un nick (STATUS nick)
+        // Retorna un Completer que se completa con el status (3 = registrado)
+        Completer<int?> checkNickStatus(String nick) {
+        final completer = Completer<int?>();
+        final normalizedNick = nick.trim().toLowerCase();
+        
+        // Guardar el completer para que el parser de NOTICE lo pueda completar
+        _statusCheckCompleters[normalizedNick] = completer;
+        
+        // Enviar comando STATUS
+        _sendCommand('PRIVMSG NickServ :STATUS $nick');
     print('📋 [IRCService] Verificando status del nick: $nick');
     
     // Timeout después de 5 segundos
@@ -1822,25 +1826,31 @@ class IRCService {
                   }
                 }
                 
-                // Ignorar mensajes que enviamos al bot "nick" (como IDENTIFY)
-                // Estos no deben aparecer como mensajes en el canal
-                if (nick.toLowerCase() == 'nick' && 
+                // Ignorar SOLO el mensaje IDENTIFY que **nosotros** enviamos al bot "nick"
+                // Formato típico ecoado por el servidor:
+                //   :NuestroNick!user@host PRIVMSG nick :IDENTIFY NuestroNick password
+                // - nick (source)  -> nuestro propio nick
+                // - target         -> "nick"
+                // - messageContent -> comienza por "IDENTIFY ..."
+                //
+                // Las respuestas del bot "nick" (por ejemplo "You are now identified")
+                // NO deben coincidir con esta condición y se mostrarán normalmente.
+                if (_nickname != null &&
+                    nick.toLowerCase() == _nickname!.toLowerCase() &&
+                    target.toLowerCase() == 'nick' &&
                     messageContent.toUpperCase().startsWith('IDENTIFY')) {
-                  print('🔐 [IRCService] Ignorando mensaje IDENTIFY al bot "nick" (no debe aparecer en el canal)');
+                  print('🔐 [IRCService] Ignorando PRIVMSG IDENTIFY que enviamos al bot \"nick\" (no debe aparecer en el chat)');
                   return;
                 }
                 
                 print('🔍 [DEBUG] PRIVMSG parsed: nick="$nick", target="$target", channelKey="$channelKey", message="$messageContent"');
             
                 // Verificar si es nuestro propio mensaje (confirmación del servidor)
-                // Para mensajes de canal, el nick del remitente debe ser nuestro nick
-                // Para mensajes privados, el target debe ser nuestro nick
-                final cleanTargetForCheck = target.trim();
-                final cleanNicknameForCheck = _nickname?.trim();
-                final isOurOwnMessage = _nickname != null && (
-                  (isChannel && nick.toLowerCase() == _nickname!.toLowerCase()) ||
-                  (!isChannel && cleanNicknameForCheck != null && cleanTargetForCheck.toLowerCase() == cleanNicknameForCheck.toLowerCase())
-                );
+                // - Para mensajes de canal: el nick del remitente debe ser nuestro nick
+                // - Para mensajes privados: también el nick del remitente debe ser nuestro nick
+                //   (el target será el nick del otro usuario o servicio, p.ej. "nick")
+                final isOurOwnMessage = _nickname != null &&
+                    nick.toLowerCase() == _nickname!.toLowerCase();
                 
                 print('🔍 [IRCService] Verificando si es nuestro mensaje: nick="$nick", nuestroNick="$_nickname", isChannel=$isChannel, isOurOwnMessage=$isOurOwnMessage');
                 
@@ -1926,32 +1936,60 @@ class IRCService {
           break;
         
         case 'NOTICE':
-          // Los NOTICE de NickServ con STATUS se procesan aquí
+          // Los NOTICE de NickServ / bot "nick" se procesan aquí
           if (args.isNotEmpty) {
             var target = args[0];
             final noticeIndex = line.indexOf('NOTICE');
             if (noticeIndex != -1) {
-              final targetEndIndex = line.indexOf(target, noticeIndex) + target.length;
+              final targetEndIndex =
+                  line.indexOf(target, noticeIndex) + target.length;
               final colonIndex = line.indexOf(':', targetEndIndex);
-              
+
               if (colonIndex != -1) {
                 final messageContent = line.substring(colonIndex + 1).trim();
-                
-                // Verificar si es una respuesta de STATUS de NickServ
-                if ((nick.toLowerCase() == 'nickserv' || nick.toLowerCase() == 'nick') && 
+
+                // 1) Verificar si es una respuesta de STATUS de NickServ/nick
+                if ((nick.toLowerCase() == 'nickserv' ||
+                        nick.toLowerCase() == 'nick') &&
                     messageContent.contains('STATUS')) {
-                  final match = RegExp(r'STATUS\s+(\S+)\s+(\d+)').firstMatch(messageContent);
+                  final match =
+                      RegExp(r'STATUS\s+(\S+)\s+(\d+)').firstMatch(messageContent);
                   if (match != null) {
                     final checkedNick = match.group(1)!.toLowerCase();
                     final status = int.tryParse(match.group(2)!);
-                    print('📋 [IRCService] Status recibido (NOTICE) para nick "$checkedNick": $status');
-                    final completer = _statusCheckCompleters.remove(checkedNick);
+                    print(
+                        '📋 [IRCService] Status recibido (NOTICE) para nick "$checkedNick": $status');
+                    final completer =
+                        _statusCheckCompleters.remove(checkedNick);
                     if (completer != null && !completer.isCompleted) {
                       completer.complete(status);
                     }
                     // No procesar como mensaje normal si es una respuesta de STATUS
                     break;
                   }
+                }
+
+                // 2) Si es un NOTICE del bot "nick" dirigido a nosotros,
+                // mostrarlo en el query privado "nick"
+                final cleanTarget = target.trim();
+                final cleanNickname = _nickname?.trim();
+                if (nick.toLowerCase() == 'nick' &&
+                    cleanNickname != null &&
+                    cleanTarget.toLowerCase() == cleanNickname.toLowerCase()) {
+                  const channelKey = 'nick'; // nombre del query en la UI
+                  if (!channels.containsKey(channelKey)) {
+                    channels[channelKey] = IRCChannel(name: channelKey);
+                  }
+                  final msg = IRCMessage(
+                    nick: 'nick',
+                    channel: channelKey,
+                    message: messageContent,
+                    timestamp: DateTime.now(),
+                  );
+                  channels[channelKey]!.addMessage(msg);
+                  _notifyMessageListeners(msg);
+                  print(
+                      '📥 [IRCService] NOTICE del bot "nick" añadido al query: "$messageContent"');
                 }
               }
             }
