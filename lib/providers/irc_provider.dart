@@ -38,7 +38,7 @@ final messageSendDelayProvider = StateNotifierProvider<MessageSendDelayNotifier,
 
 class MessageSendDelayNotifier extends StateNotifier<int> {
   static const _prefsKey = 'message_send_delay_seconds';
-  static const int _defaultDelay = 30; // 30 segundos por defecto
+  static const int _defaultDelay = 10; // 10 segundos por defecto
 
   MessageSendDelayNotifier() : super(_defaultDelay) {
     _loadFromPrefs();
@@ -364,18 +364,85 @@ class UnreadMessagesNotifier extends StateNotifier<Map<String, int>> {
 /// Notifier para favoritos (canales y queries)
 class FavoritesNotifier extends StateNotifier<Set<String>> {
   static const _prefsKey = 'favorite_channels';
+  static const _excludedPrefsKey = 'favorite_channels_excluded';
+  
+  // Lista de canales que el usuario ha eliminado de favoritos y no deben volver a añadirse automáticamente
+  final Set<String> _excludedChannels = {};
+  bool _isInitialized = false;
+  final Completer<void> _initializationCompleter = Completer<void>();
 
   FavoritesNotifier() : super(<String>{}) {
-    _loadFromPrefs();
+    _initialize();
+  }
+  
+  Future<void> _initialize() async {
+    await _loadExcludedChannels();
+    await _loadFromPrefs();
+    _isInitialized = true;
+    if (!_initializationCompleter.isCompleted) {
+      _initializationCompleter.complete();
+    }
+  }
+  
+  // Método para esperar a que la inicialización termine
+  Future<void> waitForInitialization() async {
+    if (_isInitialized) return;
+    await _initializationCompleter.future;
   }
 
   Future<void> _loadFromPrefs() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final list = prefs.getStringList(_prefsKey) ?? <String>[];
-      state = list.map((e) => e.toLowerCase()).toSet();
-    } catch (_) {
+      print('📋 [FavoritesNotifier] ========== CARGANDO FAVORITOS ==========');
+      print('📋 [FavoritesNotifier] Favoritos RAW de SharedPreferences: $list');
+      print('📋 [FavoritesNotifier] Total favoritos RAW: ${list.length}');
+      print('📋 [FavoritesNotifier] Canales excluidos actuales: $_excludedChannels');
+      print('📋 [FavoritesNotifier] Total excluidos: ${_excludedChannels.length}');
+      
+      // Filtrar los canales excluidos al cargar
+      final filtered = list
+          .map((e) => e.toLowerCase())
+          .where((e) => !_excludedChannels.contains(e))
+          .toList();
+      
+      print('📋 [FavoritesNotifier] Favoritos después de filtrar excluidos: $filtered');
+      print('📋 [FavoritesNotifier] Total favoritos filtrados: ${filtered.length}');
+      
+      // Si hay canales excluidos en la lista guardada, limpiarlos de SharedPreferences
+      if (filtered.length != list.length) {
+        final removed = list.where((e) => _excludedChannels.contains(e.toLowerCase())).toList();
+        await prefs.setStringList(_prefsKey, filtered);
+        print('🧹 [FavoritesNotifier] Limpiados ${list.length - filtered.length} canales excluidos de favoritos guardados');
+        print('🧹 [FavoritesNotifier] Canales eliminados específicamente: $removed');
+      }
+      
+      state = filtered.toSet();
+      print('✅ [FavoritesNotifier] Estado final de favoritos: $state');
+      print('✅ [FavoritesNotifier] Total en estado final: ${state.length}');
+      print('📋 [FavoritesNotifier] ===========================================');
+    } catch (e) {
+      print('❌ [FavoritesNotifier] Error al cargar favoritos: $e');
       // Si falla la lectura, simplemente dejamos los favoritos vacíos
+    }
+  }
+  
+  Future<void> _loadExcludedChannels() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final excluded = prefs.getStringList(_excludedPrefsKey) ?? <String>[];
+      _excludedChannels.addAll(excluded.map((c) => c.toLowerCase()));
+    } catch (_) {
+      // Ignorar errores de carga
+    }
+  }
+  
+  Future<void> _saveExcludedChannels() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setStringList(_excludedPrefsKey, _excludedChannels.toList());
+    } catch (_) {
+      // Ignorar errores de guardado
     }
   }
 
@@ -394,27 +461,121 @@ class FavoritesNotifier extends StateNotifier<Set<String>> {
     final key = _normalize(channel);
     final newState = Set<String>.from(state);
     if (newState.contains(key)) {
+      // Si se está eliminando de favoritos, añadir a la lista de excluidos
       newState.remove(key);
+      _excludedChannels.add(key);
+      _saveExcludedChannels();
+      // También eliminar de SharedPreferences inmediatamente
+      state = newState;
+      _saveToPrefs();
     } else {
+      // Si se está añadiendo a favoritos, quitar de la lista de excluidos
       newState.add(key);
+      _excludedChannels.remove(key);
+      _saveExcludedChannels();
+      state = newState;
+      _saveToPrefs();
     }
-    state = newState;
-    _saveToPrefs();
   }
 
-  bool isFavorite(String channel) => state.contains(_normalize(channel));
+  bool isFavorite(String channel) {
+    final key = _normalize(channel);
+    // No considerar favorito si está en la lista de excluidos
+    if (_excludedChannels.contains(key)) {
+      return false;
+    }
+    return state.contains(key);
+  }
+  
+  // Método para limpiar la lista de excluidos (útil para debugging)
+  void clearExcluded() {
+    _excludedChannels.clear();
+    _saveExcludedChannels();
+  }
+  
+  // Método para limpiar todos los favoritos (útil para resetear)
+  Future<void> clearAllFavorites() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      
+      print('🧹 [FavoritesNotifier] ========== LIMPIANDO TODOS LOS FAVORITOS ==========');
+      print('🧹 [FavoritesNotifier] Estado ANTES de limpiar: $state');
+      print('🧹 [FavoritesNotifier] Excluidos ANTES de limpiar: $_excludedChannels');
+      
+      // Obtener los favoritos actuales antes de limpiar para logging
+      final currentFavorites = prefs.getStringList(_prefsKey) ?? <String>[];
+      print('🧹 [FavoritesNotifier] Favoritos en SharedPreferences ANTES: $currentFavorites');
+      
+      // Limpiar favoritos guardados
+      final removedFavorites = await prefs.remove(_prefsKey);
+      print('🧹 [FavoritesNotifier] Favoritos eliminados de SharedPreferences: $removedFavorites');
+      
+      // Verificar que se eliminaron correctamente
+      final verifyFavorites = prefs.getStringList(_prefsKey) ?? <String>[];
+      print('🧹 [FavoritesNotifier] Verificación - Favoritos después de remove: $verifyFavorites');
+      
+      // Limpiar también la lista de excluidos para permitir que el usuario vuelva a añadir canales
+      final currentExcluded = prefs.getStringList(_excludedPrefsKey) ?? <String>[];
+      print('🧹 [FavoritesNotifier] Excluidos en SharedPreferences ANTES: $currentExcluded');
+      
+      _excludedChannels.clear();
+      final removedExcluded = await prefs.remove(_excludedPrefsKey);
+      print('🧹 [FavoritesNotifier] Excluidos eliminados de SharedPreferences: $removedExcluded');
+      
+      // Verificar que se eliminaron correctamente
+      final verifyExcluded = prefs.getStringList(_excludedPrefsKey) ?? <String>[];
+      print('🧹 [FavoritesNotifier] Verificación - Excluidos después de remove: $verifyExcluded');
+      
+      // Actualizar el estado
+      state = <String>{};
+      print('✅ [FavoritesNotifier] Estado DESPUÉS de limpiar: $state');
+      print('✅ [FavoritesNotifier] Excluidos DESPUÉS de limpiar: $_excludedChannels');
+      print('🧹 [FavoritesNotifier] ====================================================');
+    } catch (e) {
+      print('❌ [FavoritesNotifier] Error al limpiar favoritos: $e');
+    }
+  }
 }
 
 /// Notifier para canales/nicks recientes
 class RecentChannelsNotifier extends StateNotifier<List<String>> {
   static const int maxItems = 20;
+  static const _prefsKey = 'recent_channels_excluded';
+  
+  // Lista de canales que el usuario ha eliminado y no deben volver a añadirse automáticamente
+  final Set<String> _excludedChannels = {};
 
-  RecentChannelsNotifier() : super(const []);
+  RecentChannelsNotifier() : super(const []) {
+    _loadExcludedChannels();
+  }
 
   String _normalize(String channel) => channel.toLowerCase();
 
+  Future<void> _loadExcludedChannels() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final excluded = prefs.getStringList(_prefsKey) ?? <String>[];
+      _excludedChannels.addAll(excluded.map((c) => c.toLowerCase()));
+    } catch (_) {
+      // Ignorar errores de carga
+    }
+  }
+
+  Future<void> _saveExcludedChannels() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setStringList(_prefsKey, _excludedChannels.toList());
+    } catch (_) {
+      // Ignorar errores de guardado
+    }
+  }
+
   void addRecent(String channel) {
     final key = _normalize(channel);
+    // No añadir si está en la lista de excluidos
+    if (_excludedChannels.contains(key)) {
+      return;
+    }
     // Evitar duplicados y mantener el orden (más reciente primero)
     final filtered =
         state.where((c) => _normalize(c) != key).toList(growable: true);
@@ -427,7 +588,16 @@ class RecentChannelsNotifier extends StateNotifier<List<String>> {
 
   void removeRecent(String channel) {
     final key = _normalize(channel);
+    // Añadir a la lista de excluidos para que no se vuelva a añadir automáticamente
+    _excludedChannels.add(key);
+    _saveExcludedChannels();
     state = state.where((c) => _normalize(c) != key).toList(growable: false);
+  }
+  
+  void clearExcluded(String channel) {
+    final key = _normalize(channel);
+    _excludedChannels.remove(key);
+    _saveExcludedChannels();
   }
 }
 

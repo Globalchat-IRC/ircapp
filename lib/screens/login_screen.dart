@@ -31,6 +31,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   bool _loadingChannels = false;
   ServerProfile? _selectedServer;
   bool _identifyWithNick = false; // Checkbox para identificar con nick registrado
+  bool _obscurePassword = true; // Controlar visibilidad de la contraseña
   
   // Lista de canales prohibidos que no se mostrarán en el combo
   static const List<String> _prohibitedChannels = ['#opers', '#services'];
@@ -401,8 +402,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   const SizedBox(height: 16),
                   TextField(
                     controller: _nickController,
-                    enabled: true,
-                    readOnly: false,
                     style: TextStyle(color: appTheme.textPrimary),
                     decoration: InputDecoration(
                       labelText: 'Apodo',
@@ -410,20 +409,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       helperText: 'Puedes cambiar el apodo generado',
                       helperMaxLines: 2,
                       prefixIcon: Icon(Icons.person, color: appTheme.primary),
-                      suffixIcon: IconButton(
-                        icon: Icon(Icons.edit, color: appTheme.primary.withOpacity(0.7)),
-                        onPressed: () {
-                          // Enfocar el campo para que sea más obvio que es editable
-                          FocusScope.of(context).requestFocus(FocusNode());
-                          Future.delayed(const Duration(milliseconds: 100), () {
-                            _nickController.selection = TextSelection(
-                              baseOffset: 0,
-                              extentOffset: _nickController.text.length,
-                            );
-                          });
-                        },
-                        tooltip: 'Editar apodo',
-                      ),
                       labelStyle: TextStyle(color: appTheme.primary),
                       hintStyle: TextStyle(color: appTheme.textSecondary),
                       helperStyle: TextStyle(color: appTheme.textSecondary, fontSize: 11),
@@ -485,12 +470,24 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     const SizedBox(height: 8),
                     TextField(
                       controller: _passwordController,
-                      obscureText: true,
+                      obscureText: _obscurePassword,
                       style: TextStyle(color: appTheme.textPrimary),
                       decoration: InputDecoration(
                         labelText: 'Contraseña del nick',
                         hintText: 'Contraseña para identificar el nick',
                         prefixIcon: Icon(Icons.lock, color: appTheme.primary),
+                        suffixIcon: IconButton(
+                          icon: Icon(
+                            _obscurePassword ? Icons.visibility : Icons.visibility_off,
+                            color: appTheme.primary.withOpacity(0.7),
+                          ),
+                          onPressed: () {
+                            setState(() {
+                              _obscurePassword = !_obscurePassword;
+                            });
+                          },
+                          tooltip: _obscurePassword ? 'Mostrar contraseña' : 'Ocultar contraseña',
+                        ),
                         labelStyle: TextStyle(color: appTheme.primary),
                         hintStyle: TextStyle(color: appTheme.textSecondary),
                         helperText: 'Se identificará automáticamente con NickServ al conectar',

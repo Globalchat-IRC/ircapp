@@ -13,6 +13,8 @@ class UserAvatar extends ConsumerStatefulWidget {
   final Gradient? gradient;
   final Border? border;
   final List<BoxShadow>? boxShadow;
+  final String? username; // Para detectar robots
+  final String? host; // Para detectar robots
 
   const UserAvatar({
     Key? key,
@@ -23,6 +25,8 @@ class UserAvatar extends ConsumerStatefulWidget {
     this.gradient,
     this.border,
     this.boxShadow,
+    this.username,
+    this.host,
   }) : super(key: key);
 
   @override
@@ -112,8 +116,11 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
   
 
   Widget _buildAvatarWidget() {
+    // Detectar si es un robot (contiene "Robot" en el nick, username o host)
+    final isRobot = _isRobot(widget.nick);
+    
     final fallback = widget.fallbackIcon ?? 
-        (widget.nick.isNotEmpty ? widget.nick[0].toUpperCase() : '?');
+        (isRobot ? '🤖' : (widget.nick.isNotEmpty ? widget.nick[0].toUpperCase() : '?'));
     
     // Detectar si el fallbackIcon es una URL (emoticono de JoyPixels)
     final isFallbackUrl = widget.fallbackIcon != null && 
@@ -206,5 +213,25 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
       );
     }
     return key != null ? KeyedSubtree(key: key, child: fallbackWidget) : fallbackWidget;
+  }
+
+  // Detectar si el usuario es un robot
+  bool _isRobot(String nick) {
+    final lowerNick = nick.toLowerCase();
+    // Verificar si contiene "robot" en el nick
+    if (lowerNick.contains('robot')) {
+      return true;
+    }
+    
+    // Verificar en username y host si están disponibles
+    if (widget.username != null && widget.username!.toLowerCase().contains('robot')) {
+      return true;
+    }
+    
+    if (widget.host != null && widget.host!.toLowerCase().contains('robot')) {
+      return true;
+    }
+    
+    return false;
   }
 }

@@ -8,6 +8,7 @@ import '../widgets/user_avatar.dart';
 import '../services/irc_service.dart';
 import '../models/channel_info.dart';
 import '../models/irc_message.dart';
+import '../models/whois_info.dart';
 
 class UserProfileScreen extends ConsumerStatefulWidget {
   final String nick;
@@ -210,6 +211,8 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
                               child: UserAvatar(
                                 nick: widget.nick,
                                 size: 80,
+                                username: whoisInfo?.username,
+                                host: whoisInfo?.host,
                               ),
                             ),
                             const SizedBox(width: 20),
@@ -217,13 +220,21 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text(
-                                    widget.nick,
-                                    style: TextStyle(
-                                      fontSize: 24,
-                                      fontWeight: FontWeight.bold,
-                                      color: appTheme.textPrimary,
-                                    ),
+                                  Row(
+                                    children: [
+                                      Text(
+                                        widget.nick,
+                                        style: TextStyle(
+                                          fontSize: 24,
+                                          fontWeight: FontWeight.bold,
+                                          color: appTheme.textPrimary,
+                                        ),
+                                      ),
+                                      if (_isRobotUser(whoisInfo)) ...[
+                                        const SizedBox(width: 8),
+                                        const Text('🤖', style: TextStyle(fontSize: 24)),
+                                      ],
+                                    ],
                                   ),
                                   // Indicador de staff / operador de la red
                                   if (whoisInfo.isStaff) ...[
@@ -656,6 +667,26 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
     } else {
       return '${dateTime.day}/${dateTime.month}/${dateTime.year}';
     }
+  }
+
+  // Detectar si un usuario es un robot basándose en su información de whois
+  bool _isRobotUser(WhoisInfo? whoisInfo) {
+    if (whoisInfo == null) {
+      // Si no hay información de whois, solo verificar el nick
+      return widget.nick.toLowerCase().contains('robot');
+    }
+    
+    final nick = widget.nick.toLowerCase();
+    final username = whoisInfo.username?.toLowerCase() ?? '';
+    final host = whoisInfo.host?.toLowerCase() ?? '';
+    final realName = whoisInfo.realName?.toLowerCase() ?? '';
+    final server = whoisInfo.server?.toLowerCase() ?? '';
+    
+    return nick.contains('robot') ||
+           username.contains('robot') ||
+           host.contains('robot') ||
+           realName.contains('robot') ||
+           server.contains('robot');
   }
 }
 

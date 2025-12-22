@@ -7,6 +7,7 @@ class IRCMessage {
   final bool isPending; // Mensaje enviado pero aún no confirmado por el servidor
   final String? pendingId; // ID único para identificar mensajes pendientes
   final int? delaySeconds; // Delay configurado para este mensaje
+  final bool isAction; // Mensaje de acción (/me)
 
   IRCMessage({
     required this.nick,
@@ -17,6 +18,7 @@ class IRCMessage {
     this.isPending = false,
     this.pendingId,
     this.delaySeconds,
+    this.isAction = false,
   });
 
   // Crear una copia con campos modificados
@@ -29,6 +31,7 @@ class IRCMessage {
     bool? isPending,
     String? pendingId,
     int? delaySeconds,
+    bool? isAction,
   }) {
     return IRCMessage(
       nick: nick ?? this.nick,
@@ -39,6 +42,7 @@ class IRCMessage {
       isPending: isPending ?? this.isPending,
       pendingId: pendingId ?? this.pendingId,
       delaySeconds: delaySeconds ?? this.delaySeconds,
+      isAction: isAction ?? this.isAction,
     );
   }
 
