@@ -3487,30 +3487,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 ),
               ),
             ),
-                    // Versión de la app
-                    if (_appVersion.isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 4),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: appTheme.secondary.withOpacity(0.3),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: appTheme.primary.withOpacity(0.5),
-                              width: 1,
-                            ),
-                          ),
-                          child: Text(
-                            _appVersion,
-                            style: TextStyle(
-                              color: appTheme.textPrimary.withOpacity(0.8),
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                      ),
                     // Botón de búsqueda
                     IconButton(
                       icon: Icon(_showSearch ? Icons.close : Icons.search, color: appTheme.textPrimary),
@@ -4666,6 +4642,40 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           );
         },
           ),
+          
+          // Widget de versión en la esquina inferior derecha (por encima de todo)
+          if (_appVersion.isNotEmpty)
+            Positioned(
+              bottom: 70,  // Encima de RadioControls
+              right: 16,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: appTheme.primary.withOpacity(0.9),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: appTheme.secondary.withOpacity(0.6),
+                    width: 2,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.3),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: Text(
+                  _appVersion,
+                  style: TextStyle(
+                    color: appTheme.textPrimary,
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
         bottomNavigationBar: RadioControls(),
