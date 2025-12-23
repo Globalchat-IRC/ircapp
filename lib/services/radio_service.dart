@@ -21,40 +21,47 @@ class RadioService {
   }
 
   Future<void> _initializeAudio() async {
-    try {
-      // Configurar sesión de audio (especialmente importante en Android)
-      _audioSession = await AudioSession.instance;
-      await _audioSession!.configure(const AudioSessionConfiguration(
-        avAudioSessionCategory: AVAudioSessionCategory.playback,
-        avAudioSessionCategoryOptions: AVAudioSessionCategoryOptions.duckOthers,
-        avAudioSessionMode: AVAudioSessionMode.defaultMode,
-        avAudioSessionRouteSharingPolicy: AVAudioSessionRouteSharingPolicy.defaultPolicy,
-        avAudioSessionSetActiveOptions: AVAudioSessionSetActiveOptions.none,
-        androidAudioAttributes: AndroidAudioAttributes(
-          contentType: AndroidAudioContentType.music,
-          flags: AndroidAudioFlags.none,
-          usage: AndroidAudioUsage.media,
-        ),
-        androidAudioFocusGainType: AndroidAudioFocusGainType.gainTransient,
-        androidWillPauseWhenDucked: false,
-      ));
-      
-      // Activar la sesión inmediatamente después de configurarla
-      await _audioSession!.setActive(true);
-      print('✅ Audio session activada después de configurar');
-      print('✅ Audio session configurada correctamente');
-    } catch (e) {
-      print('⚠️ Error configurando audio session: $e');
+    // Configurar sesión de audio solo en plataformas móviles (iOS/Android)
+    // Windows y macOS desktop no necesitan esta configuración
+    if (Platform.isAndroid || Platform.isIOS) {
+      try {
+        _audioSession = await AudioSession.instance;
+        await _audioSession!.configure(const AudioSessionConfiguration(
+          avAudioSessionCategory: AVAudioSessionCategory.playback,
+          avAudioSessionCategoryOptions: AVAudioSessionCategoryOptions.duckOthers,
+          avAudioSessionMode: AVAudioSessionMode.defaultMode,
+          avAudioSessionRouteSharingPolicy: AVAudioSessionRouteSharingPolicy.defaultPolicy,
+          avAudioSessionSetActiveOptions: AVAudioSessionSetActiveOptions.none,
+          androidAudioAttributes: AndroidAudioAttributes(
+            contentType: AndroidAudioContentType.music,
+            flags: AndroidAudioFlags.none,
+            usage: AndroidAudioUsage.media,
+          ),
+          androidAudioFocusGainType: AndroidAudioFocusGainType.gainTransient,
+          androidWillPauseWhenDucked: false,
+        ));
+        
+        // Activar la sesión inmediatamente después de configurarla
+        await _audioSession!.setActive(true);
+        print('✅ Audio session activada después de configurar');
+        print('✅ Audio session configurada correctamente');
+      } catch (e) {
+        print('⚠️ Error configurando audio session: $e');
+      }
+    } else {
+      print('ℹ️ Audio session no requerida en ${Platform.operatingSystem}');
     }
     
-    // Iniciar el proxy local y esperar a que esté listo (solo en macOS/iOS)
-    if (!Platform.isAndroid) {
-    _proxy.start().then((_) {
-      print('✅ Proxy listo para usar');
-    }).catchError((e) {
-      print('⚠️ Error iniciando proxy: $e');
-      print('⚠️ Las estaciones pueden no funcionar sin el proxy');
-    });
+    // Iniciar el proxy local (solo en macOS/iOS, no en Android ni Windows)
+    if (Platform.isIOS || Platform.isMacOS) {
+      _proxy.start().then((_) {
+        print('✅ Proxy listo para usar');
+      }).catchError((e) {
+        print('⚠️ Error iniciando proxy: $e');
+        print('⚠️ Las estaciones pueden no funcionar sin el proxy');
+      });
+    } else {
+      print('ℹ️ Proxy no requerido en ${Platform.operatingSystem}');
     }
     
     // Configurar el player para streams de radio
@@ -92,24 +99,25 @@ class RadioService {
       
       print('🎵 URL validada correctamente');
       
-      // En Android, usar URL directa (el proxy puede causar problemas)
-      // En otras plataformas, intentar usar proxy primero
+      // Seleccionar URL según la plataforma:
+      // - Android y Windows: URL directa (mejor compatibilidad)
+      // - macOS/iOS: Proxy si está disponible
       String streamUrl = station.source;
       
-      if (!Platform.isAndroid) {
+      if (Platform.isIOS || Platform.isMacOS) {
         // En macOS/iOS, usar proxy si está disponible
-      final proxyUrl = _proxy.getProxyUrl(station.source);
-      if (proxyUrl != null) {
-        streamUrl = proxyUrl;
-        print('🎵 Usando proxy: $streamUrl');
-        print('🎵 URL original: ${station.source}');
-      } else {
+        final proxyUrl = _proxy.getProxyUrl(station.source);
+        if (proxyUrl != null) {
+          streamUrl = proxyUrl;
+          print('🎵 Usando proxy: $streamUrl');
+          print('🎵 URL original: ${station.source}');
+        } else {
           print('⚠️ Proxy no disponible, usando URL directa');
           streamUrl = station.source;
         }
       } else {
-        // En Android, usar siempre URL directa
-        print('🎵 Android: Usando URL directa (sin proxy)');
+        // En Android y Windows, usar siempre URL directa
+        print('🎵 ${Platform.operatingSystem}: Usando URL directa (sin proxy)');
         print('🎵 URL directa: ${station.source}');
         streamUrl = station.source;
       }
@@ -130,8 +138,8 @@ class RadioService {
         // Esperar un momento para que el player se limpie
         await Future.delayed(const Duration(milliseconds: 200));
         
-        // Activar sesión de audio ANTES de configurar la URL (especialmente importante en Android)
-        if (_audioSession != null) {
+        // Activar sesión de audio ANTES de configurar la URL (solo en móviles)
+        if (_audioSession != null && (Platform.isAndroid || Platform.isIOS)) {
           try {
             await _audioSession!.setActive(true);
             print('✅ Audio session activada ANTES de configurar URL');
@@ -146,29 +154,43 @@ class RadioService {
         
         print('🎵 Configurando nueva fuente...');
         print('🎵 URL a usar: $streamUrl');
+        
         // Establecer la fuente del audio
-        try {
-          await _player.setUrl(streamUrl, headers: {
-            'User-Agent': 'Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
-            'Accept': '*/*',
-            'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
-            'Connection': 'keep-alive',
-          });
-          print('🎵 Fuente configurada correctamente');
-        } catch (e) {
-          print('❌ Error configurando URL: $e');
-          // Si falla, intentar sin headers en Android
-          if (Platform.isAndroid) {
-            print('🔄 Intentando sin headers personalizados...');
-            try {
-        await _player.setUrl(streamUrl);
-              print('🎵 Fuente configurada sin headers');
-            } catch (e2) {
-              print('❌ También falló sin headers: $e2');
+        // En Windows, intentar primero sin headers (mejor compatibilidad)
+        if (Platform.isWindows) {
+          print('🎵 Windows: Configurando sin headers personalizados');
+          try {
+            await _player.setUrl(streamUrl);
+            print('🎵 Fuente configurada correctamente (sin headers)');
+          } catch (e) {
+            print('❌ Error configurando URL en Windows: $e');
+            rethrow;
+          }
+        } else {
+          // En otras plataformas, usar headers
+          try {
+            await _player.setUrl(streamUrl, headers: {
+              'User-Agent': 'Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+              'Accept': '*/*',
+              'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
+              'Connection': 'keep-alive',
+            });
+            print('🎵 Fuente configurada correctamente (con headers)');
+          } catch (e) {
+            print('❌ Error configurando URL: $e');
+            // Si falla, intentar sin headers
+            if (Platform.isAndroid) {
+              print('🔄 Android: Intentando sin headers personalizados...');
+              try {
+                await _player.setUrl(streamUrl);
+                print('🎵 Fuente configurada sin headers');
+              } catch (e2) {
+                print('❌ También falló sin headers: $e2');
+                rethrow;
+              }
+            } else {
               rethrow;
             }
-          } else {
-            rethrow;
           }
         }
         
@@ -182,8 +204,8 @@ class RadioService {
         
         print('🎵 Iniciando reproducción...');
         
-        // Asegurar que la sesión de audio esté activa
-        if (_audioSession != null) {
+        // Asegurar que la sesión de audio esté activa (solo en móviles)
+        if (_audioSession != null && (Platform.isAndroid || Platform.isIOS)) {
           try {
             await _audioSession!.setActive(true);
             print('✅ Audio session activada antes de play');

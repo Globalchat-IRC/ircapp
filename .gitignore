@@ -43,3 +43,10 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Instaladores y archivos grandes (van en GitHub Releases, no en el repo)
+*.dmg
+*.zip
+*.exe
+installers/
+instalador_windows/

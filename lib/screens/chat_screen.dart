@@ -30,6 +30,7 @@ import '../widgets/radio_controls.dart';
 import '../services/emoji_service.dart';
 import '../models/whois_info.dart';
 import '../widgets/emoji_picker.dart';
+import '../widgets/update_banner.dart';  // Sistema de actualizaciones
 
 // Clase auxiliar para items del menú IRCop
 class _IRCOpMenuItem {
@@ -3655,8 +3656,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         builder: (context) {
           print('🔍 [DEBUG] 🖼️  ChatScreen body: Construyendo Row con ${channels.length} canales');
           print('🔍 [DEBUG] 🖼️  ChatScreen body: currentChannel=$currentChannel, isChannelLoaded=$isChannelLoaded');
-          return Row(
+          return Column(
           children: [
+            // Banner de actualización
+            const UpdateBanner(),
+            
+            // Contenido principal
+            Expanded(
+              child: Row(
+              children: [
             // Channels sidebar
             Expanded(
               flex: 1,
@@ -4604,6 +4612,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   ),
                 ),
               ),
+              ],
+            ),
+          ),
           ],
           );
         },
