@@ -31,6 +31,7 @@ import '../services/emoji_service.dart';
 import '../models/whois_info.dart';
 import '../widgets/emoji_picker.dart';
 import '../widgets/update_banner.dart';  // Sistema de actualizaciones
+import 'package:package_info_plus/package_info_plus.dart';
 
 // Clase auxiliar para items del menú IRCop
 class _IRCOpMenuItem {
@@ -234,6 +235,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   List<String> _nickSuggestions = [];
   int _selectedNickIndex = -1;
   bool _showNickSuggestions = false;
+  
+  // Información de versión
+  String _appVersion = '';
   int _nickStartPosition = -1; // Posición donde empieza el nick que se está autocompletando
   
   // Lista de comandos disponibles con sus descripciones
@@ -286,6 +290,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     
     print('🎬 [ChatScreen] Initialized');
     print('🎬 [ChatScreen] isConnected=${_ircService.isConnected}');
+    
+    // Cargar información de versión
+    _loadAppVersion();
     
     // Listen for user list changes
     _ircService.addUserListListener(_onUserListChanged);
@@ -747,6 +754,19 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         _commandSuggestions = [];
         _selectedSuggestionIndex = -1;
       });
+    }
+  }
+  
+  // Cargar información de versión de la app
+  Future<void> _loadAppVersion() async {
+    try {
+      final packageInfo = await PackageInfo.fromPlatform();
+      setState(() {
+        _appVersion = 'v${packageInfo.version}';
+      });
+      print('📦 [ChatScreen] App version: $_appVersion');
+    } catch (e) {
+      print('❌ [ChatScreen] Error loading app version: $e');
     }
   }
 
@@ -3652,18 +3672,21 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             ),
           ],
         ),
-      body: Builder(
-        builder: (context) {
-          print('🔍 [DEBUG] 🖼️  ChatScreen body: Construyendo Row con ${channels.length} canales');
-          print('🔍 [DEBUG] 🖼️  ChatScreen body: currentChannel=$currentChannel, isChannelLoaded=$isChannelLoaded');
-          return Column(
-          children: [
-            // Banner de actualización
-            const UpdateBanner(),
-            
-            // Contenido principal
-            Expanded(
-              child: Row(
+      body: Stack(
+        children: [
+          // Contenido principal
+          Builder(
+            builder: (context) {
+              print('🔍 [DEBUG] 🖼️  ChatScreen body: Construyendo Row con ${channels.length} canales');
+              print('🔍 [DEBUG] 🖼️  ChatScreen body: currentChannel=$currentChannel, isChannelLoaded=$isChannelLoaded');
+              return Column(
+              children: [
+                // Banner de actualización
+                const UpdateBanner(),
+                
+                // Contenido principal
+                Expanded(
+                  child: Row(
               children: [
             // Channels sidebar
             Expanded(
@@ -4618,6 +4641,34 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           ],
           );
         },
+          ),
+          
+          // Widget de versión en la esquina inferior derecha
+          if (_appVersion.isNotEmpty)
+            Positioned(
+              bottom: 8,
+              right: 8,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.black.withOpacity(0.6),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: appTheme.primary.withOpacity(0.3),
+                    width: 1,
+                  ),
+                ),
+                child: Text(
+                  _appVersion,
+                  style: TextStyle(
+                    color: appTheme.textSecondary,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+            ),
+        ],
       ),
         bottomNavigationBar: RadioControls(),
       ),

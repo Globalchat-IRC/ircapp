@@ -211,8 +211,6 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
                               child: UserAvatar(
                                 nick: widget.nick,
                                 size: 80,
-                                username: whoisInfo?.username,
-                                host: whoisInfo?.host,
                               ),
                             ),
                             const SizedBox(width: 20),

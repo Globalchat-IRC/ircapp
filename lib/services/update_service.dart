@@ -62,15 +62,26 @@ class UpdateService {
         
         print('🌐 [UPDATE] Última versión disponible: $latestVersion');
         
-        // Buscar el asset del instalador para Windows
+        // Buscar el asset del instalador según la plataforma
         String? downloadUrl;
         final assets = data['assets'] as List;
         
         for (var asset in assets) {
           final name = asset['name'] as String;
-          if (name.endsWith('_x64.exe') || name.endsWith('_setup.exe')) {
+          
+          // Buscar instalador según la plataforma
+          bool isCorrectPlatform = false;
+          if (Platform.isWindows && (name.endsWith('_x64.exe') || name.endsWith('_setup.exe'))) {
+            isCorrectPlatform = true;
+          } else if (Platform.isMacOS && name.endsWith('.dmg')) {
+            isCorrectPlatform = true;
+          } else if (Platform.isLinux && (name.endsWith('.AppImage') || name.endsWith('.deb') || name.endsWith('.rpm'))) {
+            isCorrectPlatform = true;
+          }
+          
+          if (isCorrectPlatform) {
             downloadUrl = asset['browser_download_url'] as String;
-            print('📦 [UPDATE] Encontrado instalador: $name');
+            print('📦 [UPDATE] Encontrado instalador para ${Platform.operatingSystem}: $name');
             break;
           }
         }
@@ -127,10 +138,10 @@ class UpdateService {
   /// Descargar actualización (abre el navegador o descarga el archivo)
   Future<bool> downloadUpdate(UpdateInfo updateInfo) async {
     try {
-      if (Platform.isWindows && updateInfo.hasDirectDownload) {
-        print('💾 [UPDATE] Descargando actualización...');
+      if (updateInfo.hasDirectDownload) {
+        print('💾 [UPDATE] Abriendo descarga del instalador...');
         
-        // Abrir URL de descarga en el navegador
+        // Abrir URL de descarga en el navegador (funciona para Windows, macOS y Linux)
         final uri = Uri.parse(updateInfo.downloadUrl);
         if (await canLaunchUrl(uri)) {
           await launchUrl(uri, mode: LaunchMode.externalApplication);
@@ -141,6 +152,7 @@ class UpdateService {
         }
       } else {
         // Abrir página de releases
+        print('🌐 [UPDATE] Abriendo página de releases...');
         final uri = Uri.parse(updateInfo.releaseUrl);
         if (await canLaunchUrl(uri)) {
           await launchUrl(uri, mode: LaunchMode.externalApplication);
