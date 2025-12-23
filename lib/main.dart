@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'dart:io';
 import 'screens/login_screen.dart';
 import 'providers/theme_provider.dart';
+import 'providers/update_provider.dart';
 
 final logFile = File('/tmp/irc_app.log');
 
@@ -40,6 +41,9 @@ class MyApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final appTheme = ref.watch(themeProvider);
+    
+    // Inicializar el sistema de actualizaciones
+    ref.watch(updateProvider);
     
     return MaterialApp(
       title: 'Cliente IRC',
