@@ -303,7 +303,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     
     // Listener para autocompletado de comandos
     _messageController.addListener(_onMessageTextChanged);
-
+    
     // Get the channel from provider (was set in LoginScreen)
     final channel = ref.read(currentChannelProvider);
     print('🎬 [ChatScreen] Got channel from provider: $channel');
@@ -313,7 +313,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       if (!mounted) return;
       final targetChannel = (channel != null && channel.isNotEmpty) ? channel : '#general';
       if (channel == null || channel.isEmpty) {
-        print('⚠️  [ChatScreen] No channel specified, using #general');
+      print('⚠️  [ChatScreen] No channel specified, using #general');
       }
       
       // Esperar un poco más para asegurar que el servidor haya terminado de registrar al usuario
@@ -1209,7 +1209,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     
     // Añadir a recientes también al enviar mensaje
     ref.read(recentChannelsProvider.notifier).addRecent(normalizedChannel);
-
+    
     // Trigger UI update
     ref.read(messagesProvider.notifier);
   }
@@ -3412,23 +3412,23 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           title: LayoutBuilder(
             builder: (context, constraints) {
               return Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
-                children: [
+            children: [
                   SizedBox(
                     width: constraints.maxWidth > 0 ? constraints.maxWidth : 200,
                     child: _buildChannelNameWithHash(currentChannel ?? 'Cliente IRC', appTheme),
                   ),
-                  if (nickname != null)
+              if (nickname != null)
                     SizedBox(
                       width: constraints.maxWidth > 0 ? constraints.maxWidth : 200,
                       child: Text(
                         'como $nickname',
-                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.normal),
+                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.normal),
                         overflow: TextOverflow.ellipsis,
                       ),
-                    ),
-                ],
+                ),
+            ],
               );
             },
           ),
@@ -3443,7 +3443,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 return Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Padding(
+            Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 8),
                       child: InkWell(
                         borderRadius: BorderRadius.circular(12),
@@ -3451,21 +3451,21 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                           // Permitir cambiar de servidor desde el botón de estado
                           _showServerSwitchDialog();
                         },
-                        child: Container(
-                          decoration: BoxDecoration(
-                            color: isConnected ? Colors.green : Colors.red,
-                            borderRadius: BorderRadius.circular(12),
-                          ),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: isConnected ? Colors.green : Colors.red,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                           padding: const EdgeInsets.symmetric(
                               horizontal: 8, vertical: 4),
-                          child: Text(
+                  child: Text(
                             isConnected ? '● Conectado' : '● Desconectado',
                             style: const TextStyle(
                                 color: Colors.white, fontSize: 11),
-                          ),
-                        ),
-                      ),
-                    ),
+                  ),
+                ),
+              ),
+            ),
                     // Botón de búsqueda
                     IconButton(
                       icon: Icon(_showSearch ? Icons.close : Icons.search, color: appTheme.textPrimary),
@@ -3656,9 +3656,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           print('🔍 [DEBUG] 🖼️  ChatScreen body: Construyendo Row con ${channels.length} canales');
           print('🔍 [DEBUG] 🖼️  ChatScreen body: currentChannel=$currentChannel, isChannelLoaded=$isChannelLoaded');
           return Row(
-            children: [
-              // Channels sidebar
-              Expanded(
+          children: [
+            // Channels sidebar
+            Expanded(
               flex: 1,
               child: Container(
                 color: Colors.grey[900],
@@ -3764,7 +3764,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                 ),
                                 ...favoriteChannels.map((channel) => _buildChannelItem(
                                   context,
-                                  channel,
+                              channel,
                                   false,
                                   appTheme,
                                   currentChannel,
@@ -3795,7 +3795,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                       const SizedBox(width: 6),
                                       Text(
                                         'CANALES',
-                                        style: TextStyle(
+                              style: TextStyle(
                                           color: appTheme.textPrimary.withOpacity(0.6),
                                           fontSize: 11,
                                           fontWeight: FontWeight.bold,
@@ -3919,12 +3919,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 builder: (context) {
                   print('🔍 [DEBUG] 🖼️  ChatScreen chat area Column: currentChannel=$currentChannel');
                   return Column(
-                    children: [
+                children: [
                       // Topic bar con animación
                       if (currentChannel != null)
                         _buildTopicBar(currentChannel, channels, appTheme),
-                      // Messages
-                      Expanded(
+                  // Messages
+                  Expanded(
                         child: Builder(
                           builder: (context) {
                             print('🔍 [DEBUG] 🖼️  ChatScreen messages area: currentChannel=$currentChannel');
@@ -4052,7 +4052,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                           ),
                         );
                         },
-                      ),
+                          ),
                   ),
                   const Divider(height: 1),
                   // Typing indicator
@@ -4163,17 +4163,17 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
                                       TextField(
-                                        controller: _messageController,
+                              controller: _messageController,
                                         focusNode: _messageFocusNode,
-                                        decoration: InputDecoration(
+                              decoration: InputDecoration(
                                           hintText: 'Mensaje...',
-                                          border: OutlineInputBorder(
-                                            borderRadius: BorderRadius.circular(8),
-                                          ),
-                                          contentPadding: const EdgeInsets.symmetric(
-                                            horizontal: 12,
-                                            vertical: 8,
-                                          ),
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 8,
+                                ),
                                           fillColor: appTheme.surface,
                                           filled: true,
                                         ),
@@ -4186,8 +4186,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                             _sendMessage();
                                           }
                                         },
-                                        minLines: 1,
-                                        maxLines: 3,
+                              minLines: 1,
+                              maxLines: 3,
                                         keyboardType: TextInputType.multiline,
                                         textInputAction: TextInputAction.newline,
                                         enabled: true,
@@ -4238,9 +4238,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                                         color: appTheme.primary,
                                                         fontWeight: FontWeight.bold,
                                                         fontSize: 14,
-                                                      ),
-                                                    ),
-                                                    const SizedBox(width: 8),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
                                                     Expanded(
                                                       child: Text(
                                                         cmd['description'] ?? '',
@@ -4401,23 +4401,23 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         child: Row(
                           children: [
                             Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const Text(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
                                     'Usuarios',
-                                    style: TextStyle(
-                                      color: Colors.white,
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 14,
-                                    ),
-                                  ),
-                                  Text(
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 14,
+                              ),
+                            ),
+                            Text(
                                     '${channelUsers.length} usuarios',
-                                    style: const TextStyle(
-                                      color: Colors.white70,
-                                      fontSize: 11,
-                                    ),
+                              style: const TextStyle(
+                                color: Colors.white70,
+                                fontSize: 11,
+                              ),
                                   ),
                                 ],
                               ),
@@ -4548,10 +4548,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                       children: [
                                         Flexible(
                                           child: Text(
-                                            user,
+                                  user,
                                             style: TextStyle(
-                                              color: Colors.white,
-                                              fontSize: 12,
+                                    color: Colors.white,
+                                    fontSize: 12,
                                               fontWeight: (isRobot || userMode != null) ? FontWeight.bold : FontWeight.normal,
                                             ),
                                             overflow: TextOverflow.ellipsis,
@@ -4604,7 +4604,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   ),
                 ),
               ),
-            ],
+          ],
           );
         },
       ),
@@ -5087,7 +5087,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 mainAxisSize: MainAxisSize.min,
         children: [
                   // Nickname, hora y acciones rápidas (pin) en una fila compacta
-                  Row(
+          Row(
                     mainAxisSize: MainAxisSize.min,
             children: [
                       GestureDetector(
@@ -5414,7 +5414,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   replyToMessage.nick,
                   style: TextStyle(
                     fontSize: 12,
-                    fontWeight: FontWeight.bold,
+                  fontWeight: FontWeight.bold,
                     color: appTheme.primary,
                   ),
                 ),
@@ -5478,7 +5478,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           ),
           // Mostrar reacciones existentes
           if (message.reactions.isNotEmpty) ...[
-            const SizedBox(width: 8),
+              const SizedBox(width: 8),
             ...message.reactions.entries.map((entry) {
               return GestureDetector(
                 onTap: () {
@@ -5499,7 +5499,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     children: [
                       Text(entry.key, style: const TextStyle(fontSize: 12)),
                       const SizedBox(width: 4),
-                      Text(
+              Text(
                         '${entry.value}',
                         style: TextStyle(
                           fontSize: 11,
@@ -5621,8 +5621,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       children: [
                         Text(
                           message.nick,
-                          style: TextStyle(
-                            fontSize: 12,
+                style: TextStyle(
+                  fontSize: 12,
                             fontWeight: FontWeight.bold,
                             color: appTheme.primary,
                           ),
@@ -6698,7 +6698,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Text(
+          Text(
                               msg.nick,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,

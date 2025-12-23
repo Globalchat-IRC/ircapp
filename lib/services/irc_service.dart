@@ -352,10 +352,20 @@ class IRCService {
             }
           }
           print('📤 [IRCService] Mensaje enviado al servidor después de delay: $pendingId');
-          // NO confirmar aquí - esperar a que el servidor devuelva el PRIVMSG
-          // confirmPendingMessage(normalized, message, DateTime.now());
           // Eliminar el timer del mapa después de ejecutarse
           _pendingMessageTimers.remove(pendingId);
+          
+          // Auto-confirmar después de 500ms si el servidor no hace eco
+          Timer(const Duration(milliseconds: 500), () {
+            final channelObj = channels[normalized];
+            if (channelObj != null) {
+              final currentPendingMessages = channelObj.messages.where((m) => m.isPending && m.pendingId == pendingId).toList();
+              if (currentPendingMessages.isNotEmpty) {
+                print('⚠️  [IRCService] Mensaje con delay $pendingId aún pendiente después de 500ms, auto-confirmando.');
+                confirmPendingMessage(normalized, message, DateTime.now());
+              }
+            }
+          });
         });
         _pendingMessageTimers[pendingId] = timer;
       } else {
@@ -1221,23 +1231,46 @@ class IRCService {
           }
         }
         print('📤 [IRCService] Mensaje privado enviado al servidor después de delay: $pendingId');
-        // Confirmar el mensaje inmediatamente después de enviarlo
-        confirmPendingMessage(queryChannel, message, DateTime.now());
         // Eliminar el timer del mapa después de ejecutarse
         _pendingMessageTimers.remove(pendingId);
+        
+        // Auto-confirmar después de 500ms si el servidor no hace eco
+        Timer(const Duration(milliseconds: 500), () {
+          final channelObj = channels[queryChannel];
+          if (channelObj != null) {
+            final currentPendingMessages = channelObj.messages.where((m) => m.isPending && m.pendingId == pendingId).toList();
+            if (currentPendingMessages.isNotEmpty) {
+              print('⚠️  [IRCService] Mensaje privado con delay $pendingId aún pendiente después de 500ms, auto-confirmando.');
+              confirmPendingMessage(queryChannel, message, DateTime.now());
+            }
+          }
+        });
       });
       _pendingMessageTimers[pendingId] = timer;
     } else {
       // Sin delay, enviar inmediatamente
+      print('📤 [IRCService] Enviando mensaje privado sin delay inmediatamente: $pendingId');
       final lines = message.split('\n');
       for (var line in lines) {
         line = line.trim();
         if (line.isNotEmpty) {
+          print('📤 [IRCService] Enviando línea privada sin delay: $line');
           _sendCommand('PRIVMSG $normalizedNick :$line');
         }
       }
-      // Confirmar el mensaje inmediatamente después de enviarlo
-      confirmPendingMessage(queryChannel, message, DateTime.now());
+      print('✅ [IRCService] Mensaje privado sin delay enviado, esperando confirmación del servidor (pendingId: $pendingId)');
+      
+      // Auto-confirmar después de 500ms si el servidor no hace eco
+      Timer(const Duration(milliseconds: 500), () {
+        final channelObj = channels[queryChannel];
+        if (channelObj != null) {
+          final currentPendingMessages = channelObj.messages.where((m) => m.isPending && m.pendingId == pendingId).toList();
+          if (currentPendingMessages.isNotEmpty) {
+            print('⚠️  [IRCService] Mensaje privado $pendingId aún pendiente después de 500ms, auto-confirmando.');
+            confirmPendingMessage(queryChannel, message, DateTime.now());
+          }
+        }
+      });
     }
   }
 
@@ -2798,6 +2831,18 @@ class IRCService {
           }
         }
         print('✅ [IRCService] Mensaje editado enviado inmediatamente (mensaje ya estaba enviado)');
+        
+        // Auto-confirmar después de 500ms si el servidor no hace eco
+        Timer(const Duration(milliseconds: 500), () {
+          final channelObj = channels[normalized];
+          if (channelObj != null) {
+            final currentPendingMessages = channelObj.messages.where((m) => m.isPending && m.pendingId == pendingId).toList();
+            if (currentPendingMessages.isNotEmpty) {
+              print('⚠️  [IRCService] Mensaje editado (forzado) $pendingId aún pendiente después de 500ms, auto-confirmando.');
+              confirmPendingMessage(normalized, newMessage, DateTime.now());
+            }
+          }
+        });
       } else {
         // El mensaje aún tiene timer activo, crear un nuevo timer con el contenido editado
         // Si hay un delay configurado, crear un nuevo timer con el mensaje actualizado
@@ -2815,8 +2860,19 @@ class IRCService {
               }
             }
             print('📤 [IRCService] Mensaje editado enviado al servidor después de delay: $pendingId');
-            // NO confirmar aquí - esperar a que el servidor devuelva el PRIVMSG
             _pendingMessageTimers.remove(pendingId);
+            
+            // Auto-confirmar después de 500ms si el servidor no hace eco
+            Timer(const Duration(milliseconds: 500), () {
+              final channelObj = channels[normalized];
+              if (channelObj != null) {
+                final currentPendingMessages = channelObj.messages.where((m) => m.isPending && m.pendingId == pendingId).toList();
+                if (currentPendingMessages.isNotEmpty) {
+                  print('⚠️  [IRCService] Mensaje editado con delay $pendingId aún pendiente después de 500ms, auto-confirmando.');
+                  confirmPendingMessage(normalized, newMessage, DateTime.now());
+                }
+              }
+            });
           });
           _pendingMessageTimers[pendingId] = timer;
           print('✅ [IRCService] Timer creado para mensaje editado, se enviará en ${delaySeconds}s');
@@ -2831,8 +2887,19 @@ class IRCService {
               _sendCommand('PRIVMSG $normalized :$line');
             }
           }
-          // NO confirmar aquí - esperar a que el servidor devuelva el PRIVMSG
           print('✅ [IRCService] Mensaje editado enviado inmediatamente');
+          
+          // Auto-confirmar después de 500ms si el servidor no hace eco
+          Timer(const Duration(milliseconds: 500), () {
+            final channelObj = channels[normalized];
+            if (channelObj != null) {
+              final currentPendingMessages = channelObj.messages.where((m) => m.isPending && m.pendingId == pendingId).toList();
+              if (currentPendingMessages.isNotEmpty) {
+                print('⚠️  [IRCService] Mensaje editado sin delay $pendingId aún pendiente después de 500ms, auto-confirmando.');
+                confirmPendingMessage(normalized, newMessage, DateTime.now());
+              }
+            }
+          });
         }
       }
       
