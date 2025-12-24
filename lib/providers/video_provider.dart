@@ -2,8 +2,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../services/video_conference_service.dart';
 import '../services/moderation_server.dart';
 import '../services/video_database_service.dart';
+import '../services/unrealircd_reputation_sync.dart';
 import '../models/user_role.dart';
 import '../models/video_report.dart';
+import 'irc_provider.dart';
 
 /// Provider del servicio de videoconferencias
 final videoConferenceServiceProvider = Provider<VideoConferenceService>((ref) {
@@ -83,5 +85,25 @@ final videoDatabaseProvider = Provider<VideoDatabaseService>((ref) {
   });
   
   return db;
+});
+
+/// Provider del servicio de sincronización con UnrealIRCd
+final unrealircdReputationSyncProvider = Provider<UnrealIRCdReputationSync>((ref) {
+  final ircService = ref.watch(ircServiceProvider);
+  final dbService = ref.watch(videoDatabaseProvider);
+  
+  final sync = UnrealIRCdReputationSync(ircService, dbService);
+  
+  // Iniciar sincronización automática cada 5 minutos
+  sync.startAutoSync(interval: const Duration(minutes: 5));
+  
+  print('✅ [REP-SYNC] Servicio de sincronización IRC iniciado');
+  
+  // Detener al dispose
+  ref.onDispose(() {
+    sync.dispose();
+  });
+  
+  return sync;
 });
 

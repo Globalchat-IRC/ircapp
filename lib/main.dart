@@ -49,6 +49,9 @@ class MyApp extends ConsumerWidget {
     // Inicializar el servidor de moderación
     ref.watch(moderationServerProvider);
     
+    // Inicializar sincronización de reputación con UnrealIRCd
+    ref.watch(unrealircdReputationSyncProvider);
+    
     return MaterialApp(
       title: 'Cliente IRC',
       theme: appTheme.toThemeData(),
