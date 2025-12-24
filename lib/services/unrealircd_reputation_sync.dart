@@ -37,7 +37,7 @@ class UnrealIRCdReputationSync {
   Future<int?> getIRCReputation(String nick) async {
     try {
       // Enviar comando WHOIS
-      _ircService.sendRawMessage('WHOIS $nick');
+      _ircService.sendWhois(nick);
       
       // Esperar respuesta (simplificado, en producción usar listeners)
       await Future.delayed(const Duration(milliseconds: 500));
@@ -152,7 +152,7 @@ class UnrealIRCdReputationSync {
         return;
       }
       
-      final users = _ircService.getChannelUsers(currentChannel);
+      final users = _ircService.channels[currentChannel]?.users ?? <String>[];
       print('🔄 [REP-SYNC] Sincronizando ${users.length} usuarios...');
       
       int synced = 0;
@@ -177,7 +177,7 @@ class UnrealIRCdReputationSync {
   Future<Map<String, dynamic>> analyzeIRCFactors(String nick) async {
     try {
       // Enviar WHOIS para obtener información completa
-      _ircService.sendRawMessage('WHOIS $nick $nick'); // Doble para info completa
+      _ircService.sendWhois(nick); // Info completa
       
       await Future.delayed(const Duration(milliseconds: 500));
       
@@ -235,7 +235,7 @@ class UnrealIRCdReputationSync {
     } else if (kicks > 5) {
       bonus -= 10;
     } else if (kicks > 0) {
-      bonus -= kicks * 2;
+      bonus -= (kicks * 2) as int;
     }
     
     return bonus;
