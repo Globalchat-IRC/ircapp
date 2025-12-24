@@ -50,6 +50,8 @@ dependencies:
   sqflite: ^2.3.3+1
   path_provider: ^2.1.4
   package_info_plus: ^9.0.0  # Para sistema de actualizaciones (compatible con pasteboard)
+  jitsi_meet_flutter_sdk: ^10.2.0  # Para videoconferencias seguras
+  permission_handler: ^11.3.1  # Para permisos de cámara/micrófono
 
 dev_dependencies:
   flutter_test:

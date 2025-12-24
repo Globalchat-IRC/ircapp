@@ -5,7 +5,7 @@
 Al intentar ejecutar archivos `.ps1` (PowerShell) aparece el error:
 
 ```
-No se puede cargar el archivo *.ps1 porque la ejecución de scripts está deshabilitada en este sistema.
+No se puede cargar el archivo *.ps1 porque la cejecución de scripts está deshabilitada en este sistema.
 ```
 
 o en inglés:

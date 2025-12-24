@@ -51,7 +51,7 @@ flutter pub get
 ```bash
 # Opción 1: Configurar SSL
 git config --global http.sslBackend schannel
-
+inno
 # Opción 2: Si falla, deshabilitar SSL temporalmente
 set PUB_HOSTED_URL=http://pub.dartlang.org
 set FLUTTER_STORAGE_BASE_URL=http://storage.flutter-io.cn
