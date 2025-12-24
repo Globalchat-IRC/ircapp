@@ -34,27 +34,27 @@ dependencies:
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
-  flutter_riverpod: ^2.6.0
-  intl: ^0.19.0
+  flutter_riverpod: ^2.6.1
+  intl: ^0.20.2
 
   # === Dependencias restauradas porque el código las usa ===
   http: ^1.2.2
   shared_preferences: ^2.3.2
   image_picker: ^1.1.2
-  file_picker: ^8.1.2
+  file_picker: ^10.3.8
   url_launcher: ^6.3.0
   crypto: ^3.0.6
   pasteboard: ^0.4.0
-  just_audio: ^0.9.39
-  audio_session: ^0.1.25
+  just_audio: ^0.10.5
+  audio_session: ^0.2.2
   sqflite: ^2.3.3+1
   path_provider: ^2.1.4
   package_info_plus: ^9.0.0  # Para sistema de actualizaciones (compatible con pasteboard)
-  jitsi_meet_flutter_sdk: ^10.2.0  # Para videoconferencias seguras
-  permission_handler: ^11.3.1  # Para permisos de cámara/micrófono
+  jitsi_meet_flutter_sdk: ^11.6.0  # Para videoconferencias seguras
+  permission_handler: ^12.0.1  # Para permisos de cámara/micrófono
   shelf: ^1.4.1  # Servidor HTTP para panel de moderación
   shelf_router: ^1.1.4  # Router para endpoints
-  shelf_web_socket: ^2.0.0  # WebSockets para tiempo real
+  shelf_web_socket: ^3.0.0  # WebSockets para tiempo real
   uuid: ^4.5.1  # Generación de tokens
 
 dev_dependencies:

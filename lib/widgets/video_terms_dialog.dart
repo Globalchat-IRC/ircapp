@@ -302,7 +302,11 @@ class _VideoTermsDialogState extends State<VideoTermsDialog> {
                 child: const Text(
                   '⚠️ Las infracciones graves pueden ser reportadas a autoridades policiales '
                   'conforme a las leyes aplicables.',
-                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black87,
+                  ),
                 ),
               ),
             ],
@@ -320,7 +324,16 @@ class _VideoTermsDialogState extends State<VideoTermsDialog> {
         children: [
           Text(emoji, style: const TextStyle(fontSize: 16)),
           const SizedBox(width: 8),
-          Expanded(child: Text(text, style: const TextStyle(fontSize: 13))),
+          Expanded(
+            child: Text(
+              text,
+              style: const TextStyle(
+                fontSize: 13,
+                color: Colors.black87,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -381,7 +394,11 @@ class _VideoTermsDialogState extends State<VideoTermsDialog> {
         children: [
           const Text(
             '✅ AL ACEPTAR ESTAS NORMAS, CONFIRMAS QUE:',
-            style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.bold,
+              color: Colors.black87,
+            ),
           ),
           const SizedBox(height: 12),
           const Text(
@@ -390,7 +407,11 @@ class _VideoTermsDialogState extends State<VideoTermsDialog> {
             '• Entiendes las consecuencias de incumplir estas normas.\n\n'
             '• Autorizas la moderación y monitoreo de tus videoconferencias.\n\n'
             '• Aceptas la política de privacidad y el uso de servicios de terceros (Jitsi Meet).',
-            style: TextStyle(fontSize: 13, height: 1.6),
+            style: TextStyle(
+              fontSize: 13,
+              height: 1.6,
+              color: Colors.black87,
+            ),
           ),
         ],
       ),

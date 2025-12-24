@@ -302,8 +302,8 @@ class ModerationServer {
     // === WEBSOCKET ===
     
     // GET /ws - WebSocket para actualizaciones en tiempo real
-    router.get('/ws', webSocketHandler((WebSocketChannel webSocket) {
-      print('🔌 [MOD-SERVER] Cliente WebSocket conectado');
+    router.get('/ws', webSocketHandler((WebSocketChannel webSocket, String? protocol) {
+      print('🔌 [MOD-SERVER] Cliente WebSocket conectado (protocol: $protocol)');
       _wsClients.add(webSocket);
       
       // Enviar estado inicial
