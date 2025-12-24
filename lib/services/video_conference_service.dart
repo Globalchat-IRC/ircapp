@@ -4,6 +4,36 @@ import 'package:jitsi_meet_flutter_sdk/jitsi_meet_flutter_sdk.dart';
 import '../models/user_role.dart';
 import '../models/video_report.dart';
 
+/// Tipo de conferencia
+enum ConferenceType {
+  channel,  // Conferencia de canal (grupal)
+  private,  // Videollamada privada (1 a 1)
+}
+
+/// Estado de usuario en videoconferencia
+class UserVideoStatus {
+  final String nick;
+  final ConferenceType type;
+  final String conferenceId;
+  final DateTime joinedAt;
+  
+  UserVideoStatus({
+    required this.nick,
+    required this.type,
+    required this.conferenceId,
+    DateTime? joinedAt,
+  }) : joinedAt = joinedAt ?? DateTime.now();
+  
+  String get emoji {
+    switch (type) {
+      case ConferenceType.channel:
+        return '🎥'; // Conferencia grupal
+      case ConferenceType.private:
+        return '📹'; // Videollamada privada
+    }
+  }
+}
+
 /// Información de conferencia activa
 class ConferenceInfo {
   final String id;
@@ -48,6 +78,9 @@ class VideoConferenceService {
   // Conferencias activas
   final Map<String, ConferenceInfo> _activeConferences = {};
   
+  // Estado de usuarios en videoconferencia (nick -> UserVideoStatus)
+  final Map<String, UserVideoStatus> _usersInVideo = {};
+  
   // Reportes pendientes
   final List<VideoReport> _reports = [];
   
@@ -61,10 +94,13 @@ class VideoConferenceService {
       StreamController<String>.broadcast();
   final StreamController<VideoReport> _reportCreatedController = 
       StreamController<VideoReport>.broadcast();
+  final StreamController<Map<String, UserVideoStatus>> _usersVideoStatusController =
+      StreamController<Map<String, UserVideoStatus>>.broadcast();
       
   Stream<ConferenceInfo> get onConferenceStarted => _conferenceStartedController.stream;
   Stream<String> get onConferenceEnded => _conferenceEndedController.stream;
   Stream<VideoReport> get onReportCreated => _reportCreatedController.stream;
+  Stream<Map<String, UserVideoStatus>> get onUsersVideoStatusChanged => _usersVideoStatusController.stream;
   
   /// Obtener conferencias activas
   List<ConferenceInfo> get activeConferences => _activeConferences.values.toList();
@@ -72,6 +108,34 @@ class VideoConferenceService {
   /// Obtener reportes pendientes
   List<VideoReport> get pendingReports => 
       _reports.where((r) => r.status == ReportStatus.pending).toList();
+  
+  /// Obtener estado de video de un usuario
+  UserVideoStatus? getUserVideoStatus(String nick) => _usersInVideo[nick];
+  
+  /// Verificar si un usuario está en videoconferencia
+  bool isUserInVideo(String nick) => _usersInVideo.containsKey(nick);
+  
+  /// Obtener todos los usuarios en video
+  Map<String, UserVideoStatus> get usersInVideo => Map.unmodifiable(_usersInVideo);
+  
+  /// Agregar usuario a videoconferencia
+  void _addUserToVideo(String nick, ConferenceType type, String conferenceId) {
+    _usersInVideo[nick] = UserVideoStatus(
+      nick: nick,
+      type: type,
+      conferenceId: conferenceId,
+    );
+    _usersVideoStatusController.add(Map.from(_usersInVideo));
+    print('🎥 [VIDEO] Usuario $nick entró en conferencia ${type == ConferenceType.channel ? 'grupal' : 'privada'}');
+  }
+  
+  /// Remover usuario de videoconferencia
+  void _removeUserFromVideo(String nick) {
+    if (_usersInVideo.remove(nick) != null) {
+      _usersVideoStatusController.add(Map.from(_usersInVideo));
+      print('🎥 [VIDEO] Usuario $nick salió de conferencia');
+    }
+  }
   
   /// Generar nombre de sala único
   String _generateRoomName(String channel, {bool isPrivate = false}) {
@@ -118,6 +182,9 @@ class VideoConferenceService {
       // Guardar conferencia activa
       _activeConferences[roomName] = conferenceInfo;
       _conferenceStartedController.add(conferenceInfo);
+      
+      // Agregar usuario al estado de video
+      _addUserToVideo(userNick, ConferenceType.channel, roomName);
       
       // Configurar opciones
       final options = JitsiMeetConferenceOptions(
@@ -172,6 +239,8 @@ class VideoConferenceService {
           print('🎥 [VIDEO] Conferencia terminada: $url');
           _activeConferences.remove(roomName);
           _conferenceEndedController.add(roomName);
+          // Remover usuario del estado de video
+          _removeUserFromVideo(userNick);
         },
         participantJoined: (email, name, role, participantId) {
           print('🎥 [VIDEO] Participante unido: $name');
@@ -206,6 +275,7 @@ class VideoConferenceService {
     required String roomName,
     required String userNick,
     required UserProfile userProfile,
+    ConferenceType type = ConferenceType.channel, // Por defecto canal
   }) async {
     try {
       print('🎥 [VIDEO] Uniéndose a conferencia: $roomName');
@@ -220,6 +290,9 @@ class VideoConferenceService {
       if (!userProfile.hasAcceptedVideoTerms) {
         throw Exception('Debes aceptar los términos de videoconferencia primero');
       }
+      
+      // Agregar usuario al estado de video
+      _addUserToVideo(userNick, type, roomName);
       
       // Configurar opciones (similar a startChannelConference)
       final options = JitsiMeetConferenceOptions(
@@ -242,6 +315,19 @@ class VideoConferenceService {
         ),
       );
       
+      // Listener de eventos
+      var listener = JitsiMeetEventListener(
+        conferenceJoined: (url) {
+          print('🎥 [VIDEO] Usuario unido a conferencia: $url');
+        },
+        conferenceTerminated: (url, error) {
+          print('🎥 [VIDEO] Conferencia terminada: $url');
+          _removeUserFromVideo(userNick);
+        },
+      );
+      
+      _jitsiMeet.addEventListeners(listener);
+      
       // Unirse
       await _jitsiMeet.join(options);
       
@@ -249,6 +335,7 @@ class VideoConferenceService {
       
     } catch (e) {
       print('❌ [VIDEO] Error al unirse a conferencia: $e');
+      _removeUserFromVideo(userNick); // Remover en caso de error
       rethrow;
     }
   }
@@ -351,6 +438,7 @@ class VideoConferenceService {
     _conferenceStartedController.close();
     _conferenceEndedController.close();
     _reportCreatedController.close();
+    _usersVideoStatusController.close();
   }
 }
 

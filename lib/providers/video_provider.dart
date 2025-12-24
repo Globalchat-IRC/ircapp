@@ -31,3 +31,16 @@ final hasAcceptedVideoTermsProvider = StateProvider<bool>((ref) {
   return userProfile?.hasAcceptedVideoTerms ?? false;
 });
 
+/// Provider de usuarios en videoconferencia
+final usersVideoStatusProvider = StreamProvider<Map<String, UserVideoStatus>>((ref) {
+  final service = ref.watch(videoConferenceServiceProvider);
+  return service.onUsersVideoStatusChanged;
+});
+
+/// Provider para obtener el emoji de video de un usuario
+final userVideoEmojiProvider = Provider.family<String?, String>((ref, nick) {
+  final service = ref.watch(videoConferenceServiceProvider);
+  final status = service.getUserVideoStatus(nick);
+  return status?.emoji;
+});
+

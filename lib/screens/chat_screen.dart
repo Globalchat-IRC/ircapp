@@ -37,6 +37,7 @@ import '../widgets/video_terms_dialog.dart';
 import '../widgets/video_report_dialog.dart';
 import '../models/user_role.dart';
 import '../models/video_report.dart' as video_report_model;
+import '../services/video_conference_service.dart' show ConferenceType;
 
 // Clase auxiliar para items del menú IRCop
 class _IRCOpMenuItem {
@@ -962,6 +963,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         roomName: roomName,
         userNick: _userProfile!.nick,
         userProfile: _userProfile!,
+        type: ConferenceType.private, // Videollamada privada
       );
       
       // Cerrar diálogo
@@ -991,6 +993,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         ),
       );
     }
+  }
+  
+  // Obtener nick con emoticono de video si está en conferencia
+  String _getNickWithVideoEmoji(String nick) {
+    final videoService = ref.read(videoConferenceServiceProvider);
+    final status = videoService.getUserVideoStatus(nick);
+    if (status != null) {
+      return '${status.emoji} $nick';
+    }
+    return nick;
   }
 
   @override
