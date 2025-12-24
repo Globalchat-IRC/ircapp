@@ -32,6 +32,11 @@ import '../models/whois_info.dart';
 import '../widgets/emoji_picker.dart';
 import '../widgets/update_banner.dart';  // Sistema de actualizaciones
 import 'package:package_info_plus/package_info_plus.dart';
+import '../providers/video_provider.dart';
+import '../widgets/video_terms_dialog.dart';
+import '../widgets/video_report_dialog.dart';
+import '../models/user_role.dart';
+import '../models/video_report.dart' as video_report_model;
 
 // Clase auxiliar para items del menú IRCop
 class _IRCOpMenuItem {
@@ -240,6 +245,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   String _appVersion = '';
   int _nickStartPosition = -1; // Posición donde empieza el nick que se está autocompletando
   
+  // Perfil de usuario para videoconferencias
+  UserProfile? _userProfile;
+  
   // Lista de comandos disponibles con sus descripciones
   static final List<Map<String, String>> _availableCommands = [
     {'command': 'join', 'description': 'Unirse a un canal', 'usage': '/join <canal>'},
@@ -293,6 +301,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     
     // Cargar información de versión
     _loadAppVersion();
+    
+    // Inicializar perfil de usuario para videoconferencias
+    _initializeUserProfile();
     
     // Listen for user list changes
     _ircService.addUserListListener(_onUserListChanged);
@@ -767,6 +778,218 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       print('📦 [ChatScreen] App version: $_appVersion');
     } catch (e) {
       print('❌ [ChatScreen] Error loading app version: $e');
+    }
+  }
+  
+  // Inicializar perfil de usuario para videoconferencias
+  void _initializeUserProfile() {
+    final nickname = ref.read(currentNicknameProvider);
+    if (nickname != null) {
+      setState(() {
+        _userProfile = UserProfile(
+          nick: nickname,
+          role: _ircService.isIRCOp ? UserRole.ircop : UserRole.user,
+          emailVerified: false,
+          reputation: 50,
+        );
+      });
+      // Actualizar provider
+      ref.read(currentUserProfileProvider.notifier).state = _userProfile;
+      print('👤 [VIDEO] Perfil de usuario inicializado: $nickname (${_userProfile!.role.description})');
+    }
+  }
+  
+  // Iniciar videoconferencia en canal
+  Future<void> _iniciarVideoconferenciaCanal() async {
+    try {
+      final videoService = ref.read(videoConferenceServiceProvider);
+      final currentChannel = ref.read(currentChannelProvider);
+      
+      if (currentChannel == null || _userProfile == null) {
+        _mostrarMensajeError('Error al iniciar videoconferencia');
+        return;
+      }
+      
+      // Verificar si aceptó términos
+      if (!_userProfile!.hasAcceptedVideoTerms) {
+        final accepted = await showDialog<bool>(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => VideoTermsDialog(
+            onAccept: () => Navigator.pop(context, true),
+            onReject: () => Navigator.pop(context, false),
+          ),
+        );
+        
+        if (accepted != true) return;
+        
+        // Guardar que aceptó términos
+        setState(() {
+          _userProfile = _userProfile!.copyWith(hasAcceptedVideoTerms: true);
+          ref.read(currentUserProfileProvider.notifier).state = _userProfile;
+        });
+      }
+      
+      // Verificar restricciones
+      if (!_userProfile!.canStartConference) {
+        _mostrarMensajeError('No tienes permisos para iniciar conferencias');
+        return;
+      }
+      
+      // Mostrar diálogo de carga
+      if (mounted) {
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => const Center(
+            child: Card(
+              child: Padding(
+                padding: EdgeInsets.all(20),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    CircularProgressIndicator(),
+                    SizedBox(height: 16),
+                    Text('Iniciando videoconferencia...'),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      }
+      
+      // Iniciar conferencia
+      await videoService.startChannelConference(
+        channel: currentChannel,
+        userNick: _userProfile!.nick,
+        userProfile: _userProfile!,
+      );
+      
+      // Cerrar diálogo de carga
+      if (mounted) {
+        Navigator.pop(context);
+      }
+      
+      // Enviar mensaje al canal
+      _ircService.sendMessage(
+        currentChannel,
+        '🎥 Ha iniciado una videoconferencia. ¡Únete! /join-video',
+      );
+      
+      print('✅ [VIDEO] Videoconferencia iniciada en $currentChannel');
+      
+    } catch (e) {
+      print('❌ [VIDEO] Error al iniciar videoconferencia: $e');
+      if (mounted) {
+        Navigator.pop(context); // Cerrar diálogo de carga si está abierto
+        _mostrarMensajeError('Error: $e');
+      }
+    }
+  }
+  
+  // Iniciar videollamada privada
+  Future<void> _iniciarVideollamadaPrivada(String otherNick) async {
+    try {
+      final videoService = ref.read(videoConferenceServiceProvider);
+      
+      if (_userProfile == null) {
+        _mostrarMensajeError('Error al iniciar videollamada');
+        return;
+      }
+      
+      // Verificar si aceptó términos
+      if (!_userProfile!.hasAcceptedVideoTerms) {
+        final accepted = await showDialog<bool>(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => VideoTermsDialog(
+            onAccept: () => Navigator.pop(context, true),
+            onReject: () => Navigator.pop(context, false),
+          ),
+        );
+        
+        if (accepted != true) return;
+        
+        // Guardar que aceptó términos
+        setState(() {
+          _userProfile = _userProfile!.copyWith(hasAcceptedVideoTerms: true);
+          ref.read(currentUserProfileProvider.notifier).state = _userProfile;
+        });
+      }
+      
+      // Verificar restricciones
+      final restriccionRazon = _userProfile!.videoRestrictionReason;
+      if (restriccionRazon != null) {
+        _mostrarMensajeError(restriccionRazon);
+        return;
+      }
+      
+      // Generar sala única
+      final roomName = 'globalchat-private-${DateTime.now().millisecondsSinceEpoch}';
+      
+      // Enviar invitación por privado
+      _ircService.sendPrivateMessage(
+        otherNick,
+        '🎥 Te invita a una videollamada: $roomName',
+      );
+      
+      // Mostrar diálogo
+      if (mounted) {
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => const Center(
+            child: Card(
+              child: Padding(
+                padding: EdgeInsets.all(20),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    CircularProgressIndicator(),
+                    SizedBox(height: 16),
+                    Text('Iniciando videollamada...'),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      }
+      
+      // Unirse a la sala
+      await videoService.joinConference(
+        roomName: roomName,
+        userNick: _userProfile!.nick,
+        userProfile: _userProfile!,
+      );
+      
+      // Cerrar diálogo
+      if (mounted) {
+        Navigator.pop(context);
+      }
+      
+      print('✅ [VIDEO] Videollamada iniciada con $otherNick');
+      
+    } catch (e) {
+      print('❌ [VIDEO] Error al iniciar videollamada: $e');
+      if (mounted) {
+        Navigator.pop(context);
+        _mostrarMensajeError('Error: $e');
+      }
+    }
+  }
+  
+  // Mostrar mensaje de error
+  void _mostrarMensajeError(String mensaje) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(mensaje),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 4),
+        ),
+      );
     }
   }
 
@@ -4131,6 +4354,26 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                               ),
                             ],
                           ),
+                          // Botón de videoconferencia
+                          if (currentChannel != null)
+                            IconButton(
+                              icon: Icon(
+                                currentChannel!.startsWith('#') 
+                                    ? Icons.videocam 
+                                    : Icons.video_call,
+                                color: appTheme.primary,
+                              ),
+                              tooltip: currentChannel!.startsWith('#') 
+                                  ? 'Iniciar videoconferencia del canal'
+                                  : 'Videollamada con ${currentChannel!}',
+                              onPressed: () {
+                                if (currentChannel!.startsWith('#')) {
+                                  _iniciarVideoconferenciaCanal();
+                                } else {
+                                  _iniciarVideollamadaPrivada(currentChannel!);
+                                }
+                              },
+                            ),
                           const SizedBox(width: 4),
                           Expanded(
                             child: Shortcuts(
