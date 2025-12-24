@@ -35,9 +35,13 @@ import 'package:package_info_plus/package_info_plus.dart';
 import '../providers/video_provider.dart';
 import '../widgets/video_terms_dialog.dart';
 import '../widgets/video_report_dialog.dart';
+import '../widgets/reputation_badge.dart';
+import '../widgets/user_profile_dialog.dart';
+import '../widgets/email_verification_dialog.dart';
 import '../models/user_role.dart';
 import '../models/video_report.dart' as video_report_model;
 import '../services/video_conference_service.dart' show ConferenceType;
+import '../services/video_database_service.dart';
 
 // Clase auxiliar para items del menú IRCop
 class _IRCOpMenuItem {
@@ -783,9 +787,42 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   }
   
   // Inicializar perfil de usuario para videoconferencias
-  void _initializeUserProfile() {
+  Future<void> _initializeUserProfile() async {
     final nickname = ref.read(currentNicknameProvider);
-    if (nickname != null) {
+    if (nickname == null) return;
+    
+    try {
+      final db = ref.read(videoDatabaseProvider);
+      
+      // Intentar cargar perfil existente
+      var profile = await db.getUserProfile(nickname);
+      
+      if (profile == null) {
+        // Crear nuevo perfil
+        profile = UserProfile(
+          nick: nickname,
+          role: _ircService.isIRCOp ? UserRole.ircop : UserRole.user,
+          emailVerified: false,
+          reputation: 50,
+        );
+        
+        // Guardar en BD
+        await db.saveUserProfile(profile);
+        print('👤 [VIDEO] Perfil creado para: $nickname');
+      } else {
+        print('👤 [VIDEO] Perfil cargado desde BD: $nickname (Rep: ${profile.reputation})');
+      }
+      
+      setState(() {
+        _userProfile = profile;
+      });
+      
+      // Actualizar provider
+      ref.read(currentUserProfileProvider.notifier).state = _userProfile;
+      
+    } catch (e) {
+      print('❌ [VIDEO] Error al inicializar perfil: $e');
+      // Fallback: crear perfil en memoria
       setState(() {
         _userProfile = UserProfile(
           nick: nickname,
@@ -794,9 +831,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           reputation: 50,
         );
       });
-      // Actualizar provider
-      ref.read(currentUserProfileProvider.notifier).state = _userProfile;
-      print('👤 [VIDEO] Perfil de usuario inicializado: $nickname (${_userProfile!.role.description})');
     }
   }
   
@@ -1003,6 +1037,38 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       return '${status.emoji} $nick';
     }
     return nick;
+  }
+  
+  // Mostrar perfil de usuario
+  void _showUserProfile(String nick) {
+    showDialog(
+      context: context,
+      builder: (context) => UserProfileDialog(nick: nick),
+    );
+  }
+  
+  // Mostrar diálogo de verificación de email
+  void _showEmailVerification() {
+    final nickname = ref.read(currentNicknameProvider);
+    if (nickname == null) return;
+    
+    showDialog(
+      context: context,
+      builder: (context) => EmailVerificationDialog(
+        nick: nickname,
+        onVerified: () {
+          // Recargar perfil después de verificar
+          _initializeUserProfile();
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('✅ ¡Email verificado! Tus restricciones han sido removidas.'),
+              backgroundColor: Colors.green,
+              duration: Duration(seconds: 5),
+            ),
+          );
+        },
+      ),
+    );
   }
 
   @override
