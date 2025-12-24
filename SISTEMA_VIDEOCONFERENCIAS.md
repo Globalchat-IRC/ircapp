@@ -367,7 +367,7 @@ Tu aplicación IRC ahora es una plataforma completa de comunicación con:
 
 ---
 
-*Última actualización: Diciembre 2024*
+*Última actualización: Diciembre 2025*
 *Versión del sistema: 1.0.1*
-*Estado: Fase 1 Completada - Fase 2 Pendiente*
+*Estado: Fase 1 Completada - Fase 2 Completada*
 

@@ -423,7 +423,7 @@ showDialog(
 ├────────────────────────────────────────────┤
 │  [Info] [Reputación] [Actividad]          │ ← Tabs
 ├────────────────────────────────────────────┤
-│  📅 Registro: 15/12/2024 (9 días)         │
+│  📅 Registro: 15/12/2025 (9 días)         │
 │  ✉️ Email: Verificado ✓                   │
 │  📱 Teléfono: No verificado                │
 │  🆔 Identidad: No verificada               │
@@ -772,7 +772,7 @@ La Fase 2 está **100% implementada y funcionando**.
 
 ---
 
-*Última actualización: Diciembre 2024*
+*Última actualización: Diciembre 2025*
 *Versión: 2.0.0*
 *Estado: Fase 2 Completada* ✅
 

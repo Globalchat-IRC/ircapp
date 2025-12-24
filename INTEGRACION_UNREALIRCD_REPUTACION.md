@@ -741,7 +741,7 @@ Tu aplicación IRC ahora tiene:
 
 ---
 
-*Última actualización: Diciembre 2024*
+*Última actualización: Diciembre 2025*
 *Versión: 2.1.0*
 *Estado: Sistema Híbrido Implementado* ✅
 
