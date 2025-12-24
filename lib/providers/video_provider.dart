@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../services/video_conference_service.dart';
 import '../services/moderation_server.dart';
+import '../services/video_database_service.dart';
 import '../models/user_role.dart';
 import '../models/video_report.dart';
 
@@ -63,5 +64,24 @@ final moderationServerProvider = Provider<ModerationServer>((ref) {
   });
   
   return server;
+});
+
+/// Provider del servicio de base de datos
+final videoDatabaseProvider = Provider<VideoDatabaseService>((ref) {
+  final db = VideoDatabaseService.instance;
+  
+  // Inicializar base de datos
+  db.database.then((_) {
+    print('✅ [VIDEO-DB] Base de datos inicializada');
+  }).catchError((error) {
+    print('❌ [VIDEO-DB] Error al inicializar: $error');
+  });
+  
+  // Cerrar al dispose
+  ref.onDispose(() {
+    db.close();
+  });
+  
+  return db;
 });
 

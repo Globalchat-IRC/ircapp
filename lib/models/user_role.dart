@@ -76,6 +76,26 @@ extension UserRoleExtension on UserRole {
         return 0xFF444444; // Gris oscuro
     }
   }
+  
+  /// Emoji del rol
+  String get emoji {
+    switch (this) {
+      case UserRole.admin:
+        return '👑';
+      case UserRole.moderator:
+        return '👮';
+      case UserRole.ircop:
+        return '🛡️';
+      case UserRole.verified:
+        return '✅';
+      case UserRole.user:
+        return '👤';
+      case UserRole.restricted:
+        return '⚠️';
+      case UserRole.banned:
+        return '🚫';
+    }
+  }
 }
 
 /// Perfil de usuario con información de moderación
@@ -84,8 +104,9 @@ class UserProfile {
   final UserRole role;
   final bool emailVerified;
   final bool phoneVerified;
+  final bool idVerified;
   final int reputation; // 0-100
-  final DateTime registrationDate;
+  final DateTime? registrationDate;
   final bool hasAcceptedVideoTerms;
   final int videoReportsCount;
   final List<String> videoWarnings;
@@ -95,6 +116,7 @@ class UserProfile {
     this.role = UserRole.user,
     this.emailVerified = false,
     this.phoneVerified = false,
+    this.idVerified = false,
     this.reputation = 50,
     DateTime? registrationDate,
     this.hasAcceptedVideoTerms = false,
@@ -148,12 +170,26 @@ class UserProfile {
     return null;
   }
   
+  /// Puede iniciar conferencias
+  bool get canStartConference {
+    return role.canStartConference && canEnableVideo;
+  }
+  
+  /// Badge de verificación
+  String get verificationBadge {
+    if (idVerified) return '🆔';
+    if (phoneVerified) return '📱';
+    if (emailVerified) return '✉️';
+    return '';
+  }
+  
   /// Copia con modificaciones
   UserProfile copyWith({
     String? nick,
     UserRole? role,
     bool? emailVerified,
     bool? phoneVerified,
+    bool? idVerified,
     int? reputation,
     DateTime? registrationDate,
     bool? hasAcceptedVideoTerms,
@@ -165,6 +201,7 @@ class UserProfile {
       role: role ?? this.role,
       emailVerified: emailVerified ?? this.emailVerified,
       phoneVerified: phoneVerified ?? this.phoneVerified,
+      idVerified: idVerified ?? this.idVerified,
       reputation: reputation ?? this.reputation,
       registrationDate: registrationDate ?? this.registrationDate,
       hasAcceptedVideoTerms: hasAcceptedVideoTerms ?? this.hasAcceptedVideoTerms,
@@ -180,8 +217,9 @@ class UserProfile {
       'role': role.name,
       'emailVerified': emailVerified ? 1 : 0,
       'phoneVerified': phoneVerified ? 1 : 0,
+      'idVerified': idVerified ? 1 : 0,
       'reputation': reputation,
-      'registrationDate': registrationDate.toIso8601String(),
+      'registrationDate': registrationDate?.toIso8601String(),
       'hasAcceptedVideoTerms': hasAcceptedVideoTerms ? 1 : 0,
       'videoReportsCount': videoReportsCount,
       'videoWarnings': videoWarnings.join('|'),
@@ -198,8 +236,11 @@ class UserProfile {
       ),
       emailVerified: map['emailVerified'] == 1,
       phoneVerified: map['phoneVerified'] == 1,
+      idVerified: map['idVerified'] == 1,
       reputation: map['reputation'] ?? 50,
-      registrationDate: DateTime.parse(map['registrationDate']),
+      registrationDate: map['registrationDate'] != null 
+          ? DateTime.parse(map['registrationDate']) 
+          : null,
       hasAcceptedVideoTerms: map['hasAcceptedVideoTerms'] == 1,
       videoReportsCount: map['videoReportsCount'] ?? 0,
       videoWarnings: (map['videoWarnings'] as String?)?.split('|') ?? [],
