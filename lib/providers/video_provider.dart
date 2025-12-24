@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../services/video_conference_service.dart';
+import '../services/moderation_server.dart';
 import '../models/user_role.dart';
 import '../models/video_report.dart';
 
@@ -42,5 +43,25 @@ final userVideoEmojiProvider = Provider.family<String?, String>((ref, nick) {
   final service = ref.watch(videoConferenceServiceProvider);
   final status = service.getUserVideoStatus(nick);
   return status?.emoji;
+});
+
+/// Provider del servidor de moderación
+final moderationServerProvider = Provider<ModerationServer>((ref) {
+  final videoService = ref.watch(videoConferenceServiceProvider);
+  final server = ModerationServer(videoService, port: 8765);
+  
+  // Iniciar servidor automáticamente
+  server.start().then((_) {
+    print('✅ [MOD-SERVER] Servidor iniciado automáticamente');
+  }).catchError((error) {
+    print('❌ [MOD-SERVER] Error al iniciar servidor: $error');
+  });
+  
+  // Detener al dispose
+  ref.onDispose(() {
+    server.stop();
+  });
+  
+  return server;
 });
 

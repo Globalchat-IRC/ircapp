@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:jitsi_meet_flutter_sdk/jitsi_meet_flutter_sdk.dart';
+import 'package:uuid/uuid.dart';
 import '../models/user_role.dart';
 import '../models/video_report.dart';
 
@@ -432,6 +433,33 @@ class VideoConferenceService {
       'dismissed': userReports.length - pendingReports - resolvedReports,
     };
   }
+  
+  /// Registrar acción de moderación (acceso público para moderation_server)
+  void logModerationAction({
+    required String moderatorNick,
+    required String targetNick,
+    required String conferenceId,
+    required String action,
+    required String reason,
+    String? evidenceUrl,
+  }) {
+    final moderationAction = ModerationAction(
+      id: const Uuid().v4(),
+      moderatorNick: moderatorNick,
+      targetNick: targetNick,
+      conferenceId: conferenceId,
+      action: action,
+      reason: reason,
+      timestamp: DateTime.now(),
+      evidenceUrl: evidenceUrl,
+    );
+    
+    _moderationActions.add(moderationAction);
+    print('👮 [VIDEO] Acción de moderación: $action por $moderatorNick a $targetNick');
+  }
+  
+  /// Obtener acciones de moderación
+  List<ModerationAction> get moderationActions => List.unmodifiable(_moderationActions);
   
   /// Limpiar recursos
   void dispose() {

@@ -52,6 +52,10 @@ dependencies:
   package_info_plus: ^9.0.0  # Para sistema de actualizaciones (compatible con pasteboard)
   jitsi_meet_flutter_sdk: ^10.2.0  # Para videoconferencias seguras
   permission_handler: ^11.3.1  # Para permisos de cámara/micrófono
+  shelf: ^1.4.1  # Servidor HTTP para panel de moderación
+  shelf_router: ^1.1.4  # Router para endpoints
+  shelf_web_socket: ^2.0.0  # WebSockets para tiempo real
+  uuid: ^4.5.1  # Generación de tokens
 
 dev_dependencies:
   flutter_test:

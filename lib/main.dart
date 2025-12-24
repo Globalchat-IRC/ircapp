@@ -4,6 +4,7 @@ import 'dart:io';
 import 'screens/login_screen.dart';
 import 'providers/theme_provider.dart';
 import 'providers/update_provider.dart';
+import 'providers/video_provider.dart';
 
 final logFile = File('/tmp/irc_app.log');
 
@@ -44,6 +45,9 @@ class MyApp extends ConsumerWidget {
     
     // Inicializar el sistema de actualizaciones
     ref.watch(updateProvider);
+    
+    // Inicializar el servidor de moderación
+    ref.watch(moderationServerProvider);
     
     return MaterialApp(
       title: 'Cliente IRC',
