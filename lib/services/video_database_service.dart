@@ -500,7 +500,7 @@ class VideoDatabaseService {
       'conference_id': action.conferenceId,
       'action': action.action,
       'reason': action.reason,
-      'evidence_url': action.evidenceUrl,
+      'evidence_url': null, // Campo legacy, mantener para compatibilidad
       'created_at': action.timestamp.toIso8601String(),
     });
     
@@ -546,7 +546,7 @@ class VideoDatabaseService {
       'conference_id': report.conferenceId,
       'report_type': report.type.name,
       'description': report.description,
-      'evidence_url': report.evidenceUrl,
+      'evidence_url': null, // Campo legacy para compatibilidad
       'status': report.status.name,
       'created_at': report.timestamp.toIso8601String(),
     });

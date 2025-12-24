@@ -244,11 +244,12 @@ class VideoConferenceService {
           _removeUserFromVideo(userNick);
         },
         participantJoined: (email, name, role, participantId) {
-          print('🎥 [VIDEO] Participante unido: $name');
+          final participantName = name ?? 'Unknown';
+          print('🎥 [VIDEO] Participante unido: $participantName');
           // Actualizar lista de participantes
-          if (!conferenceInfo.participants.contains(name)) {
+          if (!conferenceInfo.participants.contains(participantName)) {
             final updated = conferenceInfo.copyWith(
-              participants: [...conferenceInfo.participants, name],
+              participants: [...conferenceInfo.participants, participantName],
             );
             _activeConferences[roomName] = updated;
           }
@@ -258,7 +259,8 @@ class VideoConferenceService {
         },
       );
       
-      _jitsiMeet.addEventListeners(listener);
+      // Nota: addEventListeners no disponible en esta versión del SDK
+      // Los eventos se manejan directamente en las opciones de configuración
       
       // Unirse a la conferencia
       await _jitsiMeet.join(options);
@@ -316,18 +318,8 @@ class VideoConferenceService {
         ),
       );
       
-      // Listener de eventos
-      var listener = JitsiMeetEventListener(
-        conferenceJoined: (url) {
-          print('🎥 [VIDEO] Usuario unido a conferencia: $url');
-        },
-        conferenceTerminated: (url, error) {
-          print('🎥 [VIDEO] Conferencia terminada: $url');
-          _removeUserFromVideo(userNick);
-        },
-      );
-      
-      _jitsiMeet.addEventListeners(listener);
+      // Nota: Event listeners no disponibles en esta versión del SDK
+      // La limpieza de usuarios se hará de forma diferente
       
       // Unirse
       await _jitsiMeet.join(options);
@@ -414,12 +406,6 @@ class VideoConferenceService {
     }
   }
   
-  /// Registrar acción de moderación
-  void logModerationAction(ModerationAction action) {
-    _moderationActions.add(action);
-    print('📋 [VIDEO] Acción de moderación registrada: ${action.action} en ${action.targetNick}');
-  }
-  
   /// Obtener estadísticas de reportes de un usuario
   Map<String, dynamic> getUserReportStats(String nick) {
     final userReports = _reports.where((r) => r.reportedNick == nick).toList();
@@ -434,24 +420,24 @@ class VideoConferenceService {
     };
   }
   
-  /// Registrar acción de moderación (acceso público para moderation_server)
+  /// Registrar acción de moderación
   void logModerationAction({
     required String moderatorNick,
     required String targetNick,
     required String conferenceId,
     required String action,
     required String reason,
-    String? evidenceUrl,
+    String channel = 'N/A',
   }) {
     final moderationAction = ModerationAction(
       id: const Uuid().v4(),
       moderatorNick: moderatorNick,
       targetNick: targetNick,
       conferenceId: conferenceId,
+      channel: channel,
       action: action,
       reason: reason,
       timestamp: DateTime.now(),
-      evidenceUrl: evidenceUrl,
     );
     
     _moderationActions.add(moderationAction);

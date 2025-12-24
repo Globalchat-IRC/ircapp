@@ -126,7 +126,8 @@ class UserProfile {
   
   /// Días desde el registro
   int get daysRegistered {
-    return DateTime.now().difference(registrationDate).inDays;
+    if (registrationDate == null) return 0;
+    return DateTime.now().difference(registrationDate!).inDays;
   }
   
   /// Puede activar video
