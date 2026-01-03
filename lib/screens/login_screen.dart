@@ -960,6 +960,86 @@ class _ChannelSelectorState extends State<_ChannelSelector> {
                   ),
                 ),
               ),
+              // Campo de texto para escribir canal personalizado
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                child: Builder(
+                  builder: (context) {
+                    final customChannelController = TextEditingController();
+                    return TextField(
+                      controller: customChannelController,
+                      autofocus: false,
+                      decoration: InputDecoration(
+                        hintText: 'Escribe un canal (ej: #micanal)',
+                        hintStyle: TextStyle(color: widget.appTheme.textSecondary),
+                        prefixIcon: Icon(Icons.edit, color: widget.appTheme.primary),
+                        suffixIcon: IconButton(
+                          icon: Icon(Icons.check_circle, color: widget.appTheme.primary),
+                          onPressed: () {
+                            final value = customChannelController.text.trim();
+                            if (value.isNotEmpty) {
+                              String channelName = value;
+                              if (!channelName.startsWith('#')) {
+                                channelName = '#$channelName';
+                              }
+                              widget.controller.text = channelName;
+                              widget.controller.selection = TextSelection(
+                                baseOffset: widget.controller.text.length,
+                                extentOffset: widget.controller.text.length,
+                              );
+                              Navigator.pop(context);
+                              _focusNode.unfocus();
+                            }
+                          },
+                        ),
+                        filled: true,
+                        fillColor: widget.appTheme.background,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(color: widget.appTheme.primary.withOpacity(0.3)),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(color: widget.appTheme.primary.withOpacity(0.3)),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(color: widget.appTheme.primary, width: 2),
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      ),
+                      style: TextStyle(color: widget.appTheme.textPrimary),
+                      onSubmitted: (value) {
+                        if (value.trim().isNotEmpty) {
+                          String channelName = value.trim();
+                          if (!channelName.startsWith('#')) {
+                            channelName = '#$channelName';
+                          }
+                          widget.controller.text = channelName;
+                          widget.controller.selection = TextSelection(
+                            baseOffset: widget.controller.text.length,
+                            extentOffset: widget.controller.text.length,
+                          );
+                          Navigator.pop(context);
+                          _focusNode.unfocus();
+                        }
+                      },
+                    );
+                  },
+                ),
+              ),
+              const Divider(height: 1),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                child: Text(
+                  'Canales disponibles',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                    color: widget.appTheme.textSecondary,
+                  ),
+                ),
+              ),
               Flexible(
                 child: _filteredChannels.isEmpty
                     ? Padding(

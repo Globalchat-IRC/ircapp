@@ -166,7 +166,7 @@ class RadioNotifier extends StateNotifier<RadioState> {
   }
 
   List<RadioStation> _getDefaultStations() {
-    // Solo estaciones de Zeno.fm que funcionan bien
+    // Estaciones que funcionan bien (Zeno.fm y listen2myradio.com)
     return [
       RadioStation(
         id: 'zeno1',
@@ -183,6 +183,16 @@ class RadioNotifier extends StateNotifier<RadioState> {
         source: 'https://stream.zeno.fm/3ezwa4mtghmtv',
         namesite: 'https://zeno.fm/radio/soundmusic/',
         salon: '#soundmusic',
+      ),
+      RadioStation(
+        id: 'sonic1',
+        name: 'Radio Sonic Frequency',
+        description: 'Radio SONIC Frequency - Canal #SonicFrequency en IRC GlobalChat',
+        source: 'https://uk18freenew.listen2myradio.com/live.mp3?typeportmount=s1_16892_stream_539618443',
+        namesite: 'https://globalchat.org/',
+        salon: '#SonicFrequency',
+        genre: 'VARIEDAD',
+        bitrate: '128',
       ),
     ];
   }
@@ -208,39 +218,22 @@ class RadioNotifier extends StateNotifier<RadioState> {
           print('📻 Estaciones encontradas en servidor: ${jsonList.length}');
           final allStations = jsonList.map((json) => RadioStation.fromJson(json)).toList();
           
-          // Filtrar solo estaciones de Zeno.fm que funcionan bien
+          // Filtrar estaciones que funcionan bien (Zeno.fm y listen2myradio.com)
           stations = allStations.where((station) {
             final source = station.source.toLowerCase();
-            return source.contains('zeno.fm');
+            return source.contains('zeno.fm') || source.contains('listen2myradio.com');
           }).toList();
           
-          print('📻 Estaciones de Zeno.fm encontradas: ${stations.length}');
+          print('📻 Estaciones válidas encontradas: ${stations.length}');
           
-          // Si no hay estaciones de Zeno.fm, agregar las que funcionan del HTML
+          // Si no hay estaciones válidas, agregar las que funcionan por defecto
           if (stations.isEmpty) {
-            print('📻 No hay estaciones de Zeno.fm, agregando estaciones predeterminadas...');
-            stations = [
-              RadioStation(
-                id: 'zeno1',
-                name: 'NuestrasVoces',
-                description: '🎤✨ Nuevos talentos y dedicatorias',
-                source: 'https://stream-179.zeno.fm/td7dw1np6s8uv?zt=eyJhbGciOiJIUzI1NiJ9.eyJzdHJlYW0iOiJ0ZDdkdzFucDZzOHV2IiwiaG9zdCI6InN0cmVhbS0xNzkuemVuby5mbSIsInJ0dGwiOjUsImp0aSI6ImZ6dGxpd002U0RlSmo0S3VfUE1xNWciLCJpYXQiOjE3NTg3NTU0MDMsImV4cCI6MTc1ODc1NTQ2M30.wl2oH7CHKjldHmqf3gkqqVhzl0lpJMTc3XebALO65l0',
-                namesite: 'https://globalchat.org/',
-                salon: '#nuestrasvoces',
-              ),
-              RadioStation(
-                id: 'zeno2',
-                name: 'SoundMusic',
-                description: '🎶🌟 Variado gusto musical',
-                source: 'https://stream.zeno.fm/3ezwa4mtghmtv',
-                namesite: 'https://zeno.fm/radio/soundmusic/',
-                salon: '#soundmusic',
-              ),
-            ];
+            print('📻 No hay estaciones válidas, agregando estaciones predeterminadas...');
+            stations = _getDefaultStations();
           }
           
           // Mostrar todas las URLs de stream
-          print('📻 ===== URLs DE STREAM EN LA APLICACIÓN (solo Zeno.fm) =====');
+          print('📻 ===== URLs DE STREAM EN LA APLICACIÓN =====');
           for (var station in stations) {
             print('📻 ${station.name}:');
             print('   URL: ${station.source}');

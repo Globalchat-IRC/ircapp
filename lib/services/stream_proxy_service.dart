@@ -127,6 +127,19 @@ class StreamProxyService {
           httpRequest.headers.set('Origin', 'https://radiodisney.disneylatino.com');
         } else if (originalUrl.contains('radioplayer.com.ar')) {
           httpRequest.headers.set('Referer', 'https://www.radiolaplata.com.ar/');
+        } else if (originalUrl.contains('listen2myradio.com')) {
+          // Headers específicos para listen2myradio.com
+          httpRequest.headers.set('Referer', 'https://listen2myradio.com/');
+          httpRequest.headers.set('Origin', 'https://listen2myradio.com');
+          httpRequest.headers.set('Accept-Encoding', 'identity'); // Sin compresión para streams
+          // Intentar con cookies simuladas
+          httpRequest.headers.set('Cookie', 'PHPSESSID=listen2myradio');
+          print('🔄 Proxy: Aplicando headers específicos para listen2myradio.com');
+          
+          // Si la URL contiene parámetros, intentar también sin ellos
+          if (originalUrl.contains('?')) {
+            print('🔄 Proxy: URL contiene parámetros de query');
+          }
         }
 
         final response = await httpRequest.close();

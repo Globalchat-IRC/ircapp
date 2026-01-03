@@ -1595,7 +1595,7 @@ class IRCService {
                 String? userMode;
                 String cleanUser = user.trim();
                 
-                // Detectar prefijos IRC: @ (op), + (voice), % (halfop), & (founder/owner)
+                // Detectar prefijos IRC: @ (op), + (voice), % (halfop), & (founder/owner), ! (admin), h (halfop)
                 if (cleanUser.startsWith('@')) {
                   userMode = '@';
                   cleanUser = cleanUser.substring(1).trim();
@@ -1604,6 +1604,12 @@ class IRCService {
                   cleanUser = cleanUser.substring(1).trim();
                 } else if (cleanUser.startsWith('%')) {
                   userMode = '%';
+                  cleanUser = cleanUser.substring(1).trim();
+                } else if (cleanUser.startsWith('!')) {
+                  userMode = '!';
+                  cleanUser = cleanUser.substring(1).trim();
+                } else if (cleanUser.startsWith('h')) {
+                  userMode = 'h';
                   cleanUser = cleanUser.substring(1).trim();
                 } else if (cleanUser.startsWith('+')) {
                   userMode = '+';

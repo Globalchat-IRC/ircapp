@@ -99,6 +99,13 @@ class RadioService {
       
       print('🎵 URL validada correctamente');
       
+      // Log específico para Radio Sonic Frequency
+      if (station.name.contains('Sonic Frequency') || station.source.contains('listen2myradio.com')) {
+        print('🎙️ [SONIC FREQUENCY] Detectada estación Sonic Frequency');
+        print('🎙️ [SONIC FREQUENCY] URL: ${station.source}');
+        print('🎙️ [SONIC FREQUENCY] Verificando accesibilidad...');
+      }
+      
       // Seleccionar URL según la plataforma:
       // - Android y Windows: URL directa (mejor compatibilidad)
       // - macOS/iOS: Proxy si está disponible
@@ -156,8 +163,68 @@ class RadioService {
         print('🎵 URL a usar: $streamUrl');
         
         // Establecer la fuente del audio
-        // En Windows, intentar primero sin headers (mejor compatibilidad)
-        if (Platform.isWindows) {
+        // Para listen2myradio.com, usar SIEMPRE el proxy en macOS/iOS
+        if (streamUrl.contains('listen2myradio.com')) {
+          print('🎙️ [SONIC FREQUENCY] Detectada estación listen2myradio.com');
+          
+          // En macOS/iOS, forzar uso del proxy
+          if (Platform.isMacOS || Platform.isIOS) {
+            final proxyUrl = _proxy.getProxyUrl(station.source);
+            if (proxyUrl != null) {
+              streamUrl = proxyUrl;
+              print('🎙️ [SONIC FREQUENCY] Usando proxy: $streamUrl');
+            } else {
+              print('⚠️ [SONIC FREQUENCY] Proxy no disponible, intentando URL directa');
+            }
+          }
+          
+          print('🎙️ [SONIC FREQUENCY] Intentando múltiples variantes de URL...');
+          List<String> urlVariants = [
+            streamUrl, // URL actual (puede ser proxy o directa)
+            // Si es proxy, también probar variantes directas
+            if (streamUrl.contains('localhost')) ...[
+              station.source, // URL original directa
+              station.source.split('?')[0], // Sin parámetros
+            ],
+            // Variantes adicionales
+            'https://uk18freenew.listen2myradio.com/live.mp3',
+          ];
+          
+          bool success = false;
+          Exception? lastError;
+          for (int i = 0; i < urlVariants.length; i++) {
+            final variant = urlVariants[i];
+            print('🎙️ [SONIC FREQUENCY] Intentando variante ${i + 1}/${urlVariants.length}: $variant');
+            try {
+              if (Platform.isMacOS || Platform.isIOS) {
+                // En macOS/iOS, usar headers
+                await _player.setUrl(variant, headers: {
+                  'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                  'Accept': '*/*',
+                  'Referer': 'https://listen2myradio.com/',
+                  'Origin': 'https://listen2myradio.com',
+                  'Accept-Encoding': 'identity',
+                });
+              } else {
+                await _player.setUrl(variant);
+              }
+              print('✅ [SONIC FREQUENCY] Variante ${i + 1} funcionó!');
+              success = true;
+              break;
+            } catch (e) {
+              lastError = e is Exception ? e : Exception(e.toString());
+              print('❌ [SONIC FREQUENCY] Variante ${i + 1} falló: $e');
+              if (i == urlVariants.length - 1) {
+                // Última variante
+                print('❌ [SONIC FREQUENCY] Todas las variantes fallaron');
+              }
+            }
+          }
+          if (!success) {
+            throw lastError ?? Exception('Todas las variantes de URL fallaron para listen2myradio.com');
+          }
+        } else if (Platform.isWindows) {
+          // En Windows, intentar primero sin headers (mejor compatibilidad)
           print('🎵 Windows: Configurando sin headers personalizados');
           try {
             await _player.setUrl(streamUrl);
@@ -168,25 +235,49 @@ class RadioService {
           }
         } else {
           // En otras plataformas, usar headers
+          // Headers específicos para listen2myradio.com
+          Map<String, String> headers = {
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': '*/*',
+            'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
+            'Connection': 'keep-alive',
+          };
+          
+          // Headers adicionales para listen2myradio.com
+          if (streamUrl.contains('listen2myradio.com')) {
+            headers['Referer'] = 'https://listen2myradio.com/';
+            headers['Origin'] = 'https://listen2myradio.com';
+            headers['Accept-Encoding'] = 'identity'; // Sin compresión para streams
+            print('🎙️ [SONIC FREQUENCY] Aplicando headers específicos para listen2myradio.com');
+          }
+          
           try {
-            await _player.setUrl(streamUrl, headers: {
-              'User-Agent': 'Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
-              'Accept': '*/*',
-              'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
-              'Connection': 'keep-alive',
-            });
+            await _player.setUrl(streamUrl, headers: headers);
             print('🎵 Fuente configurada correctamente (con headers)');
           } catch (e) {
             print('❌ Error configurando URL: $e');
             // Si falla, intentar sin headers
-            if (Platform.isAndroid) {
-              print('🔄 Android: Intentando sin headers personalizados...');
+            if (Platform.isAndroid || streamUrl.contains('listen2myradio.com')) {
+              print('🔄 Intentando sin headers personalizados...');
               try {
                 await _player.setUrl(streamUrl);
                 print('🎵 Fuente configurada sin headers');
               } catch (e2) {
                 print('❌ También falló sin headers: $e2');
-                rethrow;
+                // Último intento: probar con URL sin parámetros de query
+                if (streamUrl.contains('listen2myradio.com')) {
+                  print('🔄 [SONIC FREQUENCY] Intentando con URL simplificada...');
+                  try {
+                    final baseUrl = streamUrl.split('?')[0];
+                    await _player.setUrl(baseUrl);
+                    print('🎵 Fuente configurada con URL simplificada');
+                  } catch (e3) {
+                    print('❌ También falló con URL simplificada: $e3');
+                    rethrow;
+                  }
+                } else {
+                  rethrow;
+                }
               }
             } else {
               rethrow;

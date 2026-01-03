@@ -149,16 +149,19 @@ class VideoConferenceService {
   }
   
   /// Iniciar conferencia en canal
-  Future<void> startChannelConference({
+  /// Retorna el nombre de la sala (roomName) para construir la URL
+  Future<String> startChannelConference({
     required String channel,
     required String userNick,
     required UserProfile userProfile,
+    bool audioOnly = false,
   }) async {
     try {
       print('🎥 [VIDEO] Iniciando conferencia en canal: $channel');
       
-      // Verificar permisos
-      if (!userProfile.canStartConference) {
+      // Verificar permisos básicos (los moderadores del canal ya fueron verificados en chat_screen)
+      // Solo verificar que no esté baneado o restringido
+      if (userProfile.role == UserRole.banned || userProfile.role == UserRole.restricted) {
         throw Exception('No tienes permisos para iniciar conferencias');
       }
       
@@ -193,8 +196,8 @@ class VideoConferenceService {
         room: roomName,
         configOverrides: {
           'startWithAudioMuted': false,
-          'startWithVideoMuted': false,
-          'subject': 'Conferencia: $channel',
+          'startWithVideoMuted': audioOnly, // Desactivar video si es solo audio
+          'subject': audioOnly ? 'Audioconferencia: $channel' : 'Conferencia: $channel',
           'hideConferenceSubject': false,
         },
         featureFlags: {
@@ -267,6 +270,9 @@ class VideoConferenceService {
       
       print('✅ [VIDEO] Conferencia iniciada exitosamente');
       
+      // Devolver el roomName para construir la URL
+      return roomName;
+      
     } catch (e) {
       print('❌ [VIDEO] Error al iniciar conferencia: $e');
       rethrow;
@@ -279,6 +285,7 @@ class VideoConferenceService {
     required String userNick,
     required UserProfile userProfile,
     ConferenceType type = ConferenceType.channel, // Por defecto canal
+    bool audioOnly = false,
   }) async {
     try {
       print('🎥 [VIDEO] Uniéndose a conferencia: $roomName');
@@ -303,7 +310,7 @@ class VideoConferenceService {
         room: roomName,
         configOverrides: {
           'startWithAudioMuted': false,
-          'startWithVideoMuted': !userProfile.canEnableVideo,
+          'startWithVideoMuted': audioOnly || !userProfile.canEnableVideo, // Desactivar video si es solo audio
           'hideConferenceSubject': false,
         },
         featureFlags: {

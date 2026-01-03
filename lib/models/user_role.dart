@@ -172,8 +172,16 @@ class UserProfile {
   }
   
   /// Puede iniciar conferencias
+  /// Nota: Los moderadores del canal pueden iniciar incluso si no cumplen todas las restricciones de canEnableVideo
   bool get canStartConference {
-    return role.canStartConference && canEnableVideo;
+    // Si el rol permite iniciar conferencias, verificar restricciones de video
+    if (!role.canStartConference) return false;
+    
+    // Los roles de moderación (admin, moderator, ircop) pueden iniciar sin restricciones
+    if (role.canModerate) return true;
+    
+    // Para otros usuarios, verificar restricciones de video
+    return canEnableVideo;
   }
   
   /// Badge de verificación

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ui' as ui;
 import 'dart:io';
 import 'dart:convert';
@@ -31,6 +32,7 @@ import '../services/emoji_service.dart';
 import '../models/whois_info.dart';
 import '../widgets/emoji_picker.dart';
 import '../widgets/update_banner.dart';  // Sistema de actualizaciones
+import '../providers/update_provider.dart';  // Provider de actualizaciones
 import 'package:package_info_plus/package_info_plus.dart';
 import '../providers/video_provider.dart';
 import '../widgets/video_terms_dialog.dart';
@@ -235,6 +237,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   bool _showSearch = false;
   final TextEditingController _searchController = TextEditingController();
   List<IRCMessage> _searchResults = [];
+  bool _showUserList = true; // Control de visibilidad de la lista de usuarios
+  bool _showChannelsSidebar = true; // Control de visibilidad del sidebar de canales
   
   // Autocompletado de comandos
   List<Map<String, String>> _commandSuggestions = [];
@@ -536,6 +540,56 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       } else {
         // Estamos en el canal, marcar como leído
         ref.read(unreadMessagesProvider.notifier).markAsRead(messageChannel);
+      }
+      
+      // Detectar invitación de videollamada privada y abrir automáticamente
+      if (isPrivate && message.message.contains('Te invita a una videollamada')) {
+        // Buscar URL de videoconferencia en el mensaje
+        final videoUrlRegex = RegExp(r'https?://video\.globalchat\.org/[^\s]+');
+        final videoUrlMatch = videoUrlRegex.firstMatch(message.message);
+        
+        if (videoUrlMatch != null) {
+          final videoUrl = videoUrlMatch.group(0)!;
+          print('🎥 [VIDEO] Invitación de videollamada privada detectada: $videoUrl');
+          
+          // Abrir la videoconferencia automáticamente después de un breve delay
+          Future.delayed(const Duration(milliseconds: 500), () async {
+            if (mounted) {
+              final uri = Uri.parse(videoUrl);
+              if (await canLaunchUrl(uri)) {
+                await launchUrl(uri, mode: LaunchMode.externalApplication);
+                print('✅ [VIDEO] Videollamada privada abierta automáticamente');
+              } else {
+                print('❌ [VIDEO] No se pudo abrir la URL: $videoUrl');
+              }
+            }
+          });
+        }
+      }
+      
+      // Detectar invitación de audiollamada privada y abrir automáticamente
+      if (isPrivate && message.message.contains('Te invita a una audiollamada')) {
+        // Buscar URL de audioconferencia en el mensaje
+        final audioUrlRegex = RegExp(r'https?://video\.globalchat\.org/[^\s]+');
+        final audioUrlMatch = audioUrlRegex.firstMatch(message.message);
+        
+        if (audioUrlMatch != null) {
+          final audioUrl = audioUrlMatch.group(0)!;
+          print('🎙️ [AUDIO] Invitación de audiollamada privada detectada: $audioUrl');
+          
+          // Abrir la audioconferencia automáticamente después de un breve delay
+          Future.delayed(const Duration(milliseconds: 500), () async {
+            if (mounted) {
+              final uri = Uri.parse(audioUrl);
+              if (await canLaunchUrl(uri)) {
+                await launchUrl(uri, mode: LaunchMode.externalApplication);
+                print('✅ [AUDIO] Audiollamada privada abierta automáticamente');
+              } else {
+                print('❌ [AUDIO] No se pudo abrir la URL: $audioUrl');
+              }
+            }
+          });
+        }
       }
     }
   }
@@ -865,10 +919,147 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         });
       }
       
-      // Verificar restricciones
-      if (!_userProfile!.canStartConference) {
-        _mostrarMensajeError('No tienes permisos para iniciar conferencias');
-        return;
+      // Verificar si es moderador del canal
+      final channels = ref.read(channelsProvider);
+      final normalizedChannel = currentChannel.toLowerCase();
+      final channelKey = channels.keys.firstWhere(
+        (key) => key.toLowerCase() == normalizedChannel,
+        orElse: () => normalizedChannel,
+      );
+      
+      bool isChannelModerator = false;
+      String? userMode;
+      final currentNick = ref.read(currentNicknameProvider);
+      
+      print('🎥 [VIDEO] Verificando permisos para iniciar conferencia en: $currentChannel');
+      print('🎥 [VIDEO] Canal encontrado: $channelKey, Nick actual: $currentNick');
+      print('🎥 [VIDEO] Canales disponibles: ${channels.keys.toList()}');
+      
+      if (channels.containsKey(channelKey) && currentNick != null) {
+        final channelData = channels[channelKey];
+        print('🎥 [VIDEO] Datos del canal: usuarios=${channelData?.users.length}, userModes=${channelData?.userModes}');
+        
+        // Buscar el nick en la lista de usuarios (case-insensitive)
+        String? matchingNick;
+        for (var user in channelData?.users ?? []) {
+          if (user.toLowerCase() == currentNick.toLowerCase()) {
+            matchingNick = user;
+            break;
+          }
+        }
+        
+        if (matchingNick != null) {
+          userMode = channelData?.getUserMode(matchingNick);
+          
+          // Si no se encontró el modo, usar WHO para obtenerlo
+          if (userMode == null) {
+            print('🎥 [VIDEO] Modo no encontrado en userModes, usando WHO para verificar...');
+            try {
+              // Usar WHO para obtener el modo del usuario
+              final completer = Completer<String?>();
+              Function(List<Map<String, dynamic>>)? whoListener;
+              String? foundMode;
+              
+              whoListener = (List<Map<String, dynamic>> results) {
+                // Buscar el usuario en los resultados
+                for (var result in results) {
+                  final nick = result['nick'] as String?;
+                  final status = result['status'] as String?;
+                  if (nick != null && nick.toLowerCase() == currentNick.toLowerCase() && status != null) {
+                    // El status puede contener: H (here), G (gone), * (IRCop), @ (op), + (voice), % (halfop), & (founder), ! (admin), h (halfop)
+                    print('🎥 [VIDEO] WHO status recibido: "$status" para $nick');
+                    if (status.contains('@')) {
+                      foundMode = '@';
+                    } else if (status.contains('&')) {
+                      foundMode = '&';
+                    } else if (status.contains('%')) {
+                      foundMode = '%';
+                    } else if (status.contains('!')) {
+                      foundMode = '!';
+                    } else if (status.contains('h')) {
+                      foundMode = 'h';
+                    } else if (status.contains('+')) {
+                      foundMode = '+';
+                    }
+                    break;
+                  }
+                }
+                
+                // Remover el listener después de procesar (usar scheduleMicrotask para evitar modificación concurrente)
+                if (whoListener != null) {
+                  scheduleMicrotask(() {
+                    _ircService.removeWhoListener(whoListener!);
+                  });
+                }
+                
+                // Completar el completer con el modo encontrado
+                completer.complete(foundMode);
+              };
+              
+              _ircService.addWhoListener(whoListener);
+              _ircService.sendWho(currentChannel);
+              
+              // Esperar hasta 2 segundos por la respuesta
+              userMode = await completer.future.timeout(
+                const Duration(seconds: 2),
+                onTimeout: () {
+                  if (whoListener != null) {
+                    scheduleMicrotask(() {
+                      _ircService.removeWhoListener(whoListener!);
+                    });
+                  }
+                  print('🎥 [VIDEO] ⚠️ Timeout esperando respuesta de WHO');
+                  return null;
+                },
+              );
+              
+              // Si se obtuvo el modo, actualizarlo en el canal
+              if (userMode != null && matchingNick != null) {
+                channelData?.addUser(matchingNick, mode: userMode);
+                print('🎥 [VIDEO] Modo obtenido de WHO: $userMode, actualizado en canal');
+              }
+            } catch (e) {
+              print('🎥 [VIDEO] Error al obtener modo con WHO: $e');
+            }
+          }
+          
+          // Verificar si es moderador: @ (op), & (founder/owner), % (halfop), ! (admin), h (halfop)
+          isChannelModerator = userMode == '@' || userMode == '&' || userMode == '%' || userMode == '!' || userMode == 'h';
+          print('🎥 [VIDEO] Usuario encontrado: $matchingNick, modo: $userMode, es moderador: $isChannelModerator');
+        } else {
+          print('🎥 [VIDEO] ⚠️ Usuario $currentNick no encontrado en la lista de usuarios del canal');
+          print('🎥 [VIDEO] Usuarios en el canal: ${channelData?.users}');
+        }
+      } else {
+        if (!channels.containsKey(channelKey)) {
+          print('🎥 [VIDEO] ⚠️ Canal $channelKey no encontrado en la lista de canales');
+        }
+        if (currentNick == null) {
+          print('🎥 [VIDEO] ⚠️ Nick actual es null');
+        }
+      }
+      
+      // Verificar si es IRCop
+      final isIRCOp = _ircService.isIRCOp;
+      print('🎥 [VIDEO] Es IRCop: $isIRCOp');
+      
+      // Si es moderador del canal o IRCop, permitir iniciar sin restricciones
+      if (isChannelModerator || isIRCOp) {
+        print('🎥 [VIDEO] ✅ Usuario es moderador del canal (mode=$userMode) o IRCop, permitiendo inicio de conferencia sin restricciones');
+        // Continuar con el inicio de la conferencia - saltar verificación de canStartConference
+      } else {
+        // Verificar restricciones solo para usuarios normales
+        print('🎥 [VIDEO] Usuario no es moderador, verificando restricciones normales...');
+        print('🎥 [VIDEO] canStartConference: ${_userProfile!.canStartConference}');
+        print('🎥 [VIDEO] canEnableVideo: ${_userProfile!.canEnableVideo}');
+        print('🎥 [VIDEO] emailVerified: ${_userProfile!.emailVerified}, daysRegistered: ${_userProfile!.daysRegistered}');
+        
+        if (!_userProfile!.canStartConference) {
+          final reason = _userProfile!.videoRestrictionReason ?? 'No tienes permisos para iniciar conferencias';
+          print('🎥 [VIDEO] ❌ Usuario no puede iniciar conferencia: $reason');
+          _mostrarMensajeError(reason);
+          return;
+        }
       }
       
       // Mostrar diálogo de carga
@@ -894,8 +1085,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         );
       }
       
-      // Iniciar conferencia
-      await videoService.startChannelConference(
+      // Iniciar conferencia y obtener el roomName
+      final roomName = await videoService.startChannelConference(
         channel: currentChannel,
         userNick: _userProfile!.nick,
         userProfile: _userProfile!,
@@ -906,18 +1097,340 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         Navigator.pop(context);
       }
       
-      // Enviar mensaje al canal
+      // Construir URL directa de la videoconferencia de Jitsi Meet
+      // NOTA: Jitsi Meet no soporta establecer displayName desde parámetros de URL
+      // (ver: https://github.com/jitsi/jitsi-meet/issues/11309)
+      // El usuario deberá ingresar su nombre manualmente en la página de pre-unión
+      final videoUrl = 'https://video.globalchat.org/$roomName';
+      
+      print('🎥 [VIDEO] Construyendo URL para room: $roomName');
+      print('🎥 [VIDEO] URL: $videoUrl');
+      print('ℹ️ [VIDEO] URL directa de Jitsi Meet (usuario ingresará nombre manualmente)');
+      
+      // Enviar mensaje al canal con la URL
       _ircService.sendMessage(
         currentChannel,
-        '🎥 Ha iniciado una videoconferencia. ¡Únete! /join-video',
+        '🎥 Ha iniciado una videoconferencia. ¡Únete! $videoUrl',
       );
       
       print('✅ [VIDEO] Videoconferencia iniciada en $currentChannel');
+      print('✅ [VIDEO] URL: $videoUrl');
       
     } catch (e) {
       print('❌ [VIDEO] Error al iniciar videoconferencia: $e');
       if (mounted) {
         Navigator.pop(context); // Cerrar diálogo de carga si está abierto
+        _mostrarMensajeError('Error: $e');
+      }
+    }
+  }
+  
+  // Iniciar audioconferencia en canal
+  Future<void> _iniciarAudioconferenciaCanal() async {
+    try {
+      final videoService = ref.read(videoConferenceServiceProvider);
+      final currentChannel = ref.read(currentChannelProvider);
+      
+      if (currentChannel == null || _userProfile == null) {
+        _mostrarMensajeError('Error al iniciar audioconferencia');
+        return;
+      }
+      
+      // Verificar si aceptó términos (usar los mismos términos de video)
+      if (!_userProfile!.hasAcceptedVideoTerms) {
+        final accepted = await showDialog<bool>(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => VideoTermsDialog(
+            onAccept: () => Navigator.pop(context, true),
+            onReject: () => Navigator.pop(context, false),
+          ),
+        );
+        
+        if (accepted != true) return;
+        
+        setState(() {
+          _userProfile = _userProfile!.copyWith(hasAcceptedVideoTerms: true);
+          ref.read(currentUserProfileProvider.notifier).state = _userProfile;
+        });
+      }
+      
+      // Verificar si es moderador del canal (misma lógica que video)
+      final channels = ref.read(channelsProvider);
+      final normalizedChannel = currentChannel.toLowerCase();
+      final channelKey = channels.keys.firstWhere(
+        (key) => key.toLowerCase() == normalizedChannel,
+        orElse: () => normalizedChannel,
+      );
+      
+      bool isChannelModerator = false;
+      String? userMode;
+      final currentNick = ref.read(currentNicknameProvider);
+      
+      if (channels.containsKey(channelKey) && currentNick != null) {
+        final channelData = channels[channelKey];
+        
+        // Buscar el nick en la lista de usuarios (case-insensitive)
+        String? matchingNick;
+        for (var user in channelData?.users ?? []) {
+          if (user.toLowerCase() == currentNick.toLowerCase()) {
+            matchingNick = user;
+            break;
+          }
+        }
+        
+        if (matchingNick != null) {
+          userMode = channelData?.getUserMode(matchingNick);
+        }
+        
+        // Si no se encontró el modo, intentar desde userModes
+        if (userMode == null || userMode.isEmpty) {
+          userMode = channelData?.userModes[currentNick.toLowerCase()];
+        }
+        
+        // Si no se encontró el modo, usar WHO para obtenerlo
+        if (userMode == null || userMode.isEmpty) {
+          print('🎙️ [AUDIO] Modo no encontrado en userModes, usando WHO para verificar...');
+          try {
+            // Usar WHO para obtener el modo del usuario
+            final completer = Completer<String?>();
+            Function(List<Map<String, dynamic>>)? whoListener;
+            String? foundMode;
+            
+            whoListener = (List<Map<String, dynamic>> results) {
+              // Buscar el usuario en los resultados
+              for (var result in results) {
+                final nick = result['nick'] as String?;
+                final status = result['status'] as String?;
+                if (nick != null && nick.toLowerCase() == currentNick.toLowerCase() && status != null) {
+                  // El status puede contener: H (here), G (gone), * (IRCop), @ (op), + (voice), % (halfop), & (founder), ! (admin), h (halfop)
+                  print('🎙️ [AUDIO] WHO status recibido: "$status" para $nick');
+                  if (status.contains('@')) {
+                    foundMode = '@';
+                  } else if (status.contains('&')) {
+                    foundMode = '&';
+                  } else if (status.contains('%')) {
+                    foundMode = '%';
+                  } else if (status.contains('!')) {
+                    foundMode = '!';
+                  } else if (status.contains('h')) {
+                    foundMode = 'h';
+                  } else if (status.contains('+')) {
+                    foundMode = '+';
+                  }
+                  break;
+                }
+              }
+              
+              // Remover el listener después de procesar (usar scheduleMicrotask para evitar modificación concurrente)
+              if (whoListener != null) {
+                scheduleMicrotask(() {
+                  _ircService.removeWhoListener(whoListener!);
+                });
+              }
+              
+              // Completar el completer con el modo encontrado
+              completer.complete(foundMode);
+            };
+            
+            _ircService.addWhoListener(whoListener);
+            _ircService.sendWho(currentChannel);
+            
+            // Esperar hasta 2 segundos por la respuesta
+            userMode = await completer.future.timeout(
+              const Duration(seconds: 2),
+              onTimeout: () {
+                if (whoListener != null) {
+                  scheduleMicrotask(() {
+                    _ircService.removeWhoListener(whoListener!);
+                  });
+                }
+                print('🎙️ [AUDIO] ⚠️ Timeout esperando respuesta de WHO');
+                return null;
+              },
+            );
+            
+            // Si se obtuvo el modo, actualizarlo en el canal
+            if (userMode != null && matchingNick != null) {
+              channelData?.addUser(matchingNick, mode: userMode);
+              print('🎙️ [AUDIO] Modo obtenido de WHO: $userMode, actualizado en canal');
+            }
+          } catch (e) {
+            print('🎙️ [AUDIO] Error al obtener modo con WHO: $e');
+          }
+        }
+        
+        isChannelModerator = userMode != null && 
+                            (userMode.contains('@') || 
+                             userMode.contains('&') || 
+                             userMode.contains('%') || 
+                             userMode.contains('!') || 
+                             userMode.contains('h'));
+      }
+      
+      final isIRCop = _ircService.isIRCOp;
+      
+      // Verificar permisos (moderadores e IRCops pueden iniciar sin restricciones)
+      if (!isChannelModerator && !isIRCop) {
+        if (!_userProfile!.canStartConference) {
+          final reason = _userProfile!.videoRestrictionReason ?? 
+                       'Verifica tu email o espera 7 días más';
+          _mostrarMensajeError(reason);
+          return;
+        }
+      }
+      
+      // Mostrar diálogo de carga
+      if (mounted) {
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => const Center(
+            child: Card(
+              child: Padding(
+                padding: EdgeInsets.all(20),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    CircularProgressIndicator(),
+                    SizedBox(height: 16),
+                    Text('Iniciando audioconferencia...'),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      }
+      
+      // Iniciar conferencia y obtener el roomName
+      final roomName = await videoService.startChannelConference(
+        channel: currentChannel,
+        userNick: _userProfile!.nick,
+        userProfile: _userProfile!,
+        audioOnly: true, // Marcar como solo audio
+      );
+      
+      // Cerrar diálogo de carga
+      if (mounted) {
+        Navigator.pop(context);
+      }
+      
+      // Construir URL directa de la audioconferencia
+      final audioUrl = 'https://video.globalchat.org/$roomName';
+      
+      print('🎙️ [AUDIO] Construyendo URL para room: $roomName');
+      print('🎙️ [AUDIO] URL: $audioUrl');
+      
+      // Enviar mensaje al canal con la URL
+      _ircService.sendMessage(
+        currentChannel,
+        '🎙️ Ha iniciado una audioconferencia. ¡Únete! $audioUrl',
+      );
+      
+      print('✅ [AUDIO] Audioconferencia iniciada en $currentChannel');
+      print('✅ [AUDIO] URL: $audioUrl');
+      
+    } catch (e) {
+      print('❌ [AUDIO] Error al iniciar audioconferencia: $e');
+      if (mounted) {
+        Navigator.pop(context);
+        _mostrarMensajeError('Error: $e');
+      }
+    }
+  }
+  
+  // Iniciar audiollamada privada
+  Future<void> _iniciarAudiollamadaPrivada(String otherNick) async {
+    try {
+      final videoService = ref.read(videoConferenceServiceProvider);
+      
+      if (_userProfile == null) {
+        _mostrarMensajeError('Error al iniciar audiollamada');
+        return;
+      }
+      
+      // Verificar si aceptó términos
+      if (!_userProfile!.hasAcceptedVideoTerms) {
+        final accepted = await showDialog<bool>(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => VideoTermsDialog(
+            onAccept: () => Navigator.pop(context, true),
+            onReject: () => Navigator.pop(context, false),
+          ),
+        );
+        
+        if (accepted != true) return;
+        
+        setState(() {
+          _userProfile = _userProfile!.copyWith(hasAcceptedVideoTerms: true);
+          ref.read(currentUserProfileProvider.notifier).state = _userProfile;
+        });
+      }
+      
+      // Verificar restricciones
+      final restriccionRazon = _userProfile!.videoRestrictionReason;
+      if (restriccionRazon != null) {
+        _mostrarMensajeError(restriccionRazon);
+        return;
+      }
+      
+      // Generar sala única
+      final roomName = 'globalchat-private-audio-${DateTime.now().millisecondsSinceEpoch}';
+      
+      // Construir URL de la audioconferencia
+      final audioUrl = 'https://video.globalchat.org/$roomName';
+      
+      // Enviar invitación por privado con la URL completa
+      _ircService.sendPrivateMessage(
+        otherNick,
+        '🎙️ Te invita a una audiollamada: $audioUrl',
+      );
+      
+      // Mostrar diálogo
+      if (mounted) {
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => const Center(
+            child: Card(
+              child: Padding(
+                padding: EdgeInsets.all(20),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    CircularProgressIndicator(),
+                    SizedBox(height: 16),
+                    Text('Iniciando audiollamada...'),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      }
+      
+      // Unirse a la sala (con audio solo)
+      await videoService.joinConference(
+        roomName: roomName,
+        userNick: _userProfile!.nick,
+        userProfile: _userProfile!,
+        type: ConferenceType.private,
+        audioOnly: true, // Marcar como solo audio
+      );
+      
+      // Cerrar diálogo
+      if (mounted) {
+        Navigator.pop(context);
+      }
+      
+      print('✅ [AUDIO] Audiollamada iniciada con $otherNick');
+      
+    } catch (e) {
+      print('❌ [AUDIO] Error al iniciar audiollamada: $e');
+      if (mounted) {
+        Navigator.pop(context);
         _mostrarMensajeError('Error: $e');
       }
     }
@@ -963,10 +1476,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       // Generar sala única
       final roomName = 'globalchat-private-${DateTime.now().millisecondsSinceEpoch}';
       
-      // Enviar invitación por privado
+      // Construir URL de la videoconferencia
+      final videoUrl = 'https://video.globalchat.org/$roomName';
+      
+      // Enviar invitación por privado con la URL completa
       _ircService.sendPrivateMessage(
         otherNick,
-        '🎥 Te invita a una videollamada: $roomName',
+        '🎥 Te invita a una videollamada: $videoUrl',
       );
       
       // Mostrar diálogo
@@ -1507,6 +2023,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
     final message = _messageController.text.trim();
     _messageController.clear();
+    
+    // Volver a enfocar el campo de texto después de enviar
+    _messageFocusNode.requestFocus();
     
     // Detectar comandos que empiezan con /
     if (message.startsWith('/')) {
@@ -3780,10 +4299,100 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   ),
                           padding: const EdgeInsets.symmetric(
                               horizontal: 8, vertical: 4),
-                  child: Text(
-                            isConnected ? '● Conectado' : '● Desconectado',
-                            style: const TextStyle(
-                                color: Colors.white, fontSize: 11),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        isConnected ? '● Conectado' : '● Desconectado',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 11,
+                        ),
+                      ),
+                      if (_appVersion.isNotEmpty) ...[
+                        const SizedBox(width: 12),
+                        Consumer(
+                          builder: (context, ref, child) {
+                            final updateState = ref.watch(updateProvider);
+                            return InkWell(
+                              onTap: () {
+                                // Verificar actualizaciones al hacer click
+                                ref.read(updateProvider.notifier).checkForUpdates(forceCheck: true);
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    backgroundColor: Colors.blue.shade700,
+                                    content: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        const SizedBox(
+                                          width: 16,
+                                          height: 16,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 12),
+                                        const Text(
+                                          'Verificando actualizaciones...',
+                                          style: TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 14,
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    duration: const Duration(seconds: 3),
+                                  ),
+                                );
+                              },
+                              borderRadius: BorderRadius.circular(8),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withOpacity(0.2),
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                    color: Colors.white.withOpacity(0.3),
+                                    width: 1,
+                                  ),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    if (updateState.isChecking)
+                                      const SizedBox(
+                                        width: 12,
+                                        height: 12,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                        ),
+                                      )
+                                    else
+                                      const Icon(
+                                        Icons.system_update,
+                                        color: Colors.white,
+                                        size: 12,
+                                      ),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      _appVersion,
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      ],
+                    ],
                   ),
                 ),
               ),
@@ -3802,6 +4411,20 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         });
                       },
                     ),
+                    // Botón para mostrar/ocultar lista de usuarios (solo en canales)
+                    if (currentChannel != null && currentChannel!.startsWith('#'))
+                      IconButton(
+                        icon: Icon(
+                          _showUserList ? Icons.people_outline : Icons.people,
+                          color: appTheme.textPrimary,
+                        ),
+                        tooltip: _showUserList ? 'Ocultar lista de usuarios' : 'Mostrar lista de usuarios',
+                        onPressed: () {
+                          setState(() {
+                            _showUserList = !_showUserList;
+                          });
+                        },
+                      ),
                     // Botón de IRCop (siempre visible)
                     Builder(
                       builder: (context) {
@@ -3989,32 +4612,53 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 Expanded(
                   child: Row(
               children: [
-            // Channels sidebar
-            Expanded(
-              flex: 1,
-              child: Container(
-                color: Colors.grey[900],
-                child: Column(
-                  children: [
-                    // Header con gradiente
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [
-                            appTheme.primary,
-                            appTheme.secondary,
-                          ],
+            // Channels sidebar - Solo mostrar si está habilitado
+            if (_showChannelsSidebar)
+              Expanded(
+                flex: 1,
+                child: Container(
+                  color: Colors.grey[900],
+                  child: Column(
+                    children: [
+                      // Header con gradiente
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [
+                              appTheme.primary,
+                              appTheme.secondary,
+                            ],
+                          ),
                         ),
-                      ),
-                      child: const Text(
-                        'Canales y Mensajes',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 14,
-                        ),
-                      ),
+                        child: Row(
+                          children: [
+                            const Expanded(
+                              child: Text(
+                                'Canales y Mensajes',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 14,
+                                ),
+                              ),
+                            ),
+                            // Botón para ocultar/mostrar sidebar
+                            IconButton(
+                              icon: Icon(
+                                _showChannelsSidebar ? Icons.chevron_left : Icons.chevron_right,
+                                color: Colors.white,
+                                size: 20,
+                              ),
+                              tooltip: _showChannelsSidebar ? 'Ocultar canales' : 'Mostrar canales',
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(),
+                              onPressed: () {
+                                setState(() {
+                                  _showChannelsSidebar = !_showChannelsSidebar;
+                                });
+                              },
+                            ),
                     ),
                     Expanded(
                       child: Builder(
@@ -4452,6 +5096,26 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                 }
                               },
                             ),
+                          // Botón de audioconferencia
+                          if (currentChannel != null)
+                            IconButton(
+                              icon: Icon(
+                                currentChannel!.startsWith('#') 
+                                    ? Icons.mic 
+                                    : Icons.call,
+                                color: appTheme.primary,
+                              ),
+                              tooltip: currentChannel!.startsWith('#') 
+                                  ? 'Iniciar audioconferencia del canal'
+                                  : 'Audiollamada con ${currentChannel!}',
+                              onPressed: () {
+                                if (currentChannel!.startsWith('#')) {
+                                  _iniciarAudioconferenciaCanal();
+                                } else {
+                                  _iniciarAudiollamadaPrivada(currentChannel!);
+                                }
+                              },
+                            ),
                           const SizedBox(width: 4),
                           Expanded(
                             child: Shortcuts(
@@ -4535,13 +5199,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                           } else if (_selectedNickIndex >= 0 && _showNickSuggestions) {
                                             _selectNickSuggestion(_selectedNickIndex);
                                           } else {
-                                            _sendMessage();
+                                            // Enviar mensaje inmediatamente al presionar Enter
+                                            _sendMessage(forceImmediate: true);
                                           }
                                         },
                               minLines: 1,
                               maxLines: 3,
                                         keyboardType: TextInputType.multiline,
-                                        textInputAction: TextInputAction.newline,
+                                        textInputAction: TextInputAction.send,
                                         enabled: true,
                                         readOnly: false,
                                         autofocus: false,
@@ -4733,7 +5398,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               ),
             ),
             // Users sidebar - Solo mostrar para canales, no para queries (mensajes privados)
-            if (currentChannel != null && currentChannel!.startsWith('#'))
+            if (currentChannel != null && currentChannel!.startsWith('#') && _showUserList)
               Expanded(
                 flex: 1,
                 child: Container(
@@ -4774,6 +5439,22 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                 ],
                               ),
                             ),
+                            // Botón para ocultar/mostrar lista de usuarios
+                            IconButton(
+                              icon: Icon(
+                                _showUserList ? Icons.visibility_off : Icons.visibility,
+                                color: Colors.white,
+                                size: 20,
+                              ),
+                              tooltip: _showUserList ? 'Ocultar lista de usuarios' : 'Mostrar lista de usuarios',
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(),
+                              onPressed: () {
+                                setState(() {
+                                  _showUserList = !_showUserList;
+                                });
+                              },
+                            ),
                             // Icono de configuración del canal
                             IconButton(
                               icon: const Icon(
@@ -4791,18 +5472,19 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                           ],
                         ),
                       ),
-                      if (channelUsers.isEmpty)
-                        const Expanded(
-                          child: Center(
-                            child: Text(
-                              'Aún no hay usuarios',
-                              style: TextStyle(color: Colors.white70),
+                      if (_showUserList)
+                        if (channelUsers.isEmpty)
+                          const Expanded(
+                            child: Center(
+                              child: Text(
+                                'Aún no hay usuarios',
+                                style: TextStyle(color: Colors.white70),
+                              ),
                             ),
-                          ),
-                        )
-                      else
-                        Expanded(
-                          child: Builder(
+                          )
+                        else
+                          Expanded(
+                            child: Builder(
                             builder: (context) {
                               // Obtener el canal para acceder a los modos
                               IRCChannel? currentChannelData;
@@ -4964,35 +5646,110 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         },
           ),
           
-          // Widget de versión en la esquina inferior derecha (por encima de todo)
-          if (_appVersion.isNotEmpty)
+          // Botón flotante para mostrar sidebar de canales cuando está oculto
+          if (!_showChannelsSidebar)
             Positioned(
-              bottom: 70,  // Encima de RadioControls
-              right: 16,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                decoration: BoxDecoration(
-                  color: appTheme.primary.withOpacity(0.9),
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(
-                    color: appTheme.secondary.withOpacity(0.6),
-                    width: 2,
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.3),
-                      blurRadius: 8,
-                      offset: const Offset(0, 2),
+              left: 8,
+              top: 100,  // Debajo del AppBar
+              child: Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: () {
+                    setState(() {
+                      _showChannelsSidebar = true;
+                    });
+                  },
+                  borderRadius: BorderRadius.circular(24),
+                  child: Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: appTheme.primary.withOpacity(0.9),
+                      borderRadius: BorderRadius.circular(24),
+                      border: Border.all(
+                        color: appTheme.secondary.withOpacity(0.6),
+                        width: 2,
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.3),
+                          blurRadius: 8,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
                     ),
-                  ],
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.list,
+                          color: appTheme.textPrimary,
+                          size: 20,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          'Canales',
+                          style: TextStyle(
+                            color: appTheme.textPrimary,
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
-                child: Text(
-                  _appVersion,
-                  style: TextStyle(
-                    color: appTheme.textPrimary,
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: 0.5,
+              ),
+            ),
+          // Botón flotante para mostrar lista de usuarios cuando está oculta
+          if (currentChannel != null && currentChannel!.startsWith('#') && !_showUserList)
+            Positioned(
+              right: 8,
+              top: 100,  // Debajo del AppBar
+              child: Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: () {
+                    setState(() {
+                      _showUserList = true;
+                    });
+                  },
+                  borderRadius: BorderRadius.circular(24),
+                  child: Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: appTheme.primary.withOpacity(0.9),
+                      borderRadius: BorderRadius.circular(24),
+                      border: Border.all(
+                        color: appTheme.secondary.withOpacity(0.6),
+                        width: 2,
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.3),
+                          blurRadius: 8,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.people,
+                          color: appTheme.textPrimary,
+                          size: 20,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          'Usuarios',
+                          style: TextStyle(
+                            color: appTheme.textPrimary,
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -6128,6 +6885,59 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   }
 
   Widget _buildMessageContent(String messageText, bool isOwnMessage, {bool isBot = false}) {
+    // Detectar si el mensaje contiene una URL de videoconferencia
+    final videoConferenceUrlRegex = RegExp(
+      r'https?://video\.globalchat\.org/[^\s]+',
+      caseSensitive: false,
+    );
+    final videoConferenceMatch = videoConferenceUrlRegex.firstMatch(messageText);
+    
+    if (videoConferenceMatch != null) {
+      final videoUrl = videoConferenceMatch.group(0)!;
+      final textBefore = messageText.substring(0, videoConferenceMatch.start).trim();
+      final textAfter = messageText.substring(videoConferenceMatch.end).trim();
+      
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (textBefore.isNotEmpty)
+            _buildTextWithEmojis(
+              textBefore,
+              isOwnMessage: isOwnMessage,
+              isBot: isBot,
+            ),
+          const SizedBox(height: 8),
+          // Botón para abrir la videoconferencia
+          ElevatedButton.icon(
+            onPressed: () async {
+              final uri = Uri.parse(videoUrl);
+              if (await canLaunchUrl(uri)) {
+                await launchUrl(uri, mode: LaunchMode.externalApplication);
+              }
+            },
+            icon: const Icon(Icons.videocam, size: 20),
+            label: const Text('Abrir Videoconferencia'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.orange,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+          ),
+          if (textAfter.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            _buildTextWithEmojis(
+              textAfter,
+              isOwnMessage: isOwnMessage,
+              isBot: isBot,
+            ),
+          ],
+        ],
+      );
+    }
+    
     // Detectar si el mensaje contiene una imagen (data URI)
     if (messageText.contains('data:image/')) {
       final parts = messageText.split('data:image/');
@@ -12563,7 +13373,7 @@ class _AsciiBackgroundPainter extends CustomPainter {
  | |__| | | (_) | |_) | (_| | | |____| | | | (_| | |_ 
   \\_____|_|\\___/|_.__/ \\__,_|_|\\_____|_| |_|\\__,_|\\__|
 
-          IRC Network · Desde 1999-2025                
+          IRC Network · Desde 1999-2026                
   ''';
 
   @override

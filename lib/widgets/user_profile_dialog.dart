@@ -267,6 +267,13 @@ class _UserProfileDialogState extends ConsumerState<UserProfileDialog> with Sing
                 ? '✅ Puede usar video'
                 : '❌ ${_profile!.videoRestrictionReason ?? "Restricciones activas"}',
           ),
+          _buildInfoCard(
+            '🎙️ Audioconferencias',
+            _profile!.hasAcceptedVideoTerms ? 'Disponible' : 'Términos no aceptados',
+            subtitle: _profile!.canEnableVideo
+                ? '✅ Puede usar audio'
+                : '❌ ${_profile!.videoRestrictionReason ?? "Restricciones activas"}',
+          ),
         ],
       ),
     );
