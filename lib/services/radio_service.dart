@@ -449,19 +449,20 @@ class RadioService {
         }
         
         // Reproducir
-        await _player.play();
-        print('🎵 Comando play() enviado');
-        
-        // Verificar volumen después de play
-        await Future.delayed(const Duration(milliseconds: 200));
-        final currentVolume = await _player.volume;
-        print('🎵 Volumen actual del player después de play: $currentVolume');
-        
-        _currentStation = station;
-        
-        // Esperar un momento y verificar el estado
-        await Future.delayed(const Duration(milliseconds: 1500));
-        final currentState = _player.playerState;
+        if (_player != null) {
+          await _player!.play();
+          print('🎵 Comando play() enviado');
+          
+          // Verificar volumen después de play
+          await Future.delayed(const Duration(milliseconds: 200));
+          final currentVolume = await _player!.volume;
+          print('🎵 Volumen actual del player después de play: $currentVolume');
+          
+          _currentStation = station;
+          
+          // Esperar un momento y verificar el estado
+          await Future.delayed(const Duration(milliseconds: 1500));
+          final currentState = _player!.playerState;
         _isPlaying = currentState.playing;
         print('🎵 Estado final: playing=$_isPlaying, processingState=${currentState.processingState}');
         
