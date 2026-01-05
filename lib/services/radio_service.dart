@@ -499,7 +499,8 @@ class RadioService {
           }
           
           print('🎵 ✅ Reproducción iniciada: $_isPlaying');
-        } else {
+        }
+      } else {
         // Misma estación, solo reanudar si está pausada
         print('🎵 Reanudando estación actual...');
         if (PlatformUtils.isWeb && _webPlayer != null) {
