@@ -20,7 +20,17 @@ if [ ! -d "build/web" ]; then
 fi
 
 # Parámetros
-USER=${1:-"usuario"}  # Usuario por defecto
+if [ -z "$1" ]; then
+    echo -e "${YELLOW}⚠️  No se especificó usuario SSH${NC}"
+    read -p "Ingresa tu usuario SSH en ceres: " USER
+    if [ -z "$USER" ]; then
+        echo -e "${RED}❌ Error: Se requiere un usuario SSH${NC}"
+        exit 1
+    fi
+else
+    USER=$1
+fi
+
 DEST_PATH=${2:-"/var/www/irc_app"}  # Ruta por defecto
 
 echo -e "${YELLOW}📦 Preparando archivos...${NC}"
