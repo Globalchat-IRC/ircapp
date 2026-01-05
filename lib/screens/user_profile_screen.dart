@@ -532,8 +532,20 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
                           child: ElevatedButton.icon(
                             onPressed: () {
                               final ircService = ref.read(ircServiceProvider);
-                              // Enviar un mensaje de ayuda al bot ipvirtual para gestionar la IP virtual
-                              ircService.sendServiceMessage('ipvirtual', 'HELP');
+                              // Enviar un mensaje de ayuda al bot de IP virtual
+                              // Intentar primero con "HostServ" (nombre estándar en IRC) y luego con "ipvirtual"
+                              print('🌐 [UserProfile] Intentando con HostServ (estándar IRC)...');
+                              ircService.sendServiceMessage('HostServ', 'HELP');
+                              
+                              // También intentar con ipvirtual por si el servidor usa ese nombre
+                              Future.delayed(const Duration(milliseconds: 500), () {
+                                print('🌐 [UserProfile] También intentando con ipvirtual...');
+                                ircService.sendServiceMessage('ipvirtual', 'HELP');
+                              });
+                              
+                              print('🌐 [UserProfile] Comandos enviados:');
+                              print('🌐 [UserProfile]   - PRIVMSG HostServ :HELP');
+                              print('🌐 [UserProfile]   - PRIVMSG ipvirtual :HELP');
                               ScaffoldMessenger.of(context).showSnackBar(
                                 const SnackBar(
                                   content: Text(

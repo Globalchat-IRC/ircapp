@@ -23,6 +23,7 @@ import '../services/sound_service.dart';
 import 'login_screen.dart';
 import 'user_profile_screen.dart';
 import 'emoji_config_screen.dart';
+import 'settings_screen.dart';
 import '../widgets/animated_topic_text.dart';
 import '../widgets/user_avatar.dart';
 import '../services/avatar_service.dart';
@@ -328,6 +329,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     
     // Listen for IRCop identification
     _ircService.addIRCOpListener(_onIRCOpIdentified);
+    
+    // Listen for lag updates
+    _ircService.addLagListener(_onLagUpdated);
     
     // Listener para autocompletado de comandos
     _messageController.addListener(_onMessageTextChanged);
@@ -1587,12 +1591,18 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     );
   }
 
+  void _onLagUpdated(int lagMs) {
+    // Actualizar el provider de lag
+    ref.read(lagProvider.notifier).updateLag(lagMs);
+  }
+
   @override
   void dispose() {
     _ircService.removeUserListListener(_onUserListChanged);
     _ircService.removeTopicListener(_onTopicChanged);
     _ircService.removeMessageListener(_onMessageReceived);
     _ircService.removeNickChangeListener(_onNickChanged);
+    _ircService.removeLagListener(_onLagUpdated);
     _messageController.removeListener(_onMessageTextChanged);
     _messageController.dispose();
     _channelController.dispose();
@@ -4303,12 +4313,92 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Text(
-                        isConnected ? '● Conectado' : '● Desconectado',
-                        style: const TextStyle(
+                            isConnected ? '● Conectado' : '● Desconectado',
+                            style: const TextStyle(
                           color: Colors.white,
                           fontSize: 11,
                         ),
                       ),
+                      if (isConnected) ...[
+                        const SizedBox(width: 8),
+                        Consumer(
+                          builder: (context, ref, child) {
+                            final lag = ref.watch(lagProvider);
+                            
+                            // Siempre mostrar la barra cuando hay conexión
+                            // Si no hay lag aún, mostrar indicador de "calculando"
+                            Color lagColor;
+                            double lagPercent;
+                            
+                            if (lag == null) {
+                              // Calculando - mostrar barra azul animada
+                              lagColor = Colors.blue;
+                              lagPercent = 0.3; // Barra parcial para indicar que está calculando
+                            } else {
+                              // Color según el lag: verde (<100ms), amarillo (100-300ms), naranja (300-500ms), rojo (>500ms)
+                              if (lag < 100) {
+                                lagColor = Colors.green;
+                              } else if (lag < 300) {
+                                lagColor = Colors.yellow;
+                              } else if (lag < 500) {
+                                lagColor = Colors.orange;
+                              } else {
+                                lagColor = Colors.red;
+                              }
+                              
+                              // Calcular el ancho de la barra (máximo 500ms = 100%)
+                              lagPercent = (lag / 500).clamp(0.0, 1.0);
+                            }
+                            
+                            return Container(
+                              width: 60,
+                              height: 4,
+                              decoration: BoxDecoration(
+                                color: Colors.white.withOpacity(0.2),
+                                borderRadius: BorderRadius.circular(2),
+                              ),
+                              child: Stack(
+                                children: [
+                                  FractionallySizedBox(
+                                    widthFactor: lagPercent,
+                                    child: Container(
+                                      decoration: BoxDecoration(
+                                        color: lagColor,
+                                        borderRadius: BorderRadius.circular(2),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
+                        const SizedBox(width: 4),
+                        Consumer(
+                          builder: (context, ref, child) {
+                            final lag = ref.watch(lagProvider);
+                            // Siempre mostrar texto, incluso si está calculando
+                            if (lag == null) {
+                              return Text(
+                                '...',
+                                style: TextStyle(
+                                  color: Colors.white.withOpacity(0.7),
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              );
+                            }
+                            return Text(
+                              '${lag}ms',
+                              style: TextStyle(
+                                color: Colors.white.withOpacity(0.9),
+                                fontSize: 9,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            );
+                          },
+                        ),
+                      ],
                       if (_appVersion.isNotEmpty) ...[
                         const SizedBox(width: 12),
                         Consumer(
@@ -4422,9 +4512,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         onPressed: () {
                           setState(() {
                             _showUserList = !_showUserList;
-                          });
-                        },
-                      ),
+                        });
+                      },
+                    ),
                     // Botón de IRCop (siempre visible)
                     Builder(
                       builder: (context) {
@@ -4554,6 +4644,18 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       onPressed: () => _showSearchDialog(context),
                     ),
                     IconButton(
+                      icon: const Icon(Icons.settings),
+                      tooltip: 'Ajustes Globales',
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const SettingsScreen(),
+                          ),
+                        );
+                      },
+                    ),
+                    IconButton(
                       icon: const Icon(Icons.palette),
                       tooltip: 'Cambiar tema',
                       onPressed: () => _showThemeSelector(context),
@@ -4600,11 +4702,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         children: [
           // Contenido principal
           Builder(
-            builder: (context) {
-              print('🔍 [DEBUG] 🖼️  ChatScreen body: Construyendo Row con ${channels.length} canales');
-              print('🔍 [DEBUG] 🖼️  ChatScreen body: currentChannel=$currentChannel, isChannelLoaded=$isChannelLoaded');
+        builder: (context) {
+          print('🔍 [DEBUG] 🖼️  ChatScreen body: Construyendo Row con ${channels.length} canales');
+          print('🔍 [DEBUG] 🖼️  ChatScreen body: currentChannel=$currentChannel, isChannelLoaded=$isChannelLoaded');
               return Column(
-              children: [
+          children: [
                 // Banner de actualización
                 const UpdateBanner(),
                 
@@ -4614,33 +4716,33 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               children: [
             // Channels sidebar - Solo mostrar si está habilitado
             if (_showChannelsSidebar)
-              Expanded(
-                flex: 1,
-                child: Container(
-                  color: Colors.grey[900],
-                  child: Column(
-                    children: [
-                      // Header con gradiente
-                      Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            colors: [
-                              appTheme.primary,
-                              appTheme.secondary,
-                            ],
-                          ),
+            Expanded(
+              flex: 1,
+              child: Container(
+                color: Colors.grey[900],
+                child: Column(
+                  children: [
+                    // Header con gradiente
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [
+                            appTheme.primary,
+                            appTheme.secondary,
+                          ],
                         ),
+                      ),
                         child: Row(
                           children: [
                             const Expanded(
                               child: Text(
-                                'Canales y Mensajes',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 14,
-                                ),
+                        'Canales y Mensajes',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                        ),
                               ),
                             ),
                             // Botón para ocultar/mostrar sidebar
@@ -4659,6 +4761,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                 });
                               },
                             ),
+                          ],
+                      ),
                     ),
                     Expanded(
                       child: Builder(
@@ -5115,7 +5219,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                   _iniciarAudiollamadaPrivada(currentChannel!);
                                 }
                               },
-                            ),
+                          ),
                           const SizedBox(width: 4),
                           Expanded(
                             child: Shortcuts(
@@ -5133,8 +5237,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                   ),
                                 },
                                 child: KeyboardListener(
-                                  focusNode: FocusNode(),
+                                  focusNode: FocusNode(skipTraversal: true, canRequestFocus: false),
                                   onKeyEvent: (event) {
+                                    // Solo procesar eventos cuando el TextField tiene el foco
+                                    if (!_messageFocusNode.hasFocus) {
+                                      return;
+                                    }
+                                    
                                     if (event is KeyDownEvent) {
                                       // Manejar autocompletado de comandos
                                       if (_showCommandSuggestions && _commandSuggestions.isNotEmpty) {
@@ -5347,11 +5456,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                         ),
                                       ),
                                     ],
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
+                                  ), // Column
+                                ), // KeyboardListener
+                              ), // Actions
+                            ), // Shortcuts
+                          ), // Expanded
                           const SizedBox(width: 8),
                           // Botón para enviar con delay normal
                           FloatingActionButton(
@@ -5473,18 +5582,18 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         ),
                       ),
                       if (_showUserList)
-                        if (channelUsers.isEmpty)
-                          const Expanded(
-                            child: Center(
-                              child: Text(
-                                'Aún no hay usuarios',
-                                style: TextStyle(color: Colors.white70),
-                              ),
+                      if (channelUsers.isEmpty)
+                        const Expanded(
+                          child: Center(
+                            child: Text(
+                              'Aún no hay usuarios',
+                              style: TextStyle(color: Colors.white70),
                             ),
-                          )
-                        else
-                          Expanded(
-                            child: Builder(
+                          ),
+                        )
+                      else
+                        Expanded(
+                          child: Builder(
                             builder: (context) {
                               // Obtener el canal para acceder a los modos
                               IRCChannel? currentChannelData;
@@ -5639,8 +5748,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 ),
               ),
               ],
-            ),
-          ),
+                ),
+              ),
           ],
           );
         },
@@ -6003,10 +6112,94 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     );
   }
 
+  Widget _buildPlainTextMessage(
+    IRCMessage message,
+    DateFormat timeFormat,
+    bool isOwnMessage,
+  ) {
+    final appTheme = ref.read(themeProvider);
+    
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: appTheme.surface.withOpacity(0.5),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: appTheme.textPrimary.withOpacity(0.1),
+            width: 1,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Text(
+                  message.nick,
+                  style: TextStyle(
+                    color: isOwnMessage ? appTheme.primary : appTheme.accent,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  timeFormat.format(message.timestamp),
+                  style: TextStyle(
+                    color: appTheme.textSecondary,
+                    fontSize: 12,
+                  ),
+                ),
+                if (message.channel.isNotEmpty) ...[
+                  const SizedBox(width: 8),
+                  Text(
+                    message.channel,
+                    style: TextStyle(
+                      color: appTheme.textSecondary.withOpacity(0.7),
+                      fontSize: 11,
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+            const SizedBox(height: 4),
+            _buildMessageContent(message.message, isOwnMessage, isBot: false),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildMessageTile(IRCMessage message) {
     final timeFormat = DateFormat('HH:mm');
     final currentNick = ref.read(currentNicknameProvider);
     final isOwnMessage = message.nick == currentNick;
+    
+    // Detectar si es canal o privado
+    final isChannel = message.channel.startsWith('#');
+    
+    // Obtener preferencias de formato (usar watch para que se reconstruya cuando cambien)
+    final formatPrefs = ref.watch(messageFormatPreferencesProvider);
+    
+    // Determinar qué formato usar según si es canal o privado
+    final MessageFormat selectedFormat = isChannel
+        ? formatPrefs.channelFormat
+        : formatPrefs.privateFormat;
+    
+    final useBubbleFormat = selectedFormat == MessageFormat.bubble;
+    
+    // Debug: solo imprimir ocasionalmente para no saturar logs
+    if (message.timestamp.millisecond % 100 == 0) {
+      print('🔍 [FORMATO] Canal: ${message.channel}, isChannel: $isChannel, formato: ${selectedFormat == MessageFormat.bubble ? "burbuja" : "plano"}');
+    }
+    
+    // Si no es formato burbuja, usar formato texto plano
+    if (!useBubbleFormat && !message.isSystem) {
+      return _buildPlainTextMessage(message, timeFormat, isOwnMessage);
+    }
     
     if (message.isSystem) {
       // Detectar si es JOIN o PART
@@ -12089,7 +12282,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     if (!context.mounted) return;
     Navigator.pop(context); // Cerrar diálogo de carga
     
-    if (status != 3) {
+    // Debug: mostrar el status recibido
+    print('🔍 [ChatScreen] Status recibido para nick "$currentNick": $status (tipo: ${status.runtimeType})');
+    
+    // Verificar si el status es 3 (registrado)
+    // Asegurarse de comparar correctamente (puede ser int o null)
+    final isRegistered = status != null && status == 3;
+    
+    if (!isRegistered) {
       // El nick no está registrado
       showDialog(
         context: context,
@@ -12612,7 +12812,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     if (!context.mounted) return;
     Navigator.pop(context); // Cerrar diálogo de carga
     
-    if (status != 3) {
+    // Debug: mostrar el status recibido
+    print('🔍 [ChatScreen] Status recibido para nick "$currentNick": $status (tipo: ${status.runtimeType})');
+    
+    // Verificar si el status es 3 (registrado)
+    // Asegurarse de comparar correctamente (puede ser int o null)
+    final isRegistered = status != null && status == 3;
+    
+    if (!isRegistered) {
       // El nick no está registrado
       showDialog(
         context: context,
@@ -12895,28 +13102,60 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                           ),
                           child: ElevatedButton(
                             onPressed: _isSubmitting ? null : () async {
-                              if (formKey.currentState!.validate()) {
+                              print('🌐 [ChatScreen] Botón de solicitar IP virtual presionado');
+                              
+                              if (!formKey.currentState!.validate()) {
+                                print('❌ [ChatScreen] Validación del formulario falló');
+                                return;
+                              }
+                              
                                 setDialogState(() {
                                   _isSubmitting = true;
                                 });
                                 
                                 final vhost = vhostController.text.trim();
-                                
-                                // Enviar comando REQUEST al bot ipvirtual
+                              print('🌐 [ChatScreen] Enviando solicitud de IP virtual: $vhost');
+                              
+                              // Enviar comando REQUEST al bot de IP virtual
+                              // Intentar primero con "HostServ" (nombre estándar en IRC) y luego con "ipvirtual"
+                              print('🌐 [ChatScreen] Intentando con HostServ (estándar IRC)...');
+                              _ircService.sendServiceMessage('HostServ', 'REQUEST $vhost');
+                              
+                              // También intentar con ipvirtual por si el servidor usa ese nombre
+                              Future.delayed(const Duration(milliseconds: 500), () {
+                                print('🌐 [ChatScreen] También intentando con ipvirtual...');
                                 _ircService.sendServiceMessage('ipvirtual', 'REQUEST $vhost');
+                              });
+                              
+                              print('🌐 [ChatScreen] Comandos enviados:');
+                              print('🌐 [ChatScreen]   - PRIVMSG HostServ :REQUEST $vhost');
+                              print('🌐 [ChatScreen]   - PRIVMSG ipvirtual :REQUEST $vhost');
                                 
                                 if (context.mounted) {
                                   Navigator.pop(context);
+                                print('🌐 [ChatScreen] Diálogo cerrado, mostrando SnackBar');
                                   ScaffoldMessenger.of(context).showSnackBar(
                                     SnackBar(
-                                      content: Text(
+                                    content: Row(
+                                      children: [
+                                        const Icon(Icons.info_outline, color: Colors.white),
+                                        const SizedBox(width: 12),
+                                        Expanded(
+                                          child: Text(
                                         'Solicitando IP virtual "$vhost" a IpVirtual...',
+                                            style: const TextStyle(color: Colors.white),
                                       ),
-                                      duration: const Duration(seconds: 3),
+                                        ),
+                                      ],
+                                    ),
+                                    duration: const Duration(seconds: 4),
                                       backgroundColor: appTheme.primary,
+                                    behavior: SnackBarBehavior.floating,
                                     ),
                                   );
-                                }
+                                print('✅ [ChatScreen] SnackBar mostrado');
+                              } else {
+                                print('⚠️  [ChatScreen] Context no está montado, no se puede mostrar SnackBar');
                               }
                             },
                             style: ElevatedButton.styleFrom(

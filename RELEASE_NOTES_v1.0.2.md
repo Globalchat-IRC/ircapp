@@ -46,3 +46,5 @@ Si ya tienes una versión anterior instalada:
 
 Para reportar problemas o sugerencias, visita: https://github.com/Globalchat-IRC/ircapp
 
+
+

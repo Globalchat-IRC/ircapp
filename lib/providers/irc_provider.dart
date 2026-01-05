@@ -27,6 +27,28 @@ final connectionStatusProvider = StateNotifierProvider<ConnectionStatusNotifier,
   return ConnectionStatusNotifier(service);
 });
 
+/// Lag (latencia) con el servidor IRC en milisegundos
+final lagProvider = StateNotifierProvider<LagNotifier, int?>((ref) {
+  return LagNotifier();
+});
+
+class LagNotifier extends StateNotifier<int?> {
+  LagNotifier() : super(null);
+
+  void updateLag(int milliseconds) {
+    // Si el lag es 0, resetear a null (desconectado)
+    if (milliseconds == 0) {
+      state = null;
+    } else {
+      state = milliseconds;
+    }
+  }
+
+  void reset() {
+    state = null;
+  }
+}
+
 final currentNicknameProvider = StateProvider<String?>((ref) {
   return null;
 });
@@ -1078,6 +1100,89 @@ class ServerProfilesNotifier extends StateNotifier<List<ServerProfile>> {
     state = state
         .map((p) => p.id == profile.id ? profile : p)
         .toList(growable: false);
+  }
+}
+
+/// Preferencias de formato de mensaje (burbuja vs texto plano)
+enum MessageFormat { bubble, plain }
+
+class MessageFormatPreferences {
+  final MessageFormat channelFormat;
+  final MessageFormat privateFormat;
+
+  const MessageFormatPreferences({
+    this.channelFormat = MessageFormat.bubble,
+    this.privateFormat = MessageFormat.bubble,
+  });
+
+  MessageFormatPreferences copyWith({
+    MessageFormat? channelFormat,
+    MessageFormat? privateFormat,
+  }) {
+    return MessageFormatPreferences(
+      channelFormat: channelFormat ?? this.channelFormat,
+      privateFormat: privateFormat ?? this.privateFormat,
+    );
+  }
+}
+
+final messageFormatPreferencesProvider =
+    StateNotifierProvider<MessageFormatPreferencesNotifier, MessageFormatPreferences>((ref) {
+  return MessageFormatPreferencesNotifier();
+});
+
+class MessageFormatPreferencesNotifier
+    extends StateNotifier<MessageFormatPreferences> {
+  static const _prefsKeyChannel = 'message_format_channel';
+  static const _prefsKeyPrivate = 'message_format_private';
+
+  MessageFormatPreferencesNotifier()
+      : super(const MessageFormatPreferences()) {
+    _loadFromPrefs();
+  }
+
+  Future<void> _loadFromPrefs() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final channelRaw = prefs.getString(_prefsKeyChannel) ?? 'bubble';
+      final privateRaw = prefs.getString(_prefsKeyPrivate) ?? 'bubble';
+
+      final channelFormat = channelRaw == 'plain'
+          ? MessageFormat.plain
+          : MessageFormat.bubble;
+      final privateFormat = privateRaw == 'plain'
+          ? MessageFormat.plain
+          : MessageFormat.bubble;
+
+      state = MessageFormatPreferences(
+        channelFormat: channelFormat,
+        privateFormat: privateFormat,
+      );
+    } catch (_) {
+      // Ignorar errores de carga
+    }
+  }
+
+  Future<void> setChannelFormat(MessageFormat format) async {
+    state = state.copyWith(channelFormat: format);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+          _prefsKeyChannel, format == MessageFormat.plain ? 'plain' : 'bubble');
+    } catch (_) {
+      // Ignorar errores de guardado
+    }
+  }
+
+  Future<void> setPrivateFormat(MessageFormat format) async {
+    state = state.copyWith(privateFormat: format);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+          _prefsKeyPrivate, format == MessageFormat.plain ? 'plain' : 'bubble');
+    } catch (_) {
+      // Ignorar errores de guardado
+    }
   }
 }
 

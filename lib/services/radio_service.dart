@@ -54,12 +54,13 @@ class RadioService {
     
     // Iniciar el proxy local (solo en macOS/iOS, no en Android ni Windows)
     if (Platform.isIOS || Platform.isMacOS) {
-      _proxy.start().then((_) {
-        print('✅ Proxy listo para usar');
-      }).catchError((e) {
+      try {
+        await _proxy.start();
+        print('✅ Proxy iniciado correctamente y listo para usar');
+      } catch (e) {
         print('⚠️ Error iniciando proxy: $e');
         print('⚠️ Las estaciones pueden no funcionar sin el proxy');
-      });
+      }
     } else {
       print('ℹ️ Proxy no requerido en ${Platform.operatingSystem}');
     }
@@ -166,9 +167,18 @@ class RadioService {
         // Para listen2myradio.com, usar SIEMPRE el proxy en macOS/iOS
         if (streamUrl.contains('listen2myradio.com')) {
           print('🎙️ [SONIC FREQUENCY] Detectada estación listen2myradio.com');
+          print('🎙️ [SONIC FREQUENCY] URL original: ${station.source}');
           
-          // En macOS/iOS, forzar uso del proxy
+          // En macOS/iOS, SIEMPRE usar el proxy para listen2myradio.com
           if (Platform.isMacOS || Platform.isIOS) {
+            // Asegurar que el proxy esté iniciado
+            try {
+              await _proxy.start();
+              print('🎙️ [SONIC FREQUENCY] Proxy iniciado/verificado');
+            } catch (e) {
+              print('⚠️ [SONIC FREQUENCY] Error iniciando proxy: $e');
+            }
+            
             final proxyUrl = _proxy.getProxyUrl(station.source);
             if (proxyUrl != null) {
               streamUrl = proxyUrl;
@@ -179,16 +189,32 @@ class RadioService {
           }
           
           print('🎙️ [SONIC FREQUENCY] Intentando múltiples variantes de URL...');
-          List<String> urlVariants = [
-            streamUrl, // URL actual (puede ser proxy o directa)
-            // Si es proxy, también probar variantes directas
-            if (streamUrl.contains('localhost')) ...[
-              station.source, // URL original directa
-              station.source.split('?')[0], // Sin parámetros
-            ],
-            // Variantes adicionales
-            'https://uk18freenew.listen2myradio.com/live.mp3',
-          ];
+          List<String> urlVariants = [];
+          
+          // Prioridad 1: Proxy (si está disponible en macOS/iOS)
+          if (Platform.isMacOS || Platform.isIOS) {
+            final proxyUrl = _proxy.getProxyUrl(station.source);
+            if (proxyUrl != null) {
+              urlVariants.add(proxyUrl);
+              print('🎙️ [SONIC FREQUENCY] Variante 1: Proxy URL');
+            }
+          }
+          
+          // Prioridad 2: URL original directa
+          urlVariants.add(station.source);
+          
+          // Prioridad 3: URL sin parámetros
+          if (station.source.contains('?')) {
+            urlVariants.add(station.source.split('?')[0]);
+          }
+          
+          // Prioridad 4: URL base simplificada
+          urlVariants.add('https://uk18freenew.listen2myradio.com/live.mp3');
+          
+          // Prioridad 5: Intentar sin el subdominio específico
+          if (station.source.contains('uk18freenew')) {
+            urlVariants.add('https://listen2myradio.com/live.mp3');
+          }
           
           bool success = false;
           Exception? lastError;
@@ -196,19 +222,33 @@ class RadioService {
             final variant = urlVariants[i];
             print('🎙️ [SONIC FREQUENCY] Intentando variante ${i + 1}/${urlVariants.length}: $variant');
             try {
+              // Para macOS/iOS, si es proxy, no usar headers (el proxy los maneja)
+              // Si es URL directa, usar headers
               if (Platform.isMacOS || Platform.isIOS) {
-                // En macOS/iOS, usar headers
-                await _player.setUrl(variant, headers: {
-                  'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                  'Accept': '*/*',
-                  'Referer': 'https://listen2myradio.com/',
-                  'Origin': 'https://listen2myradio.com',
-                  'Accept-Encoding': 'identity',
-                });
+                if (variant.contains('localhost')) {
+                  // Es proxy, no usar headers
+                  await _player.setUrl(variant);
+                  print('🎙️ [SONIC FREQUENCY] Proxy URL configurada sin headers');
+                } else {
+                  // Es URL directa, usar headers
+                  await _player.setUrl(variant, headers: {
+                    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'Accept': '*/*',
+                    'Referer': 'https://listen2myradio.com/',
+                    'Origin': 'https://listen2myradio.com',
+                    'Accept-Encoding': 'identity',
+                  });
+                  print('🎙️ [SONIC FREQUENCY] URL directa configurada con headers');
+                }
               } else {
                 await _player.setUrl(variant);
               }
+              
+              // Esperar un momento para verificar que la URL se configuró correctamente
+              await Future.delayed(const Duration(milliseconds: 300));
+              
               print('✅ [SONIC FREQUENCY] Variante ${i + 1} funcionó!');
+              streamUrl = variant; // Actualizar streamUrl con la variante que funcionó
               success = true;
               break;
             } catch (e) {

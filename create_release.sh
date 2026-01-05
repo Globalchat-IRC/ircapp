@@ -7,15 +7,25 @@
 
 set -e
 
-VERSION="1.0.2"
+VERSION="1.0.5"
 DMG_PATH="releases/irc_app_macos_v${VERSION}.dmg"
 TAG_NAME="v${VERSION}"
 RELEASE_NAME="Release ${VERSION}"
 RELEASE_NOTES="## Cambios en v${VERSION}
 
-- Actualización de versión a ${VERSION}
-- Mejoras en la interfaz de usuario
-- Correcciones de bugs
+### ✨ Nuevas Funcionalidades
+- **Barra de lag en tiempo real**: Muestra la latencia con el servidor IRC en el AppBar
+  - Colores indicativos: Verde (<100ms), Amarillo (100-300ms), Naranja (300-500ms), Rojo (>500ms)
+  - Actualización automática cada 30 segundos
+  - Medición precisa usando PING/PONG del protocolo IRC
+
+### 🔧 Mejoras
+- Medición automática de lag con el servidor UnrealIRCd
+- Indicador visual de calidad de conexión
+- Timer de lag que se inicia automáticamente al conectar
+
+### 🐛 Correcciones
+- Mejoras en la gestión de conexión y desconexión
 
 ## Descarga
 
@@ -54,4 +64,6 @@ gh release create "${TAG_NAME}" \
 
 echo "✅ Release creado exitosamente!"
 echo "🌐 Ver en: https://github.com/Globalchat-IRC/ircapp/releases/tag/${TAG_NAME}"
+
+
 

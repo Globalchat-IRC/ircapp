@@ -21,8 +21,10 @@ class IRCService {
   final List<Function(WhoisInfo)> _whoisListeners = [];
   final List<Function(String)> _nickChangeListeners = []; // Listeners para cambios de nick
   final List<Function()> _ircopListeners = []; // Listeners para cuando se identifica como IRCop
+  final List<Function(int)> _lagListeners = []; // Listeners para actualizaciones de lag
   Map<String, WhoisInfo> _whoisCache = {};
   Map<String, WhoisInfo> _pendingWhois = {}; // Para acumular información de whois
+  DateTime? _lastPingTime; // Timestamp del último PING recibido
   
   // Resultados de comandos LIST y WHO
   final List<Map<String, dynamic>> _listResults = []; // Lista de canales
@@ -45,6 +47,9 @@ class IRCService {
   bool _isConnected = false;
   bool _isRegistered = false; // Indica si el usuario está completamente registrado (recibió 001)
   bool _useSSL = false;
+  Timer? _lagPingTimer; // Timer para enviar PING periódicamente y medir lag
+  DateTime? _lastPingSent; // Timestamp del último PING enviado
+  String? _lastPingToken; // Token del último PING enviado para identificar la respuesta
 
   bool get isConnected => _isConnected;
   String? get currentChannel => _currentChannel;
@@ -153,6 +158,7 @@ class IRCService {
       
       // Set connection as established
       _isConnected = true;
+      _startLagPingTimer();
       
       // Notify listeners
       print('📢 [IRCService] Notifying listeners');
@@ -342,15 +348,15 @@ class IRCService {
         print('⏱️  [IRCService] Programando envío de mensaje $pendingId en ${delaySeconds}s');
         final timer = Timer(Duration(seconds: delaySeconds), () {
           print('⏱️  [IRCService] Timer ejecutado, enviando mensaje $pendingId');
-          // Dividir el mensaje en líneas y enviar cada línea como un PRIVMSG separado
-          final lines = message.split('\n');
-          for (var line in lines) {
-            line = line.trim();
-            if (line.isNotEmpty) {
+    // Dividir el mensaje en líneas y enviar cada línea como un PRIVMSG separado
+    final lines = message.split('\n');
+    for (var line in lines) {
+      line = line.trim();
+      if (line.isNotEmpty) {
               print('📤 [IRCService] Enviando línea: $line');
-              _sendCommand('PRIVMSG $normalized :$line');
-            }
-          }
+        _sendCommand('PRIVMSG $normalized :$line');
+      }
+    }
           print('📤 [IRCService] Mensaje enviado al servidor después de delay: $pendingId');
           // Eliminar el timer del mapa después de ejecutarse
           _pendingMessageTimers.remove(pendingId);
@@ -390,10 +396,10 @@ class IRCService {
             final pendingMsg = channelObj.messages.firstWhere(
               (msg) => msg.pendingId == pendingId && msg.isPending,
               orElse: () => IRCMessage(
-                nick: _nickname ?? 'You',
-                channel: normalized,
+        nick: _nickname ?? 'You',
+        channel: normalized,
                 message: '',
-                timestamp: DateTime.now(),
+        timestamp: DateTime.now(),
               ),
             );
             
@@ -642,16 +648,22 @@ class IRCService {
         // Guardar el completer para que el parser de NOTICE lo pueda completar
         _statusCheckCompleters[normalizedNick] = completer;
         
-        // Enviar comando STATUS
-        _sendCommand('PRIVMSG NickServ :STATUS $nick');
-    print('📋 [IRCService] Verificando status del nick: $nick');
+        // Enviar comando STATUS al bot "nick" (no "NickServ")
+        // Formato: PRIVMSG nick :STATUS nick
+        _sendCommand('PRIVMSG nick :STATUS $nick');
+        print('📋 [IRCService] Verificando status del nick: $nick');
+        print('📋 [IRCService] Comando enviado: PRIVMSG nick :STATUS $nick');
     
-    // Timeout después de 5 segundos
-    Timer(const Duration(seconds: 5), () {
-      if (!completer.isCompleted) {
+    // Timeout después de 10 segundos (aumentado para dar más tiempo al servidor)
+    Timer(const Duration(seconds: 10), () {
+      // Verificar si el completer todavía existe y no está completado
+      final existingCompleter = _statusCheckCompleters[normalizedNick];
+      if (existingCompleter != null && existingCompleter == completer && !completer.isCompleted) {
         print('⏱️  [IRCService] Timeout verificando status del nick: $nick');
         _statusCheckCompleters.remove(normalizedNick);
         completer.complete(null);
+      } else if (completer.isCompleted) {
+        print('✅ [IRCService] Status ya recibido para nick: $nick (timeout ignorado)');
       }
     });
     
@@ -1334,8 +1346,43 @@ class IRCService {
   }
 
   void _parseIRCMessage(String line) {
+    // Manejar PING del servidor
     if (line.startsWith('PING')) {
-      _sendCommand('PONG ${line.substring(5)}');
+      final pingToken = line.substring(5).trim();
+      _sendCommand('PONG $pingToken');
+      
+      // Si el servidor nos envía PING, también podemos medir el lag
+      // pero es mejor usar nuestro propio PING periódico
+      return;
+    }
+    
+    // Detectar PONG del servidor (respuesta a nuestro PING)
+    // Formato: PONG :token o :server PONG :token
+    if (line.contains(' PONG ') || line.startsWith('PONG')) {
+      String? pongToken;
+      // Intentar extraer el token del PONG
+      if (line.startsWith('PONG')) {
+        // Formato: PONG :token
+        final parts = line.split(' ');
+        if (parts.length > 1) {
+          pongToken = parts[1].replaceFirst(':', '').trim();
+        }
+      } else {
+        // Formato: :server PONG :token
+        final pongMatch = RegExp(r'PONG\s+:?(.+)').firstMatch(line);
+        if (pongMatch != null) {
+          pongToken = pongMatch.group(1)?.trim();
+        }
+      }
+      
+      // Si es respuesta a nuestro PING, calcular el lag
+      if (pongToken != null && _lastPingSent != null && _lastPingToken != null && pongToken == _lastPingToken) {
+        final lagMs = DateTime.now().difference(_lastPingSent!).inMilliseconds;
+        _notifyLagListeners(lagMs);
+        _lastPingSent = null;
+        _lastPingToken = null;
+        print('📊 [IRCService] Lag medido: ${lagMs}ms');
+      }
       return;
     }
 
@@ -1650,7 +1697,7 @@ class IRCService {
                     print('🔍 [DEBUG] ➕ Adding new user: "$cleanUser" with mode: "$userMode"');
                     channels[channel]!.addUser(cleanUser, mode: userMode);
                     addedCount++;
-                  }
+                }
                 } else {
                   if (isServerHost) {
                     print('🔍 [DEBUG] ❌ Skipping server/host name: "$cleanUser"');
@@ -2476,30 +2523,30 @@ class IRCService {
                   // Es un mensaje de otro usuario, añadirlo normalmente
             final msg = IRCMessage(
               nick: nick,
-                    channel: channelKey,
+                  channel: channelKey,
               message: messageContent,
               timestamp: DateTime.now(),
               isAction: isAction,
               messageId: IRCMessage.generateMessageId(),
             );
-                  
-                  print('🔍 [DEBUG] ✅ Añadiendo mensaje al canal/query: $channelKey');
-                  print('🔍 [DEBUG] ✅ Canal existe en mapa: ${channels.containsKey(channelKey)}');
-                  channels[channelKey]!.addMessage(msg);
-                  print('🔍 [DEBUG] ✅ Mensaje añadido. Total mensajes en canal: ${channels[channelKey]!.messages.length}');
-                  
-                  // Guardar en historial local (no bloquear el hilo principal)
-                  // Usamos el host actual como identificador de servidor
-                  final serverId = (_secureSocket ?? _socket)?.remoteAddress.host ?? 'unknown';
-                  // Ignorar errores de forma silenciosa dentro del Future
-                  // para no afectar al flujo de mensajes
-                  // ignore: unawaited_futures
-                  ChatHistoryService().saveMessage(
-                    server: serverId,
-                    message: msg,
-                  );
-                  
-                  // Notificar a los listeners de mensajes
+                
+                print('🔍 [DEBUG] ✅ Añadiendo mensaje al canal/query: $channelKey');
+                print('🔍 [DEBUG] ✅ Canal existe en mapa: ${channels.containsKey(channelKey)}');
+                channels[channelKey]!.addMessage(msg);
+                print('🔍 [DEBUG] ✅ Mensaje añadido. Total mensajes en canal: ${channels[channelKey]!.messages.length}');
+                
+                // Guardar en historial local (no bloquear el hilo principal)
+                // Usamos el host actual como identificador de servidor
+                final serverId = (_secureSocket ?? _socket)?.remoteAddress.host ?? 'unknown';
+                // Ignorar errores de forma silenciosa dentro del Future
+                // para no afectar al flujo de mensajes
+                // ignore: unawaited_futures
+                ChatHistoryService().saveMessage(
+                  server: serverId,
+                  message: msg,
+                );
+                
+                // Notificar a los listeners de mensajes
             _notifyMessageListeners(msg);
                 }
                 print('🔍 [DEBUG] ✅ Listeners notificados. Total listeners: ${_messageListeners.length}');
@@ -2533,9 +2580,11 @@ class IRCService {
                 final messageContent = line.substring(colonIndex + 1).trim();
 
                 // 1) Verificar si es una respuesta de STATUS de NickServ/nick
+                // El formato puede ser: STATUS Fran 3 Fran (con el nick repetido al final)
                 if ((nick.toLowerCase() == 'nickserv' ||
                         nick.toLowerCase() == 'nick') &&
                     messageContent.contains('STATUS')) {
+                  // Buscar el patrón STATUS nick número (puede tener el nick repetido al final)
                   final match =
                       RegExp(r'STATUS\s+(\S+)\s+(\d+)').firstMatch(messageContent);
                   if (match != null) {
@@ -2543,10 +2592,16 @@ class IRCService {
                     final status = int.tryParse(match.group(2)!);
                     print(
                         '📋 [IRCService] Status recibido (NOTICE) para nick "$checkedNick": $status');
+                    print('📋 [IRCService] Mensaje completo: $messageContent');
                     final completer =
                         _statusCheckCompleters.remove(checkedNick);
                     if (completer != null && !completer.isCompleted) {
                       completer.complete(status);
+                      print('✅ [IRCService] Completer completado con status: $status');
+                    } else if (completer != null && completer.isCompleted) {
+                      print('⚠️  [IRCService] Completer ya estaba completado para nick: $checkedNick');
+                    } else {
+                      print('⚠️  [IRCService] No se encontró completer para nick: $checkedNick');
                     }
                     // No procesar como mensaje normal si es una respuesta de STATUS
                     break;
@@ -2644,9 +2699,14 @@ class IRCService {
   }
 
   void _onDisconnect() {
+    _stopLagPingTimer();
+    _isConnected = false;
+    // Resetear el lag al desconectar
+    _notifyLagListeners(0); // Notificar lag 0 para resetear
     channels.clear();
     _currentChannel = null;
     _socket = null;
+    _secureSocket = null;
     for (var listener in _disconnectionListeners) {
       listener();
     }
@@ -2761,6 +2821,59 @@ class IRCService {
     for (var listener in _ircopCommandListeners) {
       listener(results);
     }
+  }
+
+  void addLagListener(Function(int) listener) {
+    _lagListeners.add(listener);
+  }
+
+  void removeLagListener(Function(int) listener) {
+    _lagListeners.remove(listener);
+  }
+
+  void _notifyLagListeners(int lagMs) {
+    for (var listener in _lagListeners) {
+      try {
+        listener(lagMs);
+      } catch (e) {
+        print('❌ Error notificando lag listener: $e');
+      }
+    }
+  }
+
+  void _startLagPingTimer() {
+    _lagPingTimer?.cancel();
+    
+    // Enviar un PING inmediatamente al conectar
+    if (_isConnected && _hasActiveSocket) {
+      _lastPingToken = DateTime.now().millisecondsSinceEpoch.toString();
+      _lastPingSent = DateTime.now();
+      _sendCommand('PING $_lastPingToken');
+      print('📊 [IRCService] Enviando PING inicial para medir lag: $_lastPingToken');
+    }
+    
+    // Enviar PING cada 3 segundos para medición en tiempo real
+    _lagPingTimer = Timer.periodic(const Duration(seconds: 3), (timer) {
+      if (_isConnected && _hasActiveSocket) {
+        // Solo enviar si no hay un PING pendiente (evitar spam)
+        if (_lastPingSent == null || DateTime.now().difference(_lastPingSent!).inSeconds > 2) {
+          // Generar un token único para este PING
+          _lastPingToken = DateTime.now().millisecondsSinceEpoch.toString();
+          _lastPingSent = DateTime.now();
+          _sendCommand('PING $_lastPingToken');
+          print('📊 [IRCService] Enviando PING para medir lag: $_lastPingToken');
+        }
+      } else {
+        timer.cancel();
+      }
+    });
+  }
+
+  void _stopLagPingTimer() {
+    _lagPingTimer?.cancel();
+    _lagPingTimer = null;
+    _lastPingSent = null;
+    _lastPingToken = null;
   }
 
   void _notifyMessageListeners(IRCMessage message) {
