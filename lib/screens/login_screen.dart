@@ -10,6 +10,7 @@ import '../models/channel_info.dart';
 import '../models/server_profile.dart';
 import 'chat_screen.dart';
 import '../main.dart' show globalLog;
+import '../utils/platform_utils.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({Key? key}) : super(key: key);
@@ -20,7 +21,10 @@ class LoginScreen extends ConsumerStatefulWidget {
 
 class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _hostController = TextEditingController(text: 'ceres.globalchat.org');
-  final _portController = TextEditingController(text: '6667');
+  // En web, usar puerto WebSocket (6668) por defecto, en nativo usar 6667
+  final _portController = TextEditingController(
+    text: PlatformUtils.isWeb ? '6668' : '6667',
+  );
   late final TextEditingController _nickController;
   final _channelController = TextEditingController(); // Vacío por defecto
   final _passwordController = TextEditingController(); // Contraseña para identificación

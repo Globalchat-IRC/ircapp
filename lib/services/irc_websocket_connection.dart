@@ -19,8 +19,23 @@ class IRCWebSocketConnection implements IRCConnection {
 
     try {
       // Construir URI WebSocket
+      // Nota: UnrealIRCd típicamente usa:
+      // - Puerto 6668 para WebSocket (ws://)
+      // - Puerto 6697 para WebSocket seguro (wss://)
+      // Si el puerto es 6667 (IRC estándar), usar 6668 para WebSocket
       final protocol = useSSL ? 'wss' : 'ws';
-      final uri = Uri.parse('$protocol://$host:$port');
+      int wsPort = port;
+      
+      // Si es puerto IRC estándar (6667) y no es SSL, usar puerto WebSocket estándar (6668)
+      if (port == 6667 && !useSSL) {
+        wsPort = 6668;
+      } else if (port == 6697 && useSSL) {
+        // Puerto SSL estándar, mantenerlo para wss://
+        wsPort = 6697;
+      }
+      
+      final uri = Uri.parse('$protocol://$host:$wsPort');
+      print('🔌 [IRCWebSocket] Conectando a: $uri');
       
       _channel = WebSocketChannel.connect(uri);
       
