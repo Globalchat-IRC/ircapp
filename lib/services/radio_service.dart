@@ -434,22 +434,21 @@ class RadioService {
         if (_player != null) {
           await _player!.setVolume(1.0);
           final volumeBeforePlay = await _player!.volume;
-        print('🎵 Volumen antes de play: $volumeBeforePlay');
-        
-        print('🎵 Iniciando reproducción...');
-        
-        // Asegurar que la sesión de audio esté activa (solo en móviles)
-        if (_audioSession != null && (Platform.isAndroid || Platform.isIOS)) {
-          try {
-            await _audioSession!.setActive(true);
-            print('✅ Audio session activada antes de play');
-          } catch (e) {
-            print('⚠️ Error activando audio session: $e');
+          print('🎵 Volumen antes de play: $volumeBeforePlay');
+          
+          print('🎵 Iniciando reproducción...');
+          
+          // Asegurar que la sesión de audio esté activa (solo en móviles)
+          if (_audioSession != null && (Platform.isAndroid || Platform.isIOS)) {
+            try {
+              await _audioSession!.setActive(true);
+              print('✅ Audio session activada antes de play');
+            } catch (e) {
+              print('⚠️ Error activando audio session: $e');
+            }
           }
-        }
-        
-        // Reproducir
-        if (_player != null) {
+          
+          // Reproducir
           await _player!.play();
           print('🎵 Comando play() enviado');
           
@@ -469,32 +468,31 @@ class RadioService {
           // Solo lanzar error si realmente hay un problema
           // Si está en estado ready o buffering, está bien (puede estar cargando)
           if (!_isPlaying && currentState.processingState == ProcessingState.idle) {
-          print('⚠️ El player se detuvo, puede que la URL no sea compatible');
-          print('⚠️ Estado: playing=$_isPlaying, processingState=${currentState.processingState}');
-          
-          // Esperar un poco más y verificar de nuevo (a veces tarda en iniciar)
-          await Future.delayed(const Duration(milliseconds: 2000));
-          if (_player != null) {
+            print('⚠️ El player se detuvo, puede que la URL no sea compatible');
+            print('⚠️ Estado: playing=$_isPlaying, processingState=${currentState.processingState}');
+            
+            // Esperar un poco más y verificar de nuevo (a veces tarda en iniciar)
+            await Future.delayed(const Duration(milliseconds: 2000));
             final retryState = _player!.playerState;
             _isPlaying = retryState.playing;
-          
-          // Solo lanzar error si después de esperar sigue en idle y no está reproduciendo
-          // Si está en ready o buffering, está bien (puede estar cargando el stream)
-          if (!_isPlaying && retryState.processingState == ProcessingState.idle) {
-            print('❌ Después de esperar, sigue sin reproducir');
-            print('❌ Estado final: playing=$_isPlaying, processingState=${retryState.processingState}');
-            throw Exception('No se pudo reproducir el stream. Verifica que la URL sea válida y accesible.');
+            
+            // Solo lanzar error si después de esperar sigue en idle y no está reproduciendo
+            // Si está en ready o buffering, está bien (puede estar cargando el stream)
+            if (!_isPlaying && retryState.processingState == ProcessingState.idle) {
+              print('❌ Después de esperar, sigue sin reproducir');
+              print('❌ Estado final: playing=$_isPlaying, processingState=${retryState.processingState}');
+              throw Exception('No se pudo reproducir el stream. Verifica que la URL sea válida y accesible.');
+            } else {
+              print('✅ Reproducción iniciada o cargando (processingState: ${retryState.processingState})');
+              _isPlaying = retryState.playing || retryState.processingState != ProcessingState.idle;
+            }
           } else {
-            print('✅ Reproducción iniciada o cargando (processingState: ${retryState.processingState})');
-            _isPlaying = retryState.playing || retryState.processingState != ProcessingState.idle;
+            // Si está en ready, buffering o playing, está bien
+            print('✅ Reproducción iniciada correctamente (playing=$_isPlaying, processingState=${currentState.processingState})');
           }
+          
+          print('🎵 ✅ Reproducción iniciada: $_isPlaying');
         } else {
-          // Si está en ready, buffering o playing, está bien
-          print('✅ Reproducción iniciada correctamente (playing=$_isPlaying, processingState=${currentState.processingState})');
-        }
-        
-        print('🎵 ✅ Reproducción iniciada: $_isPlaying');
-      } else {
         // Misma estación, solo reanudar si está pausada
         print('🎵 Reanudando estación actual...');
         if (PlatformUtils.isWeb && _webPlayer != null) {
@@ -509,8 +507,8 @@ class RadioService {
       globalLog('[RadioService] ===== ERROR REPRODUCIENDO ESTACIÓN =====');
       globalLog('[RadioService] Estación: ${station.name}');
       globalLog('[RadioService] URL: ${station.source}');
-      globalLog('[RadioService] Error: $e');
-      globalLog('[RadioService] Tipo de error: ${e.runtimeType}');
+      globalLog('[RadioService] Error: $err');
+      globalLog('[RadioService] Tipo de error: ${err.runtimeType}');
       globalLog('[RadioService] Stack trace: $stackTrace');
       _isPlaying = false;
       rethrow;
