@@ -463,19 +463,20 @@ class RadioService {
           // Esperar un momento y verificar el estado
           await Future.delayed(const Duration(milliseconds: 1500));
           final currentState = _player!.playerState;
-        _isPlaying = currentState.playing;
-        print('🎵 Estado final: playing=$_isPlaying, processingState=${currentState.processingState}');
-        
-        // Solo lanzar error si realmente hay un problema
-        // Si está en estado ready o buffering, está bien (puede estar cargando)
-        if (!_isPlaying && currentState.processingState == ProcessingState.idle) {
+          _isPlaying = currentState.playing;
+          print('🎵 Estado final: playing=$_isPlaying, processingState=${currentState.processingState}');
+          
+          // Solo lanzar error si realmente hay un problema
+          // Si está en estado ready o buffering, está bien (puede estar cargando)
+          if (!_isPlaying && currentState.processingState == ProcessingState.idle) {
           print('⚠️ El player se detuvo, puede que la URL no sea compatible');
           print('⚠️ Estado: playing=$_isPlaying, processingState=${currentState.processingState}');
           
           // Esperar un poco más y verificar de nuevo (a veces tarda en iniciar)
           await Future.delayed(const Duration(milliseconds: 2000));
-          final retryState = _player.playerState;
-          _isPlaying = retryState.playing;
+          if (_player != null) {
+            final retryState = _player!.playerState;
+            _isPlaying = retryState.playing;
           
           // Solo lanzar error si después de esperar sigue en idle y no está reproduciendo
           // Si está en ready o buffering, está bien (puede estar cargando el stream)
