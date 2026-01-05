@@ -1,13 +1,16 @@
 import 'dart:io';
 import 'dart:async';
 import 'package:just_audio/just_audio.dart';
+import 'package:audioplayers/audioplayers.dart' as web_audio;
 import 'package:audio_session/audio_session.dart' show AudioSession, AudioSessionConfiguration, AVAudioSessionCategory, AVAudioSessionCategoryOptions, AVAudioSessionMode, AVAudioSessionRouteSharingPolicy, AVAudioSessionSetActiveOptions, AndroidAudioAttributes, AndroidAudioContentType, AndroidAudioFlags, AndroidAudioUsage, AndroidAudioFocusGainType;
 import '../models/radio_station.dart';
 import 'stream_proxy_service.dart';
 import '../main.dart' show globalLog;
+import '../utils/platform_utils.dart';
 
 class RadioService {
-  final AudioPlayer _player = AudioPlayer();
+  AudioPlayer? _player; // just_audio para nativo
+  web_audio.AudioPlayer? _webPlayer; // audioplayers para web
   RadioStation? _currentStation;
   bool _isPlaying = false;
   double _volume = 1.0; // Volumen inicial al máximo
@@ -22,6 +25,11 @@ class RadioService {
   bool get isInitialized => _isInitialized;
 
   RadioService() {
+    if (PlatformUtils.isWeb) {
+      _webPlayer = web_audio.AudioPlayer();
+    } else {
+      _player = AudioPlayer();
+    }
     _initializeAudio();
   }
 
@@ -37,6 +45,13 @@ class RadioService {
   }
 
   Future<void> _initializeAudio() async {
+    // En web, usar audioplayers (más compatible)
+    if (PlatformUtils.isWeb) {
+      globalLog('[RadioService] Inicializando para web con audioplayers');
+      _isInitialized = true;
+      return;
+    }
+    
     // Configurar sesión de audio solo en plataformas móviles (iOS/Android)
     // Windows y macOS desktop no necesitan esta configuración
     if (Platform.isAndroid || Platform.isIOS) {
@@ -68,8 +83,8 @@ class RadioService {
       print('ℹ️ Audio session no requerida en ${Platform.operatingSystem}');
     }
     
-    // Iniciar el proxy local (solo en macOS/iOS, no en Android ni Windows)
-    if (Platform.isIOS || Platform.isMacOS) {
+    // Iniciar el proxy local (solo en macOS/iOS, no en Android, Windows ni Web)
+    if (!PlatformUtils.isWeb && (Platform.isIOS || Platform.isMacOS)) {
       try {
         globalLog('[RadioService] Iniciando proxy...');
         await _proxy.start();
@@ -86,28 +101,25 @@ class RadioService {
         globalLog('[RadioService] ⚠️ Las estaciones pueden no funcionar sin el proxy');
       }
     } else {
-      globalLog('[RadioService] ℹ️ Proxy no requerido en ${Platform.operatingSystem}');
+      globalLog('[RadioService] ℹ️ Proxy no requerido en web');
     }
     
-    // Configurar el player para streams de radio
-    await _player.setVolume(_volume);
-    _player.setLoopMode(LoopMode.one); // Para streams de radio continuos
-    
-    // Escuchar cambios de estado
-    _player.playerStateStream.listen((state) {
-      _isPlaying = state.playing;
-      print('🎵 Estado del player: playing=${state.playing}, processingState=${state.processingState}');
-    });
-    
-    // Escuchar errores
-    _player.playbackEventStream.listen((event) {
-      print('🎵 Playback event: ${event.processingState}');
-    });
-    
-    // Escuchar errores del player
-    _player.playerStateStream.listen((state) {
-      print('🎵 Player state: playing=${state.playing}, processingState=${state.processingState}');
-    });
+    // Configurar el player para streams de radio (solo en nativo)
+    if (_player != null) {
+      await _player!.setVolume(_volume);
+      _player!.setLoopMode(LoopMode.one); // Para streams de radio continuos
+      
+      // Escuchar cambios de estado
+      _player!.playerStateStream.listen((state) {
+        _isPlaying = state.playing;
+        print('🎵 Estado del player: playing=${state.playing}, processingState=${state.processingState}');
+      });
+      
+      // Escuchar errores
+      _player!.playbackEventStream.listen((event) {
+        print('🎵 Playback event: ${event.processingState}');
+      });
+    }
     
     // Marcar como inicializado
     _isInitialized = true;
@@ -189,7 +201,11 @@ class RadioService {
         
         // Detener reproducción actual
         try {
-          await _player.stop();
+          if (PlatformUtils.isWeb && _webPlayer != null) {
+            await _webPlayer!.stop();
+          } else if (_player != null) {
+            await _player!.stop();
+          }
           print('🎵 Player detenido');
         } catch (e) {
           print('⚠️ Error al detener (puede ignorarse): $e');
@@ -209,13 +225,23 @@ class RadioService {
         }
         
         // Asegurar que el volumen esté al máximo ANTES de configurar la URL
-        await _player.setVolume(1.0);
+        if (PlatformUtils.isWeb && _webPlayer != null) {
+          await _webPlayer!.setVolume(1.0);
+        } else if (_player != null) {
+          await _player!.setVolume(1.0);
+        }
         print('🎵 Volumen configurado a 1.0 ANTES de configurar URL');
         
         print('🎵 Configurando nueva fuente...');
         print('🎵 URL a usar: $streamUrl');
         
         // Establecer la fuente del audio
+        // En web, usar audioplayers directamente (ya se hizo arriba, esto es para nativo)
+        if (PlatformUtils.isWeb) {
+          // Ya se manejó arriba, no debería llegar aquí
+          return;
+        }
+        
         // Para listen2myradio.com, usar SIEMPRE el proxy en macOS/iOS
         if (streamUrl.contains('listen2myradio.com')) {
           print('🎙️ [SONIC FREQUENCY] Detectada estación listen2myradio.com');
@@ -287,44 +313,46 @@ class RadioService {
             try {
               // Para macOS/iOS, si es proxy, no usar headers (el proxy los maneja)
               // Si es URL directa, usar headers
-              if (Platform.isMacOS || Platform.isIOS) {
-                if (variant.contains('localhost')) {
-                  // Es proxy, no usar headers
-                  await _player.setUrl(variant);
-                  print('🎙️ [SONIC FREQUENCY] Proxy URL configurada sin headers');
+              if (_player != null) {
+                if (Platform.isMacOS || Platform.isIOS) {
+                  if (variant.contains('localhost')) {
+                    // Es proxy, no usar headers
+                    await _player!.setUrl(variant);
+                    print('🎙️ [SONIC FREQUENCY] Proxy URL configurada sin headers');
+                  } else {
+                    // Es URL directa, usar headers
+                    await _player!.setUrl(variant, headers: {
+                      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                      'Accept': '*/*',
+                      'Referer': 'https://listen2myradio.com/',
+                      'Origin': 'https://listen2myradio.com',
+                      'Accept-Encoding': 'identity',
+                    });
+                    print('🎙️ [SONIC FREQUENCY] URL directa configurada con headers');
+                  }
                 } else {
-                  // Es URL directa, usar headers
-                  await _player.setUrl(variant, headers: {
-                    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                    'Accept': '*/*',
-                    'Referer': 'https://listen2myradio.com/',
-                    'Origin': 'https://listen2myradio.com',
-                    'Accept-Encoding': 'identity',
-                  });
-                  print('🎙️ [SONIC FREQUENCY] URL directa configurada con headers');
+                  await _player!.setUrl(variant);
                 }
-              } else {
-                await _player.setUrl(variant);
+                
+                // Esperar un momento para verificar que la URL se configuró correctamente
+                await Future.delayed(const Duration(milliseconds: 300));
+                
+                // Verificar el estado del player para confirmar que la URL funcionó
+                final state = _player!.playerState;
+                if (state.processingState == ProcessingState.ready || 
+                    state.processingState == ProcessingState.buffering ||
+                    state.processingState == ProcessingState.loading) {
+                  print('✅ [SONIC FREQUENCY] Variante ${i + 1} funcionó! Estado: ${state.processingState}');
+                  streamUrl = variant; // Actualizar streamUrl con la variante que funcionó
+                  success = true;
+                  break;
+                } else {
+                  throw Exception('Player no está listo. Estado: ${state.processingState}');
+                }
               }
-              
-              // Esperar un momento para verificar que la URL se configuró correctamente
-              await Future.delayed(const Duration(milliseconds: 300));
-              
-              // Verificar el estado del player para confirmar que la URL funcionó
-              final state = _player.playerState;
-              if (state.processingState == ProcessingState.ready || 
-                  state.processingState == ProcessingState.buffering ||
-                  state.processingState == ProcessingState.loading) {
-                print('✅ [SONIC FREQUENCY] Variante ${i + 1} funcionó! Estado: ${state.processingState}');
-                streamUrl = variant; // Actualizar streamUrl con la variante que funcionó
-                success = true;
-                break;
-              } else {
-                throw Exception('Player no está listo. Estado: ${state.processingState}');
-              }
-            } catch (e, stackTrace) {
-              lastError = e is Exception ? e : Exception(e.toString());
-              print('❌ [SONIC FREQUENCY] Variante ${i + 1} falló: $e');
+            } catch (err, stackTrace) {
+              lastError = err is Exception ? err : Exception(err.toString());
+              print('❌ [SONIC FREQUENCY] Variante ${i + 1} falló: $err');
               print('❌ [SONIC FREQUENCY] Stack trace: $stackTrace');
               if (i == urlVariants.length - 1) {
                 // Última variante
@@ -335,64 +363,66 @@ class RadioService {
           if (!success) {
             throw lastError ?? Exception('Todas las variantes de URL fallaron para listen2myradio.com');
           }
-        } else if (Platform.isWindows) {
-          // En Windows, intentar primero sin headers (mejor compatibilidad)
-          print('🎵 Windows: Configurando sin headers personalizados');
-          try {
-            await _player.setUrl(streamUrl);
-            print('🎵 Fuente configurada correctamente (sin headers)');
-          } catch (e) {
-            print('❌ Error configurando URL en Windows: $e');
-            rethrow;
-          }
-        } else {
-          // En otras plataformas, usar headers
-          // Headers específicos para listen2myradio.com
-          Map<String, String> headers = {
-            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': '*/*',
-            'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
-            'Connection': 'keep-alive',
-          };
-          
-          // Headers adicionales para listen2myradio.com
-          if (streamUrl.contains('listen2myradio.com')) {
-            headers['Referer'] = 'https://listen2myradio.com/';
-            headers['Origin'] = 'https://listen2myradio.com';
-            headers['Accept-Encoding'] = 'identity'; // Sin compresión para streams
-            print('🎙️ [SONIC FREQUENCY] Aplicando headers específicos para listen2myradio.com');
-          }
-          
-          try {
-            await _player.setUrl(streamUrl, headers: headers);
-            print('🎵 Fuente configurada correctamente (con headers)');
-          } catch (e) {
-            print('❌ Error configurando URL: $e');
-            // Si falla, intentar sin headers
-            if (Platform.isAndroid || streamUrl.contains('listen2myradio.com')) {
-              print('🔄 Intentando sin headers personalizados...');
-              try {
-                await _player.setUrl(streamUrl);
-                print('🎵 Fuente configurada sin headers');
-              } catch (e2) {
-                print('❌ También falló sin headers: $e2');
-                // Último intento: probar con URL sin parámetros de query
-                if (streamUrl.contains('listen2myradio.com')) {
-                  print('🔄 [SONIC FREQUENCY] Intentando con URL simplificada...');
-                  try {
-                    final baseUrl = streamUrl.split('?')[0];
-                    await _player.setUrl(baseUrl);
-                    print('🎵 Fuente configurada con URL simplificada');
-                  } catch (e3) {
-                    print('❌ También falló con URL simplificada: $e3');
+        } else if (_player != null) {
+          if (Platform.isWindows) {
+            // En Windows, intentar primero sin headers (mejor compatibilidad)
+            print('🎵 Windows: Configurando sin headers personalizados');
+            try {
+              await _player!.setUrl(streamUrl);
+              print('🎵 Fuente configurada correctamente (sin headers)');
+            } catch (e) {
+              print('❌ Error configurando URL en Windows: $e');
+              rethrow;
+            }
+          } else {
+            // En otras plataformas, usar headers
+            // Headers específicos para listen2myradio.com
+            Map<String, String> headers = {
+              'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+              'Accept': '*/*',
+              'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
+              'Connection': 'keep-alive',
+            };
+            
+            // Headers adicionales para listen2myradio.com
+            if (streamUrl.contains('listen2myradio.com')) {
+              headers['Referer'] = 'https://listen2myradio.com/';
+              headers['Origin'] = 'https://listen2myradio.com';
+              headers['Accept-Encoding'] = 'identity'; // Sin compresión para streams
+              print('🎙️ [SONIC FREQUENCY] Aplicando headers específicos para listen2myradio.com');
+            }
+            
+            try {
+              await _player!.setUrl(streamUrl, headers: headers);
+              print('🎵 Fuente configurada correctamente (con headers)');
+            } catch (e) {
+              print('❌ Error configurando URL: $e');
+              // Si falla, intentar sin headers
+              if (Platform.isAndroid || streamUrl.contains('listen2myradio.com')) {
+                print('🔄 Intentando sin headers personalizados...');
+                try {
+                  await _player!.setUrl(streamUrl);
+                  print('🎵 Fuente configurada sin headers');
+                } catch (e2) {
+                  print('❌ También falló sin headers: $e2');
+                  // Último intento: probar con URL sin parámetros de query
+                  if (streamUrl.contains('listen2myradio.com')) {
+                    print('🔄 [SONIC FREQUENCY] Intentando con URL simplificada...');
+                    try {
+                      final baseUrl = streamUrl.split('?')[0];
+                      await _player!.setUrl(baseUrl);
+                      print('🎵 Fuente configurada con URL simplificada');
+                    } catch (e3) {
+                      print('❌ También falló con URL simplificada: $e3');
+                      rethrow;
+                    }
+                  } else {
                     rethrow;
                   }
-                } else {
-                  rethrow;
                 }
+              } else {
+                rethrow;
               }
-            } else {
-              rethrow;
             }
           }
         }
@@ -401,8 +431,9 @@ class RadioService {
         await Future.delayed(const Duration(milliseconds: 500));
         
         // Verificar y configurar volumen de nuevo después de setUrl
-        await _player.setVolume(1.0);
-        final volumeBeforePlay = await _player.volume;
+        if (_player != null) {
+          await _player!.setVolume(1.0);
+          final volumeBeforePlay = await _player!.volume;
         print('🎵 Volumen antes de play: $volumeBeforePlay');
         
         print('🎵 Iniciando reproducción...');
@@ -481,27 +512,46 @@ class RadioService {
   }
 
   Future<void> pause() async {
-    await _player.pause();
+    if (PlatformUtils.isWeb && _webPlayer != null) {
+      await _webPlayer!.pause();
+    } else if (_player != null) {
+      await _player!.pause();
+    }
     _isPlaying = false;
   }
 
   Future<void> resume() async {
-    await _player.play();
+    if (PlatformUtils.isWeb && _webPlayer != null) {
+      await _webPlayer!.resume();
+    } else if (_player != null) {
+      await _player!.play();
+    }
     _isPlaying = true;
   }
 
   Future<void> stop() async {
-    await _player.stop();
+    if (PlatformUtils.isWeb && _webPlayer != null) {
+      await _webPlayer!.stop();
+    } else if (_player != null) {
+      await _player!.stop();
+    }
     _isPlaying = false;
   }
 
   Future<void> setVolume(double volume) async {
     _volume = volume.clamp(0.0, 1.0);
-    await _player.setVolume(_volume);
+    if (PlatformUtils.isWeb && _webPlayer != null) {
+      await _webPlayer!.setVolume(_volume);
+    } else if (_player != null) {
+      await _player!.setVolume(_volume);
+    }
   }
 
   void dispose() {
-    _player.dispose();
-    _proxy.stop();
+    _player?.dispose();
+    _webPlayer?.dispose();
+    if (!PlatformUtils.isWeb) {
+      _proxy.stop();
+    }
   }
 }
