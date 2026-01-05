@@ -143,9 +143,21 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       // Usar SSL si el servidor seleccionado lo requiere
       final useSSL = _selectedServer?.useSSL ?? (port == 6697);
       
+      // En web, ajustar el puerto si es necesario
+      int connectionPort = port;
+      if (PlatformUtils.isWeb) {
+        // Si es ceres.globalchat.org, usar puerto 4443 para WebSocket
+        if (host.toLowerCase().contains('ceres.globalchat.org')) {
+          connectionPort = 4443;
+        } else if (port == 6667 && !useSSL) {
+          // Para otros servidores, si el usuario ingresó 6667 (IRC estándar), usar 6668 (WebSocket)
+          connectionPort = 6668;
+        }
+      }
+      
       await ircService.connect(
         host: host,
-        port: port,
+        port: connectionPort,
         nickname: nick,
         useSSL: useSSL,
       );
