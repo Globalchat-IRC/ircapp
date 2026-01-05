@@ -47,8 +47,12 @@ dependencies:
   pasteboard: ^0.4.0
   just_audio: ^0.10.5
   audio_session: ^0.2.2
+  audioplayers: ^6.1.0  # Para mejor soporte web
   sqflite: ^2.3.3+1
+  hive: ^2.2.3  # Para base de datos en web (IndexedDB)
+  hive_flutter: ^1.1.0
   path_provider: ^2.1.4
+  web_socket_channel: ^2.4.0  # Para conexiones IRC en web
   package_info_plus: ^9.0.0  # Para sistema de actualizaciones (compatible con pasteboard)
   jitsi_meet_flutter_sdk: ^11.6.0  # Para videoconferencias seguras
   permission_handler: ^12.0.1  # Para permisos de cámara/micrófono
