@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:convert';
+import '../main.dart' show globalLog;
 
 /// Servicio proxy local que agrega headers HTTP necesarios para streams de radio
 class StreamProxyService {
@@ -17,26 +18,38 @@ class StreamProxyService {
   /// Inicia el servidor proxy local
   Future<void> start() async {
     if (_server != null) {
-      print('🔄 Proxy ya está corriendo en puerto $_port');
+      globalLog('[StreamProxy] Proxy ya está corriendo en puerto $_port');
+      // Verificar que el servidor siga activo haciendo una pequeña espera
+      await Future.delayed(const Duration(milliseconds: 50));
       return;
     }
 
     try {
+      globalLog('[StreamProxy] Iniciando servidor proxy...');
       // Intentar puertos desde 8888 hasta 8892
       for (int port = 8888; port <= 8892; port++) {
         try {
+          globalLog('[StreamProxy] Intentando puerto $port...');
           _server = await HttpServer.bind(InternetAddress.loopbackIPv4, port);
           _port = port;
-          print('✅ Proxy iniciado en http://localhost:$port');
+          globalLog('[StreamProxy] ✅ Proxy iniciado en http://localhost:$port');
           _server!.listen(_handleRequest);
+          
+          // Esperar un momento para asegurar que el servidor esté completamente listo
+          // Esto es especialmente importante en release donde el código se optimiza
+          await Future.delayed(const Duration(milliseconds: 100));
+          
+          globalLog('[StreamProxy] ✅ Proxy completamente listo y aceptando conexiones en puerto $_port');
           return;
         } catch (e) {
+          globalLog('[StreamProxy] ⚠️ Error en puerto $port: $e');
           if (port == 8892) rethrow;
           continue;
         }
       }
-    } catch (e) {
-      print('❌ Error iniciando proxy: $e');
+    } catch (e, stackTrace) {
+      globalLog('[StreamProxy] ❌ Error iniciando proxy: $e');
+      globalLog('[StreamProxy] Stack trace: $stackTrace');
       rethrow;
     }
   }
@@ -53,9 +66,18 @@ class StreamProxyService {
 
   /// Obtiene la URL proxy para una URL de stream
   String? getProxyUrl(String originalUrl) {
-    if (_port == null) return null;
+    if (_port == null) {
+      globalLog('[StreamProxy] getProxyUrl: _port es null, proxy no está iniciado');
+      return null;
+    }
+    if (_server == null) {
+      globalLog('[StreamProxy] getProxyUrl: _server es null, proxy no está iniciado');
+      return null;
+    }
     final encodedUrl = Uri.encodeComponent(originalUrl);
-    return 'http://localhost:$_port/stream?url=$encodedUrl';
+    final proxyUrl = 'http://localhost:$_port/stream?url=$encodedUrl';
+    globalLog('[StreamProxy] getProxyUrl: retornando $proxyUrl');
+    return proxyUrl;
   }
 
   /// Maneja las peticiones al proxy
@@ -87,10 +109,10 @@ class StreamProxyService {
       originalUrl = originalUrl.trim();
       if (originalUrl.endsWith(';')) {
         originalUrl = originalUrl.substring(0, originalUrl.length - 1);
-        print('🔄 Proxy: Removed trailing semicolon from URL');
+        globalLog('[StreamProxy] Removed trailing semicolon from URL');
       }
       
-      print('🔄 Proxy: Proxying request to $originalUrl');
+      globalLog('[StreamProxy] Proxying request to $originalUrl');
 
         // Manejar Range requests de AVPlayer
         final rangeHeader = request.headers.value('range');
@@ -152,6 +174,22 @@ class StreamProxyService {
         
         print('🔄 Proxy: Response status ${response.statusCode}');
         print('🔄 Proxy: Content-Type: ${response.headers.value('content-type')}');
+        print('🔄 Proxy: URL original: $originalUrl');
+        
+        // Verificar si la respuesta es un error
+        if (response.statusCode >= 400) {
+          print('❌ Proxy: Error HTTP ${response.statusCode} desde el servidor');
+          request.response.statusCode = response.statusCode;
+          try {
+            final errorBody = await response.transform(utf8.decoder).join();
+            print('❌ Proxy: Error body: ${errorBody.substring(0, errorBody.length > 200 ? 200 : errorBody.length)}');
+            request.response.write('HTTP Error ${response.statusCode}: $errorBody');
+          } catch (e) {
+            request.response.write('HTTP Error ${response.statusCode}');
+          }
+          await request.response.close();
+          return;
+        }
         
         // Si el servidor devuelve HTML en lugar de audio, es un error
         final contentType = response.headers.value('content-type');
@@ -164,6 +202,7 @@ class StreamProxyService {
           // No leer el stream aquí, solo forzar el Content-Type
         } else if (isHtmlResponse) {
           print('⚠️ Proxy: El servidor devolvió HTML en lugar de audio.');
+          print('⚠️ Proxy: URL problemática: $originalUrl');
           request.response.statusCode = HttpStatus.badGateway;
           request.response.write('Server returned HTML instead of audio stream');
           await request.response.close();

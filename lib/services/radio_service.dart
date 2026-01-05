@@ -1,8 +1,10 @@
 import 'dart:io';
+import 'dart:async';
 import 'package:just_audio/just_audio.dart';
 import 'package:audio_session/audio_session.dart' show AudioSession, AudioSessionConfiguration, AVAudioSessionCategory, AVAudioSessionCategoryOptions, AVAudioSessionMode, AVAudioSessionRouteSharingPolicy, AVAudioSessionSetActiveOptions, AndroidAudioAttributes, AndroidAudioContentType, AndroidAudioFlags, AndroidAudioUsage, AndroidAudioFocusGainType;
 import '../models/radio_station.dart';
 import 'stream_proxy_service.dart';
+import '../main.dart' show globalLog;
 
 class RadioService {
   final AudioPlayer _player = AudioPlayer();
@@ -11,13 +13,27 @@ class RadioService {
   double _volume = 1.0; // Volumen inicial al máximo
   final StreamProxyService _proxy = StreamProxyService.instance;
   AudioSession? _audioSession;
+  bool _isInitialized = false;
+  Completer<void>? _initializationCompleter;
 
   RadioStation? get currentStation => _currentStation;
   bool get isPlaying => _isPlaying;
   double get volume => _volume;
+  bool get isInitialized => _isInitialized;
 
   RadioService() {
     _initializeAudio();
+  }
+
+  /// Espera a que el servicio esté completamente inicializado
+  Future<void> ensureInitialized() async {
+    if (_isInitialized) return;
+    if (_initializationCompleter != null) {
+      return _initializationCompleter!.future;
+    }
+    _initializationCompleter = Completer<void>();
+    await _initializeAudio();
+    _initializationCompleter!.complete();
   }
 
   Future<void> _initializeAudio() async {
@@ -55,14 +71,22 @@ class RadioService {
     // Iniciar el proxy local (solo en macOS/iOS, no en Android ni Windows)
     if (Platform.isIOS || Platform.isMacOS) {
       try {
+        globalLog('[RadioService] Iniciando proxy...');
         await _proxy.start();
-        print('✅ Proxy iniciado correctamente y listo para usar');
-      } catch (e) {
-        print('⚠️ Error iniciando proxy: $e');
-        print('⚠️ Las estaciones pueden no funcionar sin el proxy');
+        // Verificar que el proxy esté realmente listo
+        final proxyUrl = _proxy.getProxyUrl('https://test.com');
+        if (proxyUrl != null) {
+          globalLog('[RadioService] ✅ Proxy iniciado correctamente y listo para usar en: $proxyUrl');
+        } else {
+          globalLog('[RadioService] ⚠️ Proxy iniciado pero getProxyUrl retorna null');
+        }
+      } catch (e, stackTrace) {
+        globalLog('[RadioService] ❌ Error iniciando proxy: $e');
+        globalLog('[RadioService] Stack trace: $stackTrace');
+        globalLog('[RadioService] ⚠️ Las estaciones pueden no funcionar sin el proxy');
       }
     } else {
-      print('ℹ️ Proxy no requerido en ${Platform.operatingSystem}');
+      globalLog('[RadioService] ℹ️ Proxy no requerido en ${Platform.operatingSystem}');
     }
     
     // Configurar el player para streams de radio
@@ -84,13 +108,23 @@ class RadioService {
     _player.playerStateStream.listen((state) {
       print('🎵 Player state: playing=${state.playing}, processingState=${state.processingState}');
     });
+    
+    // Marcar como inicializado
+    _isInitialized = true;
+    globalLog('[RadioService] ✅ RadioService completamente inicializado');
   }
 
   Future<void> playStation(RadioStation station) async {
     try {
-      print('🎵 ===== INICIANDO REPRODUCCIÓN =====');
-      print('🎵 Estación: ${station.name}');
-      print('🎵 URL: ${station.source}');
+      // Asegurar que el servicio esté completamente inicializado antes de reproducir
+      // Esto es crítico en release donde la inicialización puede no estar completa
+      globalLog('[RadioService] Verificando inicialización antes de reproducir...');
+      await ensureInitialized();
+      globalLog('[RadioService] ✅ Servicio inicializado, procediendo con reproducción');
+      
+      globalLog('[RadioService] ===== INICIANDO REPRODUCCIÓN =====');
+      globalLog('[RadioService] Estación: ${station.name}');
+      globalLog('[RadioService] URL: ${station.source}');
       
       // Validar que la URL tenga un formato válido
       final uri = Uri.tryParse(station.source);
@@ -101,10 +135,16 @@ class RadioService {
       print('🎵 URL validada correctamente');
       
       // Log específico para Radio Sonic Frequency
-      if (station.name.contains('Sonic Frequency') || station.source.contains('listen2myradio.com')) {
+      if (station.name.contains('Sonic Frequency') || station.source.contains('listen2myradio.com') || station.source.contains('radio12345.com')) {
         print('🎙️ [SONIC FREQUENCY] Detectada estación Sonic Frequency');
         print('🎙️ [SONIC FREQUENCY] URL: ${station.source}');
         print('🎙️ [SONIC FREQUENCY] Verificando accesibilidad...');
+        
+        // Verificar si la URL es válida
+        if (station.source.contains('radio12345.com') || station.source.contains('fdsfdsfdsf')) {
+          print('⚠️ [SONIC FREQUENCY] ADVERTENCIA: URL parece ser de prueba y puede no funcionar');
+          print('⚠️ [SONIC FREQUENCY] Si esta URL no funciona, necesitas actualizar la URL en radio_provider.dart');
+        }
       }
       
       // Seleccionar URL según la plataforma:
@@ -113,14 +153,26 @@ class RadioService {
       String streamUrl = station.source;
       
       if (Platform.isIOS || Platform.isMacOS) {
+        // En macOS/iOS, asegurar que el proxy esté iniciado antes de obtener la URL
+        try {
+          globalLog('[RadioService] Verificando/iniciando proxy antes de obtener URL...');
+          await _proxy.start();
+          // Pequeña espera para asegurar que el servidor esté completamente listo
+          await Future.delayed(const Duration(milliseconds: 50));
+          globalLog('[RadioService] Proxy verificado/iniciado');
+        } catch (e, stackTrace) {
+          globalLog('[RadioService] ⚠️ Error verificando proxy: $e');
+          globalLog('[RadioService] Stack trace: $stackTrace');
+        }
+        
         // En macOS/iOS, usar proxy si está disponible
         final proxyUrl = _proxy.getProxyUrl(station.source);
         if (proxyUrl != null) {
           streamUrl = proxyUrl;
-          print('🎵 Usando proxy: $streamUrl');
-          print('🎵 URL original: ${station.source}');
+          globalLog('[RadioService] ✅ Usando proxy: $streamUrl');
+          globalLog('[RadioService] URL original: ${station.source}');
         } else {
-          print('⚠️ Proxy no disponible, usando URL directa');
+          globalLog('[RadioService] ⚠️ Proxy no disponible (getProxyUrl retorna null), usando URL directa');
           streamUrl = station.source;
         }
       } else {
@@ -171,20 +223,31 @@ class RadioService {
           
           // En macOS/iOS, SIEMPRE usar el proxy para listen2myradio.com
           if (Platform.isMacOS || Platform.isIOS) {
-            // Asegurar que el proxy esté iniciado
+            // Asegurar que el proxy esté iniciado y completamente listo
             try {
+              globalLog('[RadioService] [SONIC FREQUENCY] Iniciando/verificando proxy...');
               await _proxy.start();
-              print('🎙️ [SONIC FREQUENCY] Proxy iniciado/verificado');
-            } catch (e) {
-              print('⚠️ [SONIC FREQUENCY] Error iniciando proxy: $e');
+              // Esperar un momento adicional para asegurar que el servidor esté completamente listo
+              await Future.delayed(const Duration(milliseconds: 100));
+              
+              // Verificar que el proxy realmente funciona
+              final testProxyUrl = _proxy.getProxyUrl('https://test.com');
+              if (testProxyUrl != null) {
+                globalLog('[RadioService] [SONIC FREQUENCY] ✅ Proxy iniciado/verificado y listo en: $testProxyUrl');
+              } else {
+                globalLog('[RadioService] [SONIC FREQUENCY] ⚠️ Proxy iniciado pero getProxyUrl retorna null');
+              }
+            } catch (e, stackTrace) {
+              globalLog('[RadioService] [SONIC FREQUENCY] ❌ Error iniciando proxy: $e');
+              globalLog('[RadioService] [SONIC FREQUENCY] Stack trace: $stackTrace');
             }
             
             final proxyUrl = _proxy.getProxyUrl(station.source);
             if (proxyUrl != null) {
               streamUrl = proxyUrl;
-              print('🎙️ [SONIC FREQUENCY] Usando proxy: $streamUrl');
+              globalLog('[RadioService] [SONIC FREQUENCY] ✅ Usando proxy: $streamUrl');
             } else {
-              print('⚠️ [SONIC FREQUENCY] Proxy no disponible, intentando URL directa');
+              globalLog('[RadioService] [SONIC FREQUENCY] ⚠️ Proxy no disponible (getProxyUrl retorna null), intentando URL directa');
             }
           }
           
@@ -247,13 +310,22 @@ class RadioService {
               // Esperar un momento para verificar que la URL se configuró correctamente
               await Future.delayed(const Duration(milliseconds: 300));
               
-              print('✅ [SONIC FREQUENCY] Variante ${i + 1} funcionó!');
-              streamUrl = variant; // Actualizar streamUrl con la variante que funcionó
-              success = true;
-              break;
-            } catch (e) {
+              // Verificar el estado del player para confirmar que la URL funcionó
+              final state = _player.playerState;
+              if (state.processingState == ProcessingState.ready || 
+                  state.processingState == ProcessingState.buffering ||
+                  state.processingState == ProcessingState.loading) {
+                print('✅ [SONIC FREQUENCY] Variante ${i + 1} funcionó! Estado: ${state.processingState}');
+                streamUrl = variant; // Actualizar streamUrl con la variante que funcionó
+                success = true;
+                break;
+              } else {
+                throw Exception('Player no está listo. Estado: ${state.processingState}');
+              }
+            } catch (e, stackTrace) {
               lastError = e is Exception ? e : Exception(e.toString());
               print('❌ [SONIC FREQUENCY] Variante ${i + 1} falló: $e');
+              print('❌ [SONIC FREQUENCY] Stack trace: $stackTrace');
               if (i == urlVariants.length - 1) {
                 // Última variante
                 print('❌ [SONIC FREQUENCY] Todas las variantes fallaron');
@@ -397,8 +469,12 @@ class RadioService {
         print('🎵 Reproducción reanudada');
       }
     } catch (e, stackTrace) {
-      print('❌ Error reproduciendo estación: $e');
-      print('❌ Stack trace: $stackTrace');
+      globalLog('[RadioService] ===== ERROR REPRODUCIENDO ESTACIÓN =====');
+      globalLog('[RadioService] Estación: ${station.name}');
+      globalLog('[RadioService] URL: ${station.source}');
+      globalLog('[RadioService] Error: $e');
+      globalLog('[RadioService] Tipo de error: ${e.runtimeType}');
+      globalLog('[RadioService] Stack trace: $stackTrace');
       _isPlaying = false;
       rethrow;
     }

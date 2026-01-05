@@ -11,11 +11,14 @@ final logFile = File('/tmp/irc_app.log');
 void globalLog(String message) {
   final timestamp = DateTime.now().toString();
   final logMessage = '[$timestamp] $message\n';
+  // Usar debugPrint que funciona en release también
+  debugPrint(logMessage);
   print(logMessage);
   try {
     logFile.writeAsStringSync(logMessage, mode: FileMode.append);
   } catch (e) {
-    // Ignore write errors
+    // Si falla escribir al archivo, al menos imprimir
+    debugPrint('Error escribiendo log: $e');
   }
 }
 

@@ -48,3 +48,5 @@ Para reportar problemas o sugerencias, visita: https://github.com/Globalchat-IRC
 
 
 
+
+

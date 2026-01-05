@@ -45,6 +45,24 @@ import '../models/user_role.dart';
 import '../models/video_report.dart' as video_report_model;
 import '../services/video_conference_service.dart' show ConferenceType;
 import '../services/video_database_service.dart';
+import '../services/macos_notification_service.dart';
+import '../services/export_service.dart';
+import '../widgets/search_dialog.dart';
+import '../widgets/keyboard_shortcuts.dart';
+import '../widgets/media_preview.dart';
+import '../widgets/markdown_message.dart';
+import '../widgets/contacts_list.dart';
+import '../services/encryption_service.dart';
+import '../services/privacy_service.dart';
+import '../services/cache_service.dart';
+import '../services/backup_service.dart';
+import '../providers/contacts_provider.dart';
+import '../providers/tags_provider.dart';
+import '../providers/radio_provider.dart';
+import '../models/radio_station.dart';
+import '../screens/privacy_settings_screen.dart';
+import 'package:flutter_highlight/themes/github.dart';
+import 'package:flutter_highlight/themes/dracula.dart';
 
 // Clase auxiliar para items del menú IRCop
 class _IRCOpMenuItem {
@@ -301,6 +319,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     {'command': 'rehash', 'description': 'Recargar configuración (IRCop)', 'usage': '/rehash'},
   ];
 
+  // Servicios para v2.0.0
+  final MacOSNotificationService _notificationService = MacOSNotificationService();
+  int _unreadCount = 0;
+
   @override
   void initState() {
     super.initState();
@@ -308,6 +330,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     
     print('🎬 [ChatScreen] Initialized');
     print('🎬 [ChatScreen] isConnected=${_ircService.isConnected}');
+    
+    // Inicializar servicios v2.0.0
+    if (Platform.isMacOS) {
+      _notificationService.initialize();
+    }
+    
+    // Inicializar servicios v2.1.0
+    _initializeV21Services();
     
     // Cargar información de versión
     _loadAppVersion();
@@ -493,6 +523,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     print('💬 _onMessageReceived: nick="${message.nick}", channel="${message.channel}"');
     
     if (mounted) {
+      // Filtrar mensajes de usuarios bloqueados (v2.1.0)
+      final privacyService = PrivacyService();
+      if (privacyService.isUserBlocked(message.nick)) {
+        print('🚫 [ChatScreen] Mensaje bloqueado de ${message.nick}');
+        return; // No procesar mensajes de usuarios bloqueados
+      }
+      
       final currentChannel = ref.read(currentChannelProvider);
       final messageChannel = message.channel.toLowerCase();
       final currentChannelLower = currentChannel?.toLowerCase();
@@ -531,6 +568,22 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           SystemSound.play(SystemSoundType.alert);
         } else if (level == NotificationLevel.allMessages && !isPrivate) {
           SystemSound.play(SystemSoundType.click);
+        }
+      }
+
+      // Notificaciones macOS v2.0.0
+      if (Platform.isMacOS) {
+        final isCurrentChannel = currentChannelLower == messageChannel;
+        if (!isCurrentChannel && !isFromMutedUser) {
+          if (isMention || isPrivate) {
+            _unreadCount++;
+            _notificationService.incrementUnread();
+            _notificationService.showNotification(
+              title: isMention ? 'Mencionado en $messageChannel' : 'Mensaje privado',
+              body: '${message.nick}: ${message.message}',
+              subtitle: messageChannel,
+            );
+          }
         }
       }
 
@@ -843,6 +896,210 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       print('❌ [ChatScreen] Error loading app version: $e');
     }
   }
+
+  // Inicializar servicios v2.1.0
+  Future<void> _initializeV21Services() async {
+    try {
+      await PrivacyService().initialize();
+      await CacheService().initialize();
+      await EncryptionService().initialize();
+      print('✅ [ChatScreen] Servicios v2.1.0 inicializados');
+    } catch (e) {
+      print('❌ [ChatScreen] Error inicializando servicios v2.1.0: $e');
+    }
+  }
+
+  // Activar radio automáticamente según el canal (v2.1.0)
+  void _activateRadioForChannel(String channel) {
+    if (channel.isEmpty) return;
+    
+    final channelLower = channel.toLowerCase();
+    print('📻 [ChatScreen] Verificando activación de radio para canal: $channelLower');
+    
+    // Mapeo de canales a radios
+    final channelToRadioMap = {
+      '#nuestrasvoces': 'NuestrasVoces',
+      '#soundmusic': 'SoundMusic',
+      '#sonicfrequence': 'Radio Sonic Frequency',
+      '#sonicfrequency': 'Radio Sonic Frequency', // También aceptar con mayúscula
+    };
+    
+    final radioName = channelToRadioMap[channelLower];
+    if (radioName == null) {
+      print('📻 [ChatScreen] No hay radio asociada para el canal: $channelLower');
+      return;
+    }
+    
+    print('📻 [ChatScreen] Activando radio: $radioName para canal: $channelLower');
+    
+    // Obtener el estado de radio y buscar la estación
+    final radioState = ref.read(radioProvider);
+    final radioService = ref.read(radioServiceProvider);
+    
+    // Buscar la estación por nombre o por salon
+    RadioStation? station;
+    try {
+      // Primero intentar por nombre exacto
+      station = radioState.stations.firstWhere(
+        (s) => s.name == radioName,
+      );
+      print('📻 [ChatScreen] ✅ Estación encontrada por nombre: ${station.name}');
+    } catch (e) {
+      // Si no se encuentra por nombre, buscar por salon
+      try {
+        station = radioState.stations.firstWhere(
+          (s) => s.salon?.toLowerCase() == channelLower,
+        );
+        print('📻 [ChatScreen] ✅ Estación encontrada por salon: ${station.name}');
+      } catch (e2) {
+        print('⚠️ [ChatScreen] No se encontró estación para: $radioName o canal: $channelLower');
+        return;
+      }
+    }
+    
+    // Activar y reproducir la estación
+    if (station != null) {
+      final stationName = station.name;
+      ref.read(radioProvider.notifier).setActiveStation(station);
+      radioService.playStation(station).then((_) {
+        ref.read(radioProvider.notifier).setPlaying(true);
+        print('📻 [ChatScreen] ✅ Radio $stationName activada y reproduciendo');
+      }).catchError((e) {
+        print('❌ [ChatScreen] Error activando radio: $e');
+        ref.read(radioProvider.notifier).setError(true);
+      });
+    }
+  }
+
+  // Métodos v2.0.0 - Búsqueda
+  void _showSearchDialogV2() {
+    final currentChannel = ref.read(currentChannelProvider);
+    if (currentChannel == null) return;
+    
+    final messages = ref.read(messagesProvider);
+    final channelMessages = currentChannel != null
+        ? messages
+            .where((m) => m.channel.toLowerCase() == currentChannel.toLowerCase())
+            .toList()
+        : <IRCMessage>[];
+    
+    showDialog(
+      context: context,
+      builder: (context) => SearchDialog(
+        messages: channelMessages,
+        onMessageSelected: (message) {
+          print('Mensaje seleccionado: ${message.message}');
+        },
+      ),
+    );
+  }
+
+  // Métodos v2.0.0 - Exportación
+  Future<void> _exportCurrentChannel() async {
+    final currentChannel = ref.read(currentChannelProvider);
+    if (currentChannel == null) return;
+    
+    final messages = ref.read(messagesProvider);
+    final channelMessages = currentChannel != null
+        ? messages
+            .where((m) => m.channel.toLowerCase() == currentChannel.toLowerCase())
+            .toList()
+        : <IRCMessage>[];
+    
+    if (channelMessages.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No hay mensajes para exportar')),
+      );
+      return;
+    }
+
+    final format = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Exportar conversación'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.text_fields),
+              title: const Text('Texto plano (.txt)'),
+              onTap: () => Navigator.pop(context, 'txt'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.code),
+              title: const Text('HTML (.html)'),
+              onTap: () => Navigator.pop(context, 'html'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (format == null) return;
+
+    String? path;
+    if (format == 'txt') {
+      path = await ExportService.exportToText(channelMessages, currentChannel);
+    } else if (format == 'html') {
+      path = await ExportService.exportToHTML(channelMessages, currentChannel);
+    }
+
+    if (path != null && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Conversación exportada a: $path')),
+      );
+    }
+  }
+
+  // Métodos v2.0.0 - Atajos de teclado
+  void _handleFind() => _showSearchDialogV2();
+  void _handleFindNext() {}
+  void _handleNewChannel() {
+    _channelController.clear();
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Unirse a canal'),
+        content: TextField(
+          controller: _channelController,
+          decoration: const InputDecoration(
+            labelText: 'Nombre del canal',
+            hintText: '#canal',
+          ),
+          autofocus: true,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancelar'),
+          ),
+          TextButton(
+            onPressed: () {
+              final channel = _channelController.text.trim();
+              if (channel.isNotEmpty) {
+                _joinChannel(channel.startsWith('#') ? channel : '#$channel');
+                Navigator.pop(context);
+              }
+            },
+            child: const Text('Unirse'),
+          ),
+        ],
+      ),
+    );
+  }
+  void _handleCloseTab() {
+    final currentChannel = ref.read(currentChannelProvider);
+    if (currentChannel != null) {
+      _ircService.partChannel(currentChannel);
+    }
+  }
+  void _handlePreferences() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const SettingsScreen()),
+    );
+  }
+  void _handleExportLogs() => _exportCurrentChannel();
   
   // Inicializar perfil de usuario para videoconferencias
   Future<void> _initializeUserProfile() async {
@@ -1643,6 +1900,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     ref.read(recentChannelsProvider.notifier).addRecent(normalizedChannel);
     print('🔍 [DEBUG] ✅ Channel set in provider: $normalizedChannel');
     _channelController.clear();
+
+    // Activar radio automáticamente si corresponde (v2.1.0)
+    _activateRadioForChannel(normalizedChannel);
 
     // Cargar historial local para este canal en segundo plano
     // ignore: unawaited_futures
@@ -4172,9 +4432,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         ? (_loadedHistoryByChannel[normalizedForHistory] ?? const <IRCMessage>[])
         : const <IRCMessage>[];
 
+    // Filtrar mensajes de usuarios bloqueados (v2.1.0)
+    final privacyService = PrivacyService();
+    final filteredHistory = history.where((msg) => !privacyService.isUserBlocked(msg.nick)).toList();
+    final filteredChannelMessages = channelMessages.where((msg) => !privacyService.isUserBlocked(msg.nick)).toList();
+    
     final allMessages = [
-      ...history,
-      ...channelMessages,
+      ...filteredHistory,
+      ...filteredChannelMessages,
     ];
 
     // Normalizar el nombre del canal para búsqueda (case-insensitive)
@@ -4243,7 +4508,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           _disconnect();
         }
       },
-      child: Scaffold(
+      child: MacOSKeyboardShortcuts(
+        onFind: _handleFind,
+        onFindNext: _handleFindNext,
+        onNewChannel: _handleNewChannel,
+        onCloseTab: _handleCloseTab,
+        onPreferences: _handlePreferences,
+        onExportLogs: _handleExportLogs,
+        child: Scaffold(
         backgroundColor: appTheme.background,
         appBar: AppBar(
           leading: nickname != null
@@ -4487,19 +4759,24 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 ),
               ),
             ),
-                    // Botón de búsqueda
+                    // Botones v2.0.0 - Búsqueda y Exportar
+                    if (Platform.isMacOS) ...[
+                      IconButton(
+                        icon: const Icon(Icons.search),
+                        tooltip: 'Buscar (⌘F)',
+                        onPressed: _handleFind,
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.file_download),
+                        tooltip: 'Exportar conversación (⌘E)',
+                        onPressed: _handleExportLogs,
+                      ),
+                    ],
+                    // Botón de búsqueda v2.0.0
                     IconButton(
-                      icon: Icon(_showSearch ? Icons.close : Icons.search, color: appTheme.textPrimary),
-                      tooltip: 'Buscar mensajes',
-                      onPressed: () {
-                        setState(() {
-                          _showSearch = !_showSearch;
-                          if (!_showSearch) {
-                            _searchController.clear();
-                            _searchResults = [];
-                          }
-                        });
-                      },
+                      icon: Icon(Icons.search, color: appTheme.textPrimary),
+                      tooltip: Platform.isMacOS ? 'Buscar mensajes (⌘F)' : 'Buscar mensajes',
+                      onPressed: _handleFind,
                     ),
                     // Botón para mostrar/ocultar lista de usuarios (solo en canales)
                     if (currentChannel != null && currentChannel!.startsWith('#'))
@@ -5866,6 +6143,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         ],
       ),
         bottomNavigationBar: RadioControls(),
+        ),
       ),
     );
   }
@@ -6177,6 +6455,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final timeFormat = DateFormat('HH:mm');
     final currentNick = ref.read(currentNicknameProvider);
     final isOwnMessage = message.nick == currentNick;
+    
+    // Detectar si es mensaje de registro de nick - mostrar de forma especial
+    if (_isNickRegistrationMessage(message)) {
+      return _buildModernRegistrationMessage(message);
+    }
     
     // Detectar si es canal o privado
     final isChannel = message.channel.startsWith('#');
@@ -6545,9 +6828,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   // Reacciones y acciones del mensaje
                   if (!message.isSystem && message.messageId != null)
                     _buildMessageActions(context, message, isOwnMessage, appTheme),
-                  // Botón de registro si es mensaje de NickServ sobre registro
-                  if (_isNickRegistrationMessage(message))
-                    _buildRegistrationButton(context, message),
                 ],
               ),
             ),
@@ -6703,26 +6983,165 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     );
   }
 
-  // Botón para abrir el formulario de registro
-  Widget _buildRegistrationButton(BuildContext context, IRCMessage message) {
+  // Widget moderno para mensaje de registro de nick
+  Widget _buildModernRegistrationMessage(IRCMessage message) {
     final appTheme = ref.read(themeProvider);
-
-    return Container(
-      margin: const EdgeInsets.only(top: 12),
-      child: ElevatedButton.icon(
-        onPressed: () {
-          _showNickRegistrationDialog(context);
-        },
-        icon: const Icon(Icons.person_add, size: 18),
-        label: const Text('Registrar Nick'),
-        style: ElevatedButton.styleFrom(
-          backgroundColor: appTheme.primary,
-          foregroundColor: appTheme.textPrimary,
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
+    final timeFormat = DateFormat('HH:mm');
+    
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      child: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              appTheme.primary.withOpacity(0.15),
+              appTheme.secondary.withOpacity(0.1),
+            ],
           ),
-          elevation: 2,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: appTheme.primary.withOpacity(0.3),
+            width: 1.5,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: appTheme.primary.withOpacity(0.2),
+              blurRadius: 12,
+              spreadRadius: 2,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Header con icono y timestamp
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: appTheme.primary.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Icon(
+                      Icons.info_outline,
+                      color: appTheme.primary,
+                      size: 24,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Text(
+                              message.nick,
+                              style: TextStyle(
+                                color: appTheme.primary,
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              timeFormat.format(message.timestamp),
+                              style: TextStyle(
+                                color: appTheme.textSecondary,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Registro de Nick',
+                          style: TextStyle(
+                            color: appTheme.textSecondary,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              // Mensaje principal
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: appTheme.surface.withOpacity(0.5),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.warning_amber_rounded,
+                      color: Colors.orange.shade400,
+                      size: 20,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        'Tu Nick no está registrado',
+                        style: TextStyle(
+                          color: appTheme.textPrimary,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              // Texto informativo
+              Text(
+                'Registra tu nick para proteger tu identidad y acceder a funciones avanzadas del servidor.',
+                style: TextStyle(
+                  color: appTheme.textSecondary,
+                  fontSize: 13,
+                  height: 1.4,
+                ),
+              ),
+              const SizedBox(height: 20),
+              // Botón de registro moderno
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () {
+                    _showNickRegistrationDialog(context);
+                  },
+                  icon: const Icon(Icons.person_add, size: 20),
+                  label: const Text(
+                    'Registrar Nick Ahora',
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: appTheme.primary,
+                    foregroundColor: appTheme.textPrimary,
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    elevation: 4,
+                    shadowColor: appTheme.primary.withOpacity(0.4),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -7078,11 +7497,95 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   }
 
   Widget _buildMessageContent(String messageText, bool isOwnMessage, {bool isBot = false}) {
+    // Detectar URLs de medios (imágenes y videos)
+    final mediaUrlRegex = RegExp(
+      r'(https?://[^\s]+\.(jpg|jpeg|png|gif|webp|mp4|webm|mov|avi))',
+      caseSensitive: false,
+    );
+    
     // Detectar si el mensaje contiene una URL de videoconferencia
     final videoConferenceUrlRegex = RegExp(
       r'https?://video\.globalchat\.org/[^\s]+',
       caseSensitive: false,
     );
+    
+    // Detectar si el mensaje contiene Markdown (simplificado: código, negrita, etc.)
+    final hasMarkdown = messageText.contains('```') || 
+                        messageText.contains('**') || 
+                        messageText.contains('*') ||
+                        messageText.contains('`') ||
+                        messageText.contains('#');
+    
+    // Si tiene Markdown, usar el widget de Markdown
+    if (hasMarkdown && !isBot) {
+      final appTheme = ref.read(themeProvider);
+      final isDarkMode = appTheme.background.computeLuminance() < 0.5;
+      return MarkdownMessage(
+        content: messageText,
+        isDarkMode: isDarkMode,
+        baseStyle: TextStyle(
+          color: isOwnMessage ? Colors.white : appTheme.textPrimary,
+          fontSize: 15,
+        ),
+      );
+    }
+    
+    // Detectar URLs de medios
+    final mediaMatches = mediaUrlRegex.allMatches(messageText);
+    if (mediaMatches.isNotEmpty) {
+      final parts = <Widget>[];
+      int lastEnd = 0;
+      
+      for (final match in mediaMatches) {
+        // Texto antes de la URL
+        if (match.start > lastEnd) {
+          final textBefore = messageText.substring(lastEnd, match.start);
+          if (textBefore.isNotEmpty) {
+            parts.add(_buildTextWithEmojis(
+              textBefore,
+              isOwnMessage: isOwnMessage,
+              isBot: isBot,
+            ));
+          }
+        }
+        
+        // URL de medio
+        final url = match.group(0)!;
+        final isVideo = url.toLowerCase().contains('.mp4') || 
+                        url.toLowerCase().contains('.webm') ||
+                        url.toLowerCase().contains('.mov') ||
+                        url.toLowerCase().contains('.avi');
+        
+        parts.add(
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: MediaPreview(
+              url: url,
+              isVideo: isVideo,
+            ),
+          ),
+        );
+        
+        lastEnd = match.end;
+      }
+      
+      // Texto después de la última URL
+      if (lastEnd < messageText.length) {
+        final textAfter = messageText.substring(lastEnd);
+        if (textAfter.isNotEmpty) {
+          parts.add(_buildTextWithEmojis(
+            textAfter,
+            isOwnMessage: isOwnMessage,
+            isBot: isBot,
+          ));
+        }
+      }
+      
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: parts,
+      );
+    }
     final videoConferenceMatch = videoConferenceUrlRegex.firstMatch(messageText);
     
     if (videoConferenceMatch != null) {
@@ -7936,6 +8439,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           ref.read(lastChannelProvider.notifier).state = channel;
           ref.read(recentChannelsProvider.notifier).addRecent(channel);
           ref.read(unreadMessagesProvider.notifier).markAsRead(channel);
+          
+          // Activar radio automáticamente si corresponde (v2.1.0)
+          _activateRadioForChannel(channel);
         },
         onLongPress: () {
           _showChannelNotificationMenu(context, channel);

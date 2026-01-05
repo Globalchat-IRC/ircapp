@@ -1,17 +1,6 @@
-#!/bin/bash
+# Release v1.0.5 - Barra de Lag en Tiempo Real
 
-# Script para crear un release en GitHub con el DMG adjunto
-# Requiere: gh CLI (GitHub CLI) instalado y autenticado
-# Instalar: brew install gh
-# Autenticar: gh auth login
-
-set -e
-
-VERSION="1.0.5"
-DMG_PATH="releases/irc_app_macos_v${VERSION}.dmg"
-TAG_NAME="v${VERSION}"
-RELEASE_NAME="Release ${VERSION}"
-RELEASE_NOTES="## 🎯 Nuevas Funcionalidades
+## 🎯 Nuevas Funcionalidades
 
 ### 📊 Barra de Lag en Tiempo Real
 - **Indicador visual de latencia** en el AppBar junto al estado de conexión
@@ -37,18 +26,42 @@ RELEASE_NOTES="## 🎯 Nuevas Funcionalidades
 - **Mejorada la gestión de eventos de teclado** para evitar conflictos
 - **Autocompletado funcional** sin interferir con la escritura normal
 
+### Gestión de Eventos
+- **Optimizada la detección de eventos de teclado** para mejor rendimiento
+- **Corregidos problemas de sintaxis** en la estructura de widgets
+
 ## 🔧 Mejoras Técnicas
 
 - **Medición de lag optimizada**: Envío inmediato de PING al conectar + actualización periódica cada 3 segundos
 - **Gestión de estado mejorada**: Provider de lag integrado con Riverpod
 - **Limpieza de recursos**: Timer de lag se detiene automáticamente al desconectar
-- **Indicador visual mientras calcula**: Barra azul con \"...\" mientras se obtiene el primer valor de lag
+- **Indicador visual mientras calcula**: Barra azul con "..." mientras se obtiene el primer valor de lag
 
-## 📦 Descarga
+## 📦 Archivos Modificados
+
+- `lib/services/irc_service.dart`: Implementación de medición de lag con PING/PONG
+- `lib/providers/irc_provider.dart`: Provider de lag para estado global
+- `lib/screens/chat_screen.dart`: Barra visual de lag y correcciones en campo de texto
+- `pubspec.yaml`: Versión actualizada a 1.0.5+6
+
+## 🚀 Instalación
 
 Descarga el instalador DMG para macOS desde los assets de este release.
 
+### Requisitos
+- macOS 10.14 o superior
+- Conexión a Internet para conectarse a servidores IRC
+
+## 📝 Notas
+
+- La barra de lag se muestra automáticamente al conectar al servidor
+- El primer valor de lag puede tardar unos segundos en aparecer
+- La medición de lag es precisa y usa el protocolo estándar IRC
+- El autocompletado con flechas funciona solo cuando hay sugerencias visibles
+
 ## 🙏 Agradecimientos
+
+Gracias por usar IRC App. Si encuentras algún problema o tienes sugerencias, no dudes en reportarlo.
 
 **Agradecimientos especiales a la comunidad GlobalChat:**
 - **weed** - Por sus valiosas contribuciones y feedback
@@ -57,42 +70,9 @@ Descarga el instalador DMG para macOS desde los assets de este release.
 
 Gracias a todos por hacer de IRC App una mejor aplicación.
 
-**Versión**: ${VERSION}+6  
-**Plataforma**: macOS"
+---
 
-echo "🚀 Creando release ${TAG_NAME} en GitHub..."
-
-# Verificar que existe el DMG
-if [ ! -f "$DMG_PATH" ]; then
-    echo "❌ Error: No se encontró el DMG en $DMG_PATH"
-    exit 1
-fi
-
-# Verificar que gh está instalado
-if ! command -v gh &> /dev/null; then
-    echo "❌ Error: GitHub CLI (gh) no está instalado"
-    echo "📦 Instalar con: brew install gh"
-    echo "🔐 Autenticar con: gh auth login"
-    exit 1
-fi
-
-# Verificar autenticación
-if ! gh auth status &> /dev/null; then
-    echo "❌ Error: No estás autenticado en GitHub CLI"
-    echo "🔐 Autenticar con: gh auth login"
-    exit 1
-fi
-
-# Crear el release
-echo "📦 Creando release con tag ${TAG_NAME}..."
-gh release create "${TAG_NAME}" \
-    --title "${RELEASE_NAME}" \
-    --notes "${RELEASE_NOTES}" \
-    "${DMG_PATH}" \
-    --repo Globalchat-IRC/ircapp
-
-echo "✅ Release creado exitosamente!"
-echo "🌐 Ver en: https://github.com/Globalchat-IRC/ircapp/releases/tag/${TAG_NAME}"
-
-
+**Versión**: 1.0.5+6  
+**Fecha**: Enero 2025  
+**Plataforma**: macOS
 

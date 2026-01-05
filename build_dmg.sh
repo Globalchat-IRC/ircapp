@@ -12,7 +12,8 @@ echo "📦 Creando DMG..."
 
 APP_NAME="irc_app"
 APP_PATH="build/macos/Build/Products/Release/${APP_NAME}.app"
-DMG_NAME="${APP_NAME}_macos"
+VERSION="2.1.0"
+DMG_NAME="${APP_NAME}_macos_v${VERSION}"
 DMG_PATH="${DMG_NAME}.dmg"
 VOLUME_NAME="${APP_NAME}"
 
@@ -47,7 +48,17 @@ hdiutil create -volname "$VOLUME_NAME" -srcfolder "$TEMP_DMG_DIR" -ov -format UD
 # Limpiar directorio temporal
 rm -rf "$TEMP_DMG_DIR"
 
-echo "✅ DMG creado: $DMG_PATH"
+# Crear directorio releases si no existe
+mkdir -p releases
+
+# Mover el DMG a la carpeta releases
+if [ -f "$DMG_PATH" ]; then
+    mv "$DMG_PATH" "releases/${DMG_NAME}.dmg"
+    echo "✅ DMG creado y movido a: releases/${DMG_NAME}.dmg"
+else
+    echo "❌ Error: No se pudo crear el DMG"
+    exit 1
+fi
 
 
 
