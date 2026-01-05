@@ -497,11 +497,15 @@ class RadioService {
       } else {
         // Misma estación, solo reanudar si está pausada
         print('🎵 Reanudando estación actual...');
-        await _player.play();
+        if (PlatformUtils.isWeb && _webPlayer != null) {
+          await _webPlayer!.resume();
+        } else if (_player != null) {
+          await _player!.play();
+        }
         _isPlaying = true;
         print('🎵 Reproducción reanudada');
       }
-    } catch (e, stackTrace) {
+    } catch (err, stackTrace) {
       globalLog('[RadioService] ===== ERROR REPRODUCIENDO ESTACIÓN =====');
       globalLog('[RadioService] Estación: ${station.name}');
       globalLog('[RadioService] URL: ${station.source}');
