@@ -236,14 +236,21 @@ class RadioService {
         print('🎵 URL a usar: $streamUrl');
         
         // Establecer la fuente del audio
-        // En web, usar audioplayers directamente (ya se hizo arriba, esto es para nativo)
-        if (PlatformUtils.isWeb) {
-          // Ya se manejó arriba, no debería llegar aquí
+        // En web, usar audioplayers directamente
+        if (PlatformUtils.isWeb && _webPlayer != null) {
+          globalLog('[RadioService] Web: Configurando URL con audioplayers');
+          await _webPlayer!.setSource(web_audio.UrlSource(streamUrl));
+          await _webPlayer!.setVolume(_volume);
+          await _webPlayer!.setReleaseMode(web_audio.ReleaseMode.loop);
+          await _webPlayer!.resume();
+          _isPlaying = true;
+          _currentStation = station;
+          globalLog('[RadioService] ✅ Web: Reproducción iniciada');
           return;
         }
         
-        // Para listen2myradio.com, usar SIEMPRE el proxy en macOS/iOS
-        if (streamUrl.contains('listen2myradio.com')) {
+        // Para listen2myradio.com, usar SIEMPRE el proxy en macOS/iOS (no en web)
+        if (streamUrl.contains('listen2myradio.com') && !PlatformUtils.isWeb) {
           print('🎙️ [SONIC FREQUENCY] Detectada estación listen2myradio.com');
           print('🎙️ [SONIC FREQUENCY] URL original: ${station.source}');
           
