@@ -21,9 +21,9 @@ class LoginScreen extends ConsumerStatefulWidget {
 
 class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _hostController = TextEditingController(text: 'ceres.globalchat.org');
-  // En web, usar puerto WebSocket (6668) por defecto, en nativo usar 6667
+  // En web, usar puerto WebSocket (4443 para ceres) por defecto, en nativo usar 6667
   final _portController = TextEditingController(
-    text: PlatformUtils.isWeb ? '6668' : '6667',
+    text: PlatformUtils.isWeb ? '4443' : '6667',
   );
   late final TextEditingController _nickController;
   final _channelController = TextEditingController(); // Vacío por defecto
