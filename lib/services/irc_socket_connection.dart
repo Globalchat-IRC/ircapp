@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:async';
+import 'dart:convert';
 import 'irc_connection_interface.dart';
 import '../utils/platform_utils.dart';
 
@@ -10,6 +11,7 @@ class IRCSocketConnection implements IRCConnection {
   final StreamController<String> _streamController = StreamController<String>.broadcast();
   StreamSubscription? _subscription;
   bool _isConnected = false;
+  String? _host; // Guardar host para referencia
 
   @override
   Future<void> connect(String host, int port, {bool useSSL = false}) async {
@@ -17,16 +19,21 @@ class IRCSocketConnection implements IRCConnection {
       throw UnsupportedError('Socket TCP no está disponible en web. Use WebSocket.');
     }
 
+    _host = host;
     try {
       if (useSSL) {
+        final context = SecurityContext.defaultContext;
         _secureSocket = await SecureSocket.connect(
           host,
           port,
+          context: context,
+          timeout: const Duration(seconds: 15),
           onBadCertificate: (certificate) => true, // Aceptar certificados autofirmados
         );
         _subscription = _secureSocket!.listen(
           (data) {
-            final message = String.fromCharCodes(data);
+            // Decodificar como UTF-8 para soportar emoticonos y caracteres especiales
+            final message = utf8.decode(data, allowMalformed: true);
             _streamController.add(message);
           },
           onError: (error) {
@@ -39,10 +46,11 @@ class IRCSocketConnection implements IRCConnection {
         );
         _isConnected = true;
       } else {
-        _socket = await Socket.connect(host, port);
+        _socket = await Socket.connect(host, port, timeout: const Duration(seconds: 10));
         _subscription = _socket!.listen(
           (data) {
-            final message = String.fromCharCodes(data);
+            // Decodificar como UTF-8 para soportar emoticonos y caracteres especiales
+            final message = utf8.decode(data, allowMalformed: true);
             _streamController.add(message);
           },
           onError: (error) {

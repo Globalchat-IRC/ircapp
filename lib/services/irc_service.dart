@@ -6,10 +6,13 @@ import '../models/irc_message.dart';
 import 'chat_history_service.dart';
 import '../models/whois_info.dart';
 import '../utils/irc_color_parser.dart';
+import 'irc_connection_interface.dart';
+import 'irc_connection_factory.dart';
+import '../utils/platform_utils.dart';
 
 class IRCService {
-  Socket? _socket;
-  SecureSocket? _secureSocket;
+  IRCConnection? _connection;
+  String? _currentHost; // Guardar host para serverHost getter
   String? _nickname;
   String? _currentChannel;
   Map<String, IRCChannel> channels = {};
@@ -57,17 +60,10 @@ class IRCService {
   Map<String, IRCChannel> get allChannels => channels;
   bool get isIRCOp => _isIRCOp;
   
-  bool get _hasActiveSocket => _socket != null || _secureSocket != null;
+  bool get _hasActiveConnection => _connection != null && _connection!.isConnected;
 
   /// Obtiene el host del servidor conectado
-  String? get serverHost {
-    if (_useSSL && _secureSocket != null) {
-      return _secureSocket!.remoteAddress.host;
-    } else if (_socket != null) {
-      return _socket!.remoteAddress.host;
-    }
-    return null;
-  }
+  String? get serverHost => _currentHost;
 
   String _currentServerId(String host, int port) => '$host:$port${_useSSL ? ':ssl' : ''}';
 
@@ -79,75 +75,35 @@ class IRCService {
   }) async {
     try {
       _useSSL = useSSL;
+      _currentHost = host;
       print('📡 [IRCService.connect] Connecting to $host:$port as $nickname (SSL: $useSSL)');
+      print('📡 [IRCService.connect] Platform: ${PlatformUtils.isWeb ? "Web" : "Native"}');
       _nickname = nickname;
       _isRegistered = false; // Reset registration status
       _connectionCompleter = Completer<void>(); // Reinicializar el completer
       
-      // Connect to the server with timeout
-      if (useSSL) {
-        // Usar SecureSocket para conexiones SSL/TLS
-        final context = SecurityContext.defaultContext;
-        try {
-          _secureSocket = await SecureSocket.connect(
-            host,
-            port,
-            context: context,
-            timeout: const Duration(seconds: 15),
-            onBadCertificate: (X509Certificate cert) {
-              // Aceptar certificados autofirmados o con problemas
-              // En producción, deberías validar el certificado adecuadamente
-              print('⚠️ [IRCService] Certificate warning: ${cert.subject}');
-              print('⚠️ [IRCService] Accepting certificate anyway');
-              return true; // Aceptar el certificado
-            },
-          );
-          print('✅ [IRCService] SecureSocket connected (SSL/TLS)');
-        } catch (e) {
-          print('❌ [IRCService] SSL connection error: $e');
-          print('❌ [IRCService] Error type: ${e.runtimeType}');
-          rethrow;
-        }
-        
-        // Start listening to incoming data (non-blocking)
-        _socketSubscription = _secureSocket!.listen(
-          (List<int> event) {
-            // Decodificar como UTF-8 para soportar emoticonos y caracteres especiales
-            String data = utf8.decode(event, allowMalformed: true);
-            _handleData(data);
-          },
-          onDone: () {
-            print('⛔ [IRCService] SecureSocket closed');
-            _onDisconnect();
-          },
-          onError: (error) {
-            print('❌ [IRCService] SecureSocket error: $error');
-            _onDisconnect();
-          },
-        );
-      } else {
-        // Usar Socket normal para conexiones no seguras
-      _socket = await Socket.connect(host, port,
-          timeout: const Duration(seconds: 10));
-      print('✅ [IRCService] Socket connected');
+      // Crear conexión apropiada para la plataforma
+      _connection = IRCConnectionFactory.create();
+      
+      // Conectar usando la interfaz abstracta
+      await _connection!.connect(host, port, useSSL: useSSL);
+      print('✅ [IRCService] Connection established');
       
       // Start listening to incoming data (non-blocking)
-      _socketSubscription = _socket!.listen(
-        (List<int> event) {
-            // Decodificar como UTF-8 para soportar emoticonos y caracteres especiales
-            String data = utf8.decode(event, allowMalformed: true);
+      // El stream ya devuelve String, no necesita decodificación
+      _socketSubscription = _connection!.stream.listen(
+        (String data) {
           _handleData(data);
         },
         onDone: () {
-          print('⛔ [IRCService] Socket closed');
+          print('⛔ [IRCService] Connection closed');
           _onDisconnect();
         },
         onError: (error) {
-          print('❌ [IRCService] Socket error: $error');
+          print('❌ [IRCService] Connection error: $error');
           _onDisconnect();
         },
       );
-      }
 
       // Send initial IRC commands
       _sendCommand('NICK $nickname');
@@ -175,21 +131,16 @@ class IRCService {
   }
 
   void disconnect() {
-    if (_useSSL && _secureSocket != null) {
-      _sendCommand('QUIT :Goodbye');
-      _socketSubscription?.cancel();
-      _secureSocket?.close();
-      _secureSocket = null;
-      _isConnected = false;
-    } else if (_socket != null) {
+    if (_connection != null && _connection!.isConnected) {
       _sendCommand('QUIT :Goodbye');
       _socketSubscription?.cancel();
       // Cancelar todos los timers pendientes
       _pendingMessageTimers.values.forEach((timer) => timer.cancel());
       _pendingMessageTimers.clear();
-      _socket?.close();
-      _socket = null;
+      _connection!.close();
+      _connection = null;
       _isConnected = false;
+      _currentHost = null;
     }
   }
 
@@ -282,7 +233,7 @@ class IRCService {
     // Solicitar la lista de usuarios y el TOPIC después de unirse
     // Usar múltiples intentos para asegurar que se reciba la lista
     Future.delayed(const Duration(milliseconds: 500), () {
-      if (_isConnected && _hasActiveSocket) {
+      if (_isConnected && _hasActiveConnection) {
         print('🔍 [DEBUG] Requesting NAMES for $normalized (first attempt)');
         _sendCommand('NAMES $normalized');
         print('🔍 [DEBUG] Requesting TOPIC for $normalized (first attempt)');
@@ -291,7 +242,7 @@ class IRCService {
     });
     
     Future.delayed(const Duration(milliseconds: 1500), () {
-      if (_isConnected && _hasActiveSocket) {
+      if (_isConnected && _hasActiveConnection) {
         print('🔍 [DEBUG] Requesting NAMES for $normalized (second attempt)');
         _sendCommand('NAMES $normalized');
         print('🔍 [DEBUG] Requesting TOPIC for $normalized (second attempt)');
@@ -300,7 +251,7 @@ class IRCService {
     });
     
     Future.delayed(const Duration(milliseconds: 3000), () {
-      if (_isConnected && _hasActiveSocket) {
+      if (_isConnected && _hasActiveConnection) {
         print('🔍 [DEBUG] Requesting NAMES for $normalized (third attempt)');
         _sendCommand('NAMES $normalized');
         print('🔍 [DEBUG] Requesting TOPIC for $normalized (third attempt)');
@@ -1306,14 +1257,13 @@ class IRCService {
   }
 
   void _sendCommand(String command) {
-    if (_useSSL && _secureSocket != null) {
-      print('🔍 [DEBUG] Sending command (SSL): $command');
-      _secureSocket!.writeln(command);
-    } else if (_socket != null) {
+    if (_connection != null && _connection!.isConnected) {
       print('🔍 [DEBUG] Sending command: $command');
-      _socket!.writeln(command);
+      // Agregar \r\n para compatibilidad IRC
+      final ircCommand = command.endsWith('\r\n') ? command : '$command\r\n';
+      _connection!.send(ircCommand);
     } else {
-      print('🔍 [DEBUG] ⚠️  Cannot send command "$command": socket is null');
+      print('🔍 [DEBUG] ⚠️  Cannot send command "$command": connection is null or not connected');
     }
   }
 
@@ -1876,7 +1826,7 @@ class IRCService {
               
               // También solicitar después de delays
               Future.delayed(const Duration(milliseconds: 500), () {
-                if (_isConnected && _hasActiveSocket) {
+                if (_isConnected && _hasActiveConnection) {
                   print('🔍 [DEBUG] Requesting NAMES for $channel (delayed 500ms)');
                   _sendCommand('NAMES $channel');
                   print('🔍 [DEBUG] Requesting TOPIC for $channel (delayed 500ms)');
@@ -1885,7 +1835,7 @@ class IRCService {
               });
               
               Future.delayed(const Duration(milliseconds: 1500), () {
-                if (_isConnected && _hasActiveSocket) {
+                if (_isConnected && _hasActiveConnection) {
                   print('🔍 [DEBUG] Requesting NAMES for $channel (delayed 1500ms)');
                   _sendCommand('NAMES $channel');
                   print('🔍 [DEBUG] Requesting TOPIC for $channel (delayed 1500ms)');
@@ -1894,7 +1844,7 @@ class IRCService {
               });
               
               Future.delayed(const Duration(milliseconds: 3000), () {
-                if (_isConnected && _hasActiveSocket) {
+                if (_isConnected && _hasActiveConnection) {
                   print('🔍 [DEBUG] Requesting NAMES for $channel (delayed 3000ms)');
                   _sendCommand('NAMES $channel');
                   print('🔍 [DEBUG] Requesting TOPIC for $channel (delayed 3000ms)');
@@ -2537,7 +2487,7 @@ class IRCService {
                 
                 // Guardar en historial local (no bloquear el hilo principal)
                 // Usamos el host actual como identificador de servidor
-                final serverId = (_secureSocket ?? _socket)?.remoteAddress.host ?? 'unknown';
+                final serverId = _currentHost ?? 'unknown';
                 // Ignorar errores de forma silenciosa dentro del Future
                 // para no afectar al flujo de mensajes
                 // ignore: unawaited_futures
@@ -2705,8 +2655,8 @@ class IRCService {
     _notifyLagListeners(0); // Notificar lag 0 para resetear
     channels.clear();
     _currentChannel = null;
-    _socket = null;
-    _secureSocket = null;
+    _connection = null;
+    _currentHost = null;
     for (var listener in _disconnectionListeners) {
       listener();
     }
@@ -2845,7 +2795,7 @@ class IRCService {
     _lagPingTimer?.cancel();
     
     // Enviar un PING inmediatamente al conectar
-    if (_isConnected && _hasActiveSocket) {
+    if (_isConnected && _hasActiveConnection) {
       _lastPingToken = DateTime.now().millisecondsSinceEpoch.toString();
       _lastPingSent = DateTime.now();
       _sendCommand('PING $_lastPingToken');
@@ -2854,7 +2804,7 @@ class IRCService {
     
     // Enviar PING cada 3 segundos para medición en tiempo real
     _lagPingTimer = Timer.periodic(const Duration(seconds: 3), (timer) {
-      if (_isConnected && _hasActiveSocket) {
+      if (_isConnected && _hasActiveConnection) {
         // Solo enviar si no hay un PING pendiente (evitar spam)
         if (_lastPingSent == null || DateTime.now().difference(_lastPingSent!).inSeconds > 2) {
           // Generar un token único para este PING
