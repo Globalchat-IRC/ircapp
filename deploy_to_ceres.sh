@@ -1,7 +1,8 @@
 #!/bin/bash
 
 # Script para desplegar IRC App v3.0.0 en ceres.globalchat.org
-# Uso: ./deploy_to_ceres.sh [usuario] [ruta_destino]
+# Usa el alias SSH 'ceres' que tiene stunnel configurado
+# Uso: ./deploy_to_ceres.sh [ruta_destino]
 
 set -e
 
@@ -20,21 +21,11 @@ if [ ! -d "build/web" ]; then
 fi
 
 # Parámetros
-if [ -z "$1" ]; then
-    echo -e "${YELLOW}⚠️  No se especificó usuario SSH${NC}"
-    read -p "Ingresa tu usuario SSH en ceres: " USER
-    if [ -z "$USER" ]; then
-        echo -e "${RED}❌ Error: Se requiere un usuario SSH${NC}"
-        exit 1
-    fi
-else
-    USER=$1
-fi
-
-DEST_PATH=${2:-"/var/www/irc_app"}  # Ruta por defecto
+# Usar alias 'ceres' que tiene stunnel configurado
+DEST_PATH=${1:-"/var/www/irc_app"}  # Ruta por defecto (primer parámetro ahora es la ruta)
 
 echo -e "${YELLOW}📦 Preparando archivos...${NC}"
-echo "   Usuario: $USER"
+echo "   Conexión: ceres (stunnel)"
 echo "   Destino: $DEST_PATH"
 
 # Verificar tamaño del build
@@ -49,17 +40,25 @@ if [[ ! $REPLY =~ ^[Yy]$ ]]; then
     exit 0
 fi
 
-# Crear directorio en ceres si no existe
+# Intentar con alias 'ceres', si falla usar 'ceres.globalchat.org'
+SSH_HOST="ceres"
+if ! ssh -o ConnectTimeout=2 -o BatchMode=yes $SSH_HOST "echo test" >/dev/null 2>&1; then
+    SSH_HOST="ceres.globalchat.org"
+    echo -e "${YELLOW}⚠️  Alias 'ceres' no disponible, usando $SSH_HOST${NC}"
+fi
+
+# Crear directorio en ceres si no existe (con sudo)
 echo -e "${YELLOW}📁 Creando directorio en ceres...${NC}"
-ssh $USER@ceres.globalchat.org "mkdir -p $DEST_PATH"
+ssh $SSH_HOST "sudo mkdir -p $DEST_PATH"
 
-# Subir archivos usando rsync
-echo -e "${YELLOW}📤 Subiendo archivos a ceres...${NC}"
-rsync -avz --progress --delete build/web/ $USER@ceres.globalchat.org:$DEST_PATH/
+# Subir archivos usando rsync (a un directorio temporal primero)
+TEMP_DIR="/tmp/irc_app_$$"
+echo -e "${YELLOW}📤 Subiendo archivos a ceres (temporal)...${NC}"
+rsync -avz --progress --delete build/web/ $SSH_HOST:$TEMP_DIR/
 
-# Verificar permisos
-echo -e "${YELLOW}🔐 Configurando permisos...${NC}"
-ssh $USER@ceres.globalchat.org "sudo chown -R www-data:www-data $DEST_PATH && sudo chmod -R 755 $DEST_PATH"
+# Mover archivos al destino final y configurar permisos
+echo -e "${YELLOW}🔐 Moviendo archivos y configurando permisos...${NC}"
+ssh $SSH_HOST "sudo rm -rf $DEST_PATH/* && sudo cp -r $TEMP_DIR/* $DEST_PATH/ && sudo chown -R www-data:www-data $DEST_PATH && sudo chmod -R 755 $DEST_PATH && rm -rf $TEMP_DIR"
 
 echo -e "${GREEN}✅ Despliegue completado!${NC}"
 echo ""
