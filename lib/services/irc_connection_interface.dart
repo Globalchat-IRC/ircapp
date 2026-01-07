@@ -21,3 +21,4 @@ abstract class IRCConnection {
   void close();
 }
 
+

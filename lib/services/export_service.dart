@@ -46,7 +46,7 @@ class ExportService {
 
       return file.path;
     } catch (e) {
-      print('Error exportando a texto: $e');
+      // print('Error exportando a texto: $e');
       return null;
     }
   }
@@ -117,7 +117,7 @@ class ExportService {
 
       return file.path;
     } catch (e) {
-      print('Error exportando a HTML: $e');
+      // print('Error exportando a HTML: $e');
       return null;
     }
   }
@@ -131,4 +131,5 @@ class ExportService {
         .replaceAll("'", '&#39;');
   }
 }
+
 

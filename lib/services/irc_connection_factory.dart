@@ -19,3 +19,4 @@ class IRCConnectionFactory {
   static IRCConnection createWebSocket() => IRCWebSocketConnection();
 }
 
+

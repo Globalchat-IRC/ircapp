@@ -185,3 +185,4 @@ Esta versión marca un hito importante en la evolución de la aplicación, con u
 **Plataforma**: macOS  
 **Tamaño**: ~55 MB
 
+

@@ -3,6 +3,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
 
 import '../models/irc_message.dart';
+import '../utils/platform_utils.dart';
 
 class ChatHistoryService {
   static final ChatHistoryService _instance = ChatHistoryService._internal();
@@ -11,31 +12,41 @@ class ChatHistoryService {
 
   Database? _db;
 
-  Future<Database> _openDb() async {
+  Future<Database?> _openDb() async {
+    // No usar sqflite en web
+    if (PlatformUtils.isWeb) {
+      return null;
+    }
+    
     if (_db != null) return _db!;
 
-    final docsDir = await getApplicationDocumentsDirectory();
-    final dbPath = p.join(docsDir.path, 'irc_history.db');
+    try {
+      final docsDir = await getApplicationDocumentsDirectory();
+      final dbPath = p.join(docsDir.path, 'irc_history.db');
 
-    _db = await openDatabase(
-      dbPath,
-      version: 1,
-      onCreate: (db, version) async {
-        await db.execute('''
-          CREATE TABLE messages(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            server TEXT,
-            channel TEXT,
-            nick TEXT,
-            message TEXT,
-            timestamp INTEGER,
-            isSystem INTEGER
-          )
-        ''');
-      },
-    );
+      _db = await openDatabase(
+        dbPath,
+        version: 1,
+        onCreate: (db, version) async {
+          await db.execute('''
+            CREATE TABLE messages(
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              server TEXT,
+              channel TEXT,
+              nick TEXT,
+              message TEXT,
+              timestamp INTEGER,
+              isSystem INTEGER
+            )
+          ''');
+        },
+      );
 
-    return _db!;
+      return _db!;
+    } catch (e) {
+      // print('⚠️ [ChatHistoryService] Error abriendo BD: $e');
+      return null;
+    }
   }
 
   Future<void> saveMessage({
@@ -44,6 +55,13 @@ class ChatHistoryService {
   }) async {
     try {
       final db = await _openDb();
+      if (db == null) return; // No disponible en web
+      
+      // No guardar mensajes privados (canales que no empiezan con #)
+      if (!message.channel.startsWith('#')) {
+        return;
+      }
+      
       await db.insert(
         'messages',
         {
@@ -59,7 +77,25 @@ class ChatHistoryService {
     } catch (e) {
       // Evitar romper el cliente por un fallo de BD
       // ignore: avoid_print
-      print('⚠️ [ChatHistoryService] Error guardando mensaje: $e');
+      // print('⚠️ [ChatHistoryService] Error guardando mensaje: $e');
+    }
+  }
+
+  /// Eliminar todos los mensajes privados de la base de datos
+  Future<void> deletePrivateMessages({required String server}) async {
+    try {
+      final db = await _openDb();
+      if (db == null) return; // No disponible en web
+      
+      // Eliminar todos los mensajes donde el canal no empieza con #
+      await db.delete(
+        'messages',
+        where: 'server = ? AND channel NOT LIKE ?',
+        whereArgs: [server, '#%'],
+      );
+    } catch (e) {
+      // ignore: avoid_print
+      // print('⚠️ [ChatHistoryService] Error eliminando mensajes privados: $e');
     }
   }
 
@@ -70,6 +106,7 @@ class ChatHistoryService {
   }) async {
     try {
       final db = await _openDb();
+      if (db == null) return []; // No disponible en web
       final rows = await db.query(
         'messages',
         where: 'server = ? AND channel = ?',
@@ -93,7 +130,7 @@ class ChatHistoryService {
       return messages.reversed.toList();
     } catch (e) {
       // ignore: avoid_print
-      print('⚠️ [ChatHistoryService] Error cargando historial: $e');
+      // print('⚠️ [ChatHistoryService] Error cargando historial: $e');
       return [];
     }
   }
@@ -109,6 +146,7 @@ class ChatHistoryService {
   }) async {
     try {
       final db = await _openDb();
+      if (db == null) return []; // No disponible en web
 
       final where = <String>['server = ?'];
       final args = <Object?>[server];
@@ -156,7 +194,7 @@ class ChatHistoryService {
       return messages.reversed.toList();
     } catch (e) {
       // ignore: avoid_print
-      print('⚠️ [ChatHistoryService] Error buscando en historial: $e');
+      // print('⚠️ [ChatHistoryService] Error buscando en historial: $e');
       return [];
     }
   }

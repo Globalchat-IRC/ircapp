@@ -9,11 +9,28 @@ import '../services/irc_service.dart';
 import '../providers/irc_provider.dart';
 import '../services/radio_service.dart';
 
-class RadioStationsList extends ConsumerWidget {
+class RadioStationsList extends ConsumerStatefulWidget {
   const RadioStationsList({Key? key}) : super(key: key);
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<RadioStationsList> createState() => _RadioStationsListState();
+}
+
+class _RadioStationsListState extends ConsumerState<RadioStationsList> {
+  @override
+  void initState() {
+    super.initState();
+    // Cargar estaciones al abrir el diálogo si no hay ninguna
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final radioState = ref.read(radioProvider);
+      if (radioState.stations.isEmpty) {
+        ref.read(radioProvider.notifier).loadStations();
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final radioState = ref.watch(radioProvider);
     final appTheme = ref.watch(themeProvider);
     final ircService = ref.read(ircServiceProvider);
@@ -37,9 +54,21 @@ class RadioStationsList extends ConsumerWidget {
                     fontWeight: FontWeight.bold,
                   ),
                 ),
-                IconButton(
-                  icon: Icon(Icons.close, color: appTheme.textPrimary),
-                  onPressed: () => Navigator.of(context).pop(),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      icon: Icon(Icons.refresh, color: appTheme.textPrimary),
+                      onPressed: () {
+                        ref.read(radioProvider.notifier).loadStations();
+                      },
+                      tooltip: 'Recargar estaciones',
+                    ),
+                    IconButton(
+                      icon: Icon(Icons.close, color: appTheme.textPrimary),
+                      onPressed: () => Navigator.of(context).pop(),
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -47,9 +76,24 @@ class RadioStationsList extends ConsumerWidget {
             Expanded(
               child: radioState.stations.isEmpty
                   ? Center(
-                      child: Text(
-                        'Cargando estaciones...',
-                        style: TextStyle(color: appTheme.textSecondary),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const CircularProgressIndicator(),
+                          const SizedBox(height: 16),
+                          Text(
+                            'Cargando estaciones...',
+                            style: TextStyle(color: appTheme.textSecondary),
+                          ),
+                          const SizedBox(height: 8),
+                          TextButton.icon(
+                            onPressed: () {
+                              ref.read(radioProvider.notifier).loadStations();
+                            },
+                            icon: const Icon(Icons.refresh),
+                            label: const Text('Recargar'),
+                          ),
+                        ],
                       ),
                     )
                   : ListView.builder(

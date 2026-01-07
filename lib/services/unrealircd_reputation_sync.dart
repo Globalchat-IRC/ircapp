@@ -23,14 +23,14 @@ class UnrealIRCdReputationSync {
     _syncTimer = Timer.periodic(interval, (_) {
       syncAllUsers();
     });
-    print('🔄 [REP-SYNC] Sincronización automática iniciada (cada ${interval.inMinutes} min)');
+    // print('🔄 [REP-SYNC] Sincronización automática iniciada (cada ${interval.inMinutes} min)');
   }
   
   /// Detener sincronización automática
   void stopAutoSync() {
     _syncTimer?.cancel();
     _syncTimer = null;
-    print('🛑 [REP-SYNC] Sincronización automática detenida');
+    // print('🛑 [REP-SYNC] Sincronización automática detenida');
   }
   
   /// Obtener reputación IRC de un usuario via WHOIS
@@ -46,7 +46,7 @@ class UnrealIRCdReputationSync {
       return _ircReputations[nick];
       
     } catch (e) {
-      print('❌ [REP-SYNC] Error al obtener reputación IRC de $nick: $e');
+      // print('❌ [REP-SYNC] Error al obtener reputación IRC de $nick: $e');
       return null;
     }
   }
@@ -59,7 +59,7 @@ class UnrealIRCdReputationSync {
     if (whoisData.containsKey('reputation')) {
       final repScore = whoisData['reputation'] as int;
       _ircReputations[nick] = repScore;
-      print('📊 [REP-SYNC] Reputación IRC de $nick: $repScore/10000');
+      // print('📊 [REP-SYNC] Reputación IRC de $nick: $repScore/10000');
     }
   }
   
@@ -105,12 +105,12 @@ class UnrealIRCdReputationSync {
       final profile = await _dbService.getUserProfile(nick);
       
       if (profile == null) {
-        print('⚠️ [REP-SYNC] Perfil no encontrado para $nick');
+        // print('⚠️ [REP-SYNC] Perfil no encontrado para $nick');
         return null;
       }
       
       if (ircRep == null) {
-        print('⚠️ [REP-SYNC] No se pudo obtener reputación IRC de $nick');
+        // print('⚠️ [REP-SYNC] No se pudo obtener reputación IRC de $nick');
         return profile;
       }
       
@@ -128,7 +128,7 @@ class UnrealIRCdReputationSync {
         final reason = 'Sincronización con IRC (IRC: ${convertIRCToAppReputation(ircRep)}, Video: $videoRep)';
         await _dbService.updateReputation(nick, hybridRep, reason);
         
-        print('✅ [REP-SYNC] $nick: $videoRep → $hybridRep (IRC: ${convertIRCToAppReputation(ircRep)})');
+        // print('✅ [REP-SYNC] $nick: $videoRep → $hybridRep (IRC: ${convertIRCToAppReputation(ircRep)})');
         
         // Devolver perfil actualizado
         return await _dbService.getUserProfile(nick);
@@ -137,7 +137,7 @@ class UnrealIRCdReputationSync {
       return profile;
       
     } catch (e) {
-      print('❌ [REP-SYNC] Error al sincronizar $nick: $e');
+      // print('❌ [REP-SYNC] Error al sincronizar $nick: $e');
       return null;
     }
   }
@@ -148,12 +148,12 @@ class UnrealIRCdReputationSync {
       // Obtener usuarios del canal actual
       final currentChannel = _ircService.currentChannel;
       if (currentChannel == null) {
-        print('⚠️ [REP-SYNC] No hay canal actual');
+        // print('⚠️ [REP-SYNC] No hay canal actual');
         return;
       }
       
       final users = _ircService.channels[currentChannel]?.users ?? <String>[];
-      print('🔄 [REP-SYNC] Sincronizando ${users.length} usuarios...');
+      // print('🔄 [REP-SYNC] Sincronizando ${users.length} usuarios...');
       
       int synced = 0;
       for (final user in users) {
@@ -166,10 +166,10 @@ class UnrealIRCdReputationSync {
         await Future.delayed(const Duration(milliseconds: 100));
       }
       
-      print('✅ [REP-SYNC] Sincronizados $synced/${users.length} usuarios');
+      // print('✅ [REP-SYNC] Sincronizados $synced/${users.length} usuarios');
       
     } catch (e) {
-      print('❌ [REP-SYNC] Error en sincronización masiva: $e');
+      // print('❌ [REP-SYNC] Error en sincronización masiva: $e');
     }
   }
   
@@ -194,7 +194,7 @@ class UnrealIRCdReputationSync {
       };
       
     } catch (e) {
-      print('❌ [REP-SYNC] Error al analizar factores IRC: $e');
+      // print('❌ [REP-SYNC] Error al analizar factores IRC: $e');
       return {};
     }
   }
@@ -258,12 +258,12 @@ class UnrealIRCdReputationSync {
             'Bonificación IRC: ${bonus > 0 ? "+" : ""}$bonus puntos',
           );
           
-          print('🎁 [REP-SYNC] Bonificación IRC para $nick: ${bonus > 0 ? "+" : ""}$bonus');
+          // print('🎁 [REP-SYNC] Bonificación IRC para $nick: ${bonus > 0 ? "+" : ""}$bonus');
         }
       }
       
     } catch (e) {
-      print('❌ [REP-SYNC] Error al aplicar bonificación IRC: $e');
+      // print('❌ [REP-SYNC] Error al aplicar bonificación IRC: $e');
     }
   }
   
@@ -279,7 +279,7 @@ class UnrealIRCdReputationSync {
   /// Limpiar cache
   void clearCache() {
     _ircReputations.clear();
-    print('🗑️ [REP-SYNC] Cache limpiado');
+    // print('🗑️ [REP-SYNC] Cache limpiado');
   }
   
   /// Dispose

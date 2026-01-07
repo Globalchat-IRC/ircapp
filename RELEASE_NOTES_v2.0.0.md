@@ -1,4 +1,4 @@
-# 🎉 IRC App v2.0.0 - Release Notes
+podem# 🎉 IRC App v2.0.0 - Release Notes
 
 ## 🚀 Nueva Versión Mayor - macOS Optimizado
 
@@ -132,4 +132,5 @@ Esta versión marca un hito importante en la evolución de la aplicación, con u
 **Fecha de Release**: Enero 2025  
 **Plataforma**: macOS  
 **Tamaño**: ~50.6 MB
+
 

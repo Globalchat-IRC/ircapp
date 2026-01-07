@@ -228,3 +228,4 @@ ps aux | grep http-server
 
 **Nota**: Asegúrate de que ceres tenga los puertos necesarios abiertos (80, 443, 6667, 6697, 8081 para WebSocket).
 
+

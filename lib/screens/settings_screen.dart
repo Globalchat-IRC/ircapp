@@ -154,6 +154,39 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       ),
                     ],
                   ),
+                  const SizedBox(height: 24),
+                  // Opción para mostrar/ocultar hora
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.access_time,
+                            color: appTheme.primary,
+                            size: 20,
+                          ),
+                          const SizedBox(width: 12),
+                          Text(
+                            'Mostrar hora en mensajes',
+                            style: TextStyle(
+                              color: appTheme.textPrimary,
+                              fontSize: 16,
+                            ),
+                          ),
+                        ],
+                      ),
+                      Switch(
+                        value: formatPrefs.showTimestamp,
+                        onChanged: (value) {
+                          ref
+                              .read(messageFormatPreferencesProvider.notifier)
+                              .setShowTimestamp(value);
+                        },
+                        activeColor: appTheme.primary,
+                      ),
+                    ],
+                  ),
                 ],
               ),
             ),

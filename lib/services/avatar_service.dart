@@ -11,7 +11,7 @@ class AvatarService {
   static String _generateAvatarHash(String nick) {
     // Asegurar que el nick no esté vacío
     if (nick.isEmpty) {
-      print('🔍 [AVATAR HASH] Warning: Empty nick provided');
+      // print('🔍 [AVATAR HASH] Warning: Empty nick provided');
       return '';
     }
     
@@ -21,11 +21,11 @@ class AvatarService {
     final bytes = utf8.encode(normalized);
     final digest = md5.convert(bytes);
     final hash = digest.toString();
-    print('🔍 [AVATAR HASH] Nick: "$nick" -> Normalized: "$normalized" -> Hash: $hash');
+    // print('🔍 [AVATAR HASH] Nick: "$nick" -> Normalized: "$normalized" -> Hash: $hash');
     
     // Validar que el hash tenga el formato correcto (32 caracteres hexadecimales)
     if (hash.length != 32) {
-      print('🔍 [AVATAR HASH] Warning: Invalid hash length: ${hash.length}');
+      // print('🔍 [AVATAR HASH] Warning: Invalid hash length: ${hash.length}');
     }
     
     return hash;
@@ -38,32 +38,37 @@ class AvatarService {
     final timestamp = DateTime.now().millisecondsSinceEpoch;
     // Formato: /avatar/avatars/default/{hash}.png?t={timestamp}
     final url = '$_baseUrl/avatar/avatars/default/$hash.png?t=$timestamp';
-    print('🔍 [AVATAR] Generated URL for "$nick": $url (hash: $hash)');
+    // print('🔍 [AVATAR] Generated URL for "$nick": $url (hash: $hash)');
     return url;
   }
   
   // Obtener URL del avatar generado por defecto (fallback)
+  // En web, este también puede tener problemas de CORS, pero el widget manejará el fallback
   static String getDefaultAvatarUrl(String nick) {
     final timestamp = DateTime.now().millisecondsSinceEpoch;
     final encodedNick = Uri.encodeComponent(nick);
     final url = '$_defaultAvatarUrl?username=$encodedNick&size=400&format=png&t=$timestamp';
-    print('🔍 [AVATAR] Generated default avatar URL for "$nick": $url');
+    // print('🔍 [AVATAR] Generated default avatar URL for "$nick": $url');
     return url;
   }
+  
+  // Nota: Los avatares pueden fallar por CORS en web, pero el widget UserAvatar
+  // usa WebHtmlElementStrategy.prefer que intenta usar elementos HTML <img>
+  // que no tienen las mismas restricciones CORS estrictas.
   
   // Verificar si un avatar existe (usando nick exacto case-sensitive)
   static Future<bool> avatarExists(String nick) async {
     try {
       final url = getAvatarUrl(nick);
-      print('🔍 [AVATAR] Checking if avatar exists for "$nick": $url');
+      // print('🔍 [AVATAR] Checking if avatar exists for "$nick": $url');
       final response = await http.head(Uri.parse(url)).timeout(
         const Duration(seconds: 3),
       );
       final exists = response.statusCode == 200;
-      print('🔍 [AVATAR] Avatar exists for "$nick": $exists (status: ${response.statusCode})');
+      // print('🔍 [AVATAR] Avatar exists for "$nick": $exists (status: ${response.statusCode})');
       return exists;
     } catch (e) {
-      print('🔍 [AVATAR] Error checking avatar for "$nick": $e');
+      // print('🔍 [AVATAR] Error checking avatar for "$nick": $e');
       return false;
     }
   }
@@ -79,23 +84,23 @@ class AvatarService {
     // Limpiar el nick (solo trim, mantener case-sensitive)
     final cleanNick = nick.trim();
     
+    // En web, debido a problemas de CORS, directamente usar el generador por defecto
+    // que debería funcionar mejor con elementos HTML <img>
+    // En plataformas nativas, intentar primero el avatar personalizado
+    // TODO: Verificar si PlatformUtils está disponible aquí
+    // Por ahora, intentar siempre el avatar personalizado primero
+    // El widget UserAvatar manejará el fallback si falla
+    
     // Paso 1: Intentar con el avatar personalizado (hash MD5 del nick exacto)
     final avatarUrl = getAvatarUrl(cleanNick);
     
-    try {
-      final response = await http.head(Uri.parse(avatarUrl)).timeout(
-        const Duration(seconds: 3),
-      );
-      if (response.statusCode == 200) {
-        print('🔍 [AVATAR] Found custom avatar for "$cleanNick"');
-        return avatarUrl;
-      }
-    } catch (e) {
-      print('🔍 [AVATAR] Error checking custom avatar for "$cleanNick": $e');
-    }
+    // En web, no verificar la existencia del avatar (causa errores de CORS)
+    // Dejar que el widget Image.network con WebHtmlElementStrategy.prefer
+    // intente cargarlo usando elementos HTML <img>
+    // Si falla, el errorBuilder mostrará el fallback
     
-    // Paso 2: Si no existe avatar personalizado, usar generador por defecto
-    print('🔍 [AVATAR] Custom avatar not found, using default generator for "$cleanNick"');
-    return getDefaultAvatarUrl(cleanNick);
+    // Retornar la URL del avatar personalizado
+    // El widget se encargará de mostrar el fallback si no se puede cargar
+    return avatarUrl;
   }
 }

@@ -1,0 +1,29 @@
+{
+  "name": "irc-websocket-gateway",
+  "version": "1.0.0",
+  "description": "WebSocket Gateway para enrutar conexiones IRC en GlobalChat",
+  "main": "websocket-gateway.js",
+  "scripts": {
+    "start": "node websocket-gateway.js",
+    "dev": "nodemon websocket-gateway.js"
+  },
+  "keywords": [
+    "irc",
+    "websocket",
+    "gateway",
+    "proxy"
+  ],
+  "author": "GlobalChat",
+  "license": "MIT",
+  "dependencies": {
+    "ws": "^8.14.2"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  }
+}
+
+

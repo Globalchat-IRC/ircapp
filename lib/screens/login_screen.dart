@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
+import 'package:package_info_plus/package_info_plus.dart';
 import 'dart:convert';
 import 'dart:math';
+// Conditional import for web URL parameters
+import 'dart:html' if (dart.library.io) 'dart:io' as html;
 import '../providers/irc_provider.dart';
 import '../providers/theme_provider.dart';
 import '../models/app_theme.dart';
@@ -21,9 +24,9 @@ class LoginScreen extends ConsumerStatefulWidget {
 
 class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _hostController = TextEditingController(text: 'ceres.globalchat.org');
-  // En web, usar puerto WebSocket (4443 para ceres) por defecto, en nativo usar 6667
+  // En web, usar puerto IRC estándar (el gateway maneja la conexión WebSocket)
   final _portController = TextEditingController(
-    text: PlatformUtils.isWeb ? '4443' : '6667',
+    text: '6667',
   );
   late final TextEditingController _nickController;
   final _channelController = TextEditingController(); // Vacío por defecto
@@ -36,6 +39,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   ServerProfile? _selectedServer;
   bool _identifyWithNick = false; // Checkbox para identificar con nick registrado
   bool _obscurePassword = true; // Controlar visibilidad de la contraseña
+  String _appVersion = 'v3.0.0'; // Versión por defecto
+  bool _isAutoJoining = false; // Flag para indicar que está en proceso de autojoin
   
   // Lista de canales prohibidos que no se mostrarán en el combo
   static const List<String> _prohibitedChannels = ['#opers', '#services'];
@@ -43,16 +48,315 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   @override
   void initState() {
     super.initState();
+    
+    // Log muy temprano para verificar que se ejecuta
+    debugPrint('🔍 [INIT] LoginScreen initState iniciado');
+    print('🔍 [INIT] LoginScreen initState iniciado - PRINT');
+    if (PlatformUtils.isWeb) {
+      try {
+        html.window.console.log('🔍 [INIT] LoginScreen initState iniciado - CONSOLE');
+      } catch (e) {
+        // Ignorar si no está disponible
+      }
+    }
+    
+    // Cargar versión de la app
+    _loadAppVersion();
+    
+    // Leer parámetros de la URL si estamos en web
+    String? urlNick;
+    String? urlChannel;
+    bool autoJoin = false;
+    
+    if (PlatformUtils.isWeb) {
+      print('🔍 [INIT] PlatformUtils.isWeb = true, leyendo parámetros de URL');
+      String? hash = '';
+      try {
+        // Usar dart:html para leer la URL del navegador directamente
+        final window = html.window;
+        final location = window.location;
+        
+        // Leer parámetros de la query string y hash
+        final searchParams = location.search ?? '';
+        hash = location.hash ?? '';
+        final fullUrl = location.href ?? '';
+        
+        print('🔍 [URL] searchParams="$searchParams"');
+        print('🔍 [URL] hash="$hash"');
+        print('🔍 [URL] fullUrl="$fullUrl"');
+        
+        // IMPORTANTE: Si el canal tiene # en la query string, el navegador lo mueve al hash
+        // Ejemplo: ?channel=#Globalchat&nick=test -> searchParams="channel=", hash="#Globalchat&nick=test"
+        // Necesitamos parsear manualmente la query string completa antes de que el navegador la procese
+        
+        // Intentar leer directamente de la URL completa usando Uri.parse
+        try {
+          final fullUri = Uri.parse(fullUrl);
+          
+          // Leer parámetros del query string (puede estar vacío si el # está presente)
+          final nickParam = fullUri.queryParameters['nick'];
+          final channelParam = fullUri.queryParameters['channel'];
+          final autoJoinParam = fullUri.queryParameters['autojoin'];
+          
+          print('🔍 [URL] fullUri.queryParameters: ${fullUri.queryParameters}');
+          
+          if (nickParam != null && nickParam.trim().isNotEmpty) {
+            urlNick = nickParam.trim();
+          }
+          
+          // Si channelParam está vacío o solo tiene "=", el canal probablemente está en el hash
+          if (channelParam != null && channelParam.trim().isNotEmpty && channelParam != '=') {
+            urlChannel = channelParam.trim();
+            print('🔍 [URL] Canal leído de query: "$urlChannel"');
+          } else if (channelParam == '=' || (channelParam != null && channelParam.isEmpty)) {
+            print('🔍 [URL] Canal vacío en query, probablemente está en hash');
+          }
+          
+          // Leer parámetro autojoin
+          if (autoJoinParam != null) {
+            final autoJoinValue = autoJoinParam.toLowerCase().trim();
+            autoJoin = autoJoinValue == 'true' || 
+                       autoJoinValue == '1' || 
+                       autoJoinValue == 'yes';
+            print('🔍 [URL] autoJoinParam="$autoJoinParam" -> autoJoin=$autoJoin');
+          }
+        } catch (e) {
+          // Si falla, intentar parsing manual más robusto
+          final queryString = searchParams.startsWith('?') ? searchParams.substring(1) : searchParams;
+          final params = queryString.split('&');
+          
+          for (final param in params) {
+            if (param.trim().isEmpty) continue;
+            
+            final equalIndex = param.indexOf('=');
+            if (equalIndex > 0) {
+              final key = Uri.decodeComponent(param.substring(0, equalIndex).trim());
+              final value = Uri.decodeComponent(param.substring(equalIndex + 1).trim());
+              
+              if (key == 'nick' && value.isNotEmpty) {
+                urlNick = value;
+              } else if (key == 'channel' && value.isNotEmpty) {
+                urlChannel = value;
+              } else if (key == 'autojoin') {
+                autoJoin = value.toLowerCase() == 'true' || 
+                           value == '1' || 
+                           value.toLowerCase() == 'yes';
+              }
+            }
+          }
+        }
+        
+        // IMPORTANTE:
+        // Si el parámetro channel está vacío pero hay un fragmento que empieza con #,
+        // es probable que el usuario haya usado algo como:
+        //   ?channel=#Globalchat&nick=Usuario123&autojoin=true
+        // y el navegador haya movido todo a hash: "#Globalchat&nick=Usuario123&autojoin=true"
+        //
+        // En ese caso:
+        //  - La parte antes del primer & es el canal (#Globalchat)
+        //  - El resto lo tratamos como query string adicional (ej: nick=Usuario123&autojoin=true)
+        if (hash != null && hash.isNotEmpty && hash.startsWith('#')) {
+          print('🔍 [URL] Procesando hash: "$hash"');
+          
+          // Solo usar el fragmento si NO tenemos canal de los parámetros
+          String fragment = hash.substring(1); // quitar '#'
+          if (fragment.isNotEmpty) {
+            final ampIndex = fragment.indexOf('&');
+            String channelFromHash;
+            String extraQuery = '';
+
+            if (ampIndex >= 0) {
+              channelFromHash = fragment.substring(0, ampIndex);
+              extraQuery = fragment.substring(ampIndex + 1);
+            } else {
+              channelFromHash = fragment;
+            }
+
+            print('🔍 [URL] channelFromHash="$channelFromHash", extraQuery="$extraQuery"');
+
+            if ((urlChannel == null || urlChannel.isEmpty || urlChannel == '=') &&
+                channelFromHash.trim().isNotEmpty) {
+              urlChannel = '#${channelFromHash.replaceAll('#', '').trim()}';
+              print('🔍 [URL] Canal establecido desde hash: "$urlChannel"');
+            }
+
+            // Si todavía no tenemos nick y en el fragmento viene algo como nick=Usuario123
+            if (extraQuery.trim().isNotEmpty) {
+              try {
+                final fragUri = Uri(query: extraQuery);
+                print('🔍 [URL] fragUri.queryParameters: ${fragUri.queryParameters}');
+                
+                if ((urlNick == null || urlNick.isEmpty)) {
+                  final nickFromHash = fragUri.queryParameters['nick'];
+                  if (nickFromHash != null && nickFromHash.trim().isNotEmpty) {
+                    urlNick = nickFromHash.trim();
+                    print('🔍 [URL] Nick establecido desde hash: "$urlNick"');
+                  }
+                }
+                
+                // También leer autojoin del hash si está presente
+                if (!autoJoin) {
+                  final autoJoinFromHash = fragUri.queryParameters['autojoin'];
+                  if (autoJoinFromHash != null) {
+                    final autoJoinValue = autoJoinFromHash.toLowerCase().trim();
+                    autoJoin = autoJoinValue == 'true' || 
+                               autoJoinValue == '1' || 
+                               autoJoinValue == 'yes';
+                    print('🔍 [URL] autoJoin establecido desde hash: $autoJoin');
+                  }
+                }
+              } catch (e) {
+                print('🔍 [URL] Error parseando fragmento: $e');
+              }
+            }
+          }
+        }
+        
+        // Debug: verificar que se leyeron los parámetros
+        print('🔍 [URL] Parámetros leídos - nick: $urlNick, channel: $urlChannel, autojoin: $autoJoin, hash: $hash');
+      } catch (e) {
+        // Si hay error leyendo la URL, intentar con Uri.base como fallback
+        try {
+          final uri = Uri.base;
+          final nickParam = uri.queryParameters['nick'];
+          final channelParam = uri.queryParameters['channel'];
+          
+          urlNick = (nickParam != null && nickParam.trim().isNotEmpty) ? nickParam.trim() : null;
+          urlChannel = (channelParam != null && channelParam.trim().isNotEmpty) ? channelParam.trim() : null;
+          
+          // También verificar el fragmento
+          if (uri.fragment.isNotEmpty && uri.fragment.startsWith('#')) {
+            if (urlChannel == null || urlChannel.isEmpty) {
+              urlChannel = '#${uri.fragment}';
+            }
+          }
+        } catch (e2) {
+          // Si ambos fallan, continuar sin parámetros
+        }
+      }
+    }
+    
     // Generar un nickname aleatorio: GlobalChat-XXXXX (número aleatorio de 4-5 dígitos)
+    // O usar el de la URL si está presente
     final random = Random();
     final randomNumber = random.nextInt(90000) + 10000; // Número entre 10000 y 99999
-    _nickController = TextEditingController(text: 'GlobalChat-$randomNumber');
-    // Seleccionar el servidor por defecto
-    _selectedServer = ServerProfile.defaultGlobalChatProfiles.firstWhere(
-      (profile) => profile.isDefault,
-      orElse: () => ServerProfile.defaultGlobalChatProfiles.first,
-    );
-    _updateServerFields(_selectedServer!);
+    final defaultNick = urlNick?.trim() ?? 'GlobalChat-$randomNumber';
+    _nickController = TextEditingController(text: defaultNick);
+    
+    // Pre-llenar el canal si viene en la URL
+    if (urlChannel != null && urlChannel.trim().isNotEmpty) {
+      String channel = urlChannel.trim();
+      // Asegurar que empiece con #
+      if (!channel.startsWith('#')) {
+        channel = '#$channel';
+      }
+      _channelController.text = channel;
+    }
+    
+    // Debug temporal: verificar autojoin
+    if (PlatformUtils.isWeb) {
+      print('🔍 [AUTOJOIN] autoJoin=$autoJoin, urlChannel=$urlChannel, channelController=${_channelController.text}');
+    }
+    
+    // Si autojoin está activado, seleccionar un servidor aleatorio con puerto 6697
+    if (autoJoin && PlatformUtils.isWeb) {
+      // Asegurar que el canal esté en el controlador (puede venir de URL)
+      String? channelToUse = urlChannel;
+      if (channelToUse == null || channelToUse.trim().isEmpty) {
+        channelToUse = _channelController.text.trim();
+      }
+      
+      if (channelToUse != null && channelToUse.trim().isNotEmpty) {
+        // Normalizar el canal
+        String finalChannel = channelToUse.trim();
+        if (!finalChannel.startsWith('#')) {
+          finalChannel = '#$finalChannel';
+        }
+        _channelController.text = finalChannel;
+        
+        // Filtrar servidores con puerto 6697 (SSL)
+        final sslServers = ServerProfile.defaultGlobalChatProfiles
+            .where((profile) => profile.port == 6697 && profile.useSSL)
+            .toList();
+        
+        if (sslServers.isNotEmpty) {
+          // Seleccionar un servidor aleatorio usando round robin con random
+          final random = Random();
+          final selectedIndex = random.nextInt(sslServers.length);
+          _selectedServer = sslServers[selectedIndex];
+          _updateServerFields(_selectedServer!);
+          
+          // Asegurar que el puerto sea 6697
+          _portController.text = '6697';
+          
+          // Conectar automáticamente después de un delay mínimo
+          // Usar un solo callback para reducir el tiempo de espera
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            Future.delayed(const Duration(milliseconds: 300), () async {
+              if (mounted) {
+                // Verificar que tenemos todos los datos necesarios
+                final host = _hostController.text.trim();
+                final portText = _portController.text.trim();
+                final port = int.tryParse(portText) ?? 6697;
+                final nick = _nickController.text.trim();
+                final channel = _channelController.text.trim();
+                
+                // Verificar que todos los campos estén completos
+                if (host.isNotEmpty && nick.isNotEmpty && channel.isNotEmpty) {
+                  print('🔍 [AUTOJOIN] Intentando conectar: host=$host, port=$port, nick=$nick, channel=$channel');
+                  
+                  // Mostrar estado de carga para autojoin
+                  if (mounted) {
+                    setState(() {
+                      _isAutoJoining = true;
+                      _isLoading = true;
+                    });
+                  }
+                  
+                  // Conectar automáticamente
+                  try {
+                    await _connect();
+                    print('🔍 [AUTOJOIN] Conexión exitosa');
+                  } catch (e) {
+                    print('🔍 [AUTOJOIN] Error en conexión: $e');
+                    // Si hay error, mostrar mensaje pero no bloquear
+                    if (mounted) {
+                      setState(() {
+                        _errorMessage = 'Error en auto-join: $e';
+                        _isLoading = false;
+                        _isAutoJoining = false;
+                      });
+                    }
+                  }
+                }
+              }
+            });
+          });
+        } else {
+          // Si no hay servidores SSL, usar el por defecto
+          _selectedServer = ServerProfile.defaultGlobalChatProfiles.firstWhere(
+            (profile) => profile.isDefault,
+            orElse: () => ServerProfile.defaultGlobalChatProfiles.first,
+          );
+          _updateServerFields(_selectedServer!);
+        }
+      } else {
+        // Si no hay canal, usar servidor por defecto
+        _selectedServer = ServerProfile.defaultGlobalChatProfiles.firstWhere(
+          (profile) => profile.isDefault,
+          orElse: () => ServerProfile.defaultGlobalChatProfiles.first,
+        );
+        _updateServerFields(_selectedServer!);
+      }
+    } else {
+      // Seleccionar el servidor por defecto
+      _selectedServer = ServerProfile.defaultGlobalChatProfiles.firstWhere(
+        (profile) => profile.isDefault,
+        orElse: () => ServerProfile.defaultGlobalChatProfiles.first,
+      );
+      _updateServerFields(_selectedServer!);
+    }
+    
     _loadChannels();
   }
 
@@ -89,17 +393,31 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               ..sort((a, b) => b.users.compareTo(a.users)); // Ordenar por usuarios (mayor a menor)
             _loadingChannels = false;
           });
-          print('🔍 [DEBUG] Canales cargados: ${_channels.length}');
+          // print('🔍 [DEBUG] Canales cargados: ${_channels.length}');
           for (var channel in _channels.take(5)) {
-            print('🔍 [DEBUG]   - ${channel.name} (${channel.users} usuarios)');
+            // print('🔍 [DEBUG]   - ${channel.name} (${channel.users} usuarios)');
           }
         }
       }
     } catch (e) {
-      print('Error cargando canales: $e');
+      // print('Error cargando canales: $e');
       setState(() {
         _loadingChannels = false;
       });
+    }
+  }
+
+  // Cargar información de versión de la app
+  Future<void> _loadAppVersion() async {
+    try {
+      final packageInfo = await PackageInfo.fromPlatform();
+      setState(() {
+        _appVersion = 'v${packageInfo.version}';
+      });
+      print('🔍 [LOGIN] App version: $_appVersion');
+    } catch (e) {
+      print('❌ [LOGIN] Error loading app version: $e');
+      // Mantener versión por defecto
     }
   }
 
@@ -131,51 +449,41 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     });
 
     try {
-      globalLog('========================================');
-      globalLog('🔵 [LOGIN] Starting connection');
-      globalLog('========================================');
+      // globalLog('========================================');
+      // globalLog('🔵 [LOGIN] Starting connection');
+      // globalLog('========================================');
       
       final ircService = ref.read(ircServiceProvider);
       
-      globalLog('🔵 [LOGIN] Got IRCService instance');
-      globalLog('🔵 [LOGIN] Calling connect() with $host:$port as $nick');
+      // globalLog('🔵 [LOGIN] Got IRCService instance');
+      // globalLog('🔵 [LOGIN] Calling connect() with $host:$port as $nick');
       
       // Usar SSL si el servidor seleccionado lo requiere
       final useSSL = _selectedServer?.useSSL ?? (port == 6697);
       
-      // En web, ajustar el puerto si es necesario
-      int connectionPort = port;
-      if (PlatformUtils.isWeb) {
-        // Si es ceres.globalchat.org, usar puerto 4443 para WebSocket
-        if (host.toLowerCase().contains('ceres.globalchat.org')) {
-          connectionPort = 4443;
-        } else if (port == 6667 && !useSSL) {
-          // Para otros servidores, si el usuario ingresó 6667 (IRC estándar), usar 6668 (WebSocket)
-          connectionPort = 6668;
-        }
-      }
-      
+      // En web, el gateway maneja la conexión, así que siempre pasamos el puerto IRC real
+      // El gateway se conecta internamente al servidor IRC usando este puerto
       await ircService.connect(
         host: host,
-        port: connectionPort,
+        port: port, // Siempre usar el puerto IRC real (6667 o 6697)
         nickname: nick,
         useSSL: useSSL,
       );
 
-      globalLog('🔵 [LOGIN] connect() returned successfully');
+      // globalLog('🔵 [LOGIN] connect() returned successfully');
       
       // Si se proporcionó una contraseña y se marcó la opción de identificar, identificar el nick
       if (_identifyWithNick && _passwordController.text.trim().isNotEmpty) {
-        globalLog('🔐 [LOGIN] Identificando nick con bot "nick"...');
+        // globalLog('🔐 [LOGIN] Identificando nick con bot "nick"...');
         // Esperar un poco más para que la conexión se establezca completamente
         // y el servidor procese los mensajes iniciales
         await Future.delayed(const Duration(milliseconds: 2000));
-        globalLog('🔐 [LOGIN] Enviando comando IDENTIFY al bot "nick"...');
+        // globalLog('🔐 [LOGIN] Enviando comando IDENTIFY al bot "nick"...');
         ircService.identifyNick(_passwordController.text.trim());
       }
       
       ref.read(currentNicknameProvider.notifier).state = nick;
-      globalLog('🔵 [LOGIN] Set nickname in provider');
+      // globalLog('🔵 [LOGIN] Set nickname in provider');
       
       // Normalizar el nombre del canal antes de guardarlo
       String normalizedChannel = channel.trim();
@@ -200,24 +508,24 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       
       // Set the channel to join (normalizado)
       ref.read(currentChannelProvider.notifier).state = normalizedChannel;
-      globalLog('🔵 [LOGIN] Set channel in provider: "$channel" -> normalized: "$normalizedChannel"');
+      // globalLog('🔵 [LOGIN] Set channel in provider: "$channel" -> normalized: "$normalizedChannel"');
 
-      globalLog('🔵 [LOGIN] About to navigate to ChatScreen');
+      // globalLog('🔵 [LOGIN] About to navigate to ChatScreen');
       
       if (mounted) {
-        globalLog('🔵 [LOGIN] Widget is mounted, navigating...');
+        // globalLog('🔵 [LOGIN] Widget is mounted, navigating...');
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(
             builder: (_) => const ChatScreen(),
           ),
         );
-        globalLog('🔵 [LOGIN] Navigation completed');
+        // globalLog('🔵 [LOGIN] Navigation completed');
       } else {
-        globalLog('❌ [LOGIN] Widget not mounted, cannot navigate');
+        // globalLog('❌ [LOGIN] Widget not mounted, cannot navigate');
       }
     } catch (e, stack) {
-      globalLog('❌ [LOGIN] EXCEPTION: $e');
-      globalLog('❌ [LOGIN] STACK: $stack');
+      // globalLog('❌ [LOGIN] EXCEPTION: $e');
+      // globalLog('❌ [LOGIN] STACK: $stack');
       String errorMessage = 'Error de conexión: $e';
       
       // Mensajes de error más amigables
@@ -230,17 +538,53 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       }
       
       setState(() => _errorMessage = errorMessage);
-      setState(() => _isLoading = false);
+      setState(() {
+        _isLoading = false;
+        _isAutoJoining = false; // Resetear flag de autojoin
+      });
     }
     
-    globalLog('========================================');
-    globalLog('🔵 [LOGIN] _connect() method finished');
-    globalLog('========================================');
+    // globalLog('========================================');
+    // globalLog('🔵 [LOGIN] _connect() method finished');
+    // globalLog('========================================');
   }
 
   @override
   Widget build(BuildContext context) {
     final appTheme = ref.watch(themeProvider);
+    
+    // Si está en proceso de autojoin, mostrar pantalla de carga simple
+    if (_isAutoJoining && _isLoading) {
+      return Scaffold(
+        backgroundColor: appTheme.background,
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              CircularProgressIndicator(
+                valueColor: AlwaysStoppedAnimation<Color>(appTheme.primary),
+              ),
+              const SizedBox(height: 24),
+              Text(
+                'Conectando automáticamente...',
+                style: TextStyle(
+                  color: appTheme.textPrimary,
+                  fontSize: 16,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Canal: ${_channelController.text}',
+                style: TextStyle(
+                  color: appTheme.textSecondary,
+                  fontSize: 14,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
     
     return Scaffold(
       appBar: AppBar(
@@ -249,6 +593,31 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         foregroundColor: appTheme.textPrimary,
         elevation: 2,
         actions: [
+          // Mostrar versión
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 8.0),
+            child: Center(
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: appTheme.primary.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: appTheme.textPrimary.withOpacity(0.3),
+                    width: 1,
+                  ),
+                ),
+                child: Text(
+                  _appVersion,
+                  style: TextStyle(
+                    color: appTheme.textPrimary,
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ),
+          ),
           IconButton(
             icon: const Icon(Icons.palette),
             tooltip: 'Cambiar tema',
@@ -297,7 +666,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      _AnimatedLogo(),
+                      _AnimatedLogo(appTheme: appTheme),
                   const SizedBox(height: 24),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
@@ -734,6 +1103,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
 // Widget animado para el logo de GlobalChat
 class _AnimatedLogo extends StatefulWidget {
+  final AppTheme appTheme;
+  
+  const _AnimatedLogo({required this.appTheme});
+  
   @override
   State<_AnimatedLogo> createState() => _AnimatedLogoState();
 }
@@ -802,8 +1175,13 @@ class _AnimatedLogoState extends State<_AnimatedLogo>
                   height: 200,
                   width: 200,
                   fit: BoxFit.contain,
+                  // En web, usar WebHtmlElementStrategy.prefer para evitar problemas de CORS
+                  // Esto intenta usar elementos HTML <img> que no tienen las mismas restricciones CORS
+                  webHtmlElementStrategy: PlatformUtils.isWeb 
+                      ? WebHtmlElementStrategy.prefer 
+                      : WebHtmlElementStrategy.never,
                   errorBuilder: (context, error, stackTrace) {
-                    // Si falla la carga, mostrar el icono original
+                    // Si falla la carga, mostrar el icono con colores del tema
                     return Container(
                       height: 200,
                       width: 200,
@@ -812,15 +1190,24 @@ class _AnimatedLogoState extends State<_AnimatedLogo>
                         shape: BoxShape.circle,
                         gradient: LinearGradient(
                           colors: [
-                            const Color(0xFFFFD700), // Amarillo dorado
-                            const Color(0xFFFFA500), // Naranja
+                            widget.appTheme.primary,
+                            widget.appTheme.secondary,
                           ],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
                         ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: widget.appTheme.primary.withOpacity(0.4),
+                            blurRadius: 20,
+                            spreadRadius: 5,
+                          ),
+                        ],
                       ),
-                      child: const Icon(
+                      child: Icon(
                         Icons.chat_bubble,
                         size: 80,
-                        color: Colors.white,
+                        color: widget.appTheme.textPrimary,
                       ),
                     );
                   },
@@ -830,9 +1217,9 @@ class _AnimatedLogoState extends State<_AnimatedLogo>
                       height: 200,
                       width: 200,
                       padding: const EdgeInsets.all(16),
-                      child: const CircularProgressIndicator(
+                      child: CircularProgressIndicator(
                         strokeWidth: 3,
-                        valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFFFA500)),
+                        valueColor: AlwaysStoppedAnimation<Color>(widget.appTheme.primary),
                       ),
                     );
                   },
@@ -898,7 +1285,7 @@ class _ChannelSelectorState extends State<_ChannelSelector> {
               channel.topic.toLowerCase().contains(query);
         }).toList();
       }
-      print('🔍 [DEBUG] _updateFilteredChannels: ${_filteredChannels.length} canales filtrados de ${widget.channels.length} totales');
+      // print('🔍 [DEBUG] _updateFilteredChannels: ${_filteredChannels.length} canales filtrados de ${widget.channels.length} totales');
     });
   }
 
@@ -940,7 +1327,7 @@ class _ChannelSelectorState extends State<_ChannelSelector> {
       });
     }
     
-    print('🔍 [DEBUG] _showDropdownOverlay: ${_filteredChannels.length} canales, ${widget.channels.length} totales');
+    // print('🔍 [DEBUG] _showDropdownOverlay: ${_filteredChannels.length} canales, ${widget.channels.length} totales');
     
     // Usar showModalBottomSheet en lugar de overlay personalizado
     showModalBottomSheet(
@@ -1122,13 +1509,13 @@ class _ChannelSelectorState extends State<_ChannelSelector> {
                                   )
                                 : null,
                             onTap: () {
-                              print('🔍 [DEBUG] ✅✅✅✅✅ TAP DETECTADO en canal: ${option.name}');
+                              // print('🔍 [DEBUG] ✅✅✅✅✅ TAP DETECTADO en canal: ${option.name}');
                               widget.controller.text = option.name;
                               widget.controller.selection = TextSelection(
                                 baseOffset: widget.controller.text.length,
                                 extentOffset: widget.controller.text.length,
                               );
-                              print('🔍 [DEBUG] Controlador actualizado: "${widget.controller.text}"');
+                              // print('🔍 [DEBUG] Controlador actualizado: "${widget.controller.text}"');
                               Navigator.pop(context);
                               _focusNode.unfocus();
                             },
@@ -1225,7 +1612,7 @@ class _ChannelSelectorState extends State<_ChannelSelector> {
           ),
         ),
         onTap: () {
-          print('🔍 [DEBUG] onTap del TextField: ${widget.channels.length} canales disponibles');
+          // print('🔍 [DEBUG] onTap del TextField: ${widget.channels.length} canales disponibles');
           if (widget.channels.isNotEmpty) {
             // Si el campo está vacío, asegurar que se muestren todos los canales
             if (widget.controller.text.trim().isEmpty) {
@@ -1234,7 +1621,7 @@ class _ChannelSelectorState extends State<_ChannelSelector> {
             // Mostrar el dropdown siempre
             _showDropdownOverlay();
           } else {
-            print('🔍 [DEBUG] ⚠️  No hay canales disponibles aún');
+            // print('🔍 [DEBUG] ⚠️  No hay canales disponibles aún');
           }
         },
     );

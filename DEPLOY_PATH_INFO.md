@@ -71,3 +71,4 @@ Usa otra ruta si:
 - Ya tienes una estructura específica
 - Es para testing/desarrollo
 
+

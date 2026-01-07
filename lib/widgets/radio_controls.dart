@@ -20,82 +20,116 @@ class _RadioControlsState extends ConsumerState<RadioControls> {
   @override
   void initState() {
     super.initState();
-    print('📻 RadioControls initState');
+    // print('📻 RadioControls initState');
     // Verificar estado actual
     final currentState = ref.read(radioProvider);
-    print('📻 Estado actual: ${currentState.stations.length} estaciones');
+    // print('📻 Estado actual: ${currentState.stations.length} estaciones');
     
     // Cargar estaciones al iniciar si no hay ninguna
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final state = ref.read(radioProvider);
       if (state.stations.isEmpty) {
-        print('📻 No hay estaciones, cargando desde RadioControls...');
+        // print('📻 No hay estaciones, cargando desde RadioControls...');
         ref.read(radioProvider.notifier).loadStations();
       } else {
-        print('📻 Ya hay ${state.stations.length} estaciones cargadas');
+        // print('📻 Ya hay ${state.stations.length} estaciones cargadas');
       }
     });
   }
 
-  void _playStation([RadioStation? station]) {
+  void _playStation([RadioStation? station]) async {
     final radioState = ref.read(radioProvider);
     final radioService = ref.read(radioServiceProvider);
     final stationToPlay = station ?? radioState.activeStation;
     
-    print('📻 _playStation llamado');
-    print('📻 Estaciones disponibles: ${radioState.stations.length}');
-    print('📻 Estación a reproducir: ${stationToPlay?.name ?? "ninguna"}');
+    // print('📻 _playStation llamado');
+    // print('📻 Estaciones disponibles: ${radioState.stations.length}');
+    // print('📻 Estación a reproducir: ${stationToPlay?.name ?? "ninguna"}');
+    
+    // Asegurar que el RadioService esté inicializado
+    await radioService.initialize();
     
     if (stationToPlay == null) {
-      print('📻 No hay estación seleccionada');
-      // Si no hay estación activa, elegir una aleatoria
+      // print('📻 No hay estación seleccionada');
+      // Si no hay estación activa, elegir la primera disponible
       if (radioState.stations.isNotEmpty) {
-        final randomStation = radioState.stations[
-          (radioState.stations.length * 0.5).floor()
-        ];
-        print('📻 Seleccionando estación aleatoria: ${randomStation.name}');
-        ref.read(radioProvider.notifier).setActiveStation(randomStation);
-        radioService.playStation(randomStation).then((_) {
-          print('📻 Reproducción iniciada exitosamente');
+        final firstStation = radioState.stations.first;
+        // print('📻 Seleccionando primera estación: ${firstStation.name}');
+        ref.read(radioProvider.notifier).setActiveStation(firstStation);
+        try {
+          await radioService.playStation(firstStation);
+          // print('📻 Reproducción iniciada exitosamente');
           ref.read(radioProvider.notifier).setPlaying(true);
-        }).catchError((e) {
-          print('❌ Error al reproducir: $e');
+          ref.read(radioProvider.notifier).setError(false);
+        } catch (e) {
+          // print('❌ Error al reproducir: $e');
           ref.read(radioProvider.notifier).setError(true);
-        });
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Error al reproducir la radio: $e'),
+                backgroundColor: Colors.red,
+                duration: const Duration(seconds: 3),
+              ),
+            );
+          }
+        }
       } else {
-        print('❌ No hay estaciones disponibles');
+        // print('❌ No hay estaciones disponibles');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('No hay estaciones de radio disponibles. Cargando...'),
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+        // Intentar cargar estaciones
+        ref.read(radioProvider.notifier).loadStations();
       }
       return;
     }
 
-    print('📻 Reproduciendo: ${stationToPlay.name}');
+    // print('📻 Reproduciendo: ${stationToPlay.name}');
     ref.read(radioProvider.notifier).setActiveStation(stationToPlay);
     ref.read(radioProvider.notifier).setError(false);
-    radioService.playStation(stationToPlay).then((_) {
-      print('📻 Reproducción iniciada exitosamente');
+    
+    try {
+      await radioService.playStation(stationToPlay);
       ref.read(radioProvider.notifier).setPlaying(true);
       ref.read(radioProvider.notifier).setError(false);
-    }).catchError((e) {
-      print('❌ Error al reproducir: $e');
+    } catch (e) {
       ref.read(radioProvider.notifier).setError(true);
       ref.read(radioProvider.notifier).setPlaying(false);
       
-      // Mostrar mensaje al usuario
+      // Mostrar mensaje al usuario con información útil
       if (mounted) {
+        String errorMessage = 'No se pudo reproducir ${stationToPlay.name}';
+        if (e.toString().contains('CORS') || e.toString().contains('Failed to load')) {
+          errorMessage += '\n\nEl servidor de radio puede tener restricciones de CORS.\nIntenta con otra estación.';
+        } else {
+          errorMessage += '\n\nError: ${e.toString().split(':').last.trim()}\nIntenta con otra estación.';
+        }
+        
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              'No se pudo reproducir ${stationToPlay.name}.\n'
-              'Algunos streams no son compatibles con el reproductor de macOS.\n'
-              'Intenta con otra estación.',
+              errorMessage,
               style: const TextStyle(color: Colors.white),
             ),
             backgroundColor: Colors.orange,
-            duration: const Duration(seconds: 5),
+            duration: const Duration(seconds: 6),
+            action: SnackBarAction(
+              label: 'Cerrar',
+              textColor: Colors.white,
+              onPressed: () {
+                ScaffoldMessenger.of(context).hideCurrentSnackBar();
+              },
+            ),
           ),
         );
       }
-    });
+    }
   }
 
   void _pauseStation() {
@@ -154,16 +188,16 @@ class _RadioControlsState extends ConsumerState<RadioControls> {
     
     // Debug: mostrar estado actual
     if (radioState.stations.isEmpty) {
-      print('📻 [build] No hay estaciones cargadas aún');
+      // print('📻 [build] No hay estaciones cargadas aún');
       // Intentar cargar si aún no se han cargado
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (ref.read(radioProvider).stations.isEmpty) {
-          print('📻 [build] Forzando carga de estaciones...');
+          // print('📻 [build] Forzando carga de estaciones...');
           ref.read(radioProvider.notifier).loadStations();
         }
       });
     } else {
-      print('📻 [build] Estaciones: ${radioState.stations.length}, Activa: ${radioState.activeStation?.name ?? "ninguna"}, Reproduciendo: ${radioState.isPlaying}');
+      // print('📻 [build] Estaciones: ${radioState.stations.length}, Activa: ${radioState.activeStation?.name ?? "ninguna"}, Reproduciendo: ${radioState.isPlaying}');
     }
 
     return Container(

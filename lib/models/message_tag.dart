@@ -62,3 +62,4 @@ class MessageTag extends Equatable {
   List<Object?> get props => [id, name, color, description, createdAt, usageCount];
 }
 
+

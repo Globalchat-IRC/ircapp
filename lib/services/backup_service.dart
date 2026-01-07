@@ -5,6 +5,7 @@ import 'package:file_picker/file_picker.dart';
 import 'dart:convert';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart' as path;
+import '../utils/platform_utils.dart';
 
 /// Servicio para backup y sincronización
 class BackupService {
@@ -61,7 +62,7 @@ class BackupService {
       backupData['metadata'] = {
         'version': '2.1.0',
         'createdAt': DateTime.now().toIso8601String(),
-        'platform': Platform.operatingSystem,
+        'platform': PlatformUtils.isWeb ? 'web' : 'unknown', // Simplificado para web
       };
 
       // Guardar backup
@@ -87,7 +88,7 @@ class BackupService {
 
       return backupFile.path;
     } catch (e) {
-      print('Error creando backup: $e');
+      // print('Error creando backup: $e');
       return null;
     }
   }
@@ -155,7 +156,7 @@ class BackupService {
 
       return true;
     } catch (e) {
-      print('Error restaurando backup: $e');
+      // print('Error restaurando backup: $e');
       return false;
     }
   }
@@ -200,7 +201,7 @@ class BackupService {
 
       return null;
     } catch (e) {
-      print('Error exportando configuración: $e');
+      // print('Error exportando configuración: $e');
       return null;
     }
   }

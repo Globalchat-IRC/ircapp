@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'dart:ui' as ui;
-import 'dart:io';
 import 'dart:convert';
+// Conditional import for Platform (native only)
+import 'dart:io' if (dart.library.html) 'dart:html' as io;
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
@@ -28,6 +30,7 @@ import '../widgets/animated_topic_text.dart';
 import '../widgets/user_avatar.dart';
 import '../services/avatar_service.dart';
 import '../utils/irc_color_parser.dart';
+import '../utils/platform_utils.dart';
 import '../widgets/radio_controls.dart';
 import '../services/emoji_service.dart';
 import '../models/whois_info.dart';
@@ -60,6 +63,7 @@ import '../providers/contacts_provider.dart';
 import '../providers/tags_provider.dart';
 import '../providers/radio_provider.dart';
 import '../models/radio_station.dart';
+import '../services/radio_service.dart';
 import '../screens/privacy_settings_screen.dart';
 import 'package:flutter_highlight/themes/github.dart';
 import 'package:flutter_highlight/themes/dracula.dart';
@@ -328,16 +332,19 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     super.initState();
     _ircService = ref.read(ircServiceProvider);
     
-    print('🎬 [ChatScreen] Initialized');
-    print('🎬 [ChatScreen] isConnected=${_ircService.isConnected}');
+    // print('🎬 [ChatScreen] Initialized');
+    // print('🎬 [ChatScreen] isConnected=${_ircService.isConnected}');
     
     // Inicializar servicios v2.0.0
-    if (Platform.isMacOS) {
+    if (!PlatformUtils.isWeb && PlatformUtils.isMacOS) {
       _notificationService.initialize();
     }
     
     // Inicializar servicios v2.1.0
     _initializeV21Services();
+    
+    // Inicializar el servicio de radio solo cuando se entra al chat
+    RadioService().initialize();
     
     // Cargar información de versión
     _loadAppVersion();
@@ -366,22 +373,40 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     // Listener para autocompletado de comandos
     _messageController.addListener(_onMessageTextChanged);
     
+    // Listener para cerrar sugerencias cuando el campo pierde el foco
+    _messageFocusNode.addListener(() {
+      if (!_messageFocusNode.hasFocus) {
+        // Cerrar sugerencias cuando el campo pierde el foco
+        if (_showNickSuggestions || _showCommandSuggestions) {
+          setState(() {
+            _showNickSuggestions = false;
+            _nickSuggestions = [];
+            _selectedNickIndex = -1;
+            _nickStartPosition = -1;
+            _showCommandSuggestions = false;
+            _commandSuggestions = [];
+            _selectedSuggestionIndex = -1;
+          });
+        }
+      }
+    });
+    
     // Get the channel from provider (was set in LoginScreen)
     final channel = ref.read(currentChannelProvider);
-    print('🎬 [ChatScreen] Got channel from provider: $channel');
+    // print('🎬 [ChatScreen] Got channel from provider: $channel');
     
     // Únete después del primer frame y esperar a que el servidor termine de registrar al usuario
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final targetChannel = (channel != null && channel.isNotEmpty) ? channel : '#general';
       if (channel == null || channel.isEmpty) {
-      print('⚠️  [ChatScreen] No channel specified, using #general');
+      // print('⚠️  [ChatScreen] No channel specified, using #general');
       }
       
       // Esperar un poco más para asegurar que el servidor haya terminado de registrar al usuario
       // El servidor envía el 001 (Welcome) cuando el usuario está registrado
-      print('📍 [ChatScreen] Waiting for server registration before joining initial channels');
-      Future.delayed(const Duration(milliseconds: 2000), () async {
+      // print('📍 [ChatScreen] Waiting for server registration before joining initial channels');
+      Future.delayed(const Duration(milliseconds: 1500), () async {
         if (!mounted) return;
         if (_initialJoinDone) return;
 
@@ -392,31 +417,31 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           final dynamic notifier = favoritesNotifier;
           if (notifier.runtimeType.toString().contains('FavoritesNotifier')) {
             await notifier.waitForInitialization();
-            print('✅ [ChatScreen] Favoritos inicializados completamente');
+            // print('✅ [ChatScreen] Favoritos inicializados completamente');
           }
         } catch (e) {
-          print('⚠️  [ChatScreen] Error esperando inicialización de favoritos: $e');
+          // print('⚠️  [ChatScreen] Error esperando inicialización de favoritos: $e');
         }
         
         // Esperar un poco más para asegurar que los favoritos se hayan cargado completamente
         await Future.delayed(const Duration(milliseconds: 300));
         
         final favoritesNow = ref.read(favoritesProvider).toList();
-        print('📍 [ChatScreen] ========== AUTOJOIN DE CANALES ==========');
-        print('📍 [ChatScreen] Favoritos cargados del provider: $favoritesNow');
-        print('📍 [ChatScreen] Total de favoritos: ${favoritesNow.length}');
+        // print('📍 [ChatScreen] ========== AUTOJOIN DE CANALES ==========');
+        // print('📍 [ChatScreen] Favoritos cargados del provider: $favoritesNow');
+        // print('📍 [ChatScreen] Total de favoritos: ${favoritesNow.length}');
         
         // Filtrar solo canales válidos (que empiecen con #)
         final validFavorites = favoritesNow.where((fav) => fav.startsWith('#')).toList();
-        print('📍 [ChatScreen] Favoritos válidos (que empiezan con #): $validFavorites');
-        print('📍 [ChatScreen] Total de favoritos válidos: ${validFavorites.length}');
+        // print('📍 [ChatScreen] Favoritos válidos (que empiezan con #): $validFavorites');
+        // print('📍 [ChatScreen] Total de favoritos válidos: ${validFavorites.length}');
         
         // TEMPORALMENTE DESHABILITADO: Autojoin de favoritos
         // El usuario puede unirse manualmente a los canales que quiera
         // Esto evita que canales no deseados se unan automáticamente
         _initialJoinDone = true;
-        print('📍 [ChatScreen] ✅ Autojoin de favoritos DESHABILITADO. Uniéndose solo a canal por defecto: $targetChannel');
-        print('📍 [ChatScreen] ℹ️  Si quieres unirte a favoritos, hazlo manualmente desde el menú');
+        // print('📍 [ChatScreen] ✅ Autojoin de favoritos DESHABILITADO. Uniéndose solo a canal por defecto: $targetChannel');
+        // print('📍 [ChatScreen] ℹ️  Si quieres unirte a favoritos, hazlo manualmente desde el menú');
         _joinChannel(targetChannel);
         
         // CÓDIGO ORIGINAL (comentado para debugging):
@@ -432,34 +457,34 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         //   print('📍 [ChatScreen] ✅ No hay favoritos válidos, uniéndose solo a canal por defecto: $targetChannel');
         //   _joinChannel(targetChannel);
         // }
-        print('📍 [ChatScreen] ===========================================');
+        // print('📍 [ChatScreen] ===========================================');
       });
     });
   }
 
   void _onUserListChanged(String channel) {
-    print('👥 _onUserListChanged called for: $channel');
+    // print('👥 _onUserListChanged called for: $channel');
     if (mounted) {
-      print('  🔄 Scheduling Riverpod update post-frame');
+      // print('  🔄 Scheduling Riverpod update post-frame');
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
       ref.read(channelsProvider.notifier).updateChannels();
         setState(() {
-          print('  🔄 setState after post-frame');
+          // print('  🔄 setState after post-frame');
         });
       });
     }
   }
 
   void _onTopicChanged(String channel) {
-    print('📌 _onTopicChanged called for: $channel');
+    // print('📌 _onTopicChanged called for: $channel');
     if (mounted) {
-      print('  🔄 Scheduling Riverpod update post-frame for topic');
+      // print('  🔄 Scheduling Riverpod update post-frame for topic');
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         ref.read(channelsProvider.notifier).updateChannels();
       setState(() {
-          print('  🔄 setState after post-frame for topic');
+          // print('  🔄 setState after post-frame for topic');
         });
       });
     }
@@ -492,21 +517,21 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   }
 
   void _onNickChanged(String newNick) {
-    print('🔄 [ChatScreen] _onNickChanged called: $newNick');
-    print('🔄 [ChatScreen] mounted: $mounted');
+    // print('🔄 [ChatScreen] _onNickChanged called: $newNick');
+    // print('🔄 [ChatScreen] mounted: $mounted');
     if (mounted) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        print('🔄 [ChatScreen] PostFrameCallback ejecutado, mounted: $mounted');
+        // print('🔄 [ChatScreen] PostFrameCallback ejecutado, mounted: $mounted');
         if (!mounted) {
-          print('🔄 [ChatScreen] ❌ Widget no está montado, cancelando actualización');
+          // print('🔄 [ChatScreen] ❌ Widget no está montado, cancelando actualización');
           return;
         }
         final oldNick = ref.read(currentNicknameProvider);
-        print('🔄 [ChatScreen] Nick anterior en provider: $oldNick');
-        print('🔄 [ChatScreen] Actualizando provider a: $newNick');
+        // print('🔄 [ChatScreen] Nick anterior en provider: $oldNick');
+        // print('🔄 [ChatScreen] Actualizando provider a: $newNick');
         ref.read(currentNicknameProvider.notifier).state = newNick;
         final updatedNick = ref.read(currentNicknameProvider);
-        print('🔄 [ChatScreen] ✅ Provider actualizado, nuevo valor: $updatedNick');
+        // print('🔄 [ChatScreen] ✅ Provider actualizado, nuevo valor: $updatedNick');
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Nick cambiado a $newNick'),
@@ -515,18 +540,18 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         );
       });
     } else {
-      print('🔄 [ChatScreen] ❌ Widget no está montado, no se puede actualizar');
+      // print('🔄 [ChatScreen] ❌ Widget no está montado, no se puede actualizar');
     }
   }
 
   void _onMessageReceived(IRCMessage message) {
-    print('💬 _onMessageReceived: nick="${message.nick}", channel="${message.channel}"');
+    // print('💬 _onMessageReceived: nick="${message.nick}", channel="${message.channel}"');
     
     if (mounted) {
       // Filtrar mensajes de usuarios bloqueados (v2.1.0)
       final privacyService = PrivacyService();
       if (privacyService.isUserBlocked(message.nick)) {
-        print('🚫 [ChatScreen] Mensaje bloqueado de ${message.nick}');
+        // print('🚫 [ChatScreen] Mensaje bloqueado de ${message.nick}');
         return; // No procesar mensajes de usuarios bloqueados
       }
       
@@ -572,7 +597,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       }
 
       // Notificaciones macOS v2.0.0
-      if (Platform.isMacOS) {
+      if (!PlatformUtils.isWeb && PlatformUtils.isMacOS) {
         final isCurrentChannel = currentChannelLower == messageChannel;
         if (!isCurrentChannel && !isFromMutedUser) {
           if (isMention || isPrivate) {
@@ -590,7 +615,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       // Si no estamos en el canal donde llegó el mensaje, incrementar contador de no leídos
       if (currentChannelLower != messageChannel) {
         // Incrementar no leídos tanto para canales como para privados
-        print('💬 📬 Mensaje no leído en $messageChannel de: ${message.nick}');
+        // print('💬 📬 Mensaje no leído en $messageChannel de: ${message.nick}');
         ref
             .read(unreadMessagesProvider.notifier)
             .incrementUnread(messageChannel);
@@ -607,7 +632,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         
         if (videoUrlMatch != null) {
           final videoUrl = videoUrlMatch.group(0)!;
-          print('🎥 [VIDEO] Invitación de videollamada privada detectada: $videoUrl');
+          // print('🎥 [VIDEO] Invitación de videollamada privada detectada: $videoUrl');
           
           // Abrir la videoconferencia automáticamente después de un breve delay
           Future.delayed(const Duration(milliseconds: 500), () async {
@@ -615,9 +640,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               final uri = Uri.parse(videoUrl);
               if (await canLaunchUrl(uri)) {
                 await launchUrl(uri, mode: LaunchMode.externalApplication);
-                print('✅ [VIDEO] Videollamada privada abierta automáticamente');
+                // print('✅ [VIDEO] Videollamada privada abierta automáticamente');
               } else {
-                print('❌ [VIDEO] No se pudo abrir la URL: $videoUrl');
+                // print('❌ [VIDEO] No se pudo abrir la URL: $videoUrl');
               }
             }
           });
@@ -632,7 +657,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         
         if (audioUrlMatch != null) {
           final audioUrl = audioUrlMatch.group(0)!;
-          print('🎙️ [AUDIO] Invitación de audiollamada privada detectada: $audioUrl');
+          // print('🎙️ [AUDIO] Invitación de audiollamada privada detectada: $audioUrl');
           
           // Abrir la audioconferencia automáticamente después de un breve delay
           Future.delayed(const Duration(milliseconds: 500), () async {
@@ -640,9 +665,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               final uri = Uri.parse(audioUrl);
               if (await canLaunchUrl(uri)) {
                 await launchUrl(uri, mode: LaunchMode.externalApplication);
-                print('✅ [AUDIO] Audiollamada privada abierta automáticamente');
+                // print('✅ [AUDIO] Audiollamada privada abierta automáticamente');
               } else {
-                print('❌ [AUDIO] No se pudo abrir la URL: $audioUrl');
+                // print('❌ [AUDIO] No se pudo abrir la URL: $audioUrl');
               }
             }
           });
@@ -663,11 +688,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         : null;
     final serverId = socket?.remoteAddress.host ?? 'unknown';
 
-    final history = await ChatHistoryService().loadRecentMessages(
-      server: serverId,
-      channel: normalized,
-      limit: 200,
-    );
+    // Solo cargar historial para canales (no para mensajes privados)
+    List<IRCMessage> history = [];
+    if (normalized.startsWith('#')) {
+      history = await ChatHistoryService().loadRecentMessages(
+        server: serverId,
+        channel: normalized,
+        limit: 200,
+      );
+    }
 
     if (!mounted) return;
     setState(() {
@@ -787,8 +816,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final wordEnd = cursorPosition;
     final currentWord = text.substring(wordStart, wordEnd).trim();
     
-    // Si la palabra está vacía o es muy corta, no mostrar sugerencias
-    if (currentWord.isEmpty || currentWord.length < 1) {
+    // Si la palabra está vacía o solo tiene '@' sin texto, no mostrar sugerencias
+    // Permitir mostrar sugerencias solo si hay al menos un carácter después del '@'
+    final hasTextAfterAt = currentWord.length > 1 || (currentWord.length == 1 && !currentWord.startsWith('@'));
+    
+    if (currentWord.isEmpty || !hasTextAfterAt) {
       setState(() {
         _showNickSuggestions = false;
         _nickSuggestions = [];
@@ -802,6 +834,17 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final searchTerm = currentWord.startsWith('@') 
         ? currentWord.substring(1).toLowerCase() 
         : currentWord.toLowerCase();
+    
+    // Si después de remover '@' no hay texto, no mostrar sugerencias
+    if (searchTerm.isEmpty) {
+      setState(() {
+        _showNickSuggestions = false;
+        _nickSuggestions = [];
+        _selectedNickIndex = -1;
+        _nickStartPosition = -1;
+      });
+      return;
+    }
     
     // Filtrar nicks que coincidan
     final suggestions = channelUsers
@@ -891,9 +934,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       setState(() {
         _appVersion = 'v${packageInfo.version}';
       });
-      print('📦 [ChatScreen] App version: $_appVersion');
+      // print('📦 [ChatScreen] App version: $_appVersion');
     } catch (e) {
-      print('❌ [ChatScreen] Error loading app version: $e');
+      // print('❌ [ChatScreen] Error loading app version: $e');
     }
   }
 
@@ -903,9 +946,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       await PrivacyService().initialize();
       await CacheService().initialize();
       await EncryptionService().initialize();
-      print('✅ [ChatScreen] Servicios v2.1.0 inicializados');
+      // print('✅ [ChatScreen] Servicios v2.1.0 inicializados');
     } catch (e) {
-      print('❌ [ChatScreen] Error inicializando servicios v2.1.0: $e');
+      // print('❌ [ChatScreen] Error inicializando servicios v2.1.0: $e');
     }
   }
 
@@ -914,7 +957,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     if (channel.isEmpty) return;
     
     final channelLower = channel.toLowerCase();
-    print('📻 [ChatScreen] Verificando activación de radio para canal: $channelLower');
+    // print('📻 [ChatScreen] Verificando activación de radio para canal: $channelLower');
     
     // Mapeo de canales a radios
     final channelToRadioMap = {
@@ -926,11 +969,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     
     final radioName = channelToRadioMap[channelLower];
     if (radioName == null) {
-      print('📻 [ChatScreen] No hay radio asociada para el canal: $channelLower');
+      // print('📻 [ChatScreen] No hay radio asociada para el canal: $channelLower');
       return;
     }
     
-    print('📻 [ChatScreen] Activando radio: $radioName para canal: $channelLower');
+    // print('📻 [ChatScreen] Activando radio: $radioName para canal: $channelLower');
     
     // Obtener el estado de radio y buscar la estación
     final radioState = ref.read(radioProvider);
@@ -943,16 +986,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       station = radioState.stations.firstWhere(
         (s) => s.name == radioName,
       );
-      print('📻 [ChatScreen] ✅ Estación encontrada por nombre: ${station.name}');
+      // print('📻 [ChatScreen] ✅ Estación encontrada por nombre: ${station.name}');
     } catch (e) {
       // Si no se encuentra por nombre, buscar por salon
       try {
         station = radioState.stations.firstWhere(
           (s) => s.salon?.toLowerCase() == channelLower,
         );
-        print('📻 [ChatScreen] ✅ Estación encontrada por salon: ${station.name}');
+        // print('📻 [ChatScreen] ✅ Estación encontrada por salon: ${station.name}');
       } catch (e2) {
-        print('⚠️ [ChatScreen] No se encontró estación para: $radioName o canal: $channelLower');
+        // print('⚠️ [ChatScreen] No se encontró estación para: $radioName o canal: $channelLower');
         return;
       }
     }
@@ -963,9 +1006,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       ref.read(radioProvider.notifier).setActiveStation(station);
       radioService.playStation(station).then((_) {
         ref.read(radioProvider.notifier).setPlaying(true);
-        print('📻 [ChatScreen] ✅ Radio $stationName activada y reproduciendo');
+        // print('📻 [ChatScreen] ✅ Radio $stationName activada y reproduciendo');
       }).catchError((e) {
-        print('❌ [ChatScreen] Error activando radio: $e');
+        // print('❌ [ChatScreen] Error activando radio: $e');
         ref.read(radioProvider.notifier).setError(true);
       });
     }
@@ -988,7 +1031,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       builder: (context) => SearchDialog(
         messages: channelMessages,
         onMessageSelected: (message) {
-          print('Mensaje seleccionado: ${message.message}');
+          // print('Mensaje seleccionado: ${message.message}');
         },
       ),
     );
@@ -1123,9 +1166,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         
         // Guardar en BD
         await db.saveUserProfile(profile);
-        print('👤 [VIDEO] Perfil creado para: $nickname');
+        // print('👤 [VIDEO] Perfil creado para: $nickname');
       } else {
-        print('👤 [VIDEO] Perfil cargado desde BD: $nickname (Rep: ${profile.reputation})');
+        // print('👤 [VIDEO] Perfil cargado desde BD: $nickname (Rep: ${profile.reputation})');
       }
       
       setState(() {
@@ -1136,7 +1179,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       ref.read(currentUserProfileProvider.notifier).state = _userProfile;
       
     } catch (e) {
-      print('❌ [VIDEO] Error al inicializar perfil: $e');
+      // print('❌ [VIDEO] Error al inicializar perfil: $e');
       // Fallback: crear perfil en memoria
       setState(() {
         _userProfile = UserProfile(
@@ -1192,13 +1235,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       String? userMode;
       final currentNick = ref.read(currentNicknameProvider);
       
-      print('🎥 [VIDEO] Verificando permisos para iniciar conferencia en: $currentChannel');
-      print('🎥 [VIDEO] Canal encontrado: $channelKey, Nick actual: $currentNick');
-      print('🎥 [VIDEO] Canales disponibles: ${channels.keys.toList()}');
+      // print('🎥 [VIDEO] Verificando permisos para iniciar conferencia en: $currentChannel');
+      // print('🎥 [VIDEO] Canal encontrado: $channelKey, Nick actual: $currentNick');
+      // print('🎥 [VIDEO] Canales disponibles: ${channels.keys.toList()}');
       
       if (channels.containsKey(channelKey) && currentNick != null) {
         final channelData = channels[channelKey];
-        print('🎥 [VIDEO] Datos del canal: usuarios=${channelData?.users.length}, userModes=${channelData?.userModes}');
+        // print('🎥 [VIDEO] Datos del canal: usuarios=${channelData?.users.length}, userModes=${channelData?.userModes}');
         
         // Buscar el nick en la lista de usuarios (case-insensitive)
         String? matchingNick;
@@ -1214,7 +1257,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           
           // Si no se encontró el modo, usar WHO para obtenerlo
           if (userMode == null) {
-            print('🎥 [VIDEO] Modo no encontrado en userModes, usando WHO para verificar...');
+            // print('🎥 [VIDEO] Modo no encontrado en userModes, usando WHO para verificar...');
             try {
               // Usar WHO para obtener el modo del usuario
               final completer = Completer<String?>();
@@ -1228,7 +1271,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   final status = result['status'] as String?;
                   if (nick != null && nick.toLowerCase() == currentNick.toLowerCase() && status != null) {
                     // El status puede contener: H (here), G (gone), * (IRCop), @ (op), + (voice), % (halfop), & (founder), ! (admin), h (halfop)
-                    print('🎥 [VIDEO] WHO status recibido: "$status" para $nick');
+                    // print('🎥 [VIDEO] WHO status recibido: "$status" para $nick');
                     if (status.contains('@')) {
                       foundMode = '@';
                     } else if (status.contains('&')) {
@@ -1269,7 +1312,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       _ircService.removeWhoListener(whoListener!);
                     });
                   }
-                  print('🎥 [VIDEO] ⚠️ Timeout esperando respuesta de WHO');
+                  // print('🎥 [VIDEO] ⚠️ Timeout esperando respuesta de WHO');
                   return null;
                 },
               );
@@ -1277,47 +1320,47 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               // Si se obtuvo el modo, actualizarlo en el canal
               if (userMode != null && matchingNick != null) {
                 channelData?.addUser(matchingNick, mode: userMode);
-                print('🎥 [VIDEO] Modo obtenido de WHO: $userMode, actualizado en canal');
+                // print('🎥 [VIDEO] Modo obtenido de WHO: $userMode, actualizado en canal');
               }
             } catch (e) {
-              print('🎥 [VIDEO] Error al obtener modo con WHO: $e');
+              // print('🎥 [VIDEO] Error al obtener modo con WHO: $e');
             }
           }
           
           // Verificar si es moderador: @ (op), & (founder/owner), % (halfop), ! (admin), h (halfop)
           isChannelModerator = userMode == '@' || userMode == '&' || userMode == '%' || userMode == '!' || userMode == 'h';
-          print('🎥 [VIDEO] Usuario encontrado: $matchingNick, modo: $userMode, es moderador: $isChannelModerator');
+          // print('🎥 [VIDEO] Usuario encontrado: $matchingNick, modo: $userMode, es moderador: $isChannelModerator');
         } else {
-          print('🎥 [VIDEO] ⚠️ Usuario $currentNick no encontrado en la lista de usuarios del canal');
-          print('🎥 [VIDEO] Usuarios en el canal: ${channelData?.users}');
+          // print('🎥 [VIDEO] ⚠️ Usuario $currentNick no encontrado en la lista de usuarios del canal');
+          // print('🎥 [VIDEO] Usuarios en el canal: ${channelData?.users}');
         }
       } else {
         if (!channels.containsKey(channelKey)) {
-          print('🎥 [VIDEO] ⚠️ Canal $channelKey no encontrado en la lista de canales');
+          // print('🎥 [VIDEO] ⚠️ Canal $channelKey no encontrado en la lista de canales');
         }
         if (currentNick == null) {
-          print('🎥 [VIDEO] ⚠️ Nick actual es null');
+          // print('🎥 [VIDEO] ⚠️ Nick actual es null');
         }
       }
       
       // Verificar si es IRCop
       final isIRCOp = _ircService.isIRCOp;
-      print('🎥 [VIDEO] Es IRCop: $isIRCOp');
+      // print('🎥 [VIDEO] Es IRCop: $isIRCOp');
       
       // Si es moderador del canal o IRCop, permitir iniciar sin restricciones
       if (isChannelModerator || isIRCOp) {
-        print('🎥 [VIDEO] ✅ Usuario es moderador del canal (mode=$userMode) o IRCop, permitiendo inicio de conferencia sin restricciones');
+        // print('🎥 [VIDEO] ✅ Usuario es moderador del canal (mode=$userMode) o IRCop, permitiendo inicio de conferencia sin restricciones');
         // Continuar con el inicio de la conferencia - saltar verificación de canStartConference
       } else {
         // Verificar restricciones solo para usuarios normales
-        print('🎥 [VIDEO] Usuario no es moderador, verificando restricciones normales...');
-        print('🎥 [VIDEO] canStartConference: ${_userProfile!.canStartConference}');
-        print('🎥 [VIDEO] canEnableVideo: ${_userProfile!.canEnableVideo}');
-        print('🎥 [VIDEO] emailVerified: ${_userProfile!.emailVerified}, daysRegistered: ${_userProfile!.daysRegistered}');
+        // print('🎥 [VIDEO] Usuario no es moderador, verificando restricciones normales...');
+        // print('🎥 [VIDEO] canStartConference: ${_userProfile!.canStartConference}');
+        // print('🎥 [VIDEO] canEnableVideo: ${_userProfile!.canEnableVideo}');
+        // print('🎥 [VIDEO] emailVerified: ${_userProfile!.emailVerified}, daysRegistered: ${_userProfile!.daysRegistered}');
         
         if (!_userProfile!.canStartConference) {
           final reason = _userProfile!.videoRestrictionReason ?? 'No tienes permisos para iniciar conferencias';
-          print('🎥 [VIDEO] ❌ Usuario no puede iniciar conferencia: $reason');
+          // print('🎥 [VIDEO] ❌ Usuario no puede iniciar conferencia: $reason');
           _mostrarMensajeError(reason);
           return;
         }
@@ -1364,9 +1407,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       // El usuario deberá ingresar su nombre manualmente en la página de pre-unión
       final videoUrl = 'https://video.globalchat.org/$roomName';
       
-      print('🎥 [VIDEO] Construyendo URL para room: $roomName');
-      print('🎥 [VIDEO] URL: $videoUrl');
-      print('ℹ️ [VIDEO] URL directa de Jitsi Meet (usuario ingresará nombre manualmente)');
+      // print('🎥 [VIDEO] Construyendo URL para room: $roomName');
+      // print('🎥 [VIDEO] URL: $videoUrl');
+      // print('ℹ️ [VIDEO] URL directa de Jitsi Meet (usuario ingresará nombre manualmente)');
       
       // Enviar mensaje al canal con la URL
       _ircService.sendMessage(
@@ -1374,11 +1417,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         '🎥 Ha iniciado una videoconferencia. ¡Únete! $videoUrl',
       );
       
-      print('✅ [VIDEO] Videoconferencia iniciada en $currentChannel');
-      print('✅ [VIDEO] URL: $videoUrl');
+      // print('✅ [VIDEO] Videoconferencia iniciada en $currentChannel');
+      // print('✅ [VIDEO] URL: $videoUrl');
       
     } catch (e) {
-      print('❌ [VIDEO] Error al iniciar videoconferencia: $e');
+      // print('❌ [VIDEO] Error al iniciar videoconferencia: $e');
       if (mounted) {
         Navigator.pop(context); // Cerrar diálogo de carga si está abierto
         _mostrarMensajeError('Error: $e');
@@ -1451,7 +1494,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         
         // Si no se encontró el modo, usar WHO para obtenerlo
         if (userMode == null || userMode.isEmpty) {
-          print('🎙️ [AUDIO] Modo no encontrado en userModes, usando WHO para verificar...');
+          // print('🎙️ [AUDIO] Modo no encontrado en userModes, usando WHO para verificar...');
           try {
             // Usar WHO para obtener el modo del usuario
             final completer = Completer<String?>();
@@ -1465,7 +1508,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 final status = result['status'] as String?;
                 if (nick != null && nick.toLowerCase() == currentNick.toLowerCase() && status != null) {
                   // El status puede contener: H (here), G (gone), * (IRCop), @ (op), + (voice), % (halfop), & (founder), ! (admin), h (halfop)
-                  print('🎙️ [AUDIO] WHO status recibido: "$status" para $nick');
+                  // print('🎙️ [AUDIO] WHO status recibido: "$status" para $nick');
                   if (status.contains('@')) {
                     foundMode = '@';
                   } else if (status.contains('&')) {
@@ -1506,7 +1549,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     _ircService.removeWhoListener(whoListener!);
                   });
                 }
-                print('🎙️ [AUDIO] ⚠️ Timeout esperando respuesta de WHO');
+                // print('🎙️ [AUDIO] ⚠️ Timeout esperando respuesta de WHO');
                 return null;
               },
             );
@@ -1514,10 +1557,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             // Si se obtuvo el modo, actualizarlo en el canal
             if (userMode != null && matchingNick != null) {
               channelData?.addUser(matchingNick, mode: userMode);
-              print('🎙️ [AUDIO] Modo obtenido de WHO: $userMode, actualizado en canal');
+              // print('🎙️ [AUDIO] Modo obtenido de WHO: $userMode, actualizado en canal');
             }
           } catch (e) {
-            print('🎙️ [AUDIO] Error al obtener modo con WHO: $e');
+            // print('🎙️ [AUDIO] Error al obtener modo con WHO: $e');
           }
         }
         
@@ -1580,8 +1623,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       // Construir URL directa de la audioconferencia
       final audioUrl = 'https://video.globalchat.org/$roomName';
       
-      print('🎙️ [AUDIO] Construyendo URL para room: $roomName');
-      print('🎙️ [AUDIO] URL: $audioUrl');
+      // print('🎙️ [AUDIO] Construyendo URL para room: $roomName');
+      // print('🎙️ [AUDIO] URL: $audioUrl');
       
       // Enviar mensaje al canal con la URL
       _ircService.sendMessage(
@@ -1589,11 +1632,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         '🎙️ Ha iniciado una audioconferencia. ¡Únete! $audioUrl',
       );
       
-      print('✅ [AUDIO] Audioconferencia iniciada en $currentChannel');
-      print('✅ [AUDIO] URL: $audioUrl');
+      // print('✅ [AUDIO] Audioconferencia iniciada en $currentChannel');
+      // print('✅ [AUDIO] URL: $audioUrl');
       
     } catch (e) {
-      print('❌ [AUDIO] Error al iniciar audioconferencia: $e');
+      // print('❌ [AUDIO] Error al iniciar audioconferencia: $e');
       if (mounted) {
         Navigator.pop(context);
         _mostrarMensajeError('Error: $e');
@@ -1686,10 +1729,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         Navigator.pop(context);
       }
       
-      print('✅ [AUDIO] Audiollamada iniciada con $otherNick');
+      // print('✅ [AUDIO] Audiollamada iniciada con $otherNick');
       
     } catch (e) {
-      print('❌ [AUDIO] Error al iniciar audiollamada: $e');
+      // print('❌ [AUDIO] Error al iniciar audiollamada: $e');
       if (mounted) {
         Navigator.pop(context);
         _mostrarMensajeError('Error: $e');
@@ -1782,10 +1825,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         Navigator.pop(context);
       }
       
-      print('✅ [VIDEO] Videollamada iniciada con $otherNick');
+      // print('✅ [VIDEO] Videollamada iniciada con $otherNick');
       
     } catch (e) {
-      print('❌ [VIDEO] Error al iniciar videollamada: $e');
+      // print('❌ [VIDEO] Error al iniciar videollamada: $e');
       if (mounted) {
         Navigator.pop(context);
         _mostrarMensajeError('Error: $e');
@@ -1855,6 +1898,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   @override
   void dispose() {
+    // Detener la radio cuando se sale del chat
+    RadioService().stop();
+    
     _ircService.removeUserListListener(_onUserListChanged);
     _ircService.removeTopicListener(_onTopicChanged);
     _ircService.removeMessageListener(_onMessageReceived);
@@ -1866,6 +1912,31 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     _messageFocusNode.dispose();
     _searchController.dispose();
     super.dispose();
+  }
+
+  // Función para abrir un mensaje privado
+  void _openPrivateMessage(String nick) {
+    if (nick.isEmpty) return;
+    
+    final queryNick = nick.toLowerCase();
+    
+    // Asegurarse de que el query existe en los canales
+    if (!_ircService.allChannels.containsKey(queryNick)) {
+      _ircService.allChannels[queryNick] = IRCChannel(name: queryNick);
+    }
+    
+    // Cambiar al query (mensaje privado)
+    ref.read(currentChannelProvider.notifier).state = queryNick;
+    ref.read(lastChannelProvider.notifier).state = queryNick;
+    ref.read(recentChannelsProvider.notifier).addRecent(queryNick);
+    
+    // Forzar actualización de la UI
+    Future.delayed(const Duration(milliseconds: 100), () {
+      if (mounted) {
+        ref.read(channelsProvider.notifier).updateChannels();
+        setState(() {});
+      }
+    });
   }
 
   void _joinChannel(String channel) {
@@ -1892,37 +1963,38 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     // Normalizar a minúsculas para consistencia
     normalizedChannel = normalizedChannel.toLowerCase();
     
-    print('🔍 [DEBUG] 🚪 Joining channel: "$channel" -> normalized: "$normalizedChannel"');
+    // print('🔍 [DEBUG] 🚪 Joining channel: "$channel" -> normalized: "$normalizedChannel"');
     _ircService.joinChannel(normalizedChannel);
     // Guardar canal actual, último canal usado y añadir a recientes
     ref.read(currentChannelProvider.notifier).state = normalizedChannel;
     ref.read(lastChannelProvider.notifier).state = normalizedChannel;
     ref.read(recentChannelsProvider.notifier).addRecent(normalizedChannel);
-    print('🔍 [DEBUG] ✅ Channel set in provider: $normalizedChannel');
+    // print('🔍 [DEBUG] ✅ Channel set in provider: $normalizedChannel');
     _channelController.clear();
 
     // Activar radio automáticamente si corresponde (v2.1.0)
-    _activateRadioForChannel(normalizedChannel);
+    // DESHABILITADO: El usuario prefiere activar la radio manualmente
+    // _activateRadioForChannel(normalizedChannel);
 
     // Cargar historial local para este canal en segundo plano
     // ignore: unawaited_futures
     _loadHistoryIfNeeded(normalizedChannel);
     
     // Force UI update
-    print('🔍 [DEBUG] 🔄 Forcing channels provider update...');
+    // print('🔍 [DEBUG] 🔄 Forcing channels provider update...');
     ref.read(channelsProvider.notifier).updateChannels();
     
     // Also update after delays to catch late responses
     Future.delayed(const Duration(milliseconds: 800), () {
       if (mounted) {
-        print('🔍 [DEBUG] 🔄 Secondary channels update (800ms)');
+        // print('🔍 [DEBUG] 🔄 Secondary channels update (800ms)');
         ref.read(channelsProvider.notifier).updateChannels();
       }
     });
     
     Future.delayed(const Duration(milliseconds: 2000), () {
       if (mounted) {
-        print('🔍 [DEBUG] 🔄 Tertiary channels update (2000ms)');
+        // print('🔍 [DEBUG] 🔄 Tertiary channels update (2000ms)');
         ref.read(channelsProvider.notifier).updateChannels();
       }
     });
@@ -2305,7 +2377,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
     // Obtener el delay configurado (0 si se fuerza envío inmediato)
     final delaySeconds = forceImmediate ? 0 : ref.read(messageSendDelayProvider);
-    print('🔍 [ChatScreen] Delay configurado: ${delaySeconds}s ${forceImmediate ? "(forzado inmediato)" : ""}');
+    // print('🔍 [ChatScreen] Delay configurado: ${delaySeconds}s ${forceImmediate ? "(forzado inmediato)" : ""}');
     
     // Normalizar el nombre del canal antes de enviar
     final normalizedChannel = channel.toLowerCase();
@@ -2387,7 +2459,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         // Asegurarse de que el query existe en los canales
         if (!_ircService.allChannels.containsKey(queryNick)) {
           _ircService.allChannels[queryNick] = IRCChannel(name: queryNick);
-          print('📝 [Query] Creado query para: $queryNick');
+          // print('📝 [Query] Creado query para: $queryNick');
         }
         
         // Cambiar al query (mensaje privado)
@@ -3493,6 +3565,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               : ListView.builder(
                   shrinkWrap: true,
                   itemCount: users.length,
+                  cacheExtent: 500, // Cache para mejor rendimiento
                   itemBuilder: (context, index) {
                     final user = users[index];
                     final mode = channelObj.getUserMode(user);
@@ -3815,81 +3888,27 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   }
 
   Future<void> _pickAndSendImage() async {
-    try {
-      print('🔍 Iniciando selección de imagen o video...');
-      
-      FilePickerResult? result = await FilePicker.platform.pickFiles(
-        type: FileType.custom,
-        allowedExtensions: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'mp4', 'webm', 'mov'],
-        allowMultiple: false,
-        dialogTitle: 'Seleccionar imagen o video',
-        withData: true, // Obtener también los bytes
-      );
-
-      print('🔍 Resultado del file picker: ${result != null ? "no null" : "null"}');
-
-      if (result != null && result.files.isNotEmpty) {
-        final file = result.files.single;
-        print('🔍 Archivo seleccionado:');
-        print('  - name: ${file.name}');
-        print('  - path: ${file.path}');
-        print('  - bytes: ${file.bytes != null ? "${file.bytes!.length} bytes" : "null"}');
-        print('  - size: ${file.size}');
-        
-        String? filePath = file.path;
-        
-        // Si no hay path pero hay bytes, guardar en archivo temporal
-        if ((filePath == null || filePath.isEmpty) && file.bytes != null) {
-          final tempDir = Directory.systemTemp;
-          final extension = file.name.split('.').last;
-          final tempFile = File('${tempDir.path}/picked_image_${DateTime.now().millisecondsSinceEpoch}.$extension');
-          await tempFile.writeAsBytes(file.bytes!);
-          filePath = tempFile.path;
-          print('✅ Imagen guardada en archivo temporal: $filePath');
-        }
-        
-        if (filePath != null && filePath.isNotEmpty) {
-          final mediaFile = File(filePath);
-          
-          // Verificar que el archivo existe
-          if (await mediaFile.exists()) {
-            print('✅ Archivo existe, procesando...');
-            
-            // Detectar si es imagen o video
-            final extension = file.name.split('.').last.toLowerCase();
-            final isVideo = ['mp4', 'webm', 'mov'].contains(extension);
-            
-            if (isVideo) {
-              await _processAndSendVideo(mediaFile);
-            } else {
-              await _processAndSendImage(mediaFile);
-            }
-          } else {
-            print('❌ El archivo no existe: $filePath');
-            throw Exception('El archivo seleccionado no existe: $filePath');
-          }
-        } else {
-          print('❌ No se pudo obtener la ruta del archivo');
-          throw Exception('No se pudo obtener la ruta del archivo seleccionado');
-        }
-      } else {
-        print('ℹ️ No se seleccionó ningún archivo (usuario canceló)');
-      }
-    } catch (e, stackTrace) {
-      print('❌ Error al seleccionar imagen: $e');
-      print('❌ Stack trace: $stackTrace');
+    // En web, esta función no está disponible
+    if (PlatformUtils.isWeb) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error: ${e.toString()}'),
-            duration: const Duration(seconds: 5),
-            action: SnackBarAction(
-              label: 'Reintentar',
-              onPressed: _pickAndSendImage,
-            ),
+          const SnackBar(
+            content: Text('Envío de imágenes no disponible en la versión web'),
+            duration: Duration(seconds: 3),
           ),
         );
       }
+      return;
+    }
+    
+    // En nativo, deshabilitado temporalmente
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Envío de imágenes deshabilitado temporalmente'),
+          duration: Duration(seconds: 3),
+        ),
+      );
     }
   }
 
@@ -3934,7 +3953,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         throw Exception('No se pudo subir la imagen a Cloudinary');
       }
     } catch (e) {
-      print('❌ Error al subir imagen: $e');
+      // print('❌ Error al subir imagen: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).hideCurrentSnackBar();
         ScaffoldMessenger.of(context).showSnackBar(
@@ -3988,7 +4007,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         throw Exception('No se pudo subir el video a Cloudinary');
       }
     } catch (e) {
-      print('❌ Error al subir video: $e');
+      // print('❌ Error al subir video: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).hideCurrentSnackBar();
         ScaffoldMessenger.of(context).showSnackBar(
@@ -4010,7 +4029,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       
       // Verificar tamaño
       if (imageBytes.length > maxSize) {
-        print('❌ Imagen demasiado grande: ${(imageBytes.length / 1024 / 1024).toStringAsFixed(2)} MB (máximo 10MB)');
+        // print('❌ Imagen demasiado grande: ${(imageBytes.length / 1024 / 1024).toStringAsFixed(2)} MB (máximo 10MB)');
         return null;
       }
       
@@ -4032,7 +4051,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       // Añadir el upload preset
       request.fields['upload_preset'] = uploadPreset;
       
-      print('📤 Subiendo imagen a Cloudinary... (${(imageBytes.length / 1024).toStringAsFixed(2)} KB)');
+      // print('📤 Subiendo imagen a Cloudinary... (${(imageBytes.length / 1024).toStringAsFixed(2)} KB)');
       
       final streamedResponse = await request.send();
       final response = await http.Response.fromStream(streamedResponse);
@@ -4041,19 +4060,19 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         final jsonResponse = jsonDecode(response.body);
         if (jsonResponse['secure_url'] != null) {
           final imageUrl = jsonResponse['secure_url'] as String;
-          print('✅ Imagen subida a Cloudinary: $imageUrl');
+          // print('✅ Imagen subida a Cloudinary: $imageUrl');
           return imageUrl;
         } else {
-          print('❌ Error en respuesta de Cloudinary: ${jsonResponse['error']}');
+          // print('❌ Error en respuesta de Cloudinary: ${jsonResponse['error']}');
           return null;
         }
       } else {
-        print('❌ Error HTTP al subir imagen: ${response.statusCode}');
-        print('❌ Respuesta: ${response.body}');
+        // print('❌ Error HTTP al subir imagen: ${response.statusCode}');
+        // print('❌ Respuesta: ${response.body}');
         return null;
       }
     } catch (e) {
-      print('❌ Excepción al subir imagen a Cloudinary: $e');
+      // print('❌ Excepción al subir imagen a Cloudinary: $e');
       return null;
     }
   }
@@ -4067,7 +4086,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       
       // Verificar tamaño
       if (videoBytes.length > maxSize) {
-        print('❌ Video demasiado grande: ${(videoBytes.length / 1024 / 1024).toStringAsFixed(2)} MB (máximo 100MB)');
+        // print('❌ Video demasiado grande: ${(videoBytes.length / 1024 / 1024).toStringAsFixed(2)} MB (máximo 100MB)');
         return null;
       }
       
@@ -4089,7 +4108,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       // Añadir el upload preset
       request.fields['upload_preset'] = uploadPreset;
       
-      print('📤 Subiendo video a Cloudinary... (${(videoBytes.length / 1024 / 1024).toStringAsFixed(2)} MB)');
+      // print('📤 Subiendo video a Cloudinary... (${(videoBytes.length / 1024 / 1024).toStringAsFixed(2)} MB)');
       
       final streamedResponse = await request.send();
       final response = await http.Response.fromStream(streamedResponse);
@@ -4098,19 +4117,19 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         final jsonResponse = jsonDecode(response.body);
         if (jsonResponse['secure_url'] != null) {
           final videoUrl = jsonResponse['secure_url'] as String;
-          print('✅ Video subido a Cloudinary: $videoUrl');
+          // print('✅ Video subido a Cloudinary: $videoUrl');
           return videoUrl;
         } else {
-          print('❌ Error en respuesta de Cloudinary: ${jsonResponse['error']}');
+          // print('❌ Error en respuesta de Cloudinary: ${jsonResponse['error']}');
           return null;
         }
       } else {
-        print('❌ Error HTTP al subir video: ${response.statusCode}');
-        print('❌ Respuesta: ${response.body}');
+        // print('❌ Error HTTP al subir video: ${response.statusCode}');
+        // print('❌ Respuesta: ${response.body}');
         return null;
       }
     } catch (e) {
-      print('❌ Excepción al subir video a Cloudinary: $e');
+      // print('❌ Excepción al subir video a Cloudinary: $e');
       return null;
     }
   }
@@ -4121,162 +4140,34 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   }
 
   Future<void> _pasteImageFromClipboard() async {
-    try {
-      if (Platform.isMacOS || Platform.isLinux || Platform.isWindows) {
-        // Intentar obtener imagen del portapapeles
-        final imageData = await Pasteboard.image;
-        
-        if (imageData != null) {
-          print('✅ Imagen encontrada en el portapapeles');
-          
-          // Convertir Uint8List a File temporal
-          final tempDir = Directory.systemTemp;
-          final tempFile = File('${tempDir.path}/pasted_image_${DateTime.now().millisecondsSinceEpoch}.png');
-          await tempFile.writeAsBytes(imageData);
-          
-          await _processAndSendImage(tempFile);
-          
-          // Limpiar archivo temporal después de un delay
-          Future.delayed(const Duration(seconds: 5), () {
-            try {
-              tempFile.deleteSync();
-            } catch (e) {
-              print('⚠️ No se pudo eliminar archivo temporal: $e');
-            }
-          });
-        } else {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('No hay imagen en el portapapeles'),
-                duration: Duration(seconds: 2),
-              ),
-            );
-          }
-        }
-      }
-    } catch (e, stackTrace) {
-      print('❌ Error al pegar imagen: $e');
-      print('❌ Stack trace: $stackTrace');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error al pegar imagen: ${e.toString()}'),
-            duration: const Duration(seconds: 3),
-          ),
-        );
-      }
+    // En web, esta función no está disponible
+    if (PlatformUtils.isWeb) {
+      // print('ℹ️ Pegar imagen desde portapapeles no disponible en web');
+      return;
     }
+    
+    // En nativo, deshabilitado temporalmente
+    // print('ℹ️ Función de pegar imagen desde portapapeles deshabilitada temporalmente');
   }
 
-  Future<void> _processAndSendImage(File imageFile) async {
-    try {
-      final channel = ref.read(currentChannelProvider);
-      if (channel == null) return;
-
-      // Mostrar indicador de carga
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Row(
-              children: [
-                SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                ),
-                SizedBox(width: 12),
-                Text('Comprimiendo y procesando imagen...'),
-              ],
-            ),
-            duration: Duration(seconds: 30),
-          ),
-        );
-      }
-
-      // Leer la imagen
-      final originalBytes = await imageFile.readAsBytes();
-      final originalSize = originalBytes.length;
-      print('📸 Tamaño original de la imagen: ${(originalSize / 1024).toStringAsFixed(2)} KB');
-      
-      // Detectar el tipo MIME
-      final extension = imageFile.path.split('.').last.toLowerCase();
-      String mimeType = 'image/png';
-      if (extension == 'jpg' || extension == 'jpeg') {
-        mimeType = 'image/jpeg';
-      } else if (extension == 'gif') {
-        mimeType = 'image/gif';
-      } else if (extension == 'webp') {
-        mimeType = 'image/webp';
-      }
-
-      // Subir TODAS las imágenes a Cloudinary para evitar flood protection
-      // IRC tiene límites estrictos y cualquier imagen en base64 causa flood
-      await _uploadAndSendToCloudinary(originalBytes, mimeType, channel);
-    } catch (e) {
-      print('Error al procesar imagen: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).hideCurrentSnackBar();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error al procesar imagen: $e')),
-        );
-      }
+  Future<void> _processAndSendImage(dynamic imageFile) async {
+    // En web, esta función no está disponible
+    if (PlatformUtils.isWeb) {
+      // print('ℹ️ Procesamiento de imágenes no disponible en web');
+      return;
     }
+    // En nativo, deshabilitado temporalmente
+    // print('ℹ️ Procesamiento de imágenes deshabilitado temporalmente');
   }
 
-  Future<void> _processAndSendVideo(File videoFile) async {
-    try {
-      final channel = ref.read(currentChannelProvider);
-      if (channel == null) return;
-
-      // Mostrar indicador de carga
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Row(
-              children: [
-                SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                ),
-                SizedBox(width: 12),
-                Text('Procesando video...'),
-              ],
-            ),
-            duration: Duration(seconds: 60),
-          ),
-        );
-      }
-
-      // Leer el video
-      final originalBytes = await videoFile.readAsBytes();
-      final originalSize = originalBytes.length;
-      print('🎥 Tamaño original del video: ${(originalSize / 1024 / 1024).toStringAsFixed(2)} MB');
-      
-      // Detectar el tipo MIME
-      final extension = videoFile.path.split('.').last.toLowerCase();
-      String mimeType = 'video/mp4';
-      if (extension == 'webm') {
-        mimeType = 'video/webm';
-      } else if (extension == 'mov') {
-        mimeType = 'video/quicktime';
-      }
-
-      // Subir TODOS los videos a Cloudinary
-      await _uploadAndSendVideoToCloudinary(originalBytes, mimeType, channel);
-    } catch (e) {
-      print('Error al procesar video: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).hideCurrentSnackBar();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error al procesar video: $e'),
-            duration: const Duration(seconds: 5),
-          ),
-        );
-      }
+  Future<void> _processAndSendVideo(dynamic videoFile) async {
+    // En web, esta función no está disponible
+    if (PlatformUtils.isWeb) {
+      // print('ℹ️ Procesamiento de videos no disponible en web');
+      return;
     }
+    // En nativo, deshabilitado temporalmente
+    // print('ℹ️ Procesamiento de videos deshabilitado temporalmente');
   }
 
   bool _isImageUrl(String text) {
@@ -4393,9 +4284,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Optimización: usar read donde sea posible para evitar reconstrucciones innecesarias
     final nickname = ref.watch(currentNicknameProvider);
-    print('🔄 [ChatScreen] build() - nickname from provider: "$nickname"');
-    print('🔄 [ChatScreen] build() - AppBar mostrará: "como $nickname"');
+    // print('🔄 [ChatScreen] build() - nickname from provider: "$nickname"');
+    // print('🔄 [ChatScreen] build() - AppBar mostrará: "como $nickname"');
     final currentChannel = ref.watch(currentChannelProvider);
     final messages = ref.watch(messagesProvider);
     final channels = ref.watch(channelsProvider);
@@ -4419,10 +4311,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     }
 
     // Filtrar mensajes del canal actual (case-insensitive)
-    final channelMessages = currentChannel != null
+    // Para mensajes privados, el channel es el nick (sin #)
+    // Para canales, el channel empieza con #
+    final normalizedCurrentChannel = currentChannel?.toLowerCase().trim();
+    final channelMessages = normalizedCurrentChannel != null
         ? messages
-            .where((m) =>
-                m.channel.toLowerCase() == currentChannel.toLowerCase())
+            .where((m) {
+              final normalizedMessageChannel = m.channel.toLowerCase().trim();
+              return normalizedMessageChannel == normalizedCurrentChannel;
+            })
             .toList()
         : <IRCMessage>[];
 
@@ -4443,11 +4340,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     ];
 
     // Normalizar el nombre del canal para búsqueda (case-insensitive)
-    print('🔍 [DEBUG] 🖼️  ChatScreen build: currentChannel=$currentChannel');
-    print('🔍 [DEBUG] Available channels in provider: ${channels.keys.toList()}');
+    // print('🔍 [DEBUG] 🖼️  ChatScreen build: currentChannel=$currentChannel');
+    // print('🔍 [DEBUG] Available channels in provider: ${channels.keys.toList()}');
     
-    final normalizedCurrentChannel = currentChannel?.toLowerCase();
-    print('🔍 [DEBUG] Normalized current channel: $normalizedCurrentChannel');
+    // normalizedCurrentChannel ya está definido arriba
+    // print('🔍 [DEBUG] Normalized current channel: $normalizedCurrentChannel');
     
     String? channelKey;
     if (normalizedCurrentChannel != null) {
@@ -4455,21 +4352,21 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         channelKey = channels.keys.firstWhere(
           (key) => key.toLowerCase() == normalizedCurrentChannel,
         );
-        print('🔍 [DEBUG] Found channel key: $channelKey');
+        // print('🔍 [DEBUG] Found channel key: $channelKey');
       } catch (e) {
-        print('🔍 [DEBUG] ⚠️  Channel key not found: $e');
+        // print('🔍 [DEBUG] ⚠️  Channel key not found: $e');
         channelKey = null;
       }
     }
     
     if (channelKey != null && channels.containsKey(channelKey)) {
-      print('🔍 [DEBUG] Channel found in map: $channelKey');
-      print('🔍 [DEBUG] Users in channel: ${channels[channelKey]!.users}');
-      print('🔍 [DEBUG] Users count: ${channels[channelKey]!.users.length}');
+      // print('🔍 [DEBUG] Channel found in map: $channelKey');
+      // print('🔍 [DEBUG] Users in channel: ${channels[channelKey]!.users}');
+      // print('🔍 [DEBUG] Users count: ${channels[channelKey]!.users.length}');
     } else {
-      print('🔍 [DEBUG] ⚠️  Channel not found or key is null');
-      print('🔍 [DEBUG] channelKey: $channelKey');
-      print('🔍 [DEBUG] channels.containsKey(channelKey): ${channelKey != null ? channels.containsKey(channelKey) : 'N/A'}');
+      // print('🔍 [DEBUG] ⚠️  Channel not found or key is null');
+      // print('🔍 [DEBUG] channelKey: $channelKey');
+      // print('🔍 [DEBUG] channels.containsKey(channelKey): ${channelKey != null ? channels.containsKey(channelKey) : 'N/A'}');
     }
     
     final channelUsers = currentChannel != null && 
@@ -4478,8 +4375,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         ? channels[channelKey]!.users
         : <String>[];
 
-    print('🔍 [DEBUG] Final channelUsers count: ${channelUsers.length}');
-    print('🔍 [DEBUG] Final channelUsers list: $channelUsers');
+    // print('🔍 [DEBUG] Final channelUsers count: ${channelUsers.length}');
+    // print('🔍 [DEBUG] Final channelUsers list: $channelUsers');
 
     // Verificar si el canal está completamente cargado
     // El canal está cargado si:
@@ -4494,12 +4391,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     // mostrar pantalla de carga (evita pantalla negra en Android durante inicialización)
     if (!isChannelLoaded && (isConnected || serviceConnected)) {
       final channelName = currentChannel ?? 'Conectando...';
-      print('🔍 [DEBUG] 🖼️  ChatScreen: Mostrando pantalla de carga - isChannelLoaded=$isChannelLoaded, isConnected=$isConnected, serviceConnected=$serviceConnected, channelName=$channelName');
+      // print('🔍 [DEBUG] 🖼️  ChatScreen: Mostrando pantalla de carga - isChannelLoaded=$isChannelLoaded, isConnected=$isConnected, serviceConnected=$serviceConnected, channelName=$channelName');
       return _buildLoadingScreen(appTheme, channelName);
     }
 
-    print('🔍 [DEBUG] 🖼️  ChatScreen: Renderizando contenido principal - isChannelLoaded=$isChannelLoaded, currentChannel=$currentChannel, channels=${channels.keys.toList()}');
-    print('🔍 [DEBUG] 🖼️  ChatScreen: appTheme.background=${appTheme.background}');
+    // print('🔍 [DEBUG] 🖼️  ChatScreen: Renderizando contenido principal - isChannelLoaded=$isChannelLoaded, currentChannel=$currentChannel, channels=${channels.keys.toList()}');
+    // print('🔍 [DEBUG] 🖼️  ChatScreen: appTheme.background=${appTheme.background}');
 
     return PopScope(
       canPop: false,
@@ -4760,7 +4657,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               ),
             ),
                     // Botones v2.0.0 - Búsqueda y Exportar
-                    if (Platform.isMacOS) ...[
+                    if (!PlatformUtils.isWeb && PlatformUtils.isMacOS) ...[
                       IconButton(
                         icon: const Icon(Icons.search),
                         tooltip: 'Buscar (⌘F)',
@@ -4775,7 +4672,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     // Botón de búsqueda v2.0.0
                     IconButton(
                       icon: Icon(Icons.search, color: appTheme.textPrimary),
-                      tooltip: Platform.isMacOS ? 'Buscar mensajes (⌘F)' : 'Buscar mensajes',
+                      tooltip: (!PlatformUtils.isWeb && PlatformUtils.isMacOS) ? 'Buscar mensajes (⌘F)' : 'Buscar mensajes',
                       onPressed: _handleFind,
                     ),
                     // Botón para mostrar/ocultar lista de usuarios (solo en canales)
@@ -4938,6 +4835,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       onPressed: () => _showThemeSelector(context),
                     ),
                     IconButton(
+                      icon: const Icon(Icons.info_outline),
+                      tooltip: 'Créditos y Apoyos',
+                      onPressed: () => _showCreditsDialog(context),
+                    ),
+                    IconButton(
                       icon: const Icon(Icons.exit_to_app),
                       tooltip: 'Salir de la aplicación',
                       onPressed: () {
@@ -4955,8 +4857,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                 onPressed: () {
                                   _disconnect();
                                   Navigator.pop(context);
-                                  // Cerrar la aplicación completamente
-                                  exit(0);
+                                  // En web, no podemos cerrar la aplicación
+                                  // En nativo, la aplicación se cierra al desconectar
                                 },
                                 style: ElevatedButton.styleFrom(
                                   backgroundColor: Colors.red,
@@ -4980,8 +4882,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           // Contenido principal
           Builder(
         builder: (context) {
-          print('🔍 [DEBUG] 🖼️  ChatScreen body: Construyendo Row con ${channels.length} canales');
-          print('🔍 [DEBUG] 🖼️  ChatScreen body: currentChannel=$currentChannel, isChannelLoaded=$isChannelLoaded');
+          // print('🔍 [DEBUG] 🖼️  ChatScreen body: Construyendo Row con ${channels.length} canales');
+          // print('🔍 [DEBUG] 🖼️  ChatScreen body: currentChannel=$currentChannel, isChannelLoaded=$isChannelLoaded');
               return Column(
           children: [
                 // Banner de actualización
@@ -5274,7 +5176,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               flex: 3,
               child: Builder(
                 builder: (context) {
-                  print('🔍 [DEBUG] 🖼️  ChatScreen chat area Column: currentChannel=$currentChannel');
+                  // print('🔍 [DEBUG] 🖼️  ChatScreen chat area Column: currentChannel=$currentChannel');
                   return Column(
                 children: [
                       // Topic bar con animación
@@ -5284,9 +5186,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   Expanded(
                         child: Builder(
                           builder: (context) {
-                            print('🔍 [DEBUG] 🖼️  ChatScreen messages area: currentChannel=$currentChannel');
+                            // print('🔍 [DEBUG] 🖼️  ChatScreen messages area: currentChannel=$currentChannel');
                         if (currentChannel == null) {
-                          print('🔍 [DEBUG] 🖼️  ChatScreen: Mostrando mensaje de selección de canal');
+                          // print('🔍 [DEBUG] 🖼️  ChatScreen: Mostrando mensaje de selección de canal');
                           return Center(
                             child: Column(
                               mainAxisAlignment: MainAxisAlignment.center,
@@ -5308,8 +5210,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                             ),
                           );
                         }
-                        print('🔍 [DEBUG] 🖼️  ChatScreen: Construyendo Stack con fondo ASCII para canal $currentChannel');
-                        print('🔍 [DEBUG] 🖼️  ChatScreen: Construyendo Stack con ${allMessages.length} mensajes');
+                        // print('🔍 [DEBUG] 🖼️  ChatScreen: Construyendo Stack con fondo ASCII para canal $currentChannel');
+                        // print('🔍 [DEBUG] 🖼️  ChatScreen: Construyendo Stack con ${allMessages.length} mensajes');
                         
                         // Mostrar búsqueda si está activa
                         if (_showSearch) {
@@ -5317,18 +5219,22 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         }
                         
                         // Para Android: estructura ultra-simplificada sin Stack ni fondos decorativos
-                        if (Platform.isAndroid) {
-                          print('🔍 [DEBUG] 🖼️  ChatScreen: Modo Android - estructura simplificada');
+                        // En web, usar estructura simplificada
+                        if (PlatformUtils.isWeb || (!PlatformUtils.isWeb && PlatformUtils.isAndroid)) {
+                          // print('🔍 [DEBUG] 🖼️  ChatScreen: Modo Android - estructura simplificada');
                           // Estructura mínima: ListView directamente sin contenedores adicionales
                           return ListView.builder(
                             reverse: true,
                             padding: const EdgeInsets.symmetric(vertical: 8),
                             itemCount: allMessages.length,
+                            cacheExtent: 1000, // Cache más items para mejor scroll
                             itemBuilder: (context, index) {
-                              print('🔍 [DEBUG] 🖼️  ChatScreen: Construyendo mensaje $index de ${allMessages.length}');
+                              // print('🔍 [DEBUG] 🖼️  ChatScreen: Construyendo mensaje $index de ${allMessages.length}');
                               final message = allMessages[
                                   allMessages.length - 1 - index];
-                              return _buildMessageTile(message);
+                              return RepaintBoundary(
+                                child: _buildMessageTile(message),
+                              );
                             },
                           );
                         }
@@ -5366,20 +5272,20 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                             opacity: (appTheme.name == 'Semana Santa Sevilla' || appTheme.name == 'Canal Sur') ? 0.15 : 0.38,
                                             child: Builder(
                                               builder: (context) {
-                                                print('🎨 [Background] Tema activo: ${appTheme.name}');
+                                                // print('🎨 [Background] Tema activo: ${appTheme.name}');
                                                 try {
                                                   if (appTheme.name == 'Semana Santa Sevilla') {
-                                                    print('🎨 [Background] Mostrando logo Semana Santa Sevilla');
+                                                    // print('🎨 [Background] Mostrando logo Semana Santa Sevilla');
                                                     return const _SemanaSantaBackground();
                                                   } else if (appTheme.name == 'Canal Sur') {
-                                                    print('🎨 [Background] Mostrando logo Canal Sur');
+                                                    // print('🎨 [Background] Mostrando logo Canal Sur');
                                                     return const _CanalSurBackground();
                                                   } else {
-                                                    print('🎨 [Background] Mostrando fondo ASCII');
+                                                    // print('🎨 [Background] Mostrando fondo ASCII');
                                                     return const _AsciiBackground();
                                                   }
                                                 } catch (e) {
-                                                  print('🎨 [Background] Error al renderizar fondo: $e');
+                                                  // print('🎨 [Background] Error al renderizar fondo: $e');
                                                   return const SizedBox.shrink();
                                                 }
                                               },
@@ -5393,11 +5299,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                           reverse: true,
                                           padding: const EdgeInsets.symmetric(vertical: 8),
                                           itemCount: allMessages.length,
+                                          cacheExtent: 1000, // Cache más items para mejor scroll
                                           itemBuilder: (context, index) {
-                                            print('🔍 [DEBUG] 🖼️  ChatScreen: Construyendo mensaje $index de ${allMessages.length}');
+                                            // print('🔍 [DEBUG] 🖼️  ChatScreen: Construyendo mensaje $index de ${allMessages.length}');
                                             final message = allMessages[
                                                 allMessages.length - 1 - index];
-                                            return _buildMessageTile(message);
+                                            return RepaintBoundary(
+                                              child: _buildMessageTile(message),
+                                            );
                                           },
                                         ),
                                       ),
@@ -5500,10 +5409,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                           const SizedBox(width: 4),
                           Expanded(
                             child: Shortcuts(
-                              shortcuts: {
-                                const SingleActivator(LogicalKeyboardKey.keyV, meta: true): 
-                                  const PasteImageIntent(),
-                              },
+                              // En web no interceptamos Cmd+V para permitir copy & paste de texto normal
+                              shortcuts: PlatformUtils.isWeb
+                                  ? const <ShortcutActivator, Intent>{}
+                                  : {
+                                      const SingleActivator(
+                                        LogicalKeyboardKey.keyV,
+                                        meta: true,
+                                      ): const PasteImageIntent(),
+                                    },
                               child: Actions(
                                 actions: {
                                   PasteImageIntent: CallbackAction<PasteImageIntent>(
@@ -5553,187 +5467,222 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                                 : _selectedNickIndex - 1;
                                           });
                                         } else if (event.logicalKey == LogicalKeyboardKey.tab) {
-                                          if (_selectedNickIndex >= 0) {
-                                            _selectNickSuggestion(_selectedNickIndex);
-                                          }
+                                          // Si no hay ninguno seleccionado, seleccionar el primero
+                                          final indexToSelect = _selectedNickIndex >= 0 ? _selectedNickIndex : 0;
+                                          _selectNickSuggestion(indexToSelect);
+                                        } else if (event.logicalKey == LogicalKeyboardKey.escape) {
+                                          // Cerrar el menú de sugerencias con Escape
+                                          setState(() {
+                                            _showNickSuggestions = false;
+                                            _nickSuggestions = [];
+                                            _selectedNickIndex = -1;
+                                            _nickStartPosition = -1;
+                                          });
+                                        }
+                                      }
+                                      // Cerrar sugerencias de comandos con Escape
+                                      else if (_showCommandSuggestions && _commandSuggestions.isNotEmpty) {
+                                        if (event.logicalKey == LogicalKeyboardKey.escape) {
+                                          setState(() {
+                                            _showCommandSuggestions = false;
+                                            _commandSuggestions = [];
+                                            _selectedSuggestionIndex = -1;
+                                          });
                                         }
                                       }
                                     }
                                   },
-                                  child: Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                  child: Stack(
+                                    clipBehavior: Clip.none,
                                     children: [
-                                      TextField(
-                              controller: _messageController,
-                                        focusNode: _messageFocusNode,
-                              decoration: InputDecoration(
-                                          hintText: 'Mensaje...',
-                                border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 12,
-                                  vertical: 8,
-                                ),
-                                          fillColor: appTheme.surface,
-                                          filled: true,
-                                        ),
-                                        onSubmitted: (_) {
-                                          if (_selectedSuggestionIndex >= 0 && _showCommandSuggestions) {
-                                            _selectCommandSuggestion(_selectedSuggestionIndex);
-                                          } else if (_selectedNickIndex >= 0 && _showNickSuggestions) {
-                                            _selectNickSuggestion(_selectedNickIndex);
-                                          } else {
-                                            // Enviar mensaje inmediatamente al presionar Enter
-                                            _sendMessage(forceImmediate: true);
-                                          }
-                                        },
-                              minLines: 1,
-                              maxLines: 3,
-                                        keyboardType: TextInputType.multiline,
-                                        textInputAction: TextInputAction.send,
-                                        enabled: true,
-                                        readOnly: false,
-                                        autofocus: false,
-                                      ),
-                                    // Mostrar sugerencias de comandos
-                                    if (_showCommandSuggestions && _commandSuggestions.isNotEmpty)
-                                      Container(
-                                        margin: const EdgeInsets.only(top: 4),
-                                        decoration: BoxDecoration(
-                                          color: appTheme.surface,
-                                          borderRadius: BorderRadius.circular(8),
-                                          border: Border.all(color: appTheme.primary.withOpacity(0.3)),
-                                          boxShadow: [
-                                            BoxShadow(
-                                              color: Colors.black.withOpacity(0.2),
-                                              blurRadius: 8,
-                                              offset: const Offset(0, 2),
+                                      Column(
+                                        mainAxisSize: MainAxisSize.min,
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          TextField(
+                                            controller: _messageController,
+                                            focusNode: _messageFocusNode,
+                                            decoration: InputDecoration(
+                                              hintText: 'Mensaje...',
+                                              border: OutlineInputBorder(
+                                                borderRadius: BorderRadius.circular(8),
+                                              ),
+                                              contentPadding: const EdgeInsets.symmetric(
+                                                horizontal: 12,
+                                                vertical: 8,
+                                              ),
+                                              fillColor: appTheme.surface,
+                                              filled: true,
                                             ),
-                                          ],
-                                        ),
-                                        constraints: const BoxConstraints(maxHeight: 200),
-                                        child: ListView.separated(
-                                          shrinkWrap: true,
-                                          padding: const EdgeInsets.symmetric(vertical: 4),
-                                          itemCount: _commandSuggestions.length,
-                                          separatorBuilder: (context, index) => Divider(
-                                            height: 1,
-                                            color: appTheme.primary.withOpacity(0.1),
+                                            onSubmitted: (_) {
+                                              if (_selectedSuggestionIndex >= 0 && _showCommandSuggestions) {
+                                                _selectCommandSuggestion(_selectedSuggestionIndex);
+                                              } else if (_selectedNickIndex >= 0 && _showNickSuggestions) {
+                                                _selectNickSuggestion(_selectedNickIndex);
+                                              } else {
+                                                // Enviar mensaje inmediatamente al presionar Enter
+                                                _sendMessage(forceImmediate: true);
+                                              }
+                                            },
+                                            minLines: 1,
+                                            maxLines: 3,
+                                            keyboardType: TextInputType.multiline,
+                                            textInputAction: TextInputAction.send,
+                                            enabled: true,
+                                            readOnly: false,
+                                            autofocus: false,
                                           ),
-                                          itemBuilder: (context, index) {
-                                            final cmd = _commandSuggestions[index];
-                                            final isSelected = index == _selectedSuggestionIndex;
-                                            
-                                            return InkWell(
-                                              onTap: () => _selectCommandSuggestion(index),
-                                              child: Container(
-                                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                                color: isSelected 
-                                                    ? appTheme.primary.withOpacity(0.2) 
-                                                    : Colors.transparent,
-                                                child: Row(
-                                                  children: [
-                                                    Text(
-                                                      '/${cmd['command']}',
-                                                      style: TextStyle(
-                                                        color: appTheme.primary,
-                                                        fontWeight: FontWeight.bold,
-                                                        fontSize: 14,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                                                    Expanded(
-                                                      child: Text(
-                                                        cmd['description'] ?? '',
-                                                        style: TextStyle(
-                                                          color: appTheme.textSecondary,
-                                                          fontSize: 12,
-                                                        ),
-                                                        overflow: TextOverflow.ellipsis,
+                                          // Mostrar sugerencias de comandos (solo estas se muestran debajo)
+                                          if (_showCommandSuggestions && _commandSuggestions.isNotEmpty)
+                                            Container(
+                                              margin: const EdgeInsets.only(top: 4),
+                                              decoration: BoxDecoration(
+                                                color: appTheme.surface,
+                                                borderRadius: BorderRadius.circular(8),
+                                                border: Border.all(color: appTheme.primary.withOpacity(0.3)),
+                                                boxShadow: [
+                                                  BoxShadow(
+                                                    color: Colors.black.withOpacity(0.2),
+                                                    blurRadius: 8,
+                                                    offset: const Offset(0, 2),
+                                                  ),
+                                                ],
+                                              ),
+                                              constraints: const BoxConstraints(maxHeight: 200),
+                                              child: ListView.separated(
+                                                shrinkWrap: true,
+                                                padding: const EdgeInsets.symmetric(vertical: 4),
+                                                itemCount: _commandSuggestions.length,
+                                                separatorBuilder: (context, index) => Divider(
+                                                  height: 1,
+                                                  color: appTheme.primary.withOpacity(0.1),
+                                                ),
+                                                itemBuilder: (context, index) {
+                                                  final cmd = _commandSuggestions[index];
+                                                  final isSelected = index == _selectedSuggestionIndex;
+                                                  
+                                                  return InkWell(
+                                                    onTap: () => _selectCommandSuggestion(index),
+                                                    child: Container(
+                                                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                                      color: isSelected 
+                                                          ? appTheme.primary.withOpacity(0.2) 
+                                                          : Colors.transparent,
+                                                      child: Row(
+                                                        children: [
+                                                          Text(
+                                                            '/${cmd['command']}',
+                                                            style: TextStyle(
+                                                              color: appTheme.primary,
+                                                              fontWeight: FontWeight.bold,
+                                                              fontSize: 14,
+                                                            ),
+                                                          ),
+                                                          const SizedBox(width: 8),
+                                                          Expanded(
+                                                            child: Text(
+                                                              cmd['description'] ?? '',
+                                                              style: TextStyle(
+                                                                color: appTheme.textSecondary,
+                                                                fontSize: 12,
+                                                              ),
+                                                              overflow: TextOverflow.ellipsis,
+                                                            ),
+                                                          ),
+                                                          const SizedBox(width: 8),
+                                                          Flexible(
+                                                            child: Text(
+                                                              cmd['usage'] ?? '',
+                                                              style: TextStyle(
+                                                                color: appTheme.textSecondary.withOpacity(0.6),
+                                                                fontSize: 11,
+                                                                fontStyle: FontStyle.italic,
+                                                              ),
+                                                              overflow: TextOverflow.ellipsis,
+                                                            ),
+                                                          ),
+                                                        ],
                                                       ),
                                                     ),
-                                                    const SizedBox(width: 8),
-                                                    Flexible(
-                                                      child: Text(
-                                                        cmd['usage'] ?? '',
-                                                        style: TextStyle(
-                                                          color: appTheme.textSecondary.withOpacity(0.6),
-                                                          fontSize: 11,
-                                                          fontStyle: FontStyle.italic,
-                                                        ),
-                                                        overflow: TextOverflow.ellipsis,
-                                                      ),
+                                                  );
+                                                },
+                                              ),
+                                            ),
+                                        ],
+                                      ),
+                                      // Mostrar sugerencias de nicks como overlay flotante encima del campo
+                                      if (_showNickSuggestions && _nickSuggestions.isNotEmpty)
+                                        Positioned(
+                                          bottom: 0,
+                                          left: 0,
+                                          right: 0,
+                                          child: Transform.translate(
+                                            offset: const Offset(0, 100), // Mover hacia arriba (encima del campo)
+                                            child: Material(
+                                              elevation: 8,
+                                              borderRadius: BorderRadius.circular(8),
+                                              color: Colors.transparent,
+                                              child: Container(
+                                                decoration: BoxDecoration(
+                                                  color: appTheme.surface,
+                                                  borderRadius: BorderRadius.circular(8),
+                                                  border: Border.all(color: appTheme.accent.withOpacity(0.3)),
+                                                  boxShadow: [
+                                                    BoxShadow(
+                                                      color: Colors.black.withOpacity(0.3),
+                                                      blurRadius: 12,
+                                                      offset: const Offset(0, 4),
                                                     ),
                                                   ],
                                                 ),
-                                              ),
-                                            );
-                                          },
-                                        ),
-                                      ),
-                                    // Mostrar sugerencias de nicks
-                                    if (_showNickSuggestions && _nickSuggestions.isNotEmpty)
-                                      Container(
-                                        margin: const EdgeInsets.only(top: 4),
-                                        decoration: BoxDecoration(
-                                          color: appTheme.surface,
-                                          borderRadius: BorderRadius.circular(8),
-                                          border: Border.all(color: appTheme.accent.withOpacity(0.3)),
-                                          boxShadow: [
-                                            BoxShadow(
-                                              color: Colors.black.withOpacity(0.2),
-                                              blurRadius: 8,
-                                              offset: const Offset(0, 2),
-                                            ),
-                                          ],
-                                        ),
-                                        constraints: const BoxConstraints(maxHeight: 200),
-                                        child: ListView.separated(
-                                          shrinkWrap: true,
-                                          padding: const EdgeInsets.symmetric(vertical: 4),
-                                          itemCount: _nickSuggestions.length,
-                                          separatorBuilder: (context, index) => Divider(
-                                            height: 1,
-                                            color: appTheme.accent.withOpacity(0.1),
-                                          ),
-                                          itemBuilder: (context, index) {
-                                            final nick = _nickSuggestions[index];
-                                            final isSelected = index == _selectedNickIndex;
-                                            
-                                            return InkWell(
-                                              onTap: () => _selectNickSuggestion(index),
-                                              child: Container(
-                                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                                color: isSelected 
-                                                    ? appTheme.accent.withOpacity(0.2) 
-                                                    : Colors.transparent,
-                                                child: Row(
-                                                  children: [
-                                                    Icon(
-                                                      Icons.person,
-                                                      color: appTheme.accent,
-                                                      size: 16,
-                                                    ),
-                                                    const SizedBox(width: 8),
-                                                    Text(
-                                                      nick,
-                                                      style: TextStyle(
-                                                        color: appTheme.accent,
-                                                        fontWeight: FontWeight.bold,
-                                                        fontSize: 14,
+                                                constraints: const BoxConstraints(maxHeight: 200),
+                                                child: ListView.separated(
+                                                  shrinkWrap: true,
+                                                  padding: const EdgeInsets.symmetric(vertical: 4),
+                                                  itemCount: _nickSuggestions.length,
+                                                  separatorBuilder: (context, index) => Divider(
+                                                    height: 1,
+                                                    color: appTheme.accent.withOpacity(0.1),
+                                                  ),
+                                                  itemBuilder: (context, index) {
+                                                    final nick = _nickSuggestions[index];
+                                                    final isSelected = index == _selectedNickIndex;
+                                                    
+                                                    return InkWell(
+                                                      onTap: () => _selectNickSuggestion(index),
+                                                      child: Container(
+                                                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                                        color: isSelected 
+                                                            ? appTheme.accent.withOpacity(0.2) 
+                                                            : Colors.transparent,
+                                                        child: Row(
+                                                          children: [
+                                                            Icon(
+                                                              Icons.person,
+                                                              color: appTheme.accent,
+                                                              size: 16,
+                                                            ),
+                                                            const SizedBox(width: 8),
+                                                            Text(
+                                                              nick,
+                                                              style: TextStyle(
+                                                                color: appTheme.accent,
+                                                                fontWeight: FontWeight.bold,
+                                                                fontSize: 14,
+                                                              ),
+                                                            ),
+                                                          ],
+                                                        ),
                                                       ),
-                                                    ),
-                                                  ],
+                                                    );
+                                                  },
                                                 ),
                                               ),
-                                            );
-                                          },
+                                            ),
+                                          ),
                                         ),
-                                      ),
                                     ],
-                                  ), // Column
+                                  ), // Stack
                                 ), // KeyboardListener
                               ), // Actions
                             ), // Shortcuts
@@ -5751,7 +5700,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                           // Botón para enviar inmediatamente (sin delay)
                           FloatingActionButton(
                             onPressed: () {
-                              print('⚡⚡⚡ [ChatScreen] Botón de rayo presionado, enviando con forceImmediate=true');
+                              // print('⚡⚡⚡ [ChatScreen] Botón de rayo presionado, enviando con forceImmediate=true');
                               _sendMessage(forceImmediate: true);
                             },
                             mini: true,
@@ -5912,7 +5861,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                               
                               return ListView.builder(
                                 itemCount: sortedUsers.length,
-                            itemBuilder: (context, index) {
+                                cacheExtent: 500, // Cache para mejor scroll
+                                itemBuilder: (context, index) {
                                   final user = sortedUsers[index];
                                   // Obtener el modo del usuario
                                   final userMode = currentChannelData?.getUserMode(user);
@@ -5924,97 +5874,106 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                   final nickHash = user.hashCode;
                                   final userColor = isRobot ? const Color(0xFFFFD700) : _getUserColor(nickHash);
                                   
-                              return ListTile(
-                                dense: true,
-                                    leading: UserAvatar(
-                                      nick: user,
-                                      size: 32,
-                                      fallbackIcon: userIcon,
-                                      gradient: isRobot
-                                          ? LinearGradient(
-                                              colors: [
-                                                const Color(0xFFFFD700),
-                                                const Color(0xFFFFA500),
-                                              ],
-                                              begin: Alignment.topLeft,
-                                              end: Alignment.bottomRight,
-                                            )
-                                          : LinearGradient(
-                                              colors: [
-                                                userColor,
-                                                userColor.withOpacity(0.7),
-                                              ],
-                                              begin: Alignment.topLeft,
-                                              end: Alignment.bottomRight,
-                                            ),
-                                      boxShadow: [
-                                        BoxShadow(
-                                          color: isRobot
-                                              ? const Color(0xFFFFD700).withOpacity(0.5)
-                                              : userColor.withOpacity(0.4),
-                                          blurRadius: 4,
-                                          offset: const Offset(0, 1),
-                                        ),
-                                      ],
-                                      border: isRobot
-                                          ? Border.all(
-                                              color: const Color(0xFFFFD700).withOpacity(0.6),
-                                              width: 1.5,
-                                            )
-                                          : null,
-                                    ),
-                                    title: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Flexible(
-                                          child: Text(
-                                  user,
-                                            style: TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 12,
-                                              fontWeight: (isRobot || userMode != null) ? FontWeight.bold : FontWeight.normal,
-                                            ),
-                                            overflow: TextOverflow.ellipsis,
-                                          ),
-                                        ),
-                                        if (userMode == '@' || userMode == '&') ...[
-                                          const SizedBox(width: 6),
-                                          Container(
-                                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                            decoration: BoxDecoration(
-                                              color: appTheme.primary.withOpacity(0.3),
-                                              borderRadius: BorderRadius.circular(8),
-                                              border: Border.all(
-                                                color: appTheme.primary.withOpacity(0.6),
-                                                width: 1,
+                              return GestureDetector(
+                                onDoubleTap: () {
+                                  // Abrir mensaje privado con doble clic (excepto si es el propio nick)
+                                  final currentNick = ref.read(currentNicknameProvider);
+                                  if (currentNick != null && user.toLowerCase() != currentNick.toLowerCase()) {
+                                    _openPrivateMessage(user);
+                                  }
+                                },
+                                child: ListTile(
+                                  dense: true,
+                                      leading: UserAvatar(
+                                        nick: user,
+                                        size: 32,
+                                        fallbackIcon: userIcon,
+                                        gradient: isRobot
+                                            ? LinearGradient(
+                                                colors: [
+                                                  const Color(0xFFFFD700),
+                                                  const Color(0xFFFFA500),
+                                                ],
+                                                begin: Alignment.topLeft,
+                                                end: Alignment.bottomRight,
+                                              )
+                                            : LinearGradient(
+                                                colors: [
+                                                  userColor,
+                                                  userColor.withOpacity(0.7),
+                                                ],
+                                                begin: Alignment.topLeft,
+                                                end: Alignment.bottomRight,
                                               ),
-                                            ),
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color: isRobot
+                                                ? const Color(0xFFFFD700).withOpacity(0.5)
+                                                : userColor.withOpacity(0.4),
+                                            blurRadius: 4,
+                                            offset: const Offset(0, 1),
+                                          ),
+                                        ],
+                                        border: isRobot
+                                            ? Border.all(
+                                                color: const Color(0xFFFFD700).withOpacity(0.6),
+                                                width: 1.5,
+                                              )
+                                            : null,
+                                      ),
+                                      title: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Flexible(
                                             child: Text(
-                                              userMode == '&' ? 'Dueño' : 'Operador',
+                                    user,
                                               style: TextStyle(
-                                                color: appTheme.primary,
-                                                fontSize: 9,
-                                                fontWeight: FontWeight.bold,
-                                                letterSpacing: 0.3,
+                                      color: Colors.white,
+                                      fontSize: 12,
+                                                fontWeight: (isRobot || userMode != null) ? FontWeight.bold : FontWeight.normal,
                                               ),
                                               overflow: TextOverflow.ellipsis,
                                             ),
                                           ),
+                                          if (userMode == '@' || userMode == '&') ...[
+                                            const SizedBox(width: 6),
+                                            Container(
+                                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                              decoration: BoxDecoration(
+                                                color: appTheme.primary.withOpacity(0.3),
+                                                borderRadius: BorderRadius.circular(8),
+                                                border: Border.all(
+                                                  color: appTheme.primary.withOpacity(0.6),
+                                                  width: 1,
+                                                ),
+                                              ),
+                                              child: Text(
+                                                userMode == '&' ? 'Dueño' : 'Operador',
+                                                style: TextStyle(
+                                                  color: appTheme.primary,
+                                                  fontSize: 9,
+                                                  fontWeight: FontWeight.bold,
+                                                  letterSpacing: 0.3,
+                                                ),
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                            ),
+                                          ],
                                         ],
-                                      ],
+                                      ),
+                                      onTap: () {
+                                        // print('🔍 [DEBUG] Tapped on user: $user (mode: $userMode)');
+                                        // print('🔍 [DEBUG] Calling _showUserContextMenu for: $user');
+                                        try {
+                                          _showUserContextMenu(context, user);
+                                          // print('🔍 [DEBUG] _showUserContextMenu called successfully');
+                                        } catch (e, stackTrace) {
+                                          // print('🔍 [ERROR] Error showing user context menu: $e');
+                                          // print('🔍 [ERROR] Stack trace: $stackTrace');
+                                        }
+                                      },
                                     ),
-                                    onTap: () {
-                                      print('🔍 [DEBUG] Tapped on user: $user (mode: $userMode)');
-                                      print('🔍 [DEBUG] Calling _showUserContextMenu for: $user');
-                                      try {
-                                        _showUserContextMenu(context, user);
-                                        print('🔍 [DEBUG] _showUserContextMenu called successfully');
-                                      } catch (e, stackTrace) {
-                                        print('🔍 [ERROR] Error showing user context menu: $e');
-                                        print('🔍 [ERROR] Stack trace: $stackTrace');
-                                      }
-                                    },
-                                  );
+                              );
                                 },
                               );
                             },
@@ -6272,6 +6231,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final timeFormat = DateFormat('HH:mm');
     final currentNick = ref.read(currentNicknameProvider);
     final isOwnMessage = message.nick == currentNick;
+    final formatPrefs = ref.read(messageFormatPreferencesProvider);
+    final showTimestamp = formatPrefs.showTimestamp;
     
     return InkWell(
       onTap: () {
@@ -6305,14 +6266,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     fontSize: 14,
                   ),
                 ),
-                const SizedBox(width: 8),
-                Text(
-                  timeFormat.format(message.timestamp),
-                  style: TextStyle(
-                    color: appTheme.textSecondary,
-                    fontSize: 12,
+                if (showTimestamp) ...[
+                  const SizedBox(width: 8),
+                  Text(
+                    timeFormat.format(message.timestamp),
+                    style: TextStyle(
+                      color: appTheme.textSecondary,
+                      fontSize: 12,
+                    ),
                   ),
-                ),
+                ],
                 const SizedBox(width: 8),
                 Text(
                   message.channel,
@@ -6385,8 +6348,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       ));
     }
     
-    return RichText(
-      text: TextSpan(children: spans),
+    return SelectableText.rich(
+      TextSpan(children: spans),
     );
   }
 
@@ -6396,6 +6359,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     bool isOwnMessage,
   ) {
     final appTheme = ref.read(themeProvider);
+    final formatPrefs = ref.read(messageFormatPreferencesProvider);
+    final showTimestamp = formatPrefs.showTimestamp;
     
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -6422,14 +6387,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     fontSize: 14,
                   ),
                 ),
-                const SizedBox(width: 8),
-                Text(
-                  timeFormat.format(message.timestamp),
-                  style: TextStyle(
-                    color: appTheme.textSecondary,
-                    fontSize: 12,
+                if (showTimestamp) ...[
+                  const SizedBox(width: 8),
+                  Text(
+                    timeFormat.format(message.timestamp),
+                    style: TextStyle(
+                      color: appTheme.textSecondary,
+                      fontSize: 12,
+                    ),
                   ),
-                ),
+                ],
                 if (message.channel.isNotEmpty) ...[
                   const SizedBox(width: 8),
                   Text(
@@ -6452,20 +6419,46 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   }
 
   Widget _buildMessageTile(IRCMessage message) {
+    // Optimización: memoizar timeFormat
     final timeFormat = DateFormat('HH:mm');
     final currentNick = ref.read(currentNicknameProvider);
     final isOwnMessage = message.nick == currentNick;
     
     // Detectar si es mensaje de registro de nick - mostrar de forma especial
     if (_isNickRegistrationMessage(message)) {
-      return _buildModernRegistrationMessage(message);
+      final messageLower = message.message.toLowerCase();
+      final isNotRegistered = messageLower.contains('no está registrado') || 
+                             messageLower.contains('no esta registrado');
+      
+      // Si este mensaje dice "no está registrado", siempre mostrarlo con el widget especial
+      if (isNotRegistered) {
+        return _buildModernRegistrationMessage(message);
+      }
+      
+      // Si dice "está registrado", verificar si hay un mensaje de "no registrado" más reciente
+      final messages = ref.read(messagesProvider);
+      final hasRecentNotRegistered = messages.any((m) => 
+        m.nick.toLowerCase() == 'nick' && 
+        _isNickRegistrationMessage(m) &&
+        (m.message.toLowerCase().contains('no está registrado') || 
+         m.message.toLowerCase().contains('no esta registrado')) &&
+        m.timestamp.isAfter(message.timestamp.subtract(const Duration(seconds: 10)))
+      );
+      
+      // Si hay un mensaje de "no registrado" más reciente, mostrar este como mensaje normal
+      // Si no, mostrar el widget especial
+      if (!hasRecentNotRegistered) {
+        return _buildModernRegistrationMessage(message);
+      }
+      // Si hay un mensaje de "no registrado" más reciente, continuar con el flujo normal
     }
     
     // Detectar si es canal o privado
     final isChannel = message.channel.startsWith('#');
     
-    // Obtener preferencias de formato (usar watch para que se reconstruya cuando cambien)
-    final formatPrefs = ref.watch(messageFormatPreferencesProvider);
+    // Optimización: usar read en lugar de watch para evitar reconstrucciones innecesarias
+    // Solo se reconstruirá cuando cambie el mensaje, no cuando cambien las preferencias
+    final formatPrefs = ref.read(messageFormatPreferencesProvider);
     
     // Determinar qué formato usar según si es canal o privado
     final MessageFormat selectedFormat = isChannel
@@ -6476,7 +6469,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     
     // Debug: solo imprimir ocasionalmente para no saturar logs
     if (message.timestamp.millisecond % 100 == 0) {
-      print('🔍 [FORMATO] Canal: ${message.channel}, isChannel: $isChannel, formato: ${selectedFormat == MessageFormat.bubble ? "burbuja" : "plano"}');
+      // print('🔍 [FORMATO] Canal: ${message.channel}, isChannel: $isChannel, formato: ${selectedFormat == MessageFormat.bubble ? "burbuja" : "plano"}');
     }
     
     // Si no es formato burbuja, usar formato texto plano
@@ -6578,12 +6571,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final nickHash = message.nick.hashCode;
     final userColor = isBot ? const Color(0xFFFFD700) : _getUserColor(nickHash); // Dorado para bots
     final appTheme = ref.read(themeProvider);
-    final pinnedMap = ref.watch(pinnedMessagesProvider);
+    // Optimización: usar read en lugar de watch para evitar reconstrucciones
+    final pinnedMap = ref.read(pinnedMessagesProvider);
     final isPinned = (pinnedMap[channelKey] ?? const [])
         .any((m) =>
             m.nick == message.nick &&
             m.message == message.message &&
             m.timestamp == message.timestamp);
+    
+    // Obtener preferencia de mostrar timestamp (formatPrefs ya está declarado arriba)
+    final showTimestamp = formatPrefs.showTimestamp;
     
     // Obtener inicial del usuario para el avatar (o emoji para bots/modos especiales)
     final userIcon = _getUserIcon(userMode, isBot);
@@ -6763,18 +6760,20 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Text(
-                              timeFormat.format(message.timestamp),
-                              style: TextStyle(
-                                fontSize: 10,
-                                color: isOwnMessage
-                                    ? Colors.white.withOpacity(0.9)
-                                    : appTheme.textPrimary.withOpacity(0.6),
-                                fontWeight: FontWeight.w500,
-                                letterSpacing: 0.3,
+                            if (showTimestamp) ...[
+                              Text(
+                                timeFormat.format(message.timestamp),
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  color: isOwnMessage
+                                      ? Colors.white.withOpacity(0.9)
+                                      : appTheme.textPrimary.withOpacity(0.6),
+                                  fontWeight: FontWeight.w500,
+                                  letterSpacing: 0.3,
+                                ),
                               ),
-                            ),
-                            const SizedBox(width: 4),
+                              const SizedBox(width: 4),
+                            ],
                             InkWell(
                               onTap: () {
                                 ref
@@ -6790,6 +6789,17 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                         .withOpacity(0.4),
                               ),
                             ),
+                            const SizedBox(width: 4),
+                            InkWell(
+                              onTap: () {
+                                _copyMessageToClipboard(message);
+                              },
+                              child: Icon(
+                                Icons.content_copy,
+                                size: 14,
+                                color: appTheme.textPrimary.withOpacity(0.4),
+                              ),
+                            ),
                           ],
                         ),
                       ),
@@ -6797,6 +6807,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   ),
                   const SizedBox(height: 8),
                   // Contenido del mensaje con soporte para imágenes y acciones
+                  // Permitir selección de texto - SelectableText.rich ya está implementado en _buildMessageContent
                   message.isAction
                       ? _buildActionMessage(message.nick, message.message, isOwnMessage, userColor, appTheme)
                       : _buildMessageContent(message.message, isOwnMessage, isBot: isBot),
@@ -6979,6 +6990,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       messageLower.contains('no esta registrado') ||
       messageLower.contains('registrar') ||
       messageLower.contains('register') ||
+      messageLower.contains('está registrado') ||
+      messageLower.contains('esta registrado') ||
+      messageLower.contains('protegido') ||
+      messageLower.contains('identify') ||
       (messageLower.contains('/msg') && messageLower.contains('register'))
     );
   }
@@ -6987,6 +7002,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   Widget _buildModernRegistrationMessage(IRCMessage message) {
     final appTheme = ref.read(themeProvider);
     final timeFormat = DateFormat('HH:mm');
+    final formatPrefs = ref.read(messageFormatPreferencesProvider);
+    final showTimestamp = formatPrefs.showTimestamp;
     
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -7074,74 +7091,201 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 ],
               ),
               const SizedBox(height: 16),
-              // Mensaje principal
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: appTheme.surface.withOpacity(0.5),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.warning_amber_rounded,
-                      color: Colors.orange.shade400,
-                      size: 20,
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        'Tu Nick no está registrado',
-                        style: TextStyle(
-                          color: appTheme.textPrimary,
-                          fontSize: 15,
-                          fontWeight: FontWeight.w600,
+              // Mensaje principal - detectar si está registrado o no
+              Builder(
+                builder: (context) {
+                  final messageLower = message.message.toLowerCase();
+                  // Primero verificar si dice explícitamente que NO está registrado
+                  final isNotRegistered = messageLower.contains('no está registrado') || 
+                                         messageLower.contains('no esta registrado') ||
+                                         messageLower.contains('no registrado');
+                  
+                  // Solo considerar registrado si NO dice "no está registrado" Y contiene indicadores de registro
+                  final isRegistered = !isNotRegistered && (
+                    messageLower.contains('está registrado') || 
+                    messageLower.contains('esta registrado') ||
+                    (messageLower.contains('protegido') && !messageLower.contains('no'))
+                  );
+                  
+                  if (isRegistered) {
+                    // Nick está registrado - mostrar botón de identificación
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: Colors.blue.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: Colors.blue.withOpacity(0.3),
+                              width: 1,
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.lock_outline,
+                                color: Colors.blue.shade400,
+                                size: 20,
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Text(
+                                  'Este nick está registrado y protegido',
+                                  style: TextStyle(
+                                    color: appTheme.textPrimary,
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 12),
-              // Texto informativo
-              Text(
-                'Registra tu nick para proteger tu identidad y acceder a funciones avanzadas del servidor.',
-                style: TextStyle(
-                  color: appTheme.textSecondary,
-                  fontSize: 13,
-                  height: 1.4,
-                ),
-              ),
-              const SizedBox(height: 20),
-              // Botón de registro moderno
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: () {
-                    _showNickRegistrationDialog(context);
-                  },
-                  icon: const Icon(Icons.person_add, size: 20),
-                  label: const Text(
-                    'Registrar Nick Ahora',
-                    style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: appTheme.primary,
-                    foregroundColor: appTheme.textPrimary,
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    elevation: 4,
-                    shadowColor: appTheme.primary.withOpacity(0.4),
-                  ),
-                ),
+                        const SizedBox(height: 12),
+                        // Texto informativo del mensaje original
+                        Text(
+                          message.message,
+                          style: TextStyle(
+                            color: appTheme.textSecondary,
+                            fontSize: 13,
+                            height: 1.4,
+                          ),
+                        ),
+                        const SizedBox(height: 20),
+                        // Botón de identificación moderno
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton.icon(
+                            onPressed: () {
+                              _showNickIdentifyDialog(context);
+                            },
+                            icon: const Icon(Icons.lock_open, size: 20),
+                            label: const Text(
+                              'Identificar Nick',
+                              style: TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.blue,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 16),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              elevation: 4,
+                            ),
+                          ),
+                        ),
+                      ],
+                    );
+                  } else {
+                    // Nick no está registrado - mostrar botón de registro
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: appTheme.surface.withOpacity(0.5),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.warning_amber_rounded,
+                                color: Colors.orange.shade400,
+                                size: 20,
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Text(
+                                  'Tu Nick no está registrado',
+                                  style: TextStyle(
+                                    color: appTheme.textPrimary,
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        // Texto informativo
+                        Text(
+                          'Registra tu nick para proteger tu identidad y acceder a funciones avanzadas del servidor.',
+                          style: TextStyle(
+                            color: appTheme.textSecondary,
+                            fontSize: 13,
+                            height: 1.4,
+                          ),
+                        ),
+                        const SizedBox(height: 20),
+                        // Botón de registro moderno
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton.icon(
+                            onPressed: () {
+                              _showNickRegistrationDialog(context);
+                            },
+                            icon: const Icon(Icons.person_add, size: 20),
+                            label: const Text(
+                              'Registrar Nick Ahora',
+                              style: TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: appTheme.primary,
+                              foregroundColor: appTheme.textPrimary,
+                              padding: const EdgeInsets.symmetric(vertical: 16),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              elevation: 4,
+                              shadowColor: appTheme.primary.withOpacity(0.4),
+                            ),
+                          ),
+                        ),
+                      ],
+                    );
+                  }
+                },
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+
+  // Copiar mensaje al portapapeles
+  void _copyMessageToClipboard(IRCMessage message) {
+    // Solo copiar el contenido del mensaje, sin nick ni hora
+    final textToCopy = message.message;
+    
+    Clipboard.setData(ClipboardData(text: textToCopy));
+    
+    // Mostrar snackbar de confirmación
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const Icon(Icons.check_circle, color: Colors.white, size: 20),
+            const SizedBox(width: 8),
+            const Text('Mensaje copiado al portapapeles'),
+          ],
+        ),
+        duration: const Duration(seconds: 2),
+        backgroundColor: Colors.green,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8),
         ),
       ),
     );
@@ -7999,10 +8143,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         }
       }
       
-      return RichText(
-        text: TextSpan(
+      // Asegurar que el color esté en el estilo base
+      return SelectableText.rich(
+        TextSpan(
           children: spans,
           style: TextStyle(
+            color: defaultColor, // Incluir el color en el estilo base
             fontSize: isBot ? 16 : 15,
             height: 1.6,
             fontWeight: isBot ? FontWeight.w500 : FontWeight.w400,
@@ -8019,13 +8165,94 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     );
   }
 
-  // Construir texto con emoticonos
+  // Construir texto con URLs clickables y emoticonos
   Widget _buildTextWithEmojis(
     String text, {
     required bool isOwnMessage,
     bool isBot = false,
   }) {
     final appTheme = ref.read(themeProvider);
+    
+    // Detectar URLs en el texto
+    final urlRegex = RegExp(
+      r'(?:(?:https?|ftp):\/\/)?(?:www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b(?:[-a-zA-Z0-9()@:%_\+.~#?&\/=]*)',
+      caseSensitive: false,
+    );
+    
+    final matches = urlRegex.allMatches(text);
+    
+    // Si hay URLs, crear TextSpan con enlaces clickables
+    if (matches.isNotEmpty) {
+      final spans = <TextSpan>[];
+      int lastEnd = 0;
+      
+      for (final match in matches) {
+        // Añadir texto antes de la URL
+        if (match.start > lastEnd) {
+          spans.add(TextSpan(
+            text: text.substring(lastEnd, match.start),
+            style: TextStyle(
+              color: isOwnMessage ? Colors.white : appTheme.textPrimary,
+              fontSize: isBot ? 16 : 15,
+            ),
+          ));
+        }
+        
+        // Añadir la URL como enlace clickable
+        final url = match.group(0)!;
+        final fullUrl = url.startsWith('http://') || url.startsWith('https://') || url.startsWith('ftp://')
+            ? url
+            : 'https://$url';
+        
+        spans.add(TextSpan(
+          text: url,
+          style: TextStyle(
+            color: isOwnMessage ? Colors.lightBlueAccent : Colors.blue,
+            fontSize: isBot ? 16 : 15,
+            decoration: TextDecoration.underline,
+            decorationColor: isOwnMessage ? Colors.lightBlueAccent : Colors.blue,
+          ),
+          recognizer: TapGestureRecognizer()
+            ..onTap = () async {
+              try {
+                final uri = Uri.parse(fullUrl);
+                if (await canLaunchUrl(uri)) {
+                  await launchUrl(uri, mode: LaunchMode.externalApplication);
+                }
+              } catch (e) {
+                // Ignorar errores al abrir URL
+              }
+            },
+        ));
+        
+        lastEnd = match.end;
+      }
+      
+      // Añadir texto restante después de la última URL
+      if (lastEnd < text.length) {
+        spans.add(TextSpan(
+          text: text.substring(lastEnd),
+          style: TextStyle(
+            color: isOwnMessage ? Colors.white : appTheme.textPrimary,
+            fontSize: isBot ? 16 : 15,
+          ),
+        ));
+      }
+      
+      // Usar SelectableText.rich para permitir selección de texto en web
+      // Asegurar que el color esté en el estilo base para que se herede correctamente
+      return SelectableText.rich(
+        TextSpan(
+          children: spans,
+          style: TextStyle(
+            color: isOwnMessage ? Colors.white : appTheme.textPrimary,
+            fontSize: isBot ? 16 : 15,
+          ),
+        ),
+      );
+    }
+    
+    // Si no hay URLs, mostrar texto normal
     final defaultColor = isOwnMessage 
         ? Colors.white 
         : isBot
@@ -8072,8 +8299,81 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           );
         }
       } else {
-        // Es texto normal
-        if (isBot && (part.contains('\x03') || part.contains('\x02'))) {
+        // Es texto normal - detectar URLs dentro del texto
+        final urlRegex = RegExp(
+          r'(?:(?:https?|ftp):\/\/)?(?:www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b(?:[-a-zA-Z0-9()@:%_\+.~#?&\/=]*)',
+          caseSensitive: false,
+        );
+        final urlMatches = urlRegex.allMatches(part);
+        
+        if (urlMatches.isNotEmpty && !isBot) {
+          // Hay URLs en el texto, hacerlas clickables
+          int lastEnd = 0;
+          for (final match in urlMatches) {
+            // Texto antes de la URL
+            if (match.start > lastEnd) {
+              final textBefore = part.substring(lastEnd, match.start);
+              if (textBefore.isNotEmpty) {
+                textSpans.add(
+                  TextSpan(
+                    text: textBefore,
+                    style: TextStyle(
+                      color: defaultColor,
+                      fontSize: isBot ? 16 : 15,
+                    ),
+                  ),
+                );
+              }
+            }
+            
+            // URL clickable
+            final url = match.group(0)!;
+            final fullUrl = url.startsWith('http://') || url.startsWith('https://') || url.startsWith('ftp://')
+                ? url
+                : 'https://$url';
+            
+            textSpans.add(
+              TextSpan(
+                text: url,
+                style: TextStyle(
+                  color: isOwnMessage ? Colors.lightBlueAccent : Colors.blue,
+                  fontSize: isBot ? 16 : 15,
+                  decoration: TextDecoration.underline,
+                  decorationColor: isOwnMessage ? Colors.lightBlueAccent : Colors.blue,
+                ),
+                recognizer: TapGestureRecognizer()
+                  ..onTap = () async {
+                    try {
+                      final uri = Uri.parse(fullUrl);
+                      if (await canLaunchUrl(uri)) {
+                        await launchUrl(uri, mode: LaunchMode.externalApplication);
+                      }
+                    } catch (e) {
+                      // Ignorar errores al abrir URL
+                    }
+                  },
+              ),
+            );
+            
+            lastEnd = match.end;
+          }
+          
+          // Texto después de la última URL
+          if (lastEnd < part.length) {
+            final textAfter = part.substring(lastEnd);
+            if (textAfter.isNotEmpty) {
+              textSpans.add(
+                TextSpan(
+                  text: textAfter,
+                  style: TextStyle(
+                    color: defaultColor,
+                    fontSize: isBot ? 16 : 15,
+                  ),
+                ),
+              );
+            }
+          }
+        } else if (isBot && (part.contains('\x03') || part.contains('\x02'))) {
           // Parsear códigos IRC
           final spans = IRCColorParser.parseIRCMessage(part, defaultColor: defaultColor);
           textSpans.addAll(spans);
@@ -8094,17 +8394,43 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       }
     }
     
-    return RichText(
-      text: TextSpan(
-        children: textSpans,
-        style: TextStyle(
-          fontSize: isBot ? 16 : 15,
-          height: 1.6,
-          fontWeight: isBot ? FontWeight.w500 : FontWeight.w400,
-          letterSpacing: isBot ? 0.3 : 0.0,
+    // Verificar si hay WidgetSpan (emojis como imágenes)
+    final hasWidgetSpans = textSpans.any((span) => span is WidgetSpan);
+    
+    if (hasWidgetSpans) {
+      // Si hay emojis como imágenes, usar RichText envuelto en SelectableRegion
+      // para permitir selección del texto (aunque los emojis no serán seleccionables)
+      return SelectableRegion(
+        focusNode: FocusNode(),
+        selectionControls: MaterialTextSelectionControls(),
+        child: RichText(
+          text: TextSpan(
+            children: textSpans,
+            style: TextStyle(
+              fontSize: isBot ? 16 : 15,
+              height: 1.6,
+              fontWeight: isBot ? FontWeight.w500 : FontWeight.w400,
+              letterSpacing: isBot ? 0.3 : 0.0,
+            ),
+          ),
         ),
-      ),
-    );
+      );
+    } else {
+      // Si no hay emojis como imágenes, usar SelectableText.rich para selección completa
+      // Asegurar que el color esté en el estilo base
+      return SelectableText.rich(
+        TextSpan(
+          children: textSpans,
+          style: TextStyle(
+            color: defaultColor, // Incluir el color en el estilo base
+            fontSize: isBot ? 16 : 15,
+            height: 1.6,
+            fontWeight: isBot ? FontWeight.w500 : FontWeight.w400,
+            letterSpacing: isBot ? 0.3 : 0.0,
+          ),
+        ),
+      );
+    }
   }
 
   // Obtener el emoticono según el modo del usuario
@@ -8441,7 +8767,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           ref.read(unreadMessagesProvider.notifier).markAsRead(channel);
           
           // Activar radio automáticamente si corresponde (v2.1.0)
-          _activateRadioForChannel(channel);
+          // DESHABILITADO: El usuario prefiere activar la radio manualmente
+          // _activateRadioForChannel(channel);
         },
         onLongPress: () {
           _showChannelNotificationMenu(context, channel);
@@ -8684,6 +9011,44 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     );
   }
 
+  Widget _buildAcknowledgmentItem(AppTheme appTheme, String name, String contribution) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 6,
+          height: 6,
+          margin: const EdgeInsets.only(top: 6, right: 12),
+          decoration: BoxDecoration(
+            color: appTheme.secondary,
+            shape: BoxShape.circle,
+          ),
+        ),
+        Expanded(
+          child: RichText(
+            text: TextSpan(
+              style: TextStyle(
+                color: appTheme.textPrimary.withOpacity(0.9),
+                fontSize: 13,
+              ),
+              children: [
+                TextSpan(
+                  text: '$name',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                TextSpan(
+                  text: ' - $contribution',
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   void _showSupportDialog(BuildContext context) {
     final appTheme = ref.read(themeProvider);
     showModalBottomSheet(
@@ -8874,6 +9239,256 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           ),
         );
       },
+    );
+  }
+
+  void _showNickIdentifyDialog(BuildContext context) {
+    final appTheme = ref.read(themeProvider);
+    final currentNick = ref.read(currentNicknameProvider) ?? '';
+    final passwordController = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+    bool _obscurePassword = true;
+    bool _isSubmitting = false;
+    
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => Dialog(
+          backgroundColor: Colors.transparent,
+          child: Container(
+            constraints: const BoxConstraints(maxWidth: 500),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  appTheme.surface,
+                  appTheme.surface.withOpacity(0.95),
+                ],
+              ),
+              borderRadius: BorderRadius.circular(24),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.blue.withOpacity(0.3),
+                  blurRadius: 20,
+                  spreadRadius: 5,
+                  offset: const Offset(0, 10),
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Header
+                Container(
+                  padding: const EdgeInsets.all(24),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        Colors.blue,
+                        Colors.blue.shade700,
+                      ],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: const BorderRadius.only(
+                      topLeft: Radius.circular(24),
+                      topRight: Radius.circular(24),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Icon(
+                          Icons.lock_open,
+                          color: Colors.white,
+                          size: 28,
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      const Expanded(
+                        child: Text(
+                          'Identificar Nick',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 24,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                // Contenido
+                Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Form(
+                    key: formKey,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          'Ingresa tu contraseña para identificar el nick "$currentNick":',
+                          style: TextStyle(
+                            color: appTheme.textPrimary,
+                            fontSize: 14,
+                            height: 1.5,
+                          ),
+                        ),
+                        const SizedBox(height: 20),
+                        TextFormField(
+                          controller: passwordController,
+                          obscureText: _obscurePassword,
+                          enabled: !_isSubmitting,
+                          style: TextStyle(color: appTheme.textPrimary),
+                          decoration: InputDecoration(
+                            labelText: 'Contraseña *',
+                            labelStyle: TextStyle(color: appTheme.primary),
+                            hintText: 'Ingresa tu contraseña',
+                            hintStyle: TextStyle(color: appTheme.textSecondary),
+                            prefixIcon: const Icon(Icons.lock),
+                            suffixIcon: IconButton(
+                              icon: Icon(
+                                _obscurePassword ? Icons.visibility : Icons.visibility_off,
+                                color: appTheme.textSecondary,
+                              ),
+                              onPressed: () {
+                                setDialogState(() {
+                                  _obscurePassword = !_obscurePassword;
+                                });
+                              },
+                            ),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            filled: true,
+                            fillColor: appTheme.background,
+                          ),
+                          validator: (value) {
+                            if (value == null || value.isEmpty) {
+                              return 'La contraseña es requerida';
+                            }
+                            return null;
+                          },
+                          onFieldSubmitted: (_) {
+                            if (formKey.currentState!.validate() && !_isSubmitting) {
+                              setDialogState(() {
+                                _isSubmitting = true;
+                              });
+                              final nick = ref.read(currentNicknameProvider) ?? '';
+                              if (nick.isNotEmpty) {
+                                // Usar el método identifyNick que envía el comando correcto
+                                _ircService.identifyNick(passwordController.text);
+                                Navigator.pop(context);
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text('Identificando nick "$nick"...'),
+                                    duration: const Duration(seconds: 2),
+                                    backgroundColor: Colors.blue,
+                                  ),
+                                );
+                              }
+                            }
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                // Botones
+                Container(
+                  padding: const EdgeInsets.all(24),
+                  decoration: BoxDecoration(
+                    color: appTheme.surface.withOpacity(0.5),
+                    borderRadius: const BorderRadius.only(
+                      bottomLeft: Radius.circular(24),
+                      bottomRight: Radius.circular(24),
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      TextButton(
+                        onPressed: _isSubmitting ? null : () => Navigator.pop(context),
+                        style: TextButton.styleFrom(
+                          foregroundColor: appTheme.textPrimary.withOpacity(0.7),
+                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                        ),
+                        child: const Text('Cancelar'),
+                      ),
+                      const SizedBox(width: 12),
+                      Container(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [Colors.blue, Colors.blue.shade700],
+                          ),
+                          borderRadius: BorderRadius.circular(12),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.blue.withOpacity(0.4),
+                              blurRadius: 8,
+                              offset: const Offset(0, 4),
+                            ),
+                          ],
+                        ),
+                        child: ElevatedButton.icon(
+                          onPressed: _isSubmitting ? null : () {
+                            if (formKey.currentState!.validate()) {
+                              setDialogState(() {
+                                _isSubmitting = true;
+                              });
+                              final nick = ref.read(currentNicknameProvider) ?? '';
+                              if (nick.isNotEmpty) {
+                                // Usar el método identifyNick que envía el comando correcto
+                                _ircService.identifyNick(passwordController.text);
+                                Navigator.pop(context);
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text('Identificando nick "$nick"...'),
+                                    duration: const Duration(seconds: 2),
+                                    backgroundColor: Colors.blue,
+                                  ),
+                                );
+                              }
+                            }
+                          },
+                          icon: _isSubmitting
+                              ? const SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                  ),
+                                )
+                              : const Icon(Icons.check, size: 20),
+                          label: Text(_isSubmitting ? 'Identificando...' : 'Identificar'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.transparent,
+                            foregroundColor: Colors.white,
+                            shadowColor: Colors.transparent,
+                            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 
@@ -9193,10 +9808,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   }
 
   void _showUserContextMenu(BuildContext context, String nick) {
-    print('🔍 [MENU] _showUserContextMenu called for nick: "$nick"');
+    // print('🔍 [MENU] _showUserContextMenu called for nick: "$nick"');
     final appTheme = ref.read(themeProvider);
     final currentNick = ref.read(currentNicknameProvider);
-    print('🔍 [MENU] Current nick: "$currentNick", Selected nick: "$nick"');
+    // print('🔍 [MENU] Current nick: "$currentNick", Selected nick: "$nick"');
     
     final isOwnNick = currentNick != null && currentNick.toLowerCase() == nick.toLowerCase();
     
@@ -9206,7 +9821,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       return;
     }
     
-    print('🔍 [MENU] Showing menu for nick: "$nick"');
+    // print('🔍 [MENU] Showing menu for nick: "$nick"');
     
     showModalBottomSheet(
       context: context,
@@ -12305,8 +12920,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 onTap: () {
                   Navigator.pop(context);
                   final favorites = ref.read(favoritesProvider).toList();
-                  print('🔍 [DEBUG] Favoritos actuales en el provider: $favorites');
-                  print('🔍 [DEBUG] Total: ${favorites.length}');
+                  // print('🔍 [DEBUG] Favoritos actuales en el provider: $favorites');
+                  // print('🔍 [DEBUG] Total: ${favorites.length}');
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
                       content: Text('Favoritos: ${favorites.length} canales. Ver consola para detalles.'),
@@ -12789,7 +13404,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     Navigator.pop(context); // Cerrar diálogo de carga
     
     // Debug: mostrar el status recibido
-    print('🔍 [ChatScreen] Status recibido para nick "$currentNick": $status (tipo: ${status.runtimeType})');
+    // print('🔍 [ChatScreen] Status recibido para nick "$currentNick": $status (tipo: ${status.runtimeType})');
     
     // Verificar si el status es 3 (registrado)
     // Asegurarse de comparar correctamente (puede ser int o null)
@@ -13319,7 +13934,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     Navigator.pop(context); // Cerrar diálogo de carga
     
     // Debug: mostrar el status recibido
-    print('🔍 [ChatScreen] Status recibido para nick "$currentNick": $status (tipo: ${status.runtimeType})');
+    // print('🔍 [ChatScreen] Status recibido para nick "$currentNick": $status (tipo: ${status.runtimeType})');
     
     // Verificar si el status es 3 (registrado)
     // Asegurarse de comparar correctamente (puede ser int o null)
@@ -13608,10 +14223,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                           ),
                           child: ElevatedButton(
                             onPressed: _isSubmitting ? null : () async {
-                              print('🌐 [ChatScreen] Botón de solicitar IP virtual presionado');
+                              // print('🌐 [ChatScreen] Botón de solicitar IP virtual presionado');
                               
                               if (!formKey.currentState!.validate()) {
-                                print('❌ [ChatScreen] Validación del formulario falló');
+                                // print('❌ [ChatScreen] Validación del formulario falló');
                                 return;
                               }
                               
@@ -13620,26 +14235,26 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                 });
                                 
                                 final vhost = vhostController.text.trim();
-                              print('🌐 [ChatScreen] Enviando solicitud de IP virtual: $vhost');
+                              // print('🌐 [ChatScreen] Enviando solicitud de IP virtual: $vhost');
                               
                               // Enviar comando REQUEST al bot de IP virtual
                               // Intentar primero con "HostServ" (nombre estándar en IRC) y luego con "ipvirtual"
-                              print('🌐 [ChatScreen] Intentando con HostServ (estándar IRC)...');
+                              // print('🌐 [ChatScreen] Intentando con HostServ (estándar IRC)...');
                               _ircService.sendServiceMessage('HostServ', 'REQUEST $vhost');
                               
                               // También intentar con ipvirtual por si el servidor usa ese nombre
                               Future.delayed(const Duration(milliseconds: 500), () {
-                                print('🌐 [ChatScreen] También intentando con ipvirtual...');
+                                // print('🌐 [ChatScreen] También intentando con ipvirtual...');
                                 _ircService.sendServiceMessage('ipvirtual', 'REQUEST $vhost');
                               });
                               
-                              print('🌐 [ChatScreen] Comandos enviados:');
-                              print('🌐 [ChatScreen]   - PRIVMSG HostServ :REQUEST $vhost');
-                              print('🌐 [ChatScreen]   - PRIVMSG ipvirtual :REQUEST $vhost');
+                              // print('🌐 [ChatScreen] Comandos enviados:');
+                              // print('🌐 [ChatScreen]   - PRIVMSG HostServ :REQUEST $vhost');
+                              // print('🌐 [ChatScreen]   - PRIVMSG ipvirtual :REQUEST $vhost');
                                 
                                 if (context.mounted) {
                                   Navigator.pop(context);
-                                print('🌐 [ChatScreen] Diálogo cerrado, mostrando SnackBar');
+                                // print('🌐 [ChatScreen] Diálogo cerrado, mostrando SnackBar');
                                   ScaffoldMessenger.of(context).showSnackBar(
                                     SnackBar(
                                     content: Row(
@@ -13659,9 +14274,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                     behavior: SnackBarBehavior.floating,
                                     ),
                                   );
-                                print('✅ [ChatScreen] SnackBar mostrado');
+                                // print('✅ [ChatScreen] SnackBar mostrado');
                               } else {
-                                print('⚠️  [ChatScreen] Context no está montado, no se puede mostrar SnackBar');
+                                // print('⚠️  [ChatScreen] Context no está montado, no se puede mostrar SnackBar');
                               }
                             },
                             style: ElevatedButton.styleFrom(
@@ -13749,6 +14364,356 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 },
               );
             },
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showCreditsDialog(BuildContext context) {
+    final appTheme = ref.read(themeProvider);
+    
+    showDialog(
+      context: context,
+      barrierColor: Colors.black54,
+      builder: (context) => Dialog(
+        backgroundColor: Colors.transparent,
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 500),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                appTheme.surface,
+                appTheme.surface.withOpacity(0.95),
+              ],
+            ),
+            borderRadius: BorderRadius.circular(24),
+            boxShadow: [
+              BoxShadow(
+                color: appTheme.primary.withOpacity(0.3),
+                blurRadius: 20,
+                spreadRadius: 5,
+                offset: const Offset(0, 10),
+              ),
+            ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Header con gradiente
+              Container(
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      appTheme.primary,
+                      appTheme.secondary,
+                    ],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: const BorderRadius.only(
+                    topLeft: Radius.circular(24),
+                    topRight: Radius.circular(24),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Icon(
+                        Icons.info_outline,
+                        color: Colors.white,
+                        size: 28,
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    const Expanded(
+                      child: Text(
+                        'Créditos y Apoyos',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 24,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              // Contenido
+              Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Programador principal
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: appTheme.primary.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: appTheme.primary.withOpacity(0.3),
+                          width: 2,
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: appTheme.primary,
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(
+                              Icons.code,
+                              color: Colors.white,
+                              size: 24,
+                            ),
+                          ),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Programador Principal',
+                                  style: TextStyle(
+                                    color: appTheme.textPrimary.withOpacity(0.7),
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                const Text(
+                                  'Fran',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    // Información de uso
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: appTheme.accent.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: appTheme.accent.withOpacity(0.3),
+                          width: 2,
+                        ),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(
+                                Icons.public,
+                                color: appTheme.accent,
+                                size: 20,
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                'Uso Exclusivo',
+                                style: TextStyle(
+                                  color: appTheme.textPrimary,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          Text(
+                            'Esta aplicación está diseñada exclusivamente para la red GlobalChat IRC.',
+                            style: TextStyle(
+                              color: appTheme.textPrimary.withOpacity(0.9),
+                              fontSize: 14,
+                              height: 1.5,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    // Información de uso gratuito
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Colors.green.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: Colors.green.withOpacity(0.3),
+                          width: 2,
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.celebration,
+                            color: Colors.green[700],
+                            size: 24,
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              'Uso completamente gratuito',
+                              style: TextStyle(
+                                color: appTheme.textPrimary,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    // Mensaje de agradecimiento
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: appTheme.secondary.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.favorite,
+                            color: Colors.red[400],
+                            size: 20,
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              'Gracias por usar GlobalChat IRC',
+                              style: TextStyle(
+                                color: appTheme.textPrimary.withOpacity(0.9),
+                                fontSize: 14,
+                                fontStyle: FontStyle.italic,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    // Agradecimientos especiales
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: appTheme.secondary.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: appTheme.secondary.withOpacity(0.3),
+                          width: 2,
+                        ),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(
+                                Icons.people,
+                                color: appTheme.secondary,
+                                size: 20,
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  'Agradecimientos especiales a la comunidad GlobalChat:',
+                                  style: TextStyle(
+                                    color: appTheme.textPrimary,
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          _buildAcknowledgmentItem(
+                            appTheme,
+                            'weed',
+                            'Por sus valiosas contribuciones y feedback',
+                          ),
+                          const SizedBox(height: 8),
+                          _buildAcknowledgmentItem(
+                            appTheme,
+                            'nocturne',
+                            'Por sus aportes y sugerencias',
+                          ),
+                          const SizedBox(height: 8),
+                          _buildAcknowledgmentItem(
+                            appTheme,
+                            'sonic',
+                            'Por su apoyo y contribuciones a esta versión',
+                          ),
+                          const SizedBox(height: 8),
+                          _buildAcknowledgmentItem(
+                            appTheme,
+                            'Mar',
+                            'Por testear la aplicación y notificar fallos',
+                          ),
+                          const SizedBox(height: 12),
+                          Text(
+                            'Gracias a todos por hacer de IRC App una mejor aplicación.',
+                            style: TextStyle(
+                              color: appTheme.textPrimary.withOpacity(0.8),
+                              fontSize: 13,
+                              fontStyle: FontStyle.italic,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              // Botón cerrar
+              Padding(
+                padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+                child: SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () => Navigator.pop(context),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: appTheme.primary,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      elevation: 4,
+                    ),
+                    child: const Text(
+                      'Cerrar',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
       ),
@@ -13849,8 +14814,8 @@ class _CanalSurBackground extends StatelessWidget {
         alignment: Alignment.center,
         errorBuilder: (context, error, stackTrace) {
           // Log del error para debug
-          print('❌ [CanalSurBackground] Error cargando logo: $error');
-          print('❌ [CanalSurBackground] StackTrace: $stackTrace');
+          // print('❌ [CanalSurBackground] Error cargando logo: $error');
+          // print('❌ [CanalSurBackground] StackTrace: $stackTrace');
           // Mostrar un placeholder en lugar de ocultar
           return Container(
             color: Colors.transparent,
@@ -13861,7 +14826,7 @@ class _CanalSurBackground extends StatelessWidget {
         },
         loadingBuilder: (context, child, loadingProgress) {
           if (loadingProgress == null) {
-            print('✅ [CanalSurBackground] Logo cargado correctamente');
+            // print('✅ [CanalSurBackground] Logo cargado correctamente');
             return child;
           }
           // Mostrar un indicador de carga

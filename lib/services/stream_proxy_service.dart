@@ -18,38 +18,38 @@ class StreamProxyService {
   /// Inicia el servidor proxy local
   Future<void> start() async {
     if (_server != null) {
-      globalLog('[StreamProxy] Proxy ya está corriendo en puerto $_port');
+      // globalLog('[StreamProxy] Proxy ya está corriendo en puerto $_port');
       // Verificar que el servidor siga activo haciendo una pequeña espera
       await Future.delayed(const Duration(milliseconds: 50));
       return;
     }
 
     try {
-      globalLog('[StreamProxy] Iniciando servidor proxy...');
+      // globalLog('[StreamProxy] Iniciando servidor proxy...');
       // Intentar puertos desde 8888 hasta 8892
       for (int port = 8888; port <= 8892; port++) {
         try {
-          globalLog('[StreamProxy] Intentando puerto $port...');
+          // globalLog('[StreamProxy] Intentando puerto $port...');
           _server = await HttpServer.bind(InternetAddress.loopbackIPv4, port);
           _port = port;
-          globalLog('[StreamProxy] ✅ Proxy iniciado en http://localhost:$port');
+          // globalLog('[StreamProxy] ✅ Proxy iniciado en http://localhost:$port');
           _server!.listen(_handleRequest);
           
           // Esperar un momento para asegurar que el servidor esté completamente listo
           // Esto es especialmente importante en release donde el código se optimiza
           await Future.delayed(const Duration(milliseconds: 100));
           
-          globalLog('[StreamProxy] ✅ Proxy completamente listo y aceptando conexiones en puerto $_port');
+          // globalLog('[StreamProxy] ✅ Proxy completamente listo y aceptando conexiones en puerto $_port');
           return;
         } catch (e) {
-          globalLog('[StreamProxy] ⚠️ Error en puerto $port: $e');
+          // globalLog('[StreamProxy] ⚠️ Error en puerto $port: $e');
           if (port == 8892) rethrow;
           continue;
         }
       }
     } catch (e, stackTrace) {
-      globalLog('[StreamProxy] ❌ Error iniciando proxy: $e');
-      globalLog('[StreamProxy] Stack trace: $stackTrace');
+      // globalLog('[StreamProxy] ❌ Error iniciando proxy: $e');
+      // globalLog('[StreamProxy] Stack trace: $stackTrace');
       rethrow;
     }
   }
@@ -60,23 +60,23 @@ class StreamProxyService {
       await _server!.close(force: true);
       _server = null;
       _port = null;
-      print('🛑 Proxy detenido');
+      // print('🛑 Proxy detenido');
     }
   }
 
   /// Obtiene la URL proxy para una URL de stream
   String? getProxyUrl(String originalUrl) {
     if (_port == null) {
-      globalLog('[StreamProxy] getProxyUrl: _port es null, proxy no está iniciado');
+      // globalLog('[StreamProxy] getProxyUrl: _port es null, proxy no está iniciado');
       return null;
     }
     if (_server == null) {
-      globalLog('[StreamProxy] getProxyUrl: _server es null, proxy no está iniciado');
+      // globalLog('[StreamProxy] getProxyUrl: _server es null, proxy no está iniciado');
       return null;
     }
     final encodedUrl = Uri.encodeComponent(originalUrl);
     final proxyUrl = 'http://localhost:$_port/stream?url=$encodedUrl';
-    globalLog('[StreamProxy] getProxyUrl: retornando $proxyUrl');
+    // globalLog('[StreamProxy] getProxyUrl: retornando $proxyUrl');
     return proxyUrl;
   }
 
@@ -109,14 +109,14 @@ class StreamProxyService {
       originalUrl = originalUrl.trim();
       if (originalUrl.endsWith(';')) {
         originalUrl = originalUrl.substring(0, originalUrl.length - 1);
-        globalLog('[StreamProxy] Removed trailing semicolon from URL');
+        // globalLog('[StreamProxy] Removed trailing semicolon from URL');
       }
       
-      globalLog('[StreamProxy] Proxying request to $originalUrl');
+      // globalLog('[StreamProxy] Proxying request to $originalUrl');
 
         // Manejar Range requests de AVPlayer
         final rangeHeader = request.headers.value('range');
-        print('🔄 Proxy: Range header: $rangeHeader');
+        // print('🔄 Proxy: Range header: $rangeHeader');
 
         // Crear cliente HTTP con headers personalizados
         final client = HttpClient();
@@ -138,9 +138,9 @@ class StreamProxyService {
           // Algunos servidores pueden rechazar peticiones con Range si no soportan range requests
           if (rangeHeader != null && !originalUrl.contains('listen2myradio.com')) {
             httpRequest.headers.set('Range', rangeHeader);
-            print('🔄 Proxy: Forwarding Range header: $rangeHeader');
+            // print('🔄 Proxy: Forwarding Range header: $rangeHeader');
           } else if (rangeHeader != null && originalUrl.contains('listen2myradio.com')) {
-            print('🔄 Proxy: Omitiendo Range header para listen2myradio.com (puede causar problemas)');
+            // print('🔄 Proxy: Omitiendo Range header para listen2myradio.com (puede causar problemas)');
           }
         
         // Headers específicos para ciertos servidores
@@ -162,27 +162,27 @@ class StreamProxyService {
           httpRequest.headers.set('Pragma', 'no-cache');
           // Intentar con cookies simuladas
           httpRequest.headers.set('Cookie', 'PHPSESSID=listen2myradio');
-          print('🔄 Proxy: Aplicando headers específicos para listen2myradio.com');
+          // print('🔄 Proxy: Aplicando headers específicos para listen2myradio.com');
           
           // Si la URL contiene parámetros, intentar también sin ellos
           if (originalUrl.contains('?')) {
-            print('🔄 Proxy: URL contiene parámetros de query');
+            // print('🔄 Proxy: URL contiene parámetros de query');
           }
         }
 
         final response = await httpRequest.close();
         
-        print('🔄 Proxy: Response status ${response.statusCode}');
-        print('🔄 Proxy: Content-Type: ${response.headers.value('content-type')}');
-        print('🔄 Proxy: URL original: $originalUrl');
+        // print('🔄 Proxy: Response status ${response.statusCode}');
+        // print('🔄 Proxy: Content-Type: ${response.headers.value('content-type')}');
+        // print('🔄 Proxy: URL original: $originalUrl');
         
         // Verificar si la respuesta es un error
         if (response.statusCode >= 400) {
-          print('❌ Proxy: Error HTTP ${response.statusCode} desde el servidor');
+          // print('❌ Proxy: Error HTTP ${response.statusCode} desde el servidor');
           request.response.statusCode = response.statusCode;
           try {
             final errorBody = await response.transform(utf8.decoder).join();
-            print('❌ Proxy: Error body: ${errorBody.substring(0, errorBody.length > 200 ? 200 : errorBody.length)}');
+            // print('❌ Proxy: Error body: ${errorBody.substring(0, errorBody.length > 200 ? 200 : errorBody.length)}');
             request.response.write('HTTP Error ${response.statusCode}: $errorBody');
           } catch (e) {
             request.response.write('HTTP Error ${response.statusCode}');
@@ -196,13 +196,13 @@ class StreamProxyService {
         bool isHtmlResponse = contentType != null && contentType.contains('text/html');
         
         if (isHtmlResponse && originalUrl.contains('listen2myradio.com')) {
-          print('⚠️ Proxy: El servidor listen2myradio.com devolvió HTML en lugar de audio.');
-          print('⚠️ Proxy: Esto puede indicar que la URL necesita autenticación o que el servidor está bloqueando la petición.');
-          print('⚠️ Proxy: Forzando Content-Type a audio/mpeg y continuando...');
+          // print('⚠️ Proxy: El servidor listen2myradio.com devolvió HTML en lugar de audio.');
+          // print('⚠️ Proxy: Esto puede indicar que la URL necesita autenticación o que el servidor está bloqueando la petición.');
+          // print('⚠️ Proxy: Forzando Content-Type a audio/mpeg y continuando...');
           // No leer el stream aquí, solo forzar el Content-Type
         } else if (isHtmlResponse) {
-          print('⚠️ Proxy: El servidor devolvió HTML en lugar de audio.');
-          print('⚠️ Proxy: URL problemática: $originalUrl');
+          // print('⚠️ Proxy: El servidor devolvió HTML en lugar de audio.');
+          // print('⚠️ Proxy: URL problemática: $originalUrl');
           request.response.statusCode = HttpStatus.badGateway;
           request.response.write('Server returned HTML instead of audio stream');
           await request.response.close();
@@ -217,19 +217,19 @@ class StreamProxyService {
         // Copiar headers importantes de la respuesta (solo si no es HTML)
         if (contentType != null && !contentType.contains('text/html')) {
           request.response.headers.set('Content-Type', contentType);
-          print('🔄 Proxy: Setting Content-Type to $contentType');
+          // print('🔄 Proxy: Setting Content-Type to $contentType');
         } else if (originalUrl.contains('listen2myradio.com') || originalUrl.contains('.mp3')) {
           // Para listen2myradio.com o URLs .mp3, forzar audio/mpeg
           request.response.headers.set('Content-Type', 'audio/mpeg');
-          print('🔄 Proxy: Setting Content-Type to audio/mpeg (forced for listen2myradio.com)');
+          // print('🔄 Proxy: Setting Content-Type to audio/mpeg (forced for listen2myradio.com)');
         } else {
           // Si no hay Content-Type, intentar detectarlo o usar uno por defecto
           if (originalUrl.contains('.mp3') || originalUrl.contains('streamtheworld') || originalUrl.contains('mdstrm')) {
             request.response.headers.set('Content-Type', 'audio/mpeg');
-            print('🔄 Proxy: Setting Content-Type to audio/mpeg (default)');
+            // print('🔄 Proxy: Setting Content-Type to audio/mpeg (default)');
           } else {
             request.response.headers.set('Content-Type', 'audio/mpeg');
-            print('🔄 Proxy: Setting Content-Type to audio/mpeg (fallback)');
+            // print('🔄 Proxy: Setting Content-Type to audio/mpeg (fallback)');
           }
         }
 
@@ -242,7 +242,7 @@ class StreamProxyService {
             // Copiar headers importantes como Accept-Ranges, Content-Range, etc.
             if (lowerKey == 'accept-ranges' || lowerKey == 'content-range') {
               request.response.headers.set(key, values.join(', '));
-              print('🔄 Proxy: Copied header $key: ${values.join(", ")}');
+              // print('🔄 Proxy: Copied header $key: ${values.join(", ")}');
             } else {
               request.response.headers.set(key, values.join(', '));
             }
@@ -252,24 +252,24 @@ class StreamProxyService {
         // Asegurar que Accept-Ranges esté presente para streaming
         if (response.headers.value('accept-ranges') == null) {
           request.response.headers.set('Accept-Ranges', 'bytes');
-          print('🔄 Proxy: Added Accept-Ranges: bytes');
+          // print('🔄 Proxy: Added Accept-Ranges: bytes');
         }
 
         request.response.statusCode = response.statusCode;
         
         // Stream el contenido usando await for para mejor control
-        print('🔄 Proxy: Iniciando streaming de datos...');
+        // print('🔄 Proxy: Iniciando streaming de datos...');
         
         try {
           await for (final data in response) {
             if (responseClosed) {
-              print('🔄 Proxy: Stream cerrado, deteniendo...');
+              // print('🔄 Proxy: Stream cerrado, deteniendo...');
               break;
             }
             try {
               request.response.add(data);
             } catch (e) {
-              print('⚠️ Error escribiendo datos: $e');
+              // print('⚠️ Error escribiendo datos: $e');
               responseClosed = true;
               break;
             }
@@ -278,10 +278,10 @@ class StreamProxyService {
           if (!responseClosed) {
             await request.response.close();
             responseClosed = true;
-            print('🔄 Proxy: Stream completado normalmente');
+            // print('🔄 Proxy: Stream completado normalmente');
           }
         } catch (e) {
-          print('❌ Error en stream loop: $e');
+          // print('❌ Error en stream loop: $e');
           if (!responseClosed) {
             try {
               await request.response.close();
@@ -293,8 +293,8 @@ class StreamProxyService {
         client.close();
       }
     } catch (e, stackTrace) {
-      print('❌ Error en proxy: $e');
-      print('❌ Stack trace: $stackTrace');
+      // print('❌ Error en proxy: $e');
+      // print('❌ Stack trace: $stackTrace');
       try {
         if (!responseClosed) {
           request.response.statusCode = HttpStatus.internalServerError;

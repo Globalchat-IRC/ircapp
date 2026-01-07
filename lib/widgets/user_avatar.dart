@@ -2,8 +2,10 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
+import 'package:flutter/painting.dart' show WebHtmlElementStrategy;
 import '../services/avatar_service.dart';
 import '../providers/irc_provider.dart';
+import '../utils/platform_utils.dart';
 
 class UserAvatar extends ConsumerStatefulWidget {
   final String nick;
@@ -96,7 +98,7 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
       return;
     }
     
-    print('🔍 [AVATAR WIDGET] Loading avatar for: "$cleanNick" (original: "${widget.nick}")');
+    // print('🔍 [AVATAR WIDGET] Loading avatar for: "$cleanNick" (original: "${widget.nick}")');
     
     // Obtener la URL correcta del avatar (intenta ambas variantes)
     final url = await AvatarService.getCorrectAvatarUrl(cleanNick);
@@ -105,7 +107,7 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
       setState(() {
         _avatarUrl = url;
         _avatarLoaded = true;
-        print('🔍 [AVATAR WIDGET] Avatar URL set for "$cleanNick": ${url ?? "not found"}');
+        // print('🔍 [AVATAR WIDGET] Avatar URL set for "$cleanNick": ${url ?? "not found"}');
       });
     }
   }
@@ -146,9 +148,17 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
                   width: widget.size,
                   height: widget.size,
                   fit: BoxFit.cover,
+                  // En web, usar WebHtmlElementStrategy.prefer para evitar problemas de CORS
+                  // Esto intenta usar elementos HTML <img> que no tienen las mismas restricciones CORS
+                  // Nota: Los errores de CORS en la consola son esperados y no afectan la funcionalidad
+                  // El navegador intentará cargar la imagen usando <img> si el fetch falla
+                  webHtmlElementStrategy: PlatformUtils.isWeb 
+                      ? WebHtmlElementStrategy.prefer 
+                      : WebHtmlElementStrategy.never,
+                  // Suprimir errores de CORS en la consola no es posible desde Flutter
+                  // pero el fallback visual funcionará correctamente
                   loadingBuilder: (context, child, loadingProgress) {
                     if (loadingProgress == null) {
-                      print('🔍 [AVATAR WIDGET] Image loaded successfully for "${widget.nick}" from $_avatarUrl');
                       return child;
                     }
                     // Mientras carga, mostrar el fallback con opacidad reducida
@@ -159,7 +169,7 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
                   },
                   errorBuilder: (context, error, stackTrace) {
                     // Si falla la carga, mostrar fallback
-                    print('🔍 [AVATAR WIDGET] Error loading image for "${widget.nick}" from $_avatarUrl: $error');
+                    // En web, los errores de CORS pueden causar que las imágenes no se carguen
                     return _buildFallback(fallback, isFallbackUrl);
                   },
                 )

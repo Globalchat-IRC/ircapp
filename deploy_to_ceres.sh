@@ -28,6 +28,17 @@ echo -e "${YELLOW}📦 Preparando archivos...${NC}"
 echo "   Conexión: ceres (stunnel)"
 echo "   Destino: $DEST_PATH"
 
+# Asegurar que los iconos estén en el build
+echo -e "${YELLOW}🔍 Verificando iconos en build...${NC}"
+if [ ! -d "build/web/icons" ]; then
+    mkdir -p build/web/icons
+fi
+# Copiar iconos desde web/icons si no están en build
+if [ -d "web/icons" ]; then
+    cp -f web/icons/*.png build/web/icons/ 2>/dev/null || true
+    echo -e "${GREEN}   ✅ Iconos copiados${NC}"
+fi
+
 # Verificar tamaño del build
 SIZE=$(du -sh build/web/ | cut -f1)
 echo -e "${YELLOW}   Tamaño del build: $SIZE${NC}"

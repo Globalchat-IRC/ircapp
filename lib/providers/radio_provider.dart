@@ -1,10 +1,11 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
-import 'dart:convert';
 import 'dart:async';
+import 'dart:convert';
 import '../models/radio_station.dart';
 import '../services/radio_service.dart';
+import '../utils/platform_utils.dart';
 
 class RadioState {
   final List<RadioStation> stations;
@@ -54,20 +55,20 @@ class RadioNotifier extends StateNotifier<RadioState> {
   Timer? _nowPlayingTimer;
 
   RadioNotifier() : super(RadioState(stations: [])) {
-    print('📻 RadioNotifier inicializado');
+    // print('📻 RadioNotifier inicializado');
     _loadSettings();
     _startNowPlayingRefresh();
   }
 
   Future<void> _loadSettings() async {
     try {
-      print('📻 _loadSettings iniciado');
+      // print('📻 _loadSettings iniciado');
       final prefs = await SharedPreferences.getInstance();
       final volume = prefs.getDouble('radio_volume') ?? 0.1;
       final starredJson = prefs.getString('radio_starred');
       final activeName = prefs.getString('radio_active');
       
-      print('📻 Configuración cargada: volume=$volume, activeName=$activeName');
+      // print('📻 Configuración cargada: volume=$volume, activeName=$activeName');
       
       List<String> starred = [];
       if (starredJson != null) {
@@ -80,12 +81,12 @@ class RadioNotifier extends StateNotifier<RadioState> {
       );
 
       // Cargar estaciones
-      print('📻 Llamando a loadStations...');
+      // print('📻 Llamando a loadStations...');
       await loadStations(activeName);
-      print('📻 loadStations completado');
+      // print('📻 loadStations completado');
     } catch (e, stackTrace) {
-      print('❌ Error cargando configuración de radio: $e');
-      print('❌ Stack trace: $stackTrace');
+      // print('❌ Error cargando configuración de radio: $e');
+      // print('❌ Stack trace: $stackTrace');
     }
   }
 
@@ -161,7 +162,7 @@ class RadioNotifier extends StateNotifier<RadioState> {
         await prefs.setString('radio_active', state.activeStation!.name);
       }
     } catch (e) {
-      print('Error guardando configuración de radio: $e');
+      // print('Error guardando configuración de radio: $e');
     }
   }
 
@@ -199,68 +200,8 @@ class RadioNotifier extends StateNotifier<RadioState> {
 
   Future<void> loadStations([String? activeName]) async {
     try {
-      print('📻 Cargando estaciones de radio...');
-      // Cargar desde la URL correcta del plugin web
-      final url = 'https://webchat.globalchat.org/static/plugins/stations.json';
-      print('📻 URL: $url');
-      
-      List<RadioStation> stations = [];
-      
-      try {
-        final response = await http.get(
-          Uri.parse(url),
-        ).timeout(const Duration(seconds: 10));
-
-        print('📻 Respuesta HTTP: ${response.statusCode}');
-        
-        if (response.statusCode == 200) {
-          final List<dynamic> jsonList = jsonDecode(response.body);
-          print('📻 Estaciones encontradas en servidor: ${jsonList.length}');
-          final allStations = jsonList.map((json) => RadioStation.fromJson(json)).toList();
-          
-          // Filtrar estaciones que funcionan bien (Zeno.fm y listen2myradio.com)
-          stations = allStations.where((station) {
-            final source = station.source.toLowerCase();
-            return source.contains('zeno.fm') || source.contains('listen2myradio.com');
-          }).toList();
-          
-          print('📻 Estaciones válidas encontradas: ${stations.length}');
-          
-          // Si no hay estaciones válidas, agregar las que funcionan por defecto
-          if (stations.isEmpty) {
-            print('📻 No hay estaciones válidas, agregando estaciones predeterminadas...');
-            stations = _getDefaultStations();
-          }
-          
-          // Mostrar todas las URLs de stream
-          print('📻 ===== URLs DE STREAM EN LA APLICACIÓN =====');
-          for (var station in stations) {
-            print('📻 ${station.name}:');
-            print('   URL: ${station.source}');
-            print('   Género: ${station.genre ?? "N/A"}');
-            print('   Bitrate: ${station.bitrate ?? "N/A"}');
-            print('');
-          }
-          print('📻 ============================================');
-          
-          if (stations.isNotEmpty) {
-            print('📻 Primera estación: ${stations[0].name} - ${stations[0].source}');
-          }
-        } else {
-          print('⚠️ Error HTTP: ${response.statusCode}, usando estaciones por defecto');
-          stations = _getDefaultStations();
-        }
-      } catch (e) {
-        print('⚠️ Error al cargar desde URL: $e');
-        print('📻 Usando estaciones por defecto...');
-        stations = _getDefaultStations();
-      }
-
-      // Si no hay estaciones, usar las por defecto
-      if (stations.isEmpty) {
-        print('📻 No se encontraron estaciones, usando estaciones por defecto');
-        stations = _getDefaultStations();
-      }
+      // Usar solo las estaciones por defecto (las 3 configuradas)
+      final stations = _getDefaultStations();
 
       RadioStation? active;
       if (activeName != null && stations.isNotEmpty) {
@@ -285,11 +226,11 @@ class RadioNotifier extends StateNotifier<RadioState> {
         activeStation: active,
         hasError: false,
       );
-      print('📻 ✅ Estaciones cargadas: ${stations.length}');
-      print('📻 ✅ Estación activa: ${active?.name ?? "ninguna"}');
+      // print('📻 ✅ Estaciones cargadas: ${stations.length}');
+      // print('📻 ✅ Estación activa: ${active?.name ?? "ninguna"}');
     } catch (e, stackTrace) {
-      print('❌ Error cargando estaciones de radio: $e');
-      print('❌ Stack trace: $stackTrace');
+      // print('❌ Error cargando estaciones de radio: $e');
+      // print('❌ Stack trace: $stackTrace');
       // Usar estaciones por defecto en caso de error
       final defaultStations = _getDefaultStations();
       state = state.copyWith(
@@ -297,7 +238,7 @@ class RadioNotifier extends StateNotifier<RadioState> {
         activeStation: defaultStations.isNotEmpty ? defaultStations[0] : null,
         hasError: false,
       );
-      print('📻 ✅ Usando ${defaultStations.length} estaciones por defecto');
+      // print('📻 ✅ Usando ${defaultStations.length} estaciones por defecto');
     }
   }
 

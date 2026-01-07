@@ -9,6 +9,7 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:uuid/uuid.dart';
 import '../models/user_role.dart';
 import 'video_conference_service.dart';
+import '../utils/platform_utils.dart';
 
 /// Servidor HTTP para panel de moderación
 class ModerationServer {
@@ -30,8 +31,14 @@ class ModerationServer {
   
   /// Iniciar servidor
   Future<void> start() async {
+    // No iniciar servidor en web (no soporta ServerSocket)
+    if (PlatformUtils.isWeb) {
+      // print('ℹ️ [MOD-SERVER] Servidor deshabilitado en web');
+      return;
+    }
+    
     if (_server != null) {
-      print('⚠️ [MOD-SERVER] Servidor ya está corriendo en puerto $port');
+      // print('⚠️ [MOD-SERVER] Servidor ya está corriendo en puerto $port');
       return;
     }
     
@@ -45,9 +52,9 @@ class ModerationServer {
       
       _server = await io.serve(handler, 'localhost', port);
       
-      print('✅ [MOD-SERVER] Panel de moderación disponible en:');
-      print('   http://localhost:$port/mod');
-      print('   Autenticación: http://localhost:$port/auth');
+      // print('✅ [MOD-SERVER] Panel de moderación disponible en:');
+      // print('   http://localhost:$port/mod');
+      // print('   Autenticación: http://localhost:$port/auth');
       
       // Escuchar cambios de video para notificar clientes
       _videoService.onUsersVideoStatusChanged.listen((status) {
@@ -63,7 +70,7 @@ class ModerationServer {
       });
       
     } catch (e) {
-      print('❌ [MOD-SERVER] Error al iniciar servidor: $e');
+      // print('❌ [MOD-SERVER] Error al iniciar servidor: $e');
       rethrow;
     }
   }
@@ -73,7 +80,7 @@ class ModerationServer {
     if (_server != null) {
       await _server!.close(force: true);
       _server = null;
-      print('🛑 [MOD-SERVER] Servidor detenido');
+      // print('🛑 [MOD-SERVER] Servidor detenido');
     }
     
     // Cerrar todas las conexiones WebSocket
@@ -111,7 +118,7 @@ class ModerationServer {
         final token = const Uuid().v4();
         _authTokens[nick] = token;
         
-        print('🔑 [MOD-SERVER] Token generado para $nick');
+        // print('🔑 [MOD-SERVER] Token generado para $nick');
         
         return shelf.Response.ok(
           jsonEncode({
@@ -218,7 +225,7 @@ class ModerationServer {
         }
         
         // TODO: Implementar lógica de expulsión real con Jitsi API
-        print('🚪 [MOD-SERVER] Expulsando a $nick de $conferenceId. Razón: $reason');
+        // print('🚪 [MOD-SERVER] Expulsando a $nick de $conferenceId. Razón: $reason');
         
         // Registrar acción
         _videoService.logModerationAction(
@@ -267,7 +274,7 @@ class ModerationServer {
         }
         
         // TODO: Implementar ban en base de datos
-        print('🚫 [MOD-SERVER] Baneando a $nick (${permanent ? "permanente" : "temporal"}). Razón: $reason');
+        // print('🚫 [MOD-SERVER] Baneando a $nick (${permanent ? "permanente" : "temporal"}). Razón: $reason');
         
         // Registrar acción
         _videoService.logModerationAction(
@@ -303,7 +310,7 @@ class ModerationServer {
     
     // GET /ws - WebSocket para actualizaciones en tiempo real
     router.get('/ws', webSocketHandler((WebSocketChannel webSocket, String? protocol) {
-      print('🔌 [MOD-SERVER] Cliente WebSocket conectado (protocol: $protocol)');
+      // print('🔌 [MOD-SERVER] Cliente WebSocket conectado (protocol: $protocol)');
       _wsClients.add(webSocket);
       
       // Enviar estado inicial
@@ -315,14 +322,14 @@ class ModerationServer {
       // Escuchar mensajes del cliente
       webSocket.stream.listen(
         (message) {
-          print('📨 [MOD-SERVER] Mensaje recibido: $message');
+          // print('📨 [MOD-SERVER] Mensaje recibido: $message');
         },
         onDone: () {
-          print('🔌 [MOD-SERVER] Cliente WebSocket desconectado');
+          // print('🔌 [MOD-SERVER] Cliente WebSocket desconectado');
           _wsClients.remove(webSocket);
         },
         onError: (error) {
-          print('❌ [MOD-SERVER] Error WebSocket: $error');
+          // print('❌ [MOD-SERVER] Error WebSocket: $error');
           _wsClients.remove(webSocket);
         },
       );
@@ -393,7 +400,7 @@ class ModerationServer {
       try {
         client.sink.add(json);
       } catch (e) {
-        print('❌ [MOD-SERVER] Error al enviar mensaje: $e');
+        // print('❌ [MOD-SERVER] Error al enviar mensaje: $e');
       }
     }
   }

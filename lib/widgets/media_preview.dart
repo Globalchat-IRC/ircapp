@@ -41,7 +41,7 @@ class _MediaPreviewState extends State<MediaPreview> {
         _isVideoInitialized = true;
       });
     } catch (e) {
-      print('Error inicializando video: $e');
+      // print('Error inicializando video: $e');
     }
   }
 
@@ -171,4 +171,5 @@ class _MediaPreviewState extends State<MediaPreview> {
     }
   }
 }
+
 

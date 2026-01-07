@@ -1,9 +1,11 @@
 import 'dart:convert';
-import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../utils/platform_utils.dart';
+// Conditional import for Platform (native only)
+import 'dart:io' if (dart.library.html) 'dart:html' as io;
 
 /// Servicio de actualización automática
 /// Verifica si hay nuevas versiones disponibles en GitHub Releases
@@ -26,13 +28,13 @@ class UpdateService {
   /// Verificar si hay actualizaciones disponibles
   Future<UpdateInfo?> checkForUpdates({bool forceCheck = false}) async {
     try {
-      print('🔍 [UPDATE] Verificando actualizaciones...');
+      // print('🔍 [UPDATE] Verificando actualizaciones...');
       
       // Verificar si ya se revisó recientemente (a menos que sea forzado)
       if (!forceCheck && _lastCheckTime != null) {
         final timeSinceLastCheck = DateTime.now().difference(_lastCheckTime!);
         if (timeSinceLastCheck < checkInterval) {
-          print('⏳ [UPDATE] Última verificación hace ${timeSinceLastCheck.inMinutes} minutos');
+          // print('⏳ [UPDATE] Última verificación hace ${timeSinceLastCheck.inMinutes} minutos');
           return null;
         }
       }
@@ -41,7 +43,7 @@ class UpdateService {
       
       // Obtener versión actual
       final currentVersion = await getCurrentVersion();
-      print('📱 [UPDATE] Versión actual: $currentVersion');
+      // print('📱 [UPDATE] Versión actual: $currentVersion');
       
       // Consultar GitHub API
       final response = await http.get(
@@ -60,35 +62,45 @@ class UpdateService {
         final releaseNotes = data['body'] as String? ?? 'Sin notas de la versión';
         final publishedAt = DateTime.parse(data['published_at'] as String);
         
-        print('🌐 [UPDATE] Última versión disponible: $latestVersion');
+        // print('🌐 [UPDATE] Última versión disponible: $latestVersion');
         
         // Buscar el asset del instalador según la plataforma
         String? downloadUrl;
         final assets = data['assets'] as List;
         
-        for (var asset in assets) {
-          final name = asset['name'] as String;
-          
-          // Buscar instalador según la plataforma
-          bool isCorrectPlatform = false;
-          if (Platform.isWindows && (name.endsWith('_x64.exe') || name.endsWith('_setup.exe'))) {
-            isCorrectPlatform = true;
-          } else if (Platform.isMacOS && name.endsWith('.dmg')) {
-            isCorrectPlatform = true;
-          } else if (Platform.isLinux && (name.endsWith('.AppImage') || name.endsWith('.deb') || name.endsWith('.rpm'))) {
-            isCorrectPlatform = true;
-          }
-          
-          if (isCorrectPlatform) {
-            downloadUrl = asset['browser_download_url'] as String;
-            print('📦 [UPDATE] Encontrado instalador para ${Platform.operatingSystem}: $name');
-            break;
+        // En web, no buscar actualizaciones descargables
+        if (!PlatformUtils.isWeb) {
+          for (var asset in assets) {
+            final name = asset['name'] as String;
+            
+            // Buscar instalador según la plataforma (solo en nativo)
+            bool isCorrectPlatform = false;
+            // ignore: avoid_web_libraries_in_flutter
+            try {
+              // En nativo, io será dart:io con Platform
+              if (_isWindowsFile(name)) {
+                isCorrectPlatform = true;
+              } else if (_isMacOSFile(name)) {
+                isCorrectPlatform = true;
+              } else if (_isLinuxFile(name)) {
+                isCorrectPlatform = true;
+              }
+            } catch (e) {
+              // Si falla, no es la plataforma correcta
+              isCorrectPlatform = false;
+            }
+            
+            if (isCorrectPlatform) {
+              downloadUrl = asset['browser_download_url'] as String;
+              // print('📦 [UPDATE] Encontrado instalador: $name');
+              break;
+            }
           }
         }
         
         // Comparar versiones
         if (_isNewerVersion(currentVersion, latestVersion)) {
-          print('✅ [UPDATE] Nueva versión disponible!');
+          // print('✅ [UPDATE] Nueva versión disponible!');
           return UpdateInfo(
             currentVersion: currentVersion,
             latestVersion: latestVersion,
@@ -99,19 +111,38 @@ class UpdateService {
             hasDirectDownload: downloadUrl != null,
           );
         } else {
-          print('✓ [UPDATE] Ya estás en la última versión');
+          // print('✓ [UPDATE] Ya estás en la última versión');
           return null;
         }
       } else {
-        print('⚠️ [UPDATE] Error al consultar GitHub: ${response.statusCode}');
+        // print('⚠️ [UPDATE] Error al consultar GitHub: ${response.statusCode}');
         return null;
       }
     } catch (e) {
-      print('❌ [UPDATE] Error verificando actualizaciones: $e');
+      // print('❌ [UPDATE] Error verificando actualizaciones: $e');
       return null;
     }
   }
   
+  // Helpers para verificar tipo de archivo (deshabilitado en web)
+  bool _isWindowsFile(String name) {
+    if (PlatformUtils.isWeb) return false;
+    // Funcionalidad deshabilitada temporalmente
+    return false;
+  }
+  
+  bool _isMacOSFile(String name) {
+    if (PlatformUtils.isWeb) return false;
+    // Funcionalidad deshabilitada temporalmente
+    return false;
+  }
+  
+  bool _isLinuxFile(String name) {
+    if (PlatformUtils.isWeb) return false;
+    // Funcionalidad deshabilitada temporalmente
+    return false;
+  }
+
   /// Comparar dos versiones en formato semántico (1.0.0)
   bool _isNewerVersion(String current, String latest) {
     try {
@@ -130,7 +161,7 @@ class UpdateService {
       
       return false; // Son iguales
     } catch (e) {
-      print('⚠️ [UPDATE] Error comparando versiones: $e');
+      // print('⚠️ [UPDATE] Error comparando versiones: $e');
       return false;
     }
   }
@@ -139,7 +170,7 @@ class UpdateService {
   Future<bool> downloadUpdate(UpdateInfo updateInfo) async {
     try {
       if (updateInfo.hasDirectDownload) {
-        print('💾 [UPDATE] Abriendo descarga del instalador...');
+        // print('💾 [UPDATE] Abriendo descarga del instalador...');
         
         // Abrir URL de descarga en el navegador (funciona para Windows, macOS y Linux)
         final uri = Uri.parse(updateInfo.downloadUrl);
@@ -147,23 +178,23 @@ class UpdateService {
           await launchUrl(uri, mode: LaunchMode.externalApplication);
           return true;
         } else {
-          print('❌ [UPDATE] No se pudo abrir el navegador');
+          // print('❌ [UPDATE] No se pudo abrir el navegador');
           return false;
         }
       } else {
         // Abrir página de releases
-        print('🌐 [UPDATE] Abriendo página de releases...');
+        // print('🌐 [UPDATE] Abriendo página de releases...');
         final uri = Uri.parse(updateInfo.releaseUrl);
         if (await canLaunchUrl(uri)) {
           await launchUrl(uri, mode: LaunchMode.externalApplication);
           return true;
         } else {
-          print('❌ [UPDATE] No se pudo abrir la página de releases');
+          // print('❌ [UPDATE] No se pudo abrir la página de releases');
           return false;
         }
       }
     } catch (e) {
-      print('❌ [UPDATE] Error al descargar: $e');
+      // print('❌ [UPDATE] Error al descargar: $e');
       return false;
     }
   }
@@ -173,36 +204,14 @@ class UpdateService {
     if (!updateInfo.hasDirectDownload) return null;
     
     try {
-      print('💾 [UPDATE] Descargando en segundo plano...');
+      // print('💾 [UPDATE] Descargando en segundo plano...');
       
-      // Obtener directorio de descargas
-      final downloadsDir = Platform.isWindows
-          ? Directory('${Platform.environment['USERPROFILE']}\\Downloads')
-          : await getDownloadsDirectory();
+      // DESHABILITADO TEMPORALMENTE
+      throw UnsupportedError('Descarga de actualizaciones deshabilitada temporalmente');
       
-      if (downloadsDir == null) {
-        print('❌ [UPDATE] No se pudo obtener directorio de descargas');
-        return null;
-      }
-      
-      // Nombre del archivo
-      final fileName = 'irc_app_update_${updateInfo.latestVersion}.exe';
-      final filePath = '${downloadsDir.path}\\$fileName';
-      
-      // Descargar archivo
-      final response = await http.get(Uri.parse(updateInfo.downloadUrl));
-      
-      if (response.statusCode == 200) {
-        final file = File(filePath);
-        await file.writeAsBytes(response.bodyBytes);
-        print('✅ [UPDATE] Descarga completada: $filePath');
-        return filePath;
-      } else {
-        print('❌ [UPDATE] Error en descarga: ${response.statusCode}');
-        return null;
-      }
+      // Código deshabilitado - descarga de archivos
     } catch (e) {
-      print('❌ [UPDATE] Error al descargar: $e');
+      // print('❌ [UPDATE] Error al descargar: $e');
       return null;
     }
   }
@@ -210,18 +219,10 @@ class UpdateService {
   /// Instalar actualización (ejecutar instalador)
   Future<bool> installUpdate(String installerPath) async {
     try {
-      if (Platform.isWindows) {
-        print('🔧 [UPDATE] Instalando actualización...');
-        
-        // Ejecutar instalador
-        await Process.start(installerPath, ['/SILENT'], runInShell: true);
-        
-        // Cerrar aplicación actual
-        exit(0);
-      }
-      return true;
+      // DESHABILITADO TEMPORALMENTE
+      throw UnsupportedError('Instalación de actualizaciones deshabilitada temporalmente');
     } catch (e) {
-      print('❌ [UPDATE] Error al instalar: $e');
+      // print('❌ [UPDATE] Error al instalar: $e');
       return false;
     }
   }

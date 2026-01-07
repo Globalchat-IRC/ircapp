@@ -16,7 +16,7 @@ class MacOSNotificationService {
     try {
       await _channel.invokeMethod('initialize');
     } catch (e) {
-      print('Error inicializando notificaciones: $e');
+      // print('Error inicializando notificaciones: $e');
     }
   }
 
@@ -34,7 +34,7 @@ class MacOSNotificationService {
         'subtitle': subtitle,
       });
     } catch (e) {
-      print('Error mostrando notificación: $e');
+      // print('Error mostrando notificación: $e');
     }
   }
 
@@ -45,7 +45,7 @@ class MacOSNotificationService {
     try {
       await _channel.invokeMethod('updateBadge', {'count': count});
     } catch (e) {
-      print('Error actualizando badge: $e');
+      // print('Error actualizando badge: $e');
     }
   }
 
@@ -59,4 +59,5 @@ class MacOSNotificationService {
     updateBadge(0);
   }
 }
+
 

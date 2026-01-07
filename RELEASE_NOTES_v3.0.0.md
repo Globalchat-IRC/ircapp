@@ -144,3 +144,4 @@ Gracias a todos los usuarios que han reportado bugs y sugerido mejoras. Esta ver
 **Plataformas**: Web, macOS, iOS, Android  
 **Tamaño Web**: ~2-3 MB (comprimido)
 
+

@@ -118,3 +118,4 @@ Ver `DEPLOY_CERES.md` para más detalles sobre el proxy WebSocket.
 2. **WebSocket**: La aplicación necesita WebSocket para conectarse a IRC. Verificar que ceres tenga soporte o configurar proxy.
 3. **HTTPS**: Es recomendable usar HTTPS para WebSocket seguro (wss://)
 
+

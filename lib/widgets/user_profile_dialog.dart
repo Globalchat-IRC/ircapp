@@ -56,7 +56,7 @@ class _UserProfileDialogState extends ConsumerState<UserProfileDialog> with Sing
         _isLoading = false;
       });
     } catch (e) {
-      print('❌ Error al cargar perfil: $e');
+      // print('❌ Error al cargar perfil: $e');
       setState(() => _isLoading = false);
     }
   }

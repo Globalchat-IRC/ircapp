@@ -127,14 +127,14 @@ class VideoConferenceService {
       conferenceId: conferenceId,
     );
     _usersVideoStatusController.add(Map.from(_usersInVideo));
-    print('🎥 [VIDEO] Usuario $nick entró en conferencia ${type == ConferenceType.channel ? 'grupal' : 'privada'}');
+    // print('🎥 [VIDEO] Usuario $nick entró en conferencia ${type == ConferenceType.channel ? 'grupal' : 'privada'}');
   }
   
   /// Remover usuario de videoconferencia
   void _removeUserFromVideo(String nick) {
     if (_usersInVideo.remove(nick) != null) {
       _usersVideoStatusController.add(Map.from(_usersInVideo));
-      print('🎥 [VIDEO] Usuario $nick salió de conferencia');
+      // print('🎥 [VIDEO] Usuario $nick salió de conferencia');
     }
   }
   
@@ -157,7 +157,7 @@ class VideoConferenceService {
     bool audioOnly = false,
   }) async {
     try {
-      print('🎥 [VIDEO] Iniciando conferencia en canal: $channel');
+      // print('🎥 [VIDEO] Iniciando conferencia en canal: $channel');
       
       // Verificar permisos básicos (los moderadores del canal ya fueron verificados en chat_screen)
       // Solo verificar que no esté baneado o restringido
@@ -237,10 +237,10 @@ class VideoConferenceService {
       // Listener de eventos de Jitsi
       var listener = JitsiMeetEventListener(
         conferenceJoined: (url) {
-          print('🎥 [VIDEO] Usuario unido a conferencia: $url');
+          // print('🎥 [VIDEO] Usuario unido a conferencia: $url');
         },
         conferenceTerminated: (url, error) {
-          print('🎥 [VIDEO] Conferencia terminada: $url');
+          // print('🎥 [VIDEO] Conferencia terminada: $url');
           _activeConferences.remove(roomName);
           _conferenceEndedController.add(roomName);
           // Remover usuario del estado de video
@@ -248,7 +248,7 @@ class VideoConferenceService {
         },
         participantJoined: (email, name, role, participantId) {
           final participantName = name ?? 'Unknown';
-          print('🎥 [VIDEO] Participante unido: $participantName');
+          // print('🎥 [VIDEO] Participante unido: $participantName');
           // Actualizar lista de participantes
           if (!conferenceInfo.participants.contains(participantName)) {
             final updated = conferenceInfo.copyWith(
@@ -258,7 +258,7 @@ class VideoConferenceService {
           }
         },
         participantLeft: (participantId) {
-          print('🎥 [VIDEO] Participante salió: $participantId');
+          // print('🎥 [VIDEO] Participante salió: $participantId');
         },
       );
       
@@ -268,13 +268,13 @@ class VideoConferenceService {
       // Unirse a la conferencia
       await _jitsiMeet.join(options);
       
-      print('✅ [VIDEO] Conferencia iniciada exitosamente');
+      // print('✅ [VIDEO] Conferencia iniciada exitosamente');
       
       // Devolver el roomName para construir la URL
       return roomName;
       
     } catch (e) {
-      print('❌ [VIDEO] Error al iniciar conferencia: $e');
+      // print('❌ [VIDEO] Error al iniciar conferencia: $e');
       rethrow;
     }
   }
@@ -288,7 +288,7 @@ class VideoConferenceService {
     bool audioOnly = false,
   }) async {
     try {
-      print('🎥 [VIDEO] Uniéndose a conferencia: $roomName');
+      // print('🎥 [VIDEO] Uniéndose a conferencia: $roomName');
       
       // Verificar permisos
       if (!userProfile.canEnableVideo) {
@@ -331,10 +331,10 @@ class VideoConferenceService {
       // Unirse
       await _jitsiMeet.join(options);
       
-      print('✅ [VIDEO] Unido a conferencia exitosamente');
+      // print('✅ [VIDEO] Unido a conferencia exitosamente');
       
     } catch (e) {
-      print('❌ [VIDEO] Error al unirse a conferencia: $e');
+      // print('❌ [VIDEO] Error al unirse a conferencia: $e');
       _removeUserFromVideo(userNick); // Remover en caso de error
       rethrow;
     }
@@ -362,21 +362,21 @@ class VideoConferenceService {
       _reports.add(report);
       _reportCreatedController.add(report);
       
-      print('⚠️ [VIDEO] Reporte creado: ${report.id}');
-      print('   Reportado: $reportedNick');
-      print('   Tipo: ${type.description}');
+      // print('⚠️ [VIDEO] Reporte creado: ${report.id}');
+      // print('   Reportado: $reportedNick');
+      // print('   Tipo: ${type.description}');
       
       // Si tiene 3 o más reportes, acción automática
       final userReports = _reports.where((r) => r.reportedNick == reportedNick).length;
       if (userReports >= 3) {
-        print('🚫 [VIDEO] Usuario $reportedNick tiene $userReports reportes - Acción automática requerida');
+        // print('🚫 [VIDEO] Usuario $reportedNick tiene $userReports reportes - Acción automática requerida');
         // TODO: Implementar acción automática (expulsión)
       }
       
       return report;
       
     } catch (e) {
-      print('❌ [VIDEO] Error al crear reporte: $e');
+      // print('❌ [VIDEO] Error al crear reporte: $e');
       rethrow;
     }
   }
@@ -404,11 +404,11 @@ class VideoConferenceService {
       
       _reports[reportIndex] = updatedReport;
       
-      print('✅ [VIDEO] Reporte revisado: $reportId');
-      print('   Acción: $actionTaken');
+      // print('✅ [VIDEO] Reporte revisado: $reportId');
+      // print('   Acción: $actionTaken');
       
     } catch (e) {
-      print('❌ [VIDEO] Error al revisar reporte: $e');
+      // print('❌ [VIDEO] Error al revisar reporte: $e');
       rethrow;
     }
   }
@@ -448,7 +448,7 @@ class VideoConferenceService {
     );
     
     _moderationActions.add(moderationAction);
-    print('👮 [VIDEO] Acción de moderación: $action por $moderatorNick a $targetNick');
+    // print('👮 [VIDEO] Acción de moderación: $action por $moderatorNick a $targetNick');
   }
   
   /// Obtener acciones de moderación

@@ -15,8 +15,10 @@ class SoundService {
       await _mentionPlayer.setAsset('cuac_ircap.mp3');
       _mentionLoaded = true;
     } catch (e) {
+      // Silenciar el error - el archivo puede no existir en web
+      _mentionLoaded = false;
       // ignore: avoid_print
-      print('⚠️ [SoundService] Error cargando sonido de mención: $e');
+      // print('⚠️ [SoundService] Error cargando sonido de mención: $e');
     }
   }
 
@@ -28,7 +30,7 @@ class SoundService {
       await _mentionPlayer.play();
     } catch (e) {
       // ignore: avoid_print
-      print('⚠️ [SoundService] Error reproduciendo cuack de mención: $e');
+      // print('⚠️ [SoundService] Error reproduciendo cuack de mención: $e');
     }
   }
 }

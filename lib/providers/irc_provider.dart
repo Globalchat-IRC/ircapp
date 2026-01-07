@@ -159,6 +159,11 @@ class MessagesNotifier extends StateNotifier<List<IRCMessage>> {
     _service.addMessageListener(_onMessage);
   }
 
+  /// Limpiar todos los mensajes privados (canales que no empiezan con #)
+  void clearPrivateMessages() {
+    state = state.where((message) => message.channel.startsWith('#')).toList();
+  }
+
   void _onMessage(IRCMessage message) {
     // Si el mensaje tiene un pendingId, buscar si ya existe un mensaje pendiente con ese ID
     if (message.pendingId != null) {
@@ -219,9 +224,9 @@ class ChannelsNotifier extends StateNotifier<Map<String, IRCChannel>> {
   }
 
   void _onUserListUpdate(String channel) {
-    print('🔍 [DEBUG] 🔄 ChannelsNotifier._onUserListUpdate: channel=$channel');
-    print('🔍 [DEBUG] 📊 Service channels: ${_service.channels.keys.toList()}');
-    print('🔍 [DEBUG] 📊 Current state channels: ${state.keys.toList()}');
+    // print('🔍 [DEBUG] 🔄 ChannelsNotifier._onUserListUpdate: channel=$channel');
+    // print('🔍 [DEBUG] 📊 Service channels: ${_service.channels.keys.toList()}');
+    // print('🔍 [DEBUG] 📊 Current state channels: ${state.keys.toList()}');
     
     // Always update the entire state with current service state
     final newState = <String, IRCChannel>{};
@@ -236,15 +241,15 @@ class ChannelsNotifier extends StateNotifier<Map<String, IRCChannel>> {
         topic: entry.value.topic, // Incluir el topic en la copia
       );
       newState[entry.key] = channelCopy;
-      print('🔍 [DEBUG] Copied channel ${entry.key} with ${channelCopy.users.length} users: ${channelCopy.users}, topic: ${channelCopy.topic}');
+      // print('🔍 [DEBUG] Copied channel ${entry.key} with ${channelCopy.users.length} users: ${channelCopy.users}, topic: ${channelCopy.topic}');
     }
     
     if (newState.containsKey(channel)) {
-      print('🔍 [DEBUG] 👥 Channel found in new state, users: ${newState[channel]!.users}');
-      print('🔍 [DEBUG] 👥 Channel users count: ${newState[channel]!.users.length}');
+      // print('🔍 [DEBUG] 👥 Channel found in new state, users: ${newState[channel]!.users}');
+      // print('🔍 [DEBUG] 👥 Channel users count: ${newState[channel]!.users.length}');
     } else {
-      print('🔍 [DEBUG] ⚠️  Channel not found in service: $channel');
-      print('🔍 [DEBUG] Available channels: ${newState.keys.toList()}');
+      // print('🔍 [DEBUG] ⚠️  Channel not found in service: $channel');
+      // print('🔍 [DEBUG] Available channels: ${newState.keys.toList()}');
     }
     
     // Comparar estados
@@ -258,18 +263,18 @@ class ChannelsNotifier extends StateNotifier<Map<String, IRCChannel>> {
       return usersChanged || topicChanged;
     });
     
-    print('🔍 [DEBUG] Keys changed: $keysChanged, Values changed: $valuesChanged');
+    // print('🔍 [DEBUG] Keys changed: $keysChanged, Values changed: $valuesChanged');
     
     // Always update to ensure UI reflects current state
-    print('🔍 [DEBUG] ✅ Updating state with new channels');
+    // print('🔍 [DEBUG] ✅ Updating state with new channels');
       state = newState;
-    print('🔍 [DEBUG] ✅ State updated, now has ${state.length} channels');
+    // print('🔍 [DEBUG] ✅ State updated, now has ${state.length} channels');
   }
 
   void updateChannels() {
-    print('🔍 [DEBUG] 🔄 updateChannels() called, service has ${_service.channels.length} channels');
+    // print('🔍 [DEBUG] 🔄 updateChannels() called, service has ${_service.channels.length} channels');
     for (var entry in _service.channels.entries) {
-      print('🔍 [DEBUG]   - ${entry.key}: ${entry.value.users.length} users: ${entry.value.users}');
+      // print('🔍 [DEBUG]   - ${entry.key}: ${entry.value.users.length} users: ${entry.value.users}');
     }
     
     // Crear una copia profunda del estado del servicio
@@ -285,10 +290,10 @@ class ChannelsNotifier extends StateNotifier<Map<String, IRCChannel>> {
         topic: entry.value.topic, // Incluir el topic en la copia
       );
       newState[entry.key] = channelCopy;
-      print('🔍 [DEBUG] Copied channel ${entry.key} with ${channelCopy.users.length} users, topic: ${channelCopy.topic}');
+      // print('🔍 [DEBUG] Copied channel ${entry.key} with ${channelCopy.users.length} users, topic: ${channelCopy.topic}');
     }
     
-    print('🔍 [DEBUG] ✅ Updating state with ${newState.length} channels');
+    // print('🔍 [DEBUG] ✅ Updating state with ${newState.length} channels');
     state = newState;
   }
 
@@ -322,11 +327,11 @@ class WhoisNotifier extends StateNotifier<Map<String, WhoisInfo>> {
   }
 
   void _onWhoisReceived(WhoisInfo info) {
-    print('🔍 [WHOIS NOTIFIER] Received whois info for: ${info.nick}');
-    print('🔍 [WHOIS NOTIFIER] Info: ${info.username}@${info.host}, realName: ${info.realName}');
+    // print('🔍 [WHOIS NOTIFIER] Received whois info for: ${info.nick}');
+    // print('🔍 [WHOIS NOTIFIER] Info: ${info.username}@${info.host}, realName: ${info.realName}');
     final newState = {...state, info.nick.toLowerCase(): info};
     state = newState;
-    print('🔍 [WHOIS NOTIFIER] Updated state, now has ${newState.length} entries');
+    // print('🔍 [WHOIS NOTIFIER] Updated state, now has ${newState.length} entries');
   }
 
   WhoisInfo? getWhois(String nick) {
@@ -334,14 +339,14 @@ class WhoisNotifier extends StateNotifier<Map<String, WhoisInfo>> {
   }
 
   void requestWhois(String nick) {
-    print('🔍 [WHOIS NOTIFIER] Requesting whois for: $nick');
+    // print('🔍 [WHOIS NOTIFIER] Requesting whois for: $nick');
     // Verificar si ya tenemos la información en caché del servicio
     final cachedInfo = _service.getWhoisInfo(nick);
     if (cachedInfo != null) {
-      print('🔍 [WHOIS NOTIFIER] Found cached info, updating state');
+      // print('🔍 [WHOIS NOTIFIER] Found cached info, updating state');
       _onWhoisReceived(cachedInfo);
     } else {
-      print('🔍 [WHOIS NOTIFIER] No cached info, requesting from server');
+      // print('🔍 [WHOIS NOTIFIER] No cached info, requesting from server');
       _service.sendWhois(nick);
     }
   }
@@ -416,11 +421,11 @@ class FavoritesNotifier extends StateNotifier<Set<String>> {
     try {
       final prefs = await SharedPreferences.getInstance();
       final list = prefs.getStringList(_prefsKey) ?? <String>[];
-      print('📋 [FavoritesNotifier] ========== CARGANDO FAVORITOS ==========');
-      print('📋 [FavoritesNotifier] Favoritos RAW de SharedPreferences: $list');
-      print('📋 [FavoritesNotifier] Total favoritos RAW: ${list.length}');
-      print('📋 [FavoritesNotifier] Canales excluidos actuales: $_excludedChannels');
-      print('📋 [FavoritesNotifier] Total excluidos: ${_excludedChannels.length}');
+      // print('📋 [FavoritesNotifier] ========== CARGANDO FAVORITOS ==========');
+      // print('📋 [FavoritesNotifier] Favoritos RAW de SharedPreferences: $list');
+      // print('📋 [FavoritesNotifier] Total favoritos RAW: ${list.length}');
+      // print('📋 [FavoritesNotifier] Canales excluidos actuales: $_excludedChannels');
+      // print('📋 [FavoritesNotifier] Total excluidos: ${_excludedChannels.length}');
       
       // Filtrar los canales excluidos al cargar
       final filtered = list
@@ -428,23 +433,23 @@ class FavoritesNotifier extends StateNotifier<Set<String>> {
           .where((e) => !_excludedChannels.contains(e))
           .toList();
       
-      print('📋 [FavoritesNotifier] Favoritos después de filtrar excluidos: $filtered');
-      print('📋 [FavoritesNotifier] Total favoritos filtrados: ${filtered.length}');
+      // print('📋 [FavoritesNotifier] Favoritos después de filtrar excluidos: $filtered');
+      // print('📋 [FavoritesNotifier] Total favoritos filtrados: ${filtered.length}');
       
       // Si hay canales excluidos en la lista guardada, limpiarlos de SharedPreferences
       if (filtered.length != list.length) {
         final removed = list.where((e) => _excludedChannels.contains(e.toLowerCase())).toList();
         await prefs.setStringList(_prefsKey, filtered);
-        print('🧹 [FavoritesNotifier] Limpiados ${list.length - filtered.length} canales excluidos de favoritos guardados');
-        print('🧹 [FavoritesNotifier] Canales eliminados específicamente: $removed');
+        // print('🧹 [FavoritesNotifier] Limpiados ${list.length - filtered.length} canales excluidos de favoritos guardados');
+        // print('🧹 [FavoritesNotifier] Canales eliminados específicamente: $removed');
       }
       
       state = filtered.toSet();
-      print('✅ [FavoritesNotifier] Estado final de favoritos: $state');
-      print('✅ [FavoritesNotifier] Total en estado final: ${state.length}');
-      print('📋 [FavoritesNotifier] ===========================================');
+      // print('✅ [FavoritesNotifier] Estado final de favoritos: $state');
+      // print('✅ [FavoritesNotifier] Total en estado final: ${state.length}');
+      // print('📋 [FavoritesNotifier] ===========================================');
     } catch (e) {
-      print('❌ [FavoritesNotifier] Error al cargar favoritos: $e');
+      // print('❌ [FavoritesNotifier] Error al cargar favoritos: $e');
       // Si falla la lectura, simplemente dejamos los favoritos vacíos
     }
   }
@@ -520,41 +525,41 @@ class FavoritesNotifier extends StateNotifier<Set<String>> {
     try {
       final prefs = await SharedPreferences.getInstance();
       
-      print('🧹 [FavoritesNotifier] ========== LIMPIANDO TODOS LOS FAVORITOS ==========');
-      print('🧹 [FavoritesNotifier] Estado ANTES de limpiar: $state');
-      print('🧹 [FavoritesNotifier] Excluidos ANTES de limpiar: $_excludedChannels');
+      // print('🧹 [FavoritesNotifier] ========== LIMPIANDO TODOS LOS FAVORITOS ==========');
+      // print('🧹 [FavoritesNotifier] Estado ANTES de limpiar: $state');
+      // print('🧹 [FavoritesNotifier] Excluidos ANTES de limpiar: $_excludedChannels');
       
       // Obtener los favoritos actuales antes de limpiar para logging
       final currentFavorites = prefs.getStringList(_prefsKey) ?? <String>[];
-      print('🧹 [FavoritesNotifier] Favoritos en SharedPreferences ANTES: $currentFavorites');
+      // print('🧹 [FavoritesNotifier] Favoritos en SharedPreferences ANTES: $currentFavorites');
       
       // Limpiar favoritos guardados
       final removedFavorites = await prefs.remove(_prefsKey);
-      print('🧹 [FavoritesNotifier] Favoritos eliminados de SharedPreferences: $removedFavorites');
+      // print('🧹 [FavoritesNotifier] Favoritos eliminados de SharedPreferences: $removedFavorites');
       
       // Verificar que se eliminaron correctamente
       final verifyFavorites = prefs.getStringList(_prefsKey) ?? <String>[];
-      print('🧹 [FavoritesNotifier] Verificación - Favoritos después de remove: $verifyFavorites');
+      // print('🧹 [FavoritesNotifier] Verificación - Favoritos después de remove: $verifyFavorites');
       
       // Limpiar también la lista de excluidos para permitir que el usuario vuelva a añadir canales
       final currentExcluded = prefs.getStringList(_excludedPrefsKey) ?? <String>[];
-      print('🧹 [FavoritesNotifier] Excluidos en SharedPreferences ANTES: $currentExcluded');
+      // print('🧹 [FavoritesNotifier] Excluidos en SharedPreferences ANTES: $currentExcluded');
       
       _excludedChannels.clear();
       final removedExcluded = await prefs.remove(_excludedPrefsKey);
-      print('🧹 [FavoritesNotifier] Excluidos eliminados de SharedPreferences: $removedExcluded');
+      // print('🧹 [FavoritesNotifier] Excluidos eliminados de SharedPreferences: $removedExcluded');
       
       // Verificar que se eliminaron correctamente
       final verifyExcluded = prefs.getStringList(_excludedPrefsKey) ?? <String>[];
-      print('🧹 [FavoritesNotifier] Verificación - Excluidos después de remove: $verifyExcluded');
+      // print('🧹 [FavoritesNotifier] Verificación - Excluidos después de remove: $verifyExcluded');
       
       // Actualizar el estado
       state = <String>{};
-      print('✅ [FavoritesNotifier] Estado DESPUÉS de limpiar: $state');
-      print('✅ [FavoritesNotifier] Excluidos DESPUÉS de limpiar: $_excludedChannels');
-      print('🧹 [FavoritesNotifier] ====================================================');
+      // print('✅ [FavoritesNotifier] Estado DESPUÉS de limpiar: $state');
+      // print('✅ [FavoritesNotifier] Excluidos DESPUÉS de limpiar: $_excludedChannels');
+      // print('🧹 [FavoritesNotifier] ====================================================');
     } catch (e) {
-      print('❌ [FavoritesNotifier] Error al limpiar favoritos: $e');
+      // print('❌ [FavoritesNotifier] Error al limpiar favoritos: $e');
     }
   }
 }
@@ -1109,19 +1114,23 @@ enum MessageFormat { bubble, plain }
 class MessageFormatPreferences {
   final MessageFormat channelFormat;
   final MessageFormat privateFormat;
+  final bool showTimestamp;
 
   const MessageFormatPreferences({
     this.channelFormat = MessageFormat.bubble,
     this.privateFormat = MessageFormat.bubble,
+    this.showTimestamp = true,
   });
 
   MessageFormatPreferences copyWith({
     MessageFormat? channelFormat,
     MessageFormat? privateFormat,
+    bool? showTimestamp,
   }) {
     return MessageFormatPreferences(
       channelFormat: channelFormat ?? this.channelFormat,
       privateFormat: privateFormat ?? this.privateFormat,
+      showTimestamp: showTimestamp ?? this.showTimestamp,
     );
   }
 }
@@ -1135,6 +1144,7 @@ class MessageFormatPreferencesNotifier
     extends StateNotifier<MessageFormatPreferences> {
   static const _prefsKeyChannel = 'message_format_channel';
   static const _prefsKeyPrivate = 'message_format_private';
+  static const _prefsKeyShowTimestamp = 'message_show_timestamp';
 
   MessageFormatPreferencesNotifier()
       : super(const MessageFormatPreferences()) {
@@ -1146,6 +1156,7 @@ class MessageFormatPreferencesNotifier
       final prefs = await SharedPreferences.getInstance();
       final channelRaw = prefs.getString(_prefsKeyChannel) ?? 'bubble';
       final privateRaw = prefs.getString(_prefsKeyPrivate) ?? 'bubble';
+      final showTimestamp = prefs.getBool(_prefsKeyShowTimestamp) ?? true;
 
       final channelFormat = channelRaw == 'plain'
           ? MessageFormat.plain
@@ -1157,6 +1168,7 @@ class MessageFormatPreferencesNotifier
       state = MessageFormatPreferences(
         channelFormat: channelFormat,
         privateFormat: privateFormat,
+        showTimestamp: showTimestamp,
       );
     } catch (_) {
       // Ignorar errores de carga
@@ -1180,6 +1192,16 @@ class MessageFormatPreferencesNotifier
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(
           _prefsKeyPrivate, format == MessageFormat.plain ? 'plain' : 'bubble');
+    } catch (_) {
+      // Ignorar errores de guardado
+    }
+  }
+
+  Future<void> setShowTimestamp(bool show) async {
+    state = state.copyWith(showTimestamp: show);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_prefsKeyShowTimestamp, show);
     } catch (_) {
       // Ignorar errores de guardado
     }

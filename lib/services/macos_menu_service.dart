@@ -65,8 +65,9 @@ class MacOSMenuService {
         }
       });
     } catch (e) {
-      debugPrint('Error configurando menús macOS: $e');
+      // debugPrint('Error configurando menús macOS: $e');
     }
   }
 }
+
 

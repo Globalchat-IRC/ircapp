@@ -6,6 +6,7 @@ import '../services/unrealircd_reputation_sync.dart';
 import '../models/user_role.dart';
 import '../models/video_report.dart';
 import 'irc_provider.dart';
+import '../utils/platform_utils.dart';
 
 /// Provider del servicio de videoconferencias
 final videoConferenceServiceProvider = Provider<VideoConferenceService>((ref) {
@@ -50,14 +51,20 @@ final userVideoEmojiProvider = Provider.family<String?, String>((ref, nick) {
 
 /// Provider del servidor de moderación
 final moderationServerProvider = Provider<ModerationServer>((ref) {
+  // No iniciar servidor en web (no soporta ServerSocket)
+  if (PlatformUtils.isWeb) {
+    // Retornar un servidor dummy que no hace nada
+    return ModerationServer(ref.watch(videoConferenceServiceProvider), port: 8765);
+  }
+  
   final videoService = ref.watch(videoConferenceServiceProvider);
   final server = ModerationServer(videoService, port: 8765);
   
-  // Iniciar servidor automáticamente
+  // Iniciar servidor automáticamente (solo en nativo)
   server.start().then((_) {
-    print('✅ [MOD-SERVER] Servidor iniciado automáticamente');
+    // print('✅ [MOD-SERVER] Servidor iniciado automáticamente');
   }).catchError((error) {
-    print('❌ [MOD-SERVER] Error al iniciar servidor: $error');
+    // print('❌ [MOD-SERVER] Error al iniciar servidor: $error');
   });
   
   // Detener al dispose
@@ -72,16 +79,22 @@ final moderationServerProvider = Provider<ModerationServer>((ref) {
 final videoDatabaseProvider = Provider<VideoDatabaseService>((ref) {
   final db = VideoDatabaseService.instance;
   
-  // Inicializar base de datos
-  db.database.then((_) {
-    print('✅ [VIDEO-DB] Base de datos inicializada');
-  }).catchError((error) {
-    print('❌ [VIDEO-DB] Error al inicializar: $error');
-  });
+  // Inicializar base de datos solo en nativo (sqflite no funciona en web)
+  if (!PlatformUtils.isWeb) {
+    db.database.then((_) {
+      // print('✅ [VIDEO-DB] Base de datos inicializada');
+    }).catchError((error) {
+      // print('❌ [VIDEO-DB] Error al inicializar: $error');
+    });
+  } else {
+    // print('ℹ️ [VIDEO-DB] Base de datos deshabilitada en web');
+  }
   
   // Cerrar al dispose
   ref.onDispose(() {
-    db.close();
+    if (!PlatformUtils.isWeb) {
+      db.close();
+    }
   });
   
   return db;
@@ -97,7 +110,7 @@ final unrealircdReputationSyncProvider = Provider<UnrealIRCdReputationSync>((ref
   // Iniciar sincronización automática cada 5 minutos
   sync.startAutoSync(interval: const Duration(minutes: 5));
   
-  print('✅ [REP-SYNC] Servicio de sincronización IRC iniciado');
+  // print('✅ [REP-SYNC] Servicio de sincronización IRC iniciado');
   
   // Detener al dispose
   ref.onDispose(() {

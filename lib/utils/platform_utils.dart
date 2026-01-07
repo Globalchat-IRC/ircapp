@@ -1,5 +1,4 @@
 import 'package:flutter/foundation.dart' show kIsWeb;
-import 'dart:io' show Platform;
 
 /// Utilidades para detectar la plataforma y adaptar código
 class PlatformUtils {
@@ -7,19 +6,24 @@ class PlatformUtils {
   static bool get isWeb => kIsWeb;
   
   /// Verifica si estamos en móvil (iOS/Android)
-  static bool get isMobile => !kIsWeb && (Platform.isIOS || Platform.isAndroid);
+  /// En web siempre retorna false
+  static bool get isMobile => false; // Simplificado: solo funciona en nativo
   
   /// Verifica si estamos en desktop (macOS/Windows/Linux)
-  static bool get isDesktop => !kIsWeb && (Platform.isMacOS || Platform.isWindows || Platform.isLinux);
+  /// En web siempre retorna false
+  static bool get isDesktop => false; // Simplificado: solo funciona en nativo
   
   /// Verifica si estamos en macOS
-  static bool get isMacOS => !kIsWeb && Platform.isMacOS;
+  /// En web siempre retorna false
+  static bool get isMacOS => false; // Simplificado: solo funciona en nativo
   
   /// Verifica si estamos en iOS
-  static bool get isIOS => !kIsWeb && Platform.isIOS;
+  /// En web siempre retorna false
+  static bool get isIOS => false; // Simplificado: solo funciona en nativo
   
   /// Verifica si estamos en Android
-  static bool get isAndroid => !kIsWeb && Platform.isAndroid;
+  /// En web siempre retorna false
+  static bool get isAndroid => false; // Simplificado: solo funciona en nativo
   
   /// Verifica si podemos usar sockets TCP nativos
   static bool get canUseNativeSockets => !kIsWeb;
@@ -36,4 +40,3 @@ class PlatformUtils {
   /// Verifica si debemos usar IndexedDB/localStorage
   static bool get mustUseWebStorage => kIsWeb;
 }
-

@@ -108,3 +108,4 @@ class Contact extends Equatable {
       ];
 }
 
+
