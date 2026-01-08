@@ -57,6 +57,8 @@ import '../widgets/search_dialog.dart';
 import '../widgets/keyboard_shortcuts.dart';
 import '../widgets/media_preview.dart';
 import '../widgets/markdown_message.dart';
+import '../widgets/link_preview.dart';
+import '../widgets/message_reactions.dart';
 import '../widgets/contacts_list.dart';
 import '../services/encryption_service.dart';
 import '../services/privacy_service.dart';
