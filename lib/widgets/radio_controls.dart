@@ -138,6 +138,14 @@ class _RadioControlsState extends ConsumerState<RadioControls> {
     ref.read(radioProvider.notifier).setPlaying(false);
   }
 
+  void _stopStation() async {
+    final radioService = ref.read(radioServiceProvider);
+    await radioService.stop();
+    ref.read(radioProvider.notifier).setPlaying(false);
+    // No limpiar la estación activa, solo detener la reproducción
+    // El usuario puede querer volver a reproducir la misma estación
+  }
+
   void _skipStation(int direction) {
     final radioState = ref.read(radioProvider);
     final stations = radioState.getStarredStations();
@@ -223,6 +231,15 @@ class _RadioControlsState extends ConsumerState<RadioControls> {
             icon: radioState.isPlaying ? Icons.pause : Icons.play_arrow,
             onPressed: radioState.isPlaying ? _pauseStation : () => _playStation(),
             tooltip: radioState.isPlaying ? 'Pausa' : 'Reproducir',
+            appTheme: appTheme,
+          ),
+          const SizedBox(width: 4),
+          
+          // Botón stop
+          _buildControlButton(
+            icon: Icons.stop,
+            onPressed: radioState.isPlaying || radioState.activeStation != null ? _stopStation : null,
+            tooltip: 'Detener',
             appTheme: appTheme,
           ),
           const SizedBox(width: 4),
@@ -339,7 +356,7 @@ class _RadioControlsState extends ConsumerState<RadioControls> {
 
   Widget _buildControlButton({
     required IconData icon,
-    required VoidCallback onPressed,
+    required VoidCallback? onPressed,
     required String tooltip,
     required AppTheme appTheme,
   }) {
@@ -355,7 +372,9 @@ class _RadioControlsState extends ConsumerState<RadioControls> {
             child: Icon(
               icon,
               size: 18,
-              color: appTheme.textPrimary,
+              color: onPressed != null 
+                  ? appTheme.textPrimary 
+                  : appTheme.textPrimary.withOpacity(0.3),
             ),
           ),
         ),

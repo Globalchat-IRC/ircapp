@@ -56,7 +56,16 @@ class _ChannelListDialogState extends ConsumerState<ChannelListDialog> {
       if (mounted) {
         widget.ircService.removeListListener(listListener);
         setState(() {
-          _allChannels = results;
+          // Filtrar canales con nombres inválidos (vacíos, solo asteriscos, etc.)
+          _allChannels = results.where((channel) {
+            final channelName = (channel['channel'] as String? ?? '').trim();
+            // Filtrar nombres vacíos, solo asteriscos, o que no empiecen con #
+            return channelName.isNotEmpty && 
+                   channelName != '*' && 
+                   channelName != '**' &&
+                   channelName.startsWith('#') &&
+                   channelName.length > 1; // Al menos # + 1 carácter
+          }).toList();
           _isLoading = false;
         });
         _filterChannels();

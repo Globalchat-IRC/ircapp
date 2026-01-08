@@ -26,6 +26,10 @@ class ExportLogsIntent extends Intent {
   const ExportLogsIntent();
 }
 
+class ChannelListIntent extends Intent {
+  const ChannelListIntent();
+}
+
 // Acciones para los intents
 class FindAction extends Action<FindIntent> {
   final VoidCallback onFind;
@@ -99,6 +103,18 @@ class ExportLogsAction extends Action<ExportLogsIntent> {
   }
 }
 
+class ChannelListAction extends Action<ChannelListIntent> {
+  final VoidCallback onChannelList;
+
+  ChannelListAction({required this.onChannelList});
+
+  @override
+  Object? invoke(ChannelListIntent intent) {
+    onChannelList();
+    return null;
+  }
+}
+
 /// Widget que envuelve la aplicación con atajos de teclado macOS
 class MacOSKeyboardShortcuts extends StatelessWidget {
   final Widget child;
@@ -108,6 +124,7 @@ class MacOSKeyboardShortcuts extends StatelessWidget {
   final VoidCallback? onCloseTab;
   final VoidCallback? onPreferences;
   final VoidCallback? onExportLogs;
+  final VoidCallback? onChannelList;
 
   const MacOSKeyboardShortcuts({
     Key? key,
@@ -118,6 +135,7 @@ class MacOSKeyboardShortcuts extends StatelessWidget {
     this.onCloseTab,
     this.onPreferences,
     this.onExportLogs,
+    this.onChannelList,
   }) : super(key: key);
 
   @override
@@ -137,6 +155,8 @@ class MacOSKeyboardShortcuts extends StatelessWidget {
         const SingleActivator(LogicalKeyboardKey.comma, meta: true): const PreferencesIntent(),
         // Cmd+E: Exportar logs
         const SingleActivator(LogicalKeyboardKey.keyE, meta: true): const ExportLogsIntent(),
+        // Cmd+L: Lista de canales
+        const SingleActivator(LogicalKeyboardKey.keyL, meta: true): const ChannelListIntent(),
       },
       child: Actions(
         actions: {
@@ -146,12 +166,14 @@ class MacOSKeyboardShortcuts extends StatelessWidget {
           CloseTabIntent: CloseTabAction(onCloseTab: onCloseTab ?? () {}),
           PreferencesIntent: PreferencesAction(onPreferences: onPreferences ?? () {}),
           ExportLogsIntent: ExportLogsAction(onExportLogs: onExportLogs ?? () {}),
+          ChannelListIntent: ChannelListAction(onChannelList: onChannelList ?? () {}),
         },
         child: child,
       ),
     );
   }
 }
+
 
 
 
