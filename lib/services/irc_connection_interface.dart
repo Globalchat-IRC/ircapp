@@ -3,7 +3,7 @@ import 'dart:async';
 /// Interfaz abstracta para conexiones IRC (Socket o WebSocket)
 abstract class IRCConnection {
   /// Conecta al servidor
-  Future<void> connect(String host, int port, {bool useSSL = false});
+  Future<void> connect(String host, int port, {bool useSSL = true});
   
   /// Desconecta del servidor
   Future<void> disconnect();
@@ -20,5 +20,7 @@ abstract class IRCConnection {
   /// Cierra la conexión
   void close();
 }
+
+
 
 

@@ -24,9 +24,9 @@ class LoginScreen extends ConsumerStatefulWidget {
 
 class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _hostController = TextEditingController(text: 'ceres.globalchat.org');
-  // En web, usar puerto IRC estándar (el gateway maneja la conexión WebSocket)
+  // En web, usar puerto IRC SSL (el gateway maneja la conexión WebSocket)
   final _portController = TextEditingController(
-    text: '6667',
+    text: '6697',
   );
   late final TextEditingController _nickController;
   final _channelController = TextEditingController(); // Vacío por defecto
@@ -434,7 +434,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
   Future<void> _connect() async {
     final host = _hostController.text;
-    final port = int.tryParse(_portController.text) ?? 6667;
+    final port = int.tryParse(_portController.text) ?? 6697;
     final nick = _nickController.text;
     final channel = _channelController.text;
 
@@ -458,8 +458,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       // globalLog('🔵 [LOGIN] Got IRCService instance');
       // globalLog('🔵 [LOGIN] Calling connect() with $host:$port as $nick');
       
-      // Usar SSL si el servidor seleccionado lo requiere
-      final useSSL = _selectedServer?.useSSL ?? (port == 6697);
+      // FORZAR SSL en todas las conexiones
+      final useSSL = true;
       
       // En web, el gateway maneja la conexión, así que siempre pasamos el puerto IRC real
       // El gateway se conecta internamente al servidor IRC usando este puerto

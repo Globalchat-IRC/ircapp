@@ -34,3 +34,5 @@ ssh ceres.globalchat.org "sudo systemctl reload apache2"
 echo -e "${GREEN}✅ Configuración actualizada!${NC}"
 
 
+
+

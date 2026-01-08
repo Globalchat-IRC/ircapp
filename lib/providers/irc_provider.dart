@@ -160,8 +160,16 @@ class MessagesNotifier extends StateNotifier<List<IRCMessage>> {
   }
 
   /// Limpiar todos los mensajes privados (canales que no empiezan con #)
+  /// También limpia específicamente mensajes del privado de "nick" y "nickserv"
   void clearPrivateMessages() {
-    state = state.where((message) => message.channel.startsWith('#')).toList();
+    state = state.where((message) {
+      // Mantener solo mensajes de canales (que empiezan con #)
+      if (message.channel.startsWith('#')) {
+        return true;
+      }
+      // Eliminar todos los mensajes privados, especialmente de "nick" y "nickserv"
+      return false;
+    }).toList();
   }
 
   void _onMessage(IRCMessage message) {
@@ -1115,22 +1123,38 @@ class MessageFormatPreferences {
   final MessageFormat channelFormat;
   final MessageFormat privateFormat;
   final bool showTimestamp;
+  final double channelFontSize;
+  final double privateFontSize;
+  final String channelFontFamily;
+  final String privateFontFamily;
 
   const MessageFormatPreferences({
     this.channelFormat = MessageFormat.bubble,
     this.privateFormat = MessageFormat.bubble,
     this.showTimestamp = true,
+    this.channelFontSize = 15.0,
+    this.privateFontSize = 15.0,
+    this.channelFontFamily = 'Roboto',
+    this.privateFontFamily = 'Roboto',
   });
 
   MessageFormatPreferences copyWith({
     MessageFormat? channelFormat,
     MessageFormat? privateFormat,
     bool? showTimestamp,
+    double? channelFontSize,
+    double? privateFontSize,
+    String? channelFontFamily,
+    String? privateFontFamily,
   }) {
     return MessageFormatPreferences(
       channelFormat: channelFormat ?? this.channelFormat,
       privateFormat: privateFormat ?? this.privateFormat,
       showTimestamp: showTimestamp ?? this.showTimestamp,
+      channelFontSize: channelFontSize ?? this.channelFontSize,
+      privateFontSize: privateFontSize ?? this.privateFontSize,
+      channelFontFamily: channelFontFamily ?? this.channelFontFamily,
+      privateFontFamily: privateFontFamily ?? this.privateFontFamily,
     );
   }
 }
@@ -1145,6 +1169,10 @@ class MessageFormatPreferencesNotifier
   static const _prefsKeyChannel = 'message_format_channel';
   static const _prefsKeyPrivate = 'message_format_private';
   static const _prefsKeyShowTimestamp = 'message_show_timestamp';
+  static const _prefsKeyChannelFontSize = 'message_channel_font_size';
+  static const _prefsKeyPrivateFontSize = 'message_private_font_size';
+  static const _prefsKeyChannelFontFamily = 'message_channel_font_family';
+  static const _prefsKeyPrivateFontFamily = 'message_private_font_family';
 
   MessageFormatPreferencesNotifier()
       : super(const MessageFormatPreferences()) {
@@ -1157,6 +1185,10 @@ class MessageFormatPreferencesNotifier
       final channelRaw = prefs.getString(_prefsKeyChannel) ?? 'bubble';
       final privateRaw = prefs.getString(_prefsKeyPrivate) ?? 'bubble';
       final showTimestamp = prefs.getBool(_prefsKeyShowTimestamp) ?? true;
+      final channelFontSize = prefs.getDouble(_prefsKeyChannelFontSize) ?? 15.0;
+      final privateFontSize = prefs.getDouble(_prefsKeyPrivateFontSize) ?? 15.0;
+      final channelFontFamily = prefs.getString(_prefsKeyChannelFontFamily) ?? 'Roboto';
+      final privateFontFamily = prefs.getString(_prefsKeyPrivateFontFamily) ?? 'Roboto';
 
       final channelFormat = channelRaw == 'plain'
           ? MessageFormat.plain
@@ -1169,6 +1201,10 @@ class MessageFormatPreferencesNotifier
         channelFormat: channelFormat,
         privateFormat: privateFormat,
         showTimestamp: showTimestamp,
+        channelFontSize: channelFontSize,
+        privateFontSize: privateFontSize,
+        channelFontFamily: channelFontFamily,
+        privateFontFamily: privateFontFamily,
       );
     } catch (_) {
       // Ignorar errores de carga
@@ -1205,6 +1241,109 @@ class MessageFormatPreferencesNotifier
     } catch (_) {
       // Ignorar errores de guardado
     }
+  }
+
+  Future<void> setChannelFontSize(double size) async {
+    if (size < 10.0) size = 10.0;
+    if (size > 30.0) size = 30.0;
+    state = state.copyWith(channelFontSize: size);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setDouble(_prefsKeyChannelFontSize, size);
+    } catch (_) {
+      // Ignorar errores de guardado
+    }
+  }
+
+  Future<void> setPrivateFontSize(double size) async {
+    if (size < 10.0) size = 10.0;
+    if (size > 30.0) size = 30.0;
+    state = state.copyWith(privateFontSize: size);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setDouble(_prefsKeyPrivateFontSize, size);
+    } catch (_) {
+      // Ignorar errores de guardado
+    }
+  }
+
+  Future<void> setChannelFontFamily(String family) async {
+    state = state.copyWith(channelFontFamily: family);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_prefsKeyChannelFontFamily, family);
+    } catch (_) {
+      // Ignorar errores de guardado
+    }
+  }
+
+  Future<void> setPrivateFontFamily(String family) async {
+    state = state.copyWith(privateFontFamily: family);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_prefsKeyPrivateFontFamily, family);
+    } catch (_) {
+      // Ignorar errores de guardado
+    }
+  }
+}
+
+/// Provider para iconos personalizados de usuarios
+/// Mapea nick -> icono (emoji o inicial)
+final userIconsProvider = StateNotifierProvider<UserIconsNotifier, Map<String, String>>((ref) {
+  return UserIconsNotifier();
+});
+
+class UserIconsNotifier extends StateNotifier<Map<String, String>> {
+  static const _prefsKey = 'user_custom_icons';
+  
+  UserIconsNotifier() : super({}) {
+    _loadFromPrefs();
+  }
+  
+  Future<void> _loadFromPrefs() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final iconsJson = prefs.getString(_prefsKey);
+      if (iconsJson != null) {
+        final Map<String, dynamic> decoded = json.decode(iconsJson);
+        state = Map<String, String>.from(decoded);
+      }
+    } catch (e) {
+      // print('Error cargando iconos personalizados: $e');
+    }
+  }
+  
+  Future<void> setIcon(String nick, String icon) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final newState = Map<String, String>.from(state);
+      newState[nick.toLowerCase()] = icon;
+      state = newState;
+      
+      final iconsJson = json.encode(newState);
+      await prefs.setString(_prefsKey, iconsJson);
+    } catch (e) {
+      // print('Error guardando icono personalizado: $e');
+    }
+  }
+  
+  Future<void> removeIcon(String nick) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final newState = Map<String, String>.from(state);
+      newState.remove(nick.toLowerCase());
+      state = newState;
+      
+      final iconsJson = json.encode(newState);
+      await prefs.setString(_prefsKey, iconsJson);
+    } catch (e) {
+      // print('Error eliminando icono personalizado: $e');
+    }
+  }
+  
+  String? getIcon(String nick) {
+    return state[nick.toLowerCase()];
   }
 }
 

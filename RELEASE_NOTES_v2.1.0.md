@@ -186,3 +186,5 @@ Esta versión marca un hito importante en la evolución de la aplicación, con u
 **Tamaño**: ~55 MB
 
 
+
+

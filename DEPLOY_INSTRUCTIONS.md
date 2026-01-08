@@ -119,3 +119,5 @@ Ver `DEPLOY_CERES.md` para más detalles sobre el proxy WebSocket.
 3. **HTTPS**: Es recomendable usar HTTPS para WebSocket seguro (wss://)
 
 
+
+

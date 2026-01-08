@@ -211,6 +211,23 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
                               child: UserAvatar(
                                 nick: widget.nick,
                                 size: 80,
+                                fallbackIcon: _isRobotUser(whoisInfo) ? '🤖' : null,
+                                gradient: _isRobotUser(whoisInfo)
+                                    ? LinearGradient(
+                                        colors: [
+                                          const Color(0xFFFFD700),
+                                          const Color(0xFFFFA500),
+                                        ],
+                                        begin: Alignment.topLeft,
+                                        end: Alignment.bottomRight,
+                                      )
+                                    : null,
+                                border: _isRobotUser(whoisInfo)
+                                    ? Border.all(
+                                        color: const Color(0xFFFFD700).withOpacity(0.6),
+                                        width: 2,
+                                      )
+                                    : null,
                               ),
                             ),
                             const SizedBox(width: 20),
@@ -234,6 +251,57 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
                                       ],
                                     ],
                                   ),
+                                  // Etiqueta de Robot GlobalChat
+                                  if (_isRobotUser(whoisInfo)) ...[
+                                    const SizedBox(height: 8),
+                                    Container(
+                                      constraints: BoxConstraints(
+                                        maxWidth: MediaQuery.of(context).size.width - 120,
+                                      ),
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 12,
+                                        vertical: 4,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        gradient: LinearGradient(
+                                          colors: [
+                                            const Color(0xFFFFD700).withOpacity(0.3),
+                                            const Color(0xFFFFA500).withOpacity(0.3),
+                                          ],
+                                          begin: Alignment.topLeft,
+                                          end: Alignment.bottomRight,
+                                        ),
+                                        borderRadius: BorderRadius.circular(14),
+                                        border: Border.all(
+                                          color: const Color(0xFFFFD700).withOpacity(0.6),
+                                          width: 1.2,
+                                        ),
+                                      ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          const Icon(
+                                            Icons.smart_toy,
+                                            size: 16,
+                                            color: Color(0xFFFFD700),
+                                          ),
+                                          const SizedBox(width: 6),
+                                          Flexible(
+                                            child: Text(
+                                              'Robot GlobalChat',
+                                              style: TextStyle(
+                                                color: appTheme.textPrimary,
+                                                fontSize: 12,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                              overflow: TextOverflow.ellipsis,
+                                              maxLines: 1,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
                                   // Indicador de staff / operador de la red
                                   if (whoisInfo.isStaff) ...[
                                     const SizedBox(height: 8),
@@ -681,20 +749,31 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
 
   // Detectar si un usuario es un robot basándose en su información de whois
   bool _isRobotUser(WhoisInfo? whoisInfo) {
+    final nick = widget.nick.toLowerCase();
+    
     if (whoisInfo == null) {
-      // Si no hay información de whois, solo verificar el nick
-      return widget.nick.toLowerCase().contains('robot');
+      // Si no hay información de whois, verificar el nick
+      return nick.contains('robot') || 
+             nick.contains('bot') ||
+             nick.endsWith('bot');
     }
     
-    final nick = widget.nick.toLowerCase();
     final username = whoisInfo.username?.toLowerCase() ?? '';
     final host = whoisInfo.host?.toLowerCase() ?? '';
     final realName = whoisInfo.realName?.toLowerCase() ?? '';
     final server = whoisInfo.server?.toLowerCase() ?? '';
     
+    // Verificar si el host contiene "robot.globalchat.org" o variaciones
+    final isRobotHost = host.contains('robot.globalchat.org') ||
+                        host.contains('robot.globalchat') ||
+                        host.contains('.robot.') ||
+                        host.contains('robot');
+    
     return nick.contains('robot') ||
+           nick.contains('bot') ||
+           nick.endsWith('bot') ||
            username.contains('robot') ||
-           host.contains('robot') ||
+           isRobotHost ||
            realName.contains('robot') ||
            server.contains('robot');
   }

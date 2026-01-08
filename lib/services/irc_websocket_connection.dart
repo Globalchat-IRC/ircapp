@@ -19,7 +19,7 @@ class IRCWebSocketConnection implements IRCConnection {
   Completer<void>? _handshakeCompleter;
 
   @override
-  Future<void> connect(String host, int port, {bool useSSL = false}) async {
+  Future<void> connect(String host, int port, {bool useSSL = true}) async {
     if (!PlatformUtils.mustUseWebSocket) {
       throw UnsupportedError('WebSocket solo está disponible en web. Use Socket TCP.');
     }

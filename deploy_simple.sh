@@ -20,3 +20,5 @@ echo "📝 Verificando..."
 ssh ceres.globalchat.org "ls -lh /var/www/irc_app/main.dart.js"
 
 
+
+

@@ -189,6 +189,16 @@ class _MyAppState extends ConsumerState<MyApp> with WidgetsBindingObserver {
     // Limpiar mensajes privados de la memoria
     ref.read(messagesProvider.notifier).clearPrivateMessages();
     
+    // Limpiar específicamente mensajes del privado de "nick" y "nickserv"
+    final messages = ref.read(messagesProvider);
+    final cleanedMessages = messages.where((m) => 
+      !(m.channel.toLowerCase() == 'nick' || 
+        m.channel.toLowerCase() == 'nickserv' ||
+        (m.nick.toLowerCase() == 'nick' && !m.channel.startsWith('#')) ||
+        (m.nick.toLowerCase() == 'nickserv' && !m.channel.startsWith('#')))
+    ).toList();
+    ref.read(messagesProvider.notifier).state = cleanedMessages;
+    
     // También limpiar de la base de datos si existe (solo en nativo)
     if (!PlatformUtils.isWeb) {
       try {

@@ -122,8 +122,28 @@ class IRCChannel {
   }
 
   bool isRobot(String nick) {
+    // Verificar primero el modo +b (más rápido y confiable)
+    if (userModes[nick] == '+b') {
+      return true;
+    }
+    
+    // Si no tiene modo +b, verificar el host
     final host = userHosts[nick] ?? '';
-    return host.toLowerCase().contains('robot') || userModes[nick] == '+b';
+    if (host.isEmpty) {
+      // Si no hay host, verificar si el nick contiene "robot" o "bot"
+      final nickLower = nick.toLowerCase();
+      return nickLower.contains('robot') || 
+             nickLower.contains('bot') ||
+             nickLower.endsWith('bot');
+    }
+    
+    final hostLower = host.toLowerCase();
+    // Verificar si el host contiene "robot.globalchat.org" o "robot"
+    // También verificar variaciones con mayúsculas/minúsculas
+    return hostLower.contains('robot.globalchat.org') ||
+           hostLower.contains('robot.globalchat') ||
+           hostLower.contains('.robot.') ||
+           hostLower.contains('robot');
   }
 
   // Obtener el modo del usuario (prefijo IRC)

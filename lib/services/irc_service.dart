@@ -71,7 +71,7 @@ class IRCService {
     required String host,
     required int port,
     required String nickname,
-    bool useSSL = false,
+    bool useSSL = true,
   }) async {
     try {
       _useSSL = useSSL;
@@ -1689,6 +1689,13 @@ class IRCService {
             // Notificar una vez más para asegurar que la UI se actualice
             if (channels.containsKey(channel)) {
               _notifyUserListListeners(channel);
+              // Solicitar información WHO para obtener hosts de usuarios (especialmente robots)
+              // Esto se hace después de recibir la lista de usuarios para detectar robots
+              Future.delayed(const Duration(milliseconds: 500), () {
+                if (channels.containsKey(channel)) {
+                  sendWho(channel);
+                }
+              });
               // print('  ✅ Final user count for $channel: ${channels[channel]!.users.length}');
             }
           }
@@ -1932,6 +1939,19 @@ class IRCService {
               host: host,
               realName: realName,
             );
+            
+            // Actualizar el host en todos los canales donde esté el usuario
+            final affectedChannels = <String>[];
+            for (var channelEntry in channels.entries) {
+              if (channelEntry.value.users.contains(targetNick)) {
+                channelEntry.value.addUser(targetNick, host: host);
+                affectedChannels.add(channelEntry.key);
+              }
+            }
+            // Notificar cambios en los canales afectados para actualizar la UI
+            for (var channel in affectedChannels) {
+              _notifyUserListListeners(channel);
+            }
             // print('🔍 [WHOIS] 311 - User info for $targetNick: $username@$host ($realName)');
           }
           break;
@@ -2103,12 +2123,30 @@ class IRCService {
               'status': status,
               'realname': realname,
             });
+            
+            // Actualizar el host en el canal si existe
+            final normalizedChannel = _normalizeChannelName(channel);
+            if (channels.containsKey(normalizedChannel)) {
+              channels[normalizedChannel]!.addUser(nick, host: host);
+              // Notificar cambio en la lista de usuarios para actualizar la UI
+              _notifyUserListListeners(normalizedChannel);
+            }
             // print('👤 [WHO] Usuario: $nick ($username@$host) en $channel, estado: $status');
           }
           break;
         
         case '315': // RPL_ENDOFWHO: Fin de WHO
           _notifyWhoListeners(_whoResults);
+          // Notificar cambios en todos los canales afectados
+          for (var result in _whoResults) {
+            final channel = result['channel'] as String?;
+            if (channel != null) {
+              final normalizedChannel = _normalizeChannelName(channel);
+              if (channels.containsKey(normalizedChannel)) {
+                _notifyUserListListeners(normalizedChannel);
+              }
+            }
+          }
           // print('👤 [WHO] Fin de WHO (${_whoResults.length} usuarios)');
           _whoResults.clear(); // Limpiar después de notificar
           break;

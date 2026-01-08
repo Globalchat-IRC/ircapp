@@ -114,7 +114,12 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
   
 
   Widget _buildAvatarWidget() {
+    // Verificar si hay un icono personalizado para este usuario
+    final userIcons = ref.read(userIconsProvider);
+    final customIcon = userIcons[widget.nick.toLowerCase()];
+    
     final fallback = widget.fallbackIcon ?? 
+        customIcon ??
         (widget.nick.isNotEmpty ? widget.nick[0].toUpperCase() : '?');
     
     // Detectar si el fallbackIcon es una URL (emoticono de JoyPixels)

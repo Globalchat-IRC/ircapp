@@ -187,6 +187,186 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       ),
                     ],
                   ),
+                  const SizedBox(height: 32),
+                  // Tamaño de fuente para canales
+                  Text(
+                    'Tamaño de fuente en Canales',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: appTheme.textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Slider(
+                          value: formatPrefs.channelFontSize,
+                          min: 10.0,
+                          max: 30.0,
+                          divisions: 20,
+                          label: '${formatPrefs.channelFontSize.toStringAsFixed(0)}px',
+                          onChanged: (value) {
+                            ref
+                                .read(messageFormatPreferencesProvider.notifier)
+                                .setChannelFontSize(value);
+                          },
+                          activeColor: appTheme.primary,
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      Container(
+                        width: 60,
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: appTheme.surface,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: appTheme.primary.withOpacity(0.3),
+                          ),
+                        ),
+                        child: Text(
+                          '${formatPrefs.channelFontSize.toStringAsFixed(0)}px',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: appTheme.textPrimary,
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 24),
+                  // Tipo de fuente para canales
+                  Text(
+                    'Tipo de fuente en Canales',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: appTheme.textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<String>(
+                    value: formatPrefs.channelFontFamily,
+                    decoration: InputDecoration(
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      filled: true,
+                      fillColor: appTheme.surface,
+                    ),
+                    dropdownColor: appTheme.surface,
+                    style: TextStyle(color: appTheme.textPrimary),
+                    items: const [
+                      DropdownMenuItem(value: 'Roboto', child: Text('Roboto')),
+                      DropdownMenuItem(value: 'Arial', child: Text('Arial')),
+                      DropdownMenuItem(value: 'Courier New', child: Text('Courier New')),
+                      DropdownMenuItem(value: 'Times New Roman', child: Text('Times New Roman')),
+                      DropdownMenuItem(value: 'Verdana', child: Text('Verdana')),
+                      DropdownMenuItem(value: 'Georgia', child: Text('Georgia')),
+                      DropdownMenuItem(value: 'Comic Sans MS', child: Text('Comic Sans MS')),
+                    ],
+                    onChanged: (value) {
+                      if (value != null) {
+                        ref
+                            .read(messageFormatPreferencesProvider.notifier)
+                            .setChannelFontFamily(value);
+                      }
+                    },
+                  ),
+                  const SizedBox(height: 32),
+                  // Tamaño de fuente para privados
+                  Text(
+                    'Tamaño de fuente en Privados',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: appTheme.textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Slider(
+                          value: formatPrefs.privateFontSize,
+                          min: 10.0,
+                          max: 30.0,
+                          divisions: 20,
+                          label: '${formatPrefs.privateFontSize.toStringAsFixed(0)}px',
+                          onChanged: (value) {
+                            ref
+                                .read(messageFormatPreferencesProvider.notifier)
+                                .setPrivateFontSize(value);
+                          },
+                          activeColor: appTheme.primary,
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      Container(
+                        width: 60,
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: appTheme.surface,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: appTheme.primary.withOpacity(0.3),
+                          ),
+                        ),
+                        child: Text(
+                          '${formatPrefs.privateFontSize.toStringAsFixed(0)}px',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: appTheme.textPrimary,
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 24),
+                  // Tipo de fuente para privados
+                  Text(
+                    'Tipo de fuente en Privados',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: appTheme.textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<String>(
+                    value: formatPrefs.privateFontFamily,
+                    decoration: InputDecoration(
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      filled: true,
+                      fillColor: appTheme.surface,
+                    ),
+                    dropdownColor: appTheme.surface,
+                    style: TextStyle(color: appTheme.textPrimary),
+                    items: const [
+                      DropdownMenuItem(value: 'Roboto', child: Text('Roboto')),
+                      DropdownMenuItem(value: 'Arial', child: Text('Arial')),
+                      DropdownMenuItem(value: 'Courier New', child: Text('Courier New')),
+                      DropdownMenuItem(value: 'Times New Roman', child: Text('Times New Roman')),
+                      DropdownMenuItem(value: 'Verdana', child: Text('Verdana')),
+                      DropdownMenuItem(value: 'Georgia', child: Text('Georgia')),
+                      DropdownMenuItem(value: 'Comic Sans MS', child: Text('Comic Sans MS')),
+                    ],
+                    onChanged: (value) {
+                      if (value != null) {
+                        ref
+                            .read(messageFormatPreferencesProvider.notifier)
+                            .setPrivateFontFamily(value);
+                      }
+                    },
+                  ),
                 ],
               ),
             ),

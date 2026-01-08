@@ -14,7 +14,7 @@ class IRCSocketConnection implements IRCConnection {
   String? _host; // Guardar host para referencia
 
   @override
-  Future<void> connect(String host, int port, {bool useSSL = false}) async {
+  Future<void> connect(String host, int port, {bool useSSL = true}) async {
     if (!PlatformUtils.canUseNativeSockets) {
       throw UnsupportedError('Socket TCP no está disponible en web. Use WebSocket.');
     }
