@@ -80,3 +80,4 @@ echo -e "${GREEN}📝 Ver logs con: ssh ${SSH_HOST} 'sudo journalctl -u ${SERVIC
 
 
 
+

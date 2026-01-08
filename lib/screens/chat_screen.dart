@@ -4466,6 +4466,19 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           backgroundColor: appTheme.primary,
           foregroundColor: appTheme.textPrimary,
           actions: [
+            // Botón de lista de canales (siempre visible, primera posición)
+            IconButton(
+              icon: Icon(Icons.list, color: appTheme.textPrimary),
+              tooltip: 'Lista de canales',
+              onPressed: () {
+                showDialog(
+                  context: context,
+                  builder: (context) => ChannelListDialog(
+                    ircService: _ircService,
+                  ),
+                );
+              },
+            ),
             LayoutBuilder(
               builder: (context, constraints) {
                 final screenWidth = MediaQuery.of(context).size.width;
@@ -4667,19 +4680,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 ),
               ),
             ),
-                    // Botón de lista de canales (mover al principio para mejor visibilidad)
-                    IconButton(
-                      icon: Icon(Icons.list, color: appTheme.textPrimary),
-                      tooltip: 'Lista de canales',
-                      onPressed: () {
-                        showDialog(
-                          context: context,
-                          builder: (context) => ChannelListDialog(
-                            ircService: _ircService,
-                          ),
-                        );
-                      },
-                    ),
                     // Botones v2.0.0 - Búsqueda, Lista de Canales y Exportar (macOS)
                     if (!PlatformUtils.isWeb && PlatformUtils.isMacOS) ...[
                       IconButton(
@@ -5189,7 +5189,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       child: SizedBox(
                         width: double.infinity,
                         child: ElevatedButton.icon(
-                          onPressed: () => _showJoinDialog(context),
+                          onPressed: () {
+                            // Abrir el listado completo de canales en lugar del diálogo simple
+                            showDialog(
+                              context: context,
+                              builder: (context) => ChannelListDialog(
+                                ircService: _ircService,
+                              ),
+                            );
+                          },
                           icon: Icon(Icons.add, color: appTheme.textPrimary),
                           label: Text('Unirse', style: TextStyle(color: appTheme.textPrimary)),
                           style: ElevatedButton.styleFrom(

@@ -275,47 +275,71 @@ class _ChannelListDialogState extends ConsumerState<ChannelListDialog> {
               ),
             ),
             
-            // Barra de búsqueda
+            // Barra de búsqueda y botón para unirse manualmente
             Container(
               padding: const EdgeInsets.all(16),
               color: appTheme.background,
-              child: TextField(
-                controller: _searchController,
-                decoration: InputDecoration(
-                  hintText: 'Buscar por nombre o temática...',
-                  hintStyle: TextStyle(color: appTheme.textSecondary),
-                  prefixIcon: Icon(Icons.search, color: appTheme.textSecondary),
-                  suffixIcon: _searchController.text.isNotEmpty
-                      ? IconButton(
-                          icon: Icon(Icons.clear, color: appTheme.textSecondary),
-                          onPressed: () {
-                            _searchController.clear();
-                          },
-                        )
-                      : null,
-                  filled: true,
-                  fillColor: appTheme.surface,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(
-                      color: appTheme.textSecondary.withOpacity(0.3),
+              child: Column(
+                children: [
+                  TextField(
+                    controller: _searchController,
+                    decoration: InputDecoration(
+                      hintText: 'Buscar por nombre o temática...',
+                      hintStyle: TextStyle(color: appTheme.textSecondary),
+                      prefixIcon: Icon(Icons.search, color: appTheme.textSecondary),
+                      suffixIcon: _searchController.text.isNotEmpty
+                          ? IconButton(
+                              icon: Icon(Icons.clear, color: appTheme.textSecondary),
+                              onPressed: () {
+                                _searchController.clear();
+                              },
+                            )
+                          : null,
+                      filled: true,
+                      fillColor: appTheme.surface,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide(
+                          color: appTheme.textSecondary.withOpacity(0.3),
+                        ),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide(
+                          color: appTheme.textSecondary.withOpacity(0.3),
+                        ),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide(
+                          color: appTheme.primary,
+                          width: 2,
+                        ),
+                      ),
+                    ),
+                    style: TextStyle(color: appTheme.textPrimary),
+                  ),
+                  const SizedBox(height: 12),
+                  // Botón para unirse a un canal manualmente (incluyendo tu propio canal)
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: () {
+                        _showManualJoinDialog(context, appTheme);
+                      },
+                      icon: const Icon(Icons.add_circle_outline),
+                      label: const Text('Unirse a canal manualmente'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: appTheme.primary,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
                     ),
                   ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(
-                      color: appTheme.textSecondary.withOpacity(0.3),
-                    ),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(
-                      color: appTheme.primary,
-                      width: 2,
-                    ),
-                  ),
-                ),
-                style: TextStyle(color: appTheme.textPrimary),
+                ],
               ),
             ),
             
@@ -576,20 +600,92 @@ class _ChannelListDialogState extends ConsumerState<ChannelListDialog> {
                 ),
               ),
               
-              // Botón JOIN
+              // Botón Unirse (más visible)
               const SizedBox(width: 8),
-              IconButton(
-                icon: Icon(
-                  Icons.add_circle_outline,
-                  color: appTheme.primary,
-                  size: 28,
-                ),
-                tooltip: 'Unirse al canal',
+              ElevatedButton.icon(
                 onPressed: () => _joinChannel(channelName),
+                icon: const Icon(Icons.add_circle_outline, size: 18),
+                label: const Text('Unirse'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: appTheme.primary,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
               ),
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  void _showManualJoinDialog(BuildContext context, AppTheme appTheme) {
+    final controller = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: appTheme.surface,
+        title: Text(
+          'Unirse a Canal',
+          style: TextStyle(color: appTheme.textPrimary),
+        ),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: InputDecoration(
+            hintText: '#canal',
+            prefixIcon: const Icon(Icons.tag),
+            hintStyle: TextStyle(color: appTheme.textSecondary),
+            filled: true,
+            fillColor: appTheme.background,
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide(
+                color: appTheme.textSecondary.withOpacity(0.3),
+              ),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide(
+                color: appTheme.textSecondary.withOpacity(0.3),
+              ),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide(
+                color: appTheme.primary,
+                width: 2,
+              ),
+            ),
+          ),
+          style: TextStyle(color: appTheme.textPrimary),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(
+              'Cancelar',
+              style: TextStyle(color: appTheme.textSecondary),
+            ),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              final channel = controller.text.trim();
+              if (channel.isNotEmpty) {
+                _joinChannel(channel);
+                Navigator.pop(context); // Cerrar diálogo manual
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: appTheme.primary,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Unirse'),
+          ),
+        ],
       ),
     );
   }
