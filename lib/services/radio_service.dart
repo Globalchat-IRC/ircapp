@@ -50,19 +50,25 @@ class RadioService {
 
   Future<void> _playStationWeb(RadioStation station) async {
     try {
-      if (_webPlayer == null) {
-        _webPlayer = web_audio.AudioPlayer();
-      }
-      
-      // Detener reproducción anterior si hay una diferente
-      if (_currentStation?.source != station.source) {
-        await _webPlayer?.stop();
-        await _webPlayer?.release();
-      }
-      
       // Si ya está reproduciendo la misma estación, no hacer nada
       if (_currentStation?.source == station.source && _isPlaying) {
         return;
+      }
+      
+      // Detener y liberar reproducción anterior si hay una diferente
+      if (_currentStation?.source != station.source && _webPlayer != null) {
+        try {
+          await _webPlayer!.stop();
+          await _webPlayer!.release();
+        } catch (e) {
+          // Ignorar errores al detener
+        }
+        _webPlayer = null; // Limpiar referencia
+      }
+      
+      // Crear nuevo player si no existe o fue liberado
+      if (_webPlayer == null) {
+        _webPlayer = web_audio.AudioPlayer();
       }
       
       // Configurar el player para web
@@ -80,6 +86,12 @@ class RadioService {
     } catch (e, stackTrace) {
       _isPlaying = false;
       _currentStation = null;
+      // Limpiar player en caso de error
+      try {
+        await _webPlayer?.stop();
+        await _webPlayer?.release();
+      } catch (_) {}
+      _webPlayer = null;
       rethrow; // Re-lanzar el error para que el widget pueda manejarlo
     }
   }
@@ -88,8 +100,20 @@ class RadioService {
     if (_player == null) return;
     
     try {
+      // Si ya está reproduciendo la misma estación, no hacer nada
+      if (_currentStation?.source == station.source && _isPlaying) {
+        return;
+      }
+      
+      // Detener reproducción anterior si hay una diferente
       if (_currentStation?.source != station.source) {
-        await _player!.stop();
+        try {
+          await _player!.stop();
+          // Esperar un momento para asegurar que se detiene completamente
+          await Future.delayed(const Duration(milliseconds: 100));
+        } catch (e) {
+          // Ignorar errores al detener
+        }
         
         String playUrl = station.source;
         
@@ -121,6 +145,8 @@ class RadioService {
         // print('🎵 [RadioService] Reproduciendo: ${station.name}');
       }
     } catch (e) {
+      _isPlaying = false;
+      _currentStation = null;
       // print('❌ [RadioService] Error reproduciendo: $e');
     }
   }
