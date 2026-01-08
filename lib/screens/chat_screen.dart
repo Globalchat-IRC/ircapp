@@ -51,6 +51,7 @@ import '../models/video_report.dart' as video_report_model;
 import '../services/video_conference_service.dart' show ConferenceType;
 import '../services/video_database_service.dart';
 import '../services/macos_notification_service.dart';
+import '../services/web_notification_service.dart';
 import '../services/export_service.dart';
 import '../widgets/search_dialog.dart';
 import '../widgets/keyboard_shortcuts.dart';
@@ -327,6 +328,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   // Servicios para v2.0.0
   final MacOSNotificationService _notificationService = MacOSNotificationService();
+  final WebNotificationService _webNotificationService = WebNotificationService();
   int _unreadCount = 0;
 
   @override
@@ -340,6 +342,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     // Inicializar servicios v2.0.0
     if (!PlatformUtils.isWeb && PlatformUtils.isMacOS) {
       _notificationService.initialize();
+    } else if (PlatformUtils.isWeb) {
+      _webNotificationService.initialize();
     }
     
     // Inicializar servicios v2.1.0
@@ -609,6 +613,37 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               title: isMention ? 'Mencionado en $messageChannel' : 'Mensaje privado',
               body: '${message.nick}: ${message.message}',
               subtitle: messageChannel,
+            );
+          }
+        }
+      }
+      
+      // Notificaciones web (solo cuando la pestaña no está activa)
+      if (PlatformUtils.isWeb) {
+        final isCurrentChannel = currentChannelLower == messageChannel;
+        if (!isCurrentChannel && !isFromMutedUser) {
+          if (isMention || isPrivate) {
+            _webNotificationService.showNotification(
+              title: isMention ? 'Mencionado en $messageChannel' : 'Mensaje privado',
+              body: '${message.nick}: ${message.message}',
+              subtitle: messageChannel,
+              tag: messageChannel,
+              onClick: () {
+                // Cambiar al canal cuando se hace clic en la notificación
+                ref.read(currentChannelProvider.notifier).state = messageChannel;
+                ref.read(lastChannelProvider.notifier).state = messageChannel;
+              },
+            );
+          } else if (level == NotificationLevel.allMessages && !isPrivate) {
+            // También notificar todos los mensajes si está configurado así
+            _webNotificationService.showNotification(
+              title: messageChannel,
+              body: '${message.nick}: ${message.message}',
+              tag: messageChannel,
+              onClick: () {
+                ref.read(currentChannelProvider.notifier).state = messageChannel;
+                ref.read(lastChannelProvider.notifier).state = messageChannel;
+              },
             );
           }
         }
