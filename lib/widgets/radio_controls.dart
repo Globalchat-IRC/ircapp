@@ -190,10 +190,6 @@ class _RadioControlsState extends ConsumerState<RadioControls> {
     final radioService = ref.read(radioServiceProvider);
     await radioService.setVolume(volume);
     ref.read(radioProvider.notifier).setVolume(volume);
-    // Forzar actualización del estado
-    if (mounted) {
-      setState(() {});
-    }
   }
 
   @override
@@ -301,69 +297,120 @@ class _RadioControlsState extends ConsumerState<RadioControls> {
                     elevation: 12,
                     borderRadius: BorderRadius.circular(8),
                     shadowColor: appTheme.primary.withOpacity(0.5),
-                    child: Container(
-                      width: 120,
-                      height: 220,
-                      padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 12),
-                      decoration: BoxDecoration(
-                        color: appTheme.surface,
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: appTheme.primary, width: 2),
-                        boxShadow: [
-                          BoxShadow(
-                            color: appTheme.primary.withOpacity(0.3),
-                            blurRadius: 8,
-                            spreadRadius: 2,
-                          ),
-                        ],
-                      ),
-                      child: LayoutBuilder(
-                        builder: (context, constraints) {
-                          final sliderHeight = constraints.maxHeight;
-                          return GestureDetector(
-                            behavior: HitTestBehavior.opaque,
-                            onPanStart: (details) {
-                              final dy = details.localPosition.dy;
-                              final newValue = 1.0 - (dy / sliderHeight).clamp(0.0, 1.0);
-                              _changeVolume(newValue);
-                            },
-                            onPanUpdate: (details) {
-                              final dy = details.localPosition.dy;
-                              final newValue = 1.0 - (dy / sliderHeight).clamp(0.0, 1.0);
-                              _changeVolume(newValue);
-                            },
-                            onTapDown: (details) {
-                              final dy = details.localPosition.dy;
-                              final newValue = 1.0 - (dy / sliderHeight).clamp(0.0, 1.0);
-                              _changeVolume(newValue);
-                            },
-                            child: Stack(
-                              children: [
-                                // CustomPaint como fondo
-                                CustomPaint(
-                                  painter: _VerticalSliderPainter(
-                                    value: radioState.volume,
-                                    activeColor: appTheme.primary,
-                                    inactiveColor: appTheme.primary.withOpacity(0.3),
-                                    thumbRadius: 12.0,
-                                  ),
-                                  size: Size(constraints.maxWidth, constraints.maxHeight),
-                                ),
-                                // Texto del porcentaje centrado
-                                Center(
-                                  child: Text(
-                                    '${(radioState.volume * 100).toInt()}%',
-                                    style: TextStyle(
-                                      color: appTheme.textPrimary,
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.bold,
+                    child: MouseRegion(
+                      onEnter: (_) => setState(() => _showVolumeSlider = true),
+                      onExit: (_) {
+                        Future.delayed(const Duration(milliseconds: 800), () {
+                          if (mounted) {
+                            setState(() => _showVolumeSlider = false);
+                          }
+                        });
+                      },
+                      child: Container(
+                        width: 120,
+                        height: 220,
+                        padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 12),
+                        decoration: BoxDecoration(
+                          color: appTheme.surface,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: appTheme.primary, width: 2),
+                          boxShadow: [
+                            BoxShadow(
+                              color: appTheme.primary.withOpacity(0.3),
+                              blurRadius: 8,
+                              spreadRadius: 2,
+                            ),
+                          ],
+                        ),
+                        child: LayoutBuilder(
+                          builder: (context, constraints) {
+                            final sliderHeight = constraints.maxHeight;
+                            return GestureDetector(
+                              behavior: HitTestBehavior.opaque,
+                              onPanStart: (details) {
+                                final dy = details.localPosition.dy;
+                                final newValue = 1.0 - (dy / sliderHeight).clamp(0.0, 1.0);
+                                _changeVolume(newValue);
+                              },
+                              onPanUpdate: (details) {
+                                final dy = details.localPosition.dy;
+                                final newValue = 1.0 - (dy / sliderHeight).clamp(0.0, 1.0);
+                                _changeVolume(newValue);
+                              },
+                              onTapDown: (details) {
+                                final dy = details.localPosition.dy;
+                                final newValue = 1.0 - (dy / sliderHeight).clamp(0.0, 1.0);
+                                _changeVolume(newValue);
+                              },
+                              child: Stack(
+                                children: [
+                                  // Track vertical
+                                  Positioned(
+                                    left: (constraints.maxWidth - 6) / 2,
+                                    top: 10,
+                                    bottom: 10,
+                                    child: Container(
+                                      width: 6,
+                                      decoration: BoxDecoration(
+                                        color: appTheme.primary.withOpacity(0.3),
+                                        borderRadius: BorderRadius.circular(3),
+                                      ),
+                                      child: Stack(
+                                        children: [
+                                          // Parte activa (abajo)
+                                          Positioned(
+                                            bottom: 0,
+                                            left: 0,
+                                            right: 0,
+                                            height: sliderHeight * radioState.volume,
+                                            child: Container(
+                                              decoration: BoxDecoration(
+                                                color: appTheme.primary,
+                                                borderRadius: BorderRadius.circular(3),
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
                                     ),
                                   ),
-                                ),
-                              ],
-                            ),
-                          );
-                        },
+                                  // Thumb
+                                  Positioned(
+                                    left: (constraints.maxWidth - 20) / 2,
+                                    top: 10 + (sliderHeight - 20) * (1.0 - radioState.volume) - 10,
+                                    child: Container(
+                                      width: 20,
+                                      height: 20,
+                                      decoration: BoxDecoration(
+                                        color: appTheme.primary,
+                                        shape: BoxShape.circle,
+                                        border: Border.all(color: Colors.white, width: 2),
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color: appTheme.primary.withOpacity(0.5),
+                                            blurRadius: 4,
+                                            spreadRadius: 1,
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                  // Texto del porcentaje centrado
+                                  Center(
+                                    child: Text(
+                                      '${(radioState.volume * 100).toInt()}%',
+                                      style: TextStyle(
+                                        color: appTheme.textPrimary,
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
                       ),
                     ),
                   ),
@@ -418,83 +465,6 @@ class _RadioControlsState extends ConsumerState<RadioControls> {
         ),
       ),
     );
-  }
-}
-
-// Custom painter para slider vertical
-class _VerticalSliderPainter extends CustomPainter {
-  final double value;
-  final Color activeColor;
-  final Color inactiveColor;
-  final double thumbRadius;
-
-  _VerticalSliderPainter({
-    required this.value,
-    required this.activeColor,
-    required this.inactiveColor,
-    required this.thumbRadius,
-  });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final trackWidth = 6.0;
-    final trackX = size.width / 2;
-    final trackTop = thumbRadius;
-    final trackBottom = size.height - thumbRadius;
-    final trackHeight = trackBottom - trackTop;
-    
-    // Track inactivo (arriba)
-    final inactiveTop = trackTop;
-    final inactiveBottom = trackTop + trackHeight * (1.0 - value);
-    final inactiveRect = RRect.fromRectAndRadius(
-      Rect.fromLTRB(
-        trackX - trackWidth / 2,
-        inactiveTop,
-        trackX + trackWidth / 2,
-        inactiveBottom,
-      ),
-      const Radius.circular(3),
-    );
-    canvas.drawRRect(inactiveRect, Paint()..color = inactiveColor);
-    
-    // Track activo (abajo)
-    final activeTop = inactiveBottom;
-    final activeBottom = trackBottom;
-    final activeRect = RRect.fromRectAndRadius(
-      Rect.fromLTRB(
-        trackX - trackWidth / 2,
-        activeTop,
-        trackX + trackWidth / 2,
-        activeBottom,
-      ),
-      const Radius.circular(3),
-    );
-    canvas.drawRRect(activeRect, Paint()..color = activeColor);
-    
-    // Thumb
-    final thumbY = trackTop + trackHeight * (1.0 - value);
-    canvas.drawCircle(
-      Offset(trackX, thumbY),
-      thumbRadius,
-      Paint()
-        ..color = activeColor
-        ..style = PaintingStyle.fill,
-    );
-    canvas.drawCircle(
-      Offset(trackX, thumbY),
-      thumbRadius,
-      Paint()
-        ..color = Colors.white
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 2,
-    );
-  }
-
-  @override
-  bool shouldRepaint(_VerticalSliderPainter oldDelegate) {
-    return oldDelegate.value != value ||
-        oldDelegate.activeColor != activeColor ||
-        oldDelegate.inactiveColor != inactiveColor;
   }
 }
 

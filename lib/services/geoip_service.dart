@@ -3,7 +3,8 @@ import 'dart:convert';
 
 /// Servicio para detectar la ubicación geográfica del usuario usando GeoIP
 class GeoIPService {
-  static const String _apiUrl = 'https://ipapi.co/json/';
+  // Usar geojs.io que permite CORS y es gratuito
+  static const String _apiUrl = 'https://get.geojs.io/v1/ip/country.json';
   
   /// Códigos de países de América (Norte, Centro y Sur)
   static const Set<String> _americasCountries = {
@@ -54,7 +55,8 @@ class GeoIPService {
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body) as Map<String, dynamic>;
-        final countryCode = data['country_code'] as String?;
+        // geojs.io devuelve el código de país directamente como string
+        final countryCode = data['country'] as String?;
         
         if (countryCode != null) {
           final isAmericas = _americasCountries.contains(countryCode.toUpperCase());
@@ -65,6 +67,7 @@ class GeoIPService {
       return null;
     } catch (e) {
       // Si hay error, retornar null para usar servidor por defecto
+      print('🌎 [GEOIP] Error al obtener GeoIP: $e');
       return null;
     }
   }
