@@ -5356,7 +5356,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                             final isNuestrasVoces = themeName.toLowerCase() == 'nuestrasvoces';
                                             if (isNuestrasVoces) {
                                               try {
-                                                return const _NuestrasVocesBackground();
+                                                return _NuestrasVocesBackground();
                                               } catch (e) {
                                                 // Si hay error, mostrar un placeholder visible para debug
                                                 return Container(
