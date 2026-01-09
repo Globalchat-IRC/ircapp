@@ -5351,7 +5351,20 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                           builder: (context) {
                                             // Para NuestrasVoces, mostrar la imagen directamente sin gradiente encima
                                             if (appTheme.name == 'NuestrasVoces') {
-                                              return _NuestrasVocesBackground();
+                                              try {
+                                                return const _NuestrasVocesBackground();
+                                              } catch (e) {
+                                                // Si hay error, mostrar un placeholder
+                                                return Container(
+                                                  color: Colors.blue.withOpacity(0.1),
+                                                  child: Center(
+                                                    child: Text(
+                                                      'Error cargando fondo: $e',
+                                                      style: const TextStyle(color: Colors.white70, fontSize: 12),
+                                                    ),
+                                                  ),
+                                                );
+                                              }
                                             }
                                             
                                             // Para otros temas, usar el gradiente con el fondo decorativo
