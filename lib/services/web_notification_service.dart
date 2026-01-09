@@ -96,7 +96,7 @@ class WebNotificationService {
       final notification = html.Notification(
         title,
         body: bodyText,
-        icon: '/icons/Icon-192.png',
+        icon: 'icons/Icon-192.png',
       );
       
       // Manejar clic en la notificación

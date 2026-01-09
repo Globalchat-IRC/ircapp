@@ -41,6 +41,13 @@ class RadioService {
 
   /// Reproducir estación de radio
   Future<void> playStation(RadioStation station) async {
+    // Siempre detener la reproducción actual antes de iniciar una nueva
+    if (_isPlaying && _currentStation != null) {
+      await stop();
+      // Esperar un momento para asegurar que se detiene completamente
+      await Future.delayed(const Duration(milliseconds: 200));
+    }
+    
     if (PlatformUtils.isWeb) {
       await _playStationWeb(station);
       return;
@@ -55,8 +62,8 @@ class RadioService {
         return;
       }
       
-      // Detener y liberar reproducción anterior si hay una diferente
-      if (_currentStation?.source != station.source && _webPlayer != null) {
+      // Siempre detener y liberar cualquier reproducción anterior
+      if (_webPlayer != null) {
         try {
           await _webPlayer!.stop();
           await _webPlayer!.release();
@@ -64,20 +71,19 @@ class RadioService {
           // Ignorar errores al detener
         }
         _webPlayer = null; // Limpiar referencia
+        // Esperar un momento para asegurar que se libera completamente
+        await Future.delayed(const Duration(milliseconds: 100));
       }
       
-      // Crear nuevo player si no existe o fue liberado
-      if (_webPlayer == null) {
-        _webPlayer = web_audio.AudioPlayer();
-      }
+      // Crear nuevo player siempre (para evitar problemas con instancias anteriores)
+      _webPlayer = web_audio.AudioPlayer();
       
       // Configurar el player para web
       await _webPlayer!.setReleaseMode(web_audio.ReleaseMode.stop);
       await _webPlayer!.setPlayerMode(web_audio.PlayerMode.mediaPlayer);
       
-      // Configurar volumen si ya estaba establecido
-      final currentVolume = _webPlayer?.volume ?? 0.1;
-      await _webPlayer!.setVolume(currentVolume);
+      // Configurar volumen
+      await _webPlayer!.setVolume(0.1);
       
       // Reproducir la estación
       await _webPlayer!.play(web_audio.UrlSource(station.source));
