@@ -15067,57 +15067,78 @@ class _NuestrasVocesBackground extends StatelessWidget {
                       height: double.infinity,
                       alignment: Alignment.center,
                       repeat: ImageRepeat.noRepeat,
-                errorBuilder: (context, error, stackTrace) {
-                  // Si falla la carga, mostrar un placeholder visible para debug
-                  return Container(
-                    color: Colors.blue.withOpacity(0.3), // Color visible para debug
-                    child: Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.image_not_supported, color: Colors.white, size: 48),
-                          const SizedBox(height: 8),
-                          Text(
-                            'Error cargando imagen de fondo',
-                            style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold),
+                      errorBuilder: (context, error, stackTrace) {
+                        // Si falla la carga, mostrar un placeholder visible para debug
+                        return Container(
+                          color: Colors.blue.withOpacity(0.3), // Color visible para debug
+                          child: Center(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(Icons.image_not_supported, color: Colors.white, size: 48),
+                                const SizedBox(height: 8),
+                                Text(
+                                  'Error cargando imagen de fondo',
+                                  style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  error.toString(),
+                                  style: TextStyle(color: Colors.white70, fontSize: 10),
+                                  textAlign: TextAlign.center,
+                                ),
+                              ],
+                            ),
                           ),
-                          const SizedBox(height: 4),
-                          Text(
-                            error.toString(),
-                            style: TextStyle(color: Colors.white70, fontSize: 10),
-                            textAlign: TextAlign.center,
+                        );
+                      },
+                      loadingBuilder: (context, child, loadingProgress) {
+                        if (loadingProgress == null) {
+                          return child;
+                        }
+                        // Mostrar indicador de carga visible
+                        return Container(
+                          color: Colors.orange.withOpacity(0.3), // Color visible para debug
+                          child: const Center(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                CircularProgressIndicator(
+                                  strokeWidth: 3,
+                                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                ),
+                                SizedBox(height: 8),
+                                Text(
+                                  'Cargando imagen...',
+                                  style: TextStyle(color: Colors.white, fontSize: 12),
+                                ),
+                              ],
+                            ),
                           ),
-                        ],
-                      ),
+                        );
+                      },
                     ),
                   );
-                },
-                loadingBuilder: (context, child, loadingProgress) {
-                  if (loadingProgress == null) {
-                    return child;
-                  }
-                  // Mostrar indicador de carga visible
-                  return Container(
-                    color: Colors.orange.withOpacity(0.3), // Color visible para debug
-                    child: const Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          CircularProgressIndicator(
-                            strokeWidth: 3,
-                            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                          ),
-                          SizedBox(height: 8),
-                          Text(
-                            'Cargando imagen...',
-                            style: TextStyle(color: Colors.white, fontSize: 12),
-                          ),
-                        ],
-                      ),
-                    ),
+                } catch (e) {
+                  // Si ImageFiltered falla, usar solo la imagen sin blur
+                  return Image.network(
+                    'https://duyn491kcolsw.cloudfront.net/files/0m/0mw/0mw5jp.jpg?ph=025d9b876e',
+                    fit: BoxFit.cover,
+                    width: double.infinity,
+                    height: double.infinity,
+                    alignment: Alignment.center,
+                    repeat: ImageRepeat.noRepeat,
+                    errorBuilder: (context, error, stackTrace) {
+                      return Container(
+                        color: Colors.blue.withOpacity(0.3),
+                        child: const Center(
+                          child: Icon(Icons.image_not_supported, color: Colors.white, size: 48),
+                        ),
+                      );
+                    },
                   );
-                },
-              ),
+                }
+              },
             ),
           ),
           // Overlay oscuro muy sutil para mantener legibilidad del texto pero ver la imagen
