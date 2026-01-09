@@ -93,8 +93,26 @@ class WebNotificationService {
       
       // Crear la notificación con opciones básicas
       // En dart:html, Notification acepta título y opciones como Map
-      // Usar ruta absoluta desde la raíz del sitio
-      final iconPath = html.window.location.origin + '/icons/Icon-192.png';
+      // Usar ruta relativa desde la raíz del sitio (sin barra inicial)
+      // Si la ruta absoluta falla, usar ruta relativa
+      String iconPath;
+      try {
+        // Intentar con ruta absoluta primero
+        iconPath = html.window.location.origin + '/icons/Icon-192.png';
+        // Verificar que la ruta sea válida (no hacer request, solo construir)
+        // Si estamos en mobilev1, puede que necesitemos usar ceres o viceversa
+        final currentOrigin = html.window.location.origin;
+        if (currentOrigin.contains('mobilev1')) {
+          // Si estamos en mobilev1, usar ruta relativa que funcionará en cualquier dominio
+          iconPath = 'icons/Icon-192.png';
+        } else {
+          iconPath = html.window.location.origin + '/icons/Icon-192.png';
+        }
+      } catch (e) {
+        // Si hay error, usar ruta relativa
+        iconPath = 'icons/Icon-192.png';
+      }
+      
       final notification = html.Notification(
         title,
         body: bodyText,
