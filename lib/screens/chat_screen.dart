@@ -15044,7 +15044,7 @@ class _CanalSurBackground extends StatelessWidget {
 
 // Fondo con imagen difuminada y transparente para NuestrasVoces
 class _NuestrasVocesBackground extends StatelessWidget {
-  const _NuestrasVocesBackground();
+  _NuestrasVocesBackground();
 
   @override
   Widget build(BuildContext context) {
@@ -15053,16 +15053,20 @@ class _NuestrasVocesBackground extends StatelessWidget {
       return Stack(
         children: [
           // Imagen de fondo con blur - PRIMERO en el Stack
+          // Usar try-catch también dentro del Positioned para mayor seguridad
           Positioned.fill(
-            child: ImageFiltered(
-              imageFilter: ui.ImageFilter.blur(sigmaX: 5.0, sigmaY: 5.0), // Blur suave
-              child: Image.network(
-                'https://duyn491kcolsw.cloudfront.net/files/0m/0mw/0mw5jp.jpg?ph=025d9b876e',
-                fit: BoxFit.cover,
-                width: double.infinity,
-                height: double.infinity,
-                alignment: Alignment.center,
-                repeat: ImageRepeat.noRepeat,
+            child: Builder(
+              builder: (context) {
+                try {
+                  return ImageFiltered(
+                    imageFilter: ui.ImageFilter.blur(sigmaX: 5.0, sigmaY: 5.0), // Blur suave
+                    child: Image.network(
+                      'https://duyn491kcolsw.cloudfront.net/files/0m/0mw/0mw5jp.jpg?ph=025d9b876e',
+                      fit: BoxFit.cover,
+                      width: double.infinity,
+                      height: double.infinity,
+                      alignment: Alignment.center,
+                      repeat: ImageRepeat.noRepeat,
                 errorBuilder: (context, error, stackTrace) {
                   // Si falla la carga, mostrar un placeholder visible para debug
                   return Container(
