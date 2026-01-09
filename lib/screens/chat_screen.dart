@@ -5343,111 +5343,132 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                 child: Container(
                                   // Para NuestrasVoces, usar color transparente para que se vea la imagen
                                   color: appTheme.name == 'NuestrasVoces' ? Colors.transparent : appTheme.background,
-                                  child: Stack(
-                                    children: [
-                                      // Fondo decorativo - PRIMERO en el Stack para que esté detrás
-                                      Positioned.fill(
-                                        child: Builder(
-                                          builder: (context) {
-                                            // Para NuestrasVoces, mostrar la imagen directamente sin gradiente encima
-                                            final themeName = appTheme.name;
-                                            
-                                            // Verificar si el tema es NuestrasVoces (comparación case-insensitive)
-                                            final isNuestrasVoces = themeName.toLowerCase() == 'nuestrasvoces';
-                                            if (isNuestrasVoces) {
-                                              // TEMPORALMENTE DESHABILITADO para evitar error JavaScript
-                                              // El widget _NuestrasVocesBackground causa Uncaught Error
-                                              // Usar solo un Container con color de fondo del tema
-                                              return Container(
-                                                color: appTheme.background,
-                                                child: const SizedBox.shrink(),
-                                              );
-                                              
-                                              // Código original comentado hasta resolver el error
-                                              /*
-                                              try {
-                                                return _NuestrasVocesBackground();
-                                              } catch (e) {
-                                                return Container(
-                                                  color: Colors.red.withOpacity(0.7),
-                                                  child: const Center(
-                                                    child: Icon(Icons.error, color: Colors.white, size: 64),
-                                                  ),
-                                                );
-                                              }
-                                              */
-                                            }
-                                            
-                                            // Para otros temas, usar el gradiente con el fondo decorativo
-                                            return Container(
-                                              decoration: BoxDecoration(
-                                                gradient: LinearGradient(
-                                                  begin: Alignment.topLeft,
-                                                  end: Alignment.bottomRight,
-                                                  colors: [
-                                                    appTheme.primary.withOpacity(0.08),
-                                                    appTheme.secondary.withOpacity(0.06),
-                                                    appTheme.accent.withOpacity(0.04),
-                                                    appTheme.background,
-                                                  ],
-                                                  stops: const [0.0, 0.35, 0.65, 1.0],
-                                                ),
-                                              ),
+                                  child: Builder(
+                                    builder: (context) {
+                                      try {
+                                        return Stack(
+                                          children: [
+                                            // Fondo decorativo - PRIMERO en el Stack para que esté detrás
+                                            Positioned.fill(
                                               child: Builder(
                                                 builder: (context) {
-                                                  // Opacidad específica para cada tema
-                                                  double opacity = 0.38;
-                                                  if (appTheme.name == 'Semana Santa Sevilla' || appTheme.name == 'Canal Sur') {
-                                                    opacity = 0.15;
-                                                  }
-                                                  
-                                                  return Opacity(
-                                                    opacity: opacity,
-                                                    child: Builder(
-                                                      builder: (context) {
-                                                        // print('🎨 [Background] Tema activo: ${appTheme.name}');
-                                                        try {
-                                                          if (appTheme.name == 'Semana Santa Sevilla') {
-                                                            // print('🎨 [Background] Mostrando logo Semana Santa Sevilla');
-                                                            return const _SemanaSantaBackground();
-                                                          } else if (appTheme.name == 'Canal Sur') {
-                                                            // print('🎨 [Background] Mostrando logo Canal Sur');
-                                                            return const _CanalSurBackground();
-                                                          } else {
-                                                            // print('🎨 [Background] Mostrando fondo ASCII');
-                                                            return const _AsciiBackground();
+                                                  try {
+                                                    // Para NuestrasVoces, mostrar la imagen directamente sin gradiente encima
+                                                    final themeName = appTheme.name;
+                                                    
+                                                    // Verificar si el tema es NuestrasVoces (comparación case-insensitive)
+                                                    final isNuestrasVoces = themeName.toLowerCase() == 'nuestrasvoces';
+                                                    if (isNuestrasVoces) {
+                                                      // TEMPORALMENTE DESHABILITADO para evitar error JavaScript
+                                                      // El widget _NuestrasVocesBackground causa Uncaught Error
+                                                      // Usar solo un Container con color de fondo del tema
+                                                      return Container(
+                                                        color: appTheme.background,
+                                                        child: const SizedBox.shrink(),
+                                                      );
+                                                    }
+                                                    
+                                                    // Para otros temas, usar el gradiente con el fondo decorativo
+                                                    return Container(
+                                                      decoration: BoxDecoration(
+                                                        gradient: LinearGradient(
+                                                          begin: Alignment.topLeft,
+                                                          end: Alignment.bottomRight,
+                                                          colors: [
+                                                            appTheme.primary.withOpacity(0.08),
+                                                            appTheme.secondary.withOpacity(0.06),
+                                                            appTheme.accent.withOpacity(0.04),
+                                                            appTheme.background,
+                                                          ],
+                                                          stops: const [0.0, 0.35, 0.65, 1.0],
+                                                        ),
+                                                      ),
+                                                      child: Builder(
+                                                        builder: (context) {
+                                                          try {
+                                                            // Opacidad específica para cada tema
+                                                            double opacity = 0.38;
+                                                            if (appTheme.name == 'Semana Santa Sevilla' || appTheme.name == 'Canal Sur') {
+                                                              opacity = 0.15;
+                                                            }
+                                                            
+                                                            return Opacity(
+                                                              opacity: opacity,
+                                                              child: Builder(
+                                                                builder: (context) {
+                                                                  try {
+                                                                    if (appTheme.name == 'Semana Santa Sevilla') {
+                                                                      return const _SemanaSantaBackground();
+                                                                    } else if (appTheme.name == 'Canal Sur') {
+                                                                      return const _CanalSurBackground();
+                                                                    } else {
+                                                                      return const _AsciiBackground();
+                                                                    }
+                                                                  } catch (e) {
+                                                                    return const SizedBox.shrink();
+                                                                  }
+                                                                },
+                                                              ),
+                                                            );
+                                                          } catch (e) {
+                                                            return const SizedBox.shrink();
                                                           }
+                                                        },
+                                                      ),
+                                                    );
+                                                  } catch (e) {
+                                                    return Container(
+                                                      color: appTheme.background,
+                                                      child: const SizedBox.shrink(),
+                                                    );
+                                                  }
+                                                },
+                                              ),
+                                            ),
+                                            // Lista de mensajes
+                                            Positioned.fill(
+                                              child: Builder(
+                                                builder: (context) {
+                                                  try {
+                                                    return ListView.builder(
+                                                      reverse: true,
+                                                      padding: const EdgeInsets.symmetric(vertical: 8),
+                                                      itemCount: allMessages.length,
+                                                      cacheExtent: 1000, // Cache más items para mejor scroll
+                                                      itemBuilder: (context, index) {
+                                                        try {
+                                                          final message = allMessages[
+                                                              allMessages.length - 1 - index];
+                                                          return RepaintBoundary(
+                                                            child: _buildMessageTile(message),
+                                                          );
                                                         } catch (e) {
-                                                          // print('🎨 [Background] Error al renderizar fondo: $e');
                                                           return const SizedBox.shrink();
                                                         }
                                                       },
-                                                    ),
-                                                  );
+                                                    );
+                                                  } catch (e) {
+                                                    return Container(
+                                                      color: appTheme.background,
+                                                      child: const Center(
+                                                        child: Text('Error cargando mensajes'),
+                                                      ),
+                                                    );
+                                                  }
                                                 },
                                               ),
-                                            );
-                                          },
-                                        ),
-                                      ),
-                                      // Lista de mensajes
-                                      Positioned.fill(
-                                        child: ListView.builder(
-                                          reverse: true,
-                                          padding: const EdgeInsets.symmetric(vertical: 8),
-                                          itemCount: allMessages.length,
-                                          cacheExtent: 1000, // Cache más items para mejor scroll
-                                          itemBuilder: (context, index) {
-                                            // print('🔍 [DEBUG] 🖼️  ChatScreen: Construyendo mensaje $index de ${allMessages.length}');
-                                            final message = allMessages[
-                                                allMessages.length - 1 - index];
-                                            return RepaintBoundary(
-                                              child: _buildMessageTile(message),
-                                            );
-                                          },
-                                        ),
-                                      ),
-                                    ],
+                                            ),
+                                          ],
+                                        );
+                                      } catch (e) {
+                                        return Container(
+                                          color: appTheme.background,
+                                          child: const Center(
+                                            child: Text('Error cargando chat'),
+                                          ),
+                                        );
+                                      }
+                                    },
                                   ),
                                 ),
                               ),
