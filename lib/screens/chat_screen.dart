@@ -5310,24 +5310,29 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                           return _buildSearchWidget(allMessages, appTheme);
                         }
                         
-                        // Para Android: estructura ultra-simplificada sin Stack ni fondos decorativos
-                        // En web, usar estructura simplificada
-                        if (PlatformUtils.isWeb || (!PlatformUtils.isWeb && PlatformUtils.isAndroid)) {
-                          // print('🔍 [DEBUG] 🖼️  ChatScreen: Modo Android - estructura simplificada');
-                          // Estructura mínima: ListView directamente sin contenedores adicionales
-                          return ListView.builder(
-                            reverse: true,
-                            padding: const EdgeInsets.symmetric(vertical: 8),
-                            itemCount: allMessages.length,
-                            cacheExtent: 1000, // Cache más items para mejor scroll
-                            itemBuilder: (context, index) {
-                              // print('🔍 [DEBUG] 🖼️  ChatScreen: Construyendo mensaje $index de ${allMessages.length}');
-                              final message = allMessages[
-                                  allMessages.length - 1 - index];
-                              return RepaintBoundary(
-                                child: _buildMessageTile(message),
-                              );
-                            },
+                        // Para Web y Android: estructura ultra-simplificada sin Stack ni fondos decorativos
+                        // Esto evita errores de JavaScript en web relacionados con Stack y Positioned.fill
+                        if (PlatformUtils.isWeb || PlatformUtils.isAndroid) {
+                          // Estructura mínima: Container con color de fondo + ListView directamente
+                          return Container(
+                            color: appTheme.background,
+                            child: ListView.builder(
+                              reverse: true,
+                              padding: const EdgeInsets.symmetric(vertical: 8),
+                              itemCount: allMessages.length,
+                              cacheExtent: 1000, // Cache más items para mejor scroll
+                              itemBuilder: (context, index) {
+                                try {
+                                  final message = allMessages[
+                                      allMessages.length - 1 - index];
+                                  return RepaintBoundary(
+                                    child: _buildMessageTile(message),
+                                  );
+                                } catch (e) {
+                                  return const SizedBox.shrink();
+                                }
+                              },
+                            ),
                           );
                         }
                         // Para otras plataformas: estructura completa con fondos decorativos
