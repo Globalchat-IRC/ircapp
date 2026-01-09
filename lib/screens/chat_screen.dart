@@ -5355,37 +5355,27 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                             // Verificar si el tema es NuestrasVoces (comparación case-insensitive)
                                             final isNuestrasVoces = themeName.toLowerCase() == 'nuestrasvoces';
                                             if (isNuestrasVoces) {
+                                              // TEMPORALMENTE DESHABILITADO para evitar error JavaScript
+                                              // El widget _NuestrasVocesBackground causa Uncaught Error
+                                              // Usar solo un Container con color de fondo del tema
+                                              return Container(
+                                                color: appTheme.background,
+                                                child: const SizedBox.shrink(),
+                                              );
+                                              
+                                              // Código original comentado hasta resolver el error
+                                              /*
                                               try {
                                                 return _NuestrasVocesBackground();
                                               } catch (e) {
-                                                // Si hay error, mostrar un placeholder visible para debug
                                                 return Container(
-                                                  color: Colors.red.withOpacity(0.7), // Rojo muy visible para debug
-                                                  child: Center(
-                                                    child: Column(
-                                                      mainAxisAlignment: MainAxisAlignment.center,
-                                                      children: [
-                                                        const Icon(Icons.error, color: Colors.white, size: 64),
-                                                        const SizedBox(height: 16),
-                                                        const Text(
-                                                          'ERROR: No se puede cargar la imagen de fondo',
-                                                          style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
-                                                          textAlign: TextAlign.center,
-                                                        ),
-                                                        const SizedBox(height: 8),
-                                                        Padding(
-                                                          padding: const EdgeInsets.all(16.0),
-                                                          child: Text(
-                                                            e.toString(),
-                                                            style: const TextStyle(color: Colors.white70, fontSize: 12),
-                                                            textAlign: TextAlign.center,
-                                                          ),
-                                                        ),
-                                                      ],
-                                                    ),
+                                                  color: Colors.red.withOpacity(0.7),
+                                                  child: const Center(
+                                                    child: Icon(Icons.error, color: Colors.white, size: 64),
                                                   ),
                                                 );
                                               }
+                                              */
                                             }
                                             
                                             // Para otros temas, usar el gradiente con el fondo decorativo
