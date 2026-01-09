@@ -5361,7 +5361,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                             ),
                                           ),
                                           child: Opacity(
-                                            opacity: (appTheme.name == 'Semana Santa Sevilla' || appTheme.name == 'Canal Sur') ? 0.15 : 0.38,
+                                            opacity: (appTheme.name == 'Semana Santa Sevilla' || appTheme.name == 'Canal Sur' || appTheme.name == 'NuestrasVoces') ? 0.15 : 0.38,
                                             child: Builder(
                                               builder: (context) {
                                                 // print('🎨 [Background] Tema activo: ${appTheme.name}');
@@ -5372,6 +5372,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                                   } else if (appTheme.name == 'Canal Sur') {
                                                     // print('🎨 [Background] Mostrando logo Canal Sur');
                                                     return const _CanalSurBackground();
+                                                  } else if (appTheme.name == 'NuestrasVoces') {
+                                                    // print('🎨 [Background] Mostrando fondo NuestrasVoces');
+                                                    return _NuestrasVocesBackground();
                                                   } else {
                                                     // print('🎨 [Background] Mostrando fondo ASCII');
                                                     return const _AsciiBackground();
@@ -14950,6 +14953,35 @@ class _CanalSurBackground extends StatelessWidget {
               child: CircularProgressIndicator(),
             ),
           );
+        },
+      ),
+    );
+  }
+}
+
+// Fondo con imagen difuminada y transparente para NuestrasVoces
+class _NuestrasVocesBackground extends StatelessWidget {
+  const _NuestrasVocesBackground();
+
+  @override
+  Widget build(BuildContext context) {
+    return ImageFiltered(
+      imageFilter: ui.ImageFilter.blur(sigmaX: 15.0, sigmaY: 15.0),
+      child: Image.network(
+        'https://duyn491kcolsw.cloudfront.net/files/0m/0mw/0mw5jp.jpg?ph=025d9b876e',
+        fit: BoxFit.cover,
+        width: double.infinity,
+        height: double.infinity,
+        alignment: Alignment.center,
+        errorBuilder: (context, error, stackTrace) {
+          // Si falla la carga, mostrar un placeholder transparente
+          return const SizedBox.shrink();
+        },
+        loadingBuilder: (context, child, loadingProgress) {
+          if (loadingProgress == null) {
+            return child;
+          }
+          return const SizedBox.shrink();
         },
       ),
     );
