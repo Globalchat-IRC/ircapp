@@ -15,7 +15,6 @@ class RadioControls extends ConsumerStatefulWidget {
 }
 
 class _RadioControlsState extends ConsumerState<RadioControls> {
-  bool _showVolumeSlider = false;
 
   @override
   void initState() {
@@ -186,11 +185,6 @@ class _RadioControlsState extends ConsumerState<RadioControls> {
     }
   }
 
-  void _changeVolume(double volume) async {
-    final radioService = ref.read(radioServiceProvider);
-    await radioService.setVolume(volume);
-    ref.read(radioProvider.notifier).setVolume(volume);
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -268,156 +262,6 @@ class _RadioControlsState extends ConsumerState<RadioControls> {
             tooltip: 'Buscar Radios',
             appTheme: appTheme,
           ),
-          const SizedBox(width: 4),
-          
-          // Control de volumen
-          Stack(
-            clipBehavior: Clip.none,
-            alignment: Alignment.center,
-            children: [
-              _buildControlButton(
-                icon: radioState.volume == 0
-                    ? Icons.volume_off
-                    : radioState.volume >= 0.5
-                        ? Icons.volume_up
-                        : Icons.volume_down,
-                onPressed: () {
-                  setState(() {
-                    _showVolumeSlider = !_showVolumeSlider;
-                  });
-                },
-                tooltip: 'Volumen: ${(radioState.volume * 100).toInt()}%',
-                appTheme: appTheme,
-              ),
-              if (_showVolumeSlider)
-                Positioned(
-                  bottom: 45,
-                  left: -35,
-                  child: Material(
-                    elevation: 12,
-                    borderRadius: BorderRadius.circular(8),
-                    shadowColor: appTheme.primary.withOpacity(0.5),
-                    child: MouseRegion(
-                      onEnter: (_) => setState(() => _showVolumeSlider = true),
-                      onExit: (_) {
-                        Future.delayed(const Duration(milliseconds: 800), () {
-                          if (mounted) {
-                            setState(() => _showVolumeSlider = false);
-                          }
-                        });
-                      },
-                      child: Container(
-                        width: 120,
-                        height: 220,
-                        padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 12),
-                        decoration: BoxDecoration(
-                          color: appTheme.surface,
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: appTheme.primary, width: 2),
-                          boxShadow: [
-                            BoxShadow(
-                              color: appTheme.primary.withOpacity(0.3),
-                              blurRadius: 8,
-                              spreadRadius: 2,
-                            ),
-                          ],
-                        ),
-                        child: LayoutBuilder(
-                          builder: (context, constraints) {
-                            final sliderHeight = constraints.maxHeight;
-                            return GestureDetector(
-                              behavior: HitTestBehavior.opaque,
-                              onPanStart: (details) {
-                                final dy = details.localPosition.dy;
-                                final newValue = 1.0 - (dy / sliderHeight).clamp(0.0, 1.0);
-                                _changeVolume(newValue);
-                              },
-                              onPanUpdate: (details) {
-                                final dy = details.localPosition.dy;
-                                final newValue = 1.0 - (dy / sliderHeight).clamp(0.0, 1.0);
-                                _changeVolume(newValue);
-                              },
-                              onTapDown: (details) {
-                                final dy = details.localPosition.dy;
-                                final newValue = 1.0 - (dy / sliderHeight).clamp(0.0, 1.0);
-                                _changeVolume(newValue);
-                              },
-                              child: Stack(
-                                children: [
-                                  // Track vertical
-                                  Positioned(
-                                    left: (constraints.maxWidth - 6) / 2,
-                                    top: 10,
-                                    bottom: 10,
-                                    child: Container(
-                                      width: 6,
-                                      decoration: BoxDecoration(
-                                        color: appTheme.primary.withOpacity(0.3),
-                                        borderRadius: BorderRadius.circular(3),
-                                      ),
-                                      child: Stack(
-                                        children: [
-                                          // Parte activa (abajo)
-                                          Positioned(
-                                            bottom: 0,
-                                            left: 0,
-                                            right: 0,
-                                            height: sliderHeight * radioState.volume,
-                                            child: Container(
-                                              decoration: BoxDecoration(
-                                                color: appTheme.primary,
-                                                borderRadius: BorderRadius.circular(3),
-                                              ),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
-                                  // Thumb
-                                  Positioned(
-                                    left: (constraints.maxWidth - 20) / 2,
-                                    top: 10 + (sliderHeight - 20) * (1.0 - radioState.volume) - 10,
-                                    child: Container(
-                                      width: 20,
-                                      height: 20,
-                                      decoration: BoxDecoration(
-                                        color: appTheme.primary,
-                                        shape: BoxShape.circle,
-                                        border: Border.all(color: Colors.white, width: 2),
-                                        boxShadow: [
-                                          BoxShadow(
-                                            color: appTheme.primary.withOpacity(0.5),
-                                            blurRadius: 4,
-                                            spreadRadius: 1,
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
-                                  // Texto del porcentaje centrado
-                                  Center(
-                                    child: Text(
-                                      '${(radioState.volume * 100).toInt()}%',
-                                      style: TextStyle(
-                                        color: appTheme.textPrimary,
-                                        fontSize: 14,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            );
-                          },
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-            ],
-          ),
-          
           const SizedBox(width: 8),
           
           // Nombre de la estación

@@ -1149,6 +1149,19 @@ class IRCService {
     return _ignoredUsers.contains(nick.toLowerCase());
   }
 
+  // Enviar comando a ChanServ (Anope)
+  void sendChanServCommand(String channel, String command, [String? params]) {
+    final normalized = _normalizeChannelName(channel);
+    String fullCommand = command;
+    if (params != null && params.isNotEmpty) {
+      fullCommand = '$command $normalized $params';
+    } else {
+      fullCommand = '$command $normalized';
+    }
+    sendPrivateMessage('ChanServ', fullCommand);
+    // print('🔧 [IRCService] Comando ChanServ enviado: $fullCommand');
+  }
+
   void sendPrivateMessage(String nick, String message, {int delaySeconds = 0}) {
     final normalizedNick = nick.trim();
     if (normalizedNick.isEmpty) return;

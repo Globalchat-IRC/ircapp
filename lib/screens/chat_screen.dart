@@ -30,6 +30,7 @@ import 'icon_selector_screen.dart';
 import '../widgets/animated_topic_text.dart';
 import '../widgets/user_avatar.dart';
 import '../widgets/channel_list_dialog.dart';
+import '../widgets/moderator_menu.dart';
 import '../services/avatar_service.dart';
 import '../utils/irc_color_parser.dart';
 import '../utils/platform_utils.dart';
@@ -10344,6 +10345,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                 fontWeight: FontWeight.bold,
                                 letterSpacing: 1.2,
                               ),
+                            ),
+                            const Spacer(),
+                            // Menú de moderador rápido con comandos de Anope
+                            ModeratorMenu(
+                              channel: currentChannel,
+                              targetNick: nick,
                             ),
                           ],
                         ),
