@@ -6213,7 +6213,43 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             ),
         ],
       ),
-        bottomNavigationBar: RadioControls(),
+        bottomNavigationBar: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            RadioControls(),
+            // Espacio para publicidad de Google AdSense (solo en web)
+            if (PlatformUtils.isWeb)
+              Container(
+                width: double.infinity,
+                height: 100,
+                color: appTheme.surface,
+                padding: const EdgeInsets.all(8),
+                child: Center(
+                  child: Container(
+                    width: 728,
+                    height: 90,
+                    decoration: BoxDecoration(
+                      color: appTheme.background,
+                      border: Border.all(
+                        color: appTheme.primary.withOpacity(0.3),
+                        width: 1,
+                      ),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Center(
+                      child: Text(
+                        'Espacio para Google AdSense (728x90)',
+                        style: TextStyle(
+                          color: appTheme.textSecondary,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
         ),
       ),
     );
