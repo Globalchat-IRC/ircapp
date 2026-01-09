@@ -15064,7 +15064,7 @@ class _NuestrasVocesBackground extends StatelessWidget {
             ),
           ),
         ),
-        // Overlay oscuro más sutil para mantener legibilidad del texto
+        // Overlay oscuro muy sutil para mantener legibilidad del texto pero ver la imagen
         Positioned.fill(
           child: Container(
             decoration: BoxDecoration(
@@ -15072,8 +15072,8 @@ class _NuestrasVocesBackground extends StatelessWidget {
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
                 colors: [
-                  Colors.black.withOpacity(0.2), // Más transparente
-                  Colors.black.withOpacity(0.4), // Más transparente
+                  Colors.black.withOpacity(0.05), // Muy transparente para ver la imagen
+                  Colors.black.withOpacity(0.25), // Más transparente
                 ],
               ),
             ),
