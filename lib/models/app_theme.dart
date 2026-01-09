@@ -379,5 +379,16 @@ class AppTheme {
       textSecondary: const Color(0xFFB8E6D1), // Verde claro para texto secundario
       error: const Color(0xFFDC2626), // Rojo para errores
     ),
+    AppTheme(
+      name: 'NuestrasVoces',
+      primary: const Color(0xFF1E3A8A), // Azul oscuro elegante (como el fondo del sitio)
+      secondary: const Color(0xFF3B82F6), // Azul vibrante (acento principal)
+      accent: const Color(0xFF60A5FA), // Azul claro brillante (para destacar)
+      background: const Color(0xFF0F172A), // Fondo azul muy oscuro (negro azulado)
+      surface: const Color(0xFF1E293B), // Superficie azul oscura con contraste
+      textPrimary: Colors.white, // Texto blanco (legible y elegante)
+      textSecondary: const Color(0xFFCBD5E1), // Gris azulado claro (texto secundario)
+      error: const Color(0xFFEF4444), // Rojo moderno para errores
+    ),
   ];
 }
