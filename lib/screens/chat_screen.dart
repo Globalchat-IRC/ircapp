@@ -5360,31 +5360,43 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                               stops: const [0.0, 0.35, 0.65, 1.0],
                                             ),
                                           ),
-                                          child: Opacity(
-                                            opacity: (appTheme.name == 'Semana Santa Sevilla' || appTheme.name == 'Canal Sur' || appTheme.name == 'NuestrasVoces') ? 0.15 : 0.38,
-                                            child: Builder(
-                                              builder: (context) {
-                                                // print('🎨 [Background] Tema activo: ${appTheme.name}');
-                                                try {
-                                                  if (appTheme.name == 'Semana Santa Sevilla') {
-                                                    // print('🎨 [Background] Mostrando logo Semana Santa Sevilla');
-                                                    return const _SemanaSantaBackground();
-                                                  } else if (appTheme.name == 'Canal Sur') {
-                                                    // print('🎨 [Background] Mostrando logo Canal Sur');
-                                                    return const _CanalSurBackground();
-                                                  } else if (appTheme.name == 'NuestrasVoces') {
-                                                    // print('🎨 [Background] Mostrando fondo NuestrasVoces');
-                                                    return _NuestrasVocesBackground();
-                                                  } else {
-                                                    // print('🎨 [Background] Mostrando fondo ASCII');
-                                                    return const _AsciiBackground();
-                                                  }
-                                                } catch (e) {
-                                                  // print('🎨 [Background] Error al renderizar fondo: $e');
-                                                  return const SizedBox.shrink();
-                                                }
-                                              },
-                                            ),
+                                          child: Builder(
+                                            builder: (context) {
+                                              // Opacidad específica para cada tema
+                                              double opacity = 0.38;
+                                              if (appTheme.name == 'Semana Santa Sevilla' || appTheme.name == 'Canal Sur') {
+                                                opacity = 0.15;
+                                              } else if (appTheme.name == 'NuestrasVoces') {
+                                                opacity = 0.35; // Más visible para NuestrasVoces
+                                              }
+                                              
+                                              return Opacity(
+                                                opacity: opacity,
+                                                child: Builder(
+                                                  builder: (context) {
+                                                    // print('🎨 [Background] Tema activo: ${appTheme.name}');
+                                                    try {
+                                                      if (appTheme.name == 'Semana Santa Sevilla') {
+                                                        // print('🎨 [Background] Mostrando logo Semana Santa Sevilla');
+                                                        return const _SemanaSantaBackground();
+                                                      } else if (appTheme.name == 'Canal Sur') {
+                                                        // print('🎨 [Background] Mostrando logo Canal Sur');
+                                                        return const _CanalSurBackground();
+                                                      } else if (appTheme.name == 'NuestrasVoces') {
+                                                        // print('🎨 [Background] Mostrando fondo NuestrasVoces');
+                                                        return _NuestrasVocesBackground();
+                                                      } else {
+                                                        // print('🎨 [Background] Mostrando fondo ASCII');
+                                                        return const _AsciiBackground();
+                                                      }
+                                                    } catch (e) {
+                                                      // print('🎨 [Background] Error al renderizar fondo: $e');
+                                                      return const SizedBox.shrink();
+                                                    }
+                                                  },
+                                                ),
+                                              );
+                                            },
                                           ),
                                         ),
                                       ),
@@ -14966,7 +14978,7 @@ class _NuestrasVocesBackground extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ImageFiltered(
-      imageFilter: ui.ImageFilter.blur(sigmaX: 15.0, sigmaY: 15.0),
+      imageFilter: ui.ImageFilter.blur(sigmaX: 8.0, sigmaY: 8.0), // Blur más suave para mejor visibilidad
       child: Image.network(
         'https://duyn491kcolsw.cloudfront.net/files/0m/0mw/0mw5jp.jpg?ph=025d9b876e',
         fit: BoxFit.cover,
@@ -14974,14 +14986,31 @@ class _NuestrasVocesBackground extends StatelessWidget {
         height: double.infinity,
         alignment: Alignment.center,
         errorBuilder: (context, error, stackTrace) {
-          // Si falla la carga, mostrar un placeholder transparente
-          return const SizedBox.shrink();
+          // Si falla la carga, mostrar un placeholder para debug
+          return Container(
+            color: Colors.transparent,
+            child: Center(
+              child: Text(
+                'Error cargando imagen',
+                style: TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 12),
+              ),
+            ),
+          );
         },
         loadingBuilder: (context, child, loadingProgress) {
           if (loadingProgress == null) {
             return child;
           }
-          return const SizedBox.shrink();
+          // Mostrar indicador de carga
+          return Container(
+            color: Colors.transparent,
+            child: const Center(
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                valueColor: AlwaysStoppedAnimation<Color>(Colors.white24),
+              ),
+            ),
+          );
         },
       ),
     );
