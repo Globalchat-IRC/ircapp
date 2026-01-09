@@ -14,6 +14,7 @@ import '../models/server_profile.dart';
 import 'chat_screen.dart';
 import '../main.dart' show globalLog;
 import '../utils/platform_utils.dart';
+import '../services/geoip_service.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({Key? key}) : super(key: key);
@@ -280,84 +281,218 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             .toList();
         
         if (sslServers.isNotEmpty) {
-          // Seleccionar un servidor aleatorio usando round robin con random
-          final random = Random();
-          final selectedIndex = random.nextInt(sslServers.length);
-          _selectedServer = sslServers[selectedIndex];
-          _updateServerFields(_selectedServer!);
-          
           // Asegurar que el puerto sea 6697
           _portController.text = '6697';
           
-          // Conectar automáticamente después de un delay mínimo
-          // Usar un solo callback para reducir el tiempo de espera
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            Future.delayed(const Duration(milliseconds: 300), () async {
-              if (mounted) {
-                // Verificar que tenemos todos los datos necesarios
-                final host = _hostController.text.trim();
-                final portText = _portController.text.trim();
-                final port = int.tryParse(portText) ?? 6697;
-                final nick = _nickController.text.trim();
-                final channel = _channelController.text.trim();
+          // Detectar ubicación geográfica usando GeoIP y seleccionar servidor
+          // Luego conectar automáticamente
+          WidgetsBinding.instance.addPostFrameCallback((_) async {
+            // Primero seleccionar el servidor basado en GeoIP
+            await _selectServerByGeoIPFromList(sslServers);
+            
+            // Esperar un momento para asegurar que el servidor se haya actualizado
+            await Future.delayed(const Duration(milliseconds: 100));
+            
+            if (mounted) {
+              // Verificar que tenemos todos los datos necesarios
+              final host = _hostController.text.trim();
+              final portText = _portController.text.trim();
+              final port = int.tryParse(portText) ?? 6697;
+              final nick = _nickController.text.trim();
+              final channel = _channelController.text.trim();
+              
+              // Verificar que todos los campos estén completos
+              if (host.isNotEmpty && nick.isNotEmpty && channel.isNotEmpty) {
+                print('🔍 [AUTOJOIN] Intentando conectar: host=$host, port=$port, nick=$nick, channel=$channel');
                 
-                // Verificar que todos los campos estén completos
-                if (host.isNotEmpty && nick.isNotEmpty && channel.isNotEmpty) {
-                  print('🔍 [AUTOJOIN] Intentando conectar: host=$host, port=$port, nick=$nick, channel=$channel');
-                  
-                  // Mostrar estado de carga para autojoin
+                // Mostrar estado de carga para autojoin
+                if (mounted) {
+                  setState(() {
+                    _isAutoJoining = true;
+                    _isLoading = true;
+                  });
+                }
+                
+                // Conectar automáticamente
+                try {
+                  await _connect();
+                  print('🔍 [AUTOJOIN] Conexión exitosa');
+                } catch (e) {
+                  print('🔍 [AUTOJOIN] Error en conexión: $e');
+                  // Si hay error, mostrar mensaje pero no bloquear
                   if (mounted) {
                     setState(() {
-                      _isAutoJoining = true;
-                      _isLoading = true;
+                      _errorMessage = 'Error en auto-join: $e';
+                      _isLoading = false;
+                      _isAutoJoining = false;
                     });
-                  }
-                  
-                  // Conectar automáticamente
-                  try {
-                    await _connect();
-                    print('🔍 [AUTOJOIN] Conexión exitosa');
-                  } catch (e) {
-                    print('🔍 [AUTOJOIN] Error en conexión: $e');
-                    // Si hay error, mostrar mensaje pero no bloquear
-                    if (mounted) {
-                      setState(() {
-                        _errorMessage = 'Error en auto-join: $e';
-                        _isLoading = false;
-                        _isAutoJoining = false;
-                      });
-                    }
                   }
                 }
               }
-            });
+            }
           });
         } else {
-          // Si no hay servidores SSL, usar el por defecto
-          _selectedServer = ServerProfile.defaultGlobalChatProfiles.firstWhere(
-            (profile) => profile.isDefault,
-            orElse: () => ServerProfile.defaultGlobalChatProfiles.first,
-          );
-          _updateServerFields(_selectedServer!);
+          // Si no hay servidores SSL, usar selección basada en GeoIP
+          WidgetsBinding.instance.addPostFrameCallback((_) async {
+            await _selectServerByGeoIP();
+          });
         }
       } else {
-        // Si no hay canal, usar servidor por defecto
-        _selectedServer = ServerProfile.defaultGlobalChatProfiles.firstWhere(
-          (profile) => profile.isDefault,
-          orElse: () => ServerProfile.defaultGlobalChatProfiles.first,
-        );
-        _updateServerFields(_selectedServer!);
+        // Si no hay canal, usar selección basada en GeoIP
+        WidgetsBinding.instance.addPostFrameCallback((_) async {
+          await _selectServerByGeoIP();
+        });
       }
     } else {
-      // Seleccionar el servidor por defecto
+      // Seleccionar el servidor basado en GeoIP
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        await _selectServerByGeoIP();
+      });
+    }
+    
+    _loadChannels();
+  }
+
+  /// Seleccionar servidor basado en GeoIP desde una lista específica
+  /// América → caliope.globalchat.org
+  /// Resto del mundo → otros servidores (ceres, creta, apolo)
+  Future<void> _selectServerByGeoIPFromList(List<ServerProfile> sslServers) async {
+    ServerProfile? selectedServer;
+    
+    try {
+      final isAmericas = await GeoIPService.isInAmericas();
+      
+      if (isAmericas == true) {
+        // Si está en América, usar caliope
+        selectedServer = sslServers.firstWhere(
+          (profile) => profile.host == 'caliope.globalchat.org',
+          orElse: () => sslServers.first,
+        );
+        if (PlatformUtils.isWeb) {
+          print('🌎 [GEOIP] Usuario en América, usando Caliope');
+        }
+      } else if (isAmericas == false) {
+        // Si está fuera de América, usar otros servidores (excluyendo caliope)
+        final nonAmericasServers = sslServers
+            .where((profile) => profile.host != 'caliope.globalchat.org')
+            .toList();
+        
+        if (nonAmericasServers.isNotEmpty) {
+          // Seleccionar aleatoriamente entre los servidores no americanos
+          final random = Random();
+          final selectedIndex = random.nextInt(nonAmericasServers.length);
+          selectedServer = nonAmericasServers[selectedIndex];
+          if (PlatformUtils.isWeb) {
+            print('🌎 [GEOIP] Usuario fuera de América, usando ${selectedServer.host}');
+          }
+        } else {
+          // Fallback si no hay otros servidores
+          selectedServer = sslServers.first;
+          if (PlatformUtils.isWeb) {
+            print('🌎 [GEOIP] No hay servidores disponibles, usando por defecto');
+          }
+        }
+      } else {
+        // Si no se puede determinar la ubicación, usar selección aleatoria normal
+        final random = Random();
+        final selectedIndex = random.nextInt(sslServers.length);
+        selectedServer = sslServers[selectedIndex];
+        if (PlatformUtils.isWeb) {
+          print('🌎 [GEOIP] No se pudo determinar ubicación, usando selección aleatoria');
+        }
+      }
+    } catch (e) {
+      // Si hay error en GeoIP, usar selección aleatoria normal
+      if (PlatformUtils.isWeb) {
+        print('🌎 [GEOIP] Error al detectar ubicación: $e, usando selección aleatoria');
+      }
+      final random = Random();
+      final selectedIndex = random.nextInt(sslServers.length);
+      selectedServer = sslServers[selectedIndex];
+    }
+    
+    if (mounted) {
+      setState(() {
+        _selectedServer = selectedServer ?? sslServers.first;
+        _updateServerFields(_selectedServer!);
+      });
+    }
+  }
+
+  /// Seleccionar servidor basado en GeoIP
+  /// América → caliope.globalchat.org
+  /// Resto del mundo → otros servidores (ceres, creta, apolo)
+  Future<void> _selectServerByGeoIP() async {
+    final sslServers = ServerProfile.defaultGlobalChatProfiles
+        .where((profile) => profile.port == 6697 && profile.useSSL)
+        .toList();
+    
+    if (sslServers.isEmpty) {
+      // Fallback si no hay servidores SSL
       _selectedServer = ServerProfile.defaultGlobalChatProfiles.firstWhere(
         (profile) => profile.isDefault,
         orElse: () => ServerProfile.defaultGlobalChatProfiles.first,
       );
       _updateServerFields(_selectedServer!);
+      return;
     }
     
-    _loadChannels();
+    ServerProfile? selectedServer;
+    
+    try {
+      final isAmericas = await GeoIPService.isInAmericas();
+      
+      if (isAmericas == true) {
+        // Si está en América, usar caliope
+        selectedServer = sslServers.firstWhere(
+          (profile) => profile.host == 'caliope.globalchat.org',
+          orElse: () => sslServers.first,
+        );
+        if (PlatformUtils.isWeb) {
+          print('🌎 [GEOIP] Usuario en América, usando Caliope');
+        }
+      } else if (isAmericas == false) {
+        // Si está fuera de América, usar otros servidores (excluyendo caliope)
+        final nonAmericasServers = sslServers
+            .where((profile) => profile.host != 'caliope.globalchat.org')
+            .toList();
+        
+        if (nonAmericasServers.isNotEmpty) {
+          // Seleccionar aleatoriamente entre los servidores no americanos
+          final random = Random();
+          final selectedIndex = random.nextInt(nonAmericasServers.length);
+          selectedServer = nonAmericasServers[selectedIndex];
+          if (PlatformUtils.isWeb) {
+            print('🌎 [GEOIP] Usuario fuera de América, usando ${selectedServer.host}');
+          }
+        } else {
+          // Fallback si no hay otros servidores
+          selectedServer = sslServers.first;
+          if (PlatformUtils.isWeb) {
+            print('🌎 [GEOIP] No hay servidores disponibles, usando por defecto');
+          }
+        }
+      } else {
+        // Si no se puede determinar la ubicación, usar selección aleatoria normal
+        final random = Random();
+        final selectedIndex = random.nextInt(sslServers.length);
+        selectedServer = sslServers[selectedIndex];
+        if (PlatformUtils.isWeb) {
+          print('🌎 [GEOIP] No se pudo determinar ubicación, usando selección aleatoria');
+        }
+      }
+    } catch (e) {
+      // Si hay error en GeoIP, usar selección aleatoria normal
+      if (PlatformUtils.isWeb) {
+        print('🌎 [GEOIP] Error al detectar ubicación: $e, usando selección aleatoria');
+      }
+      final random = Random();
+      final selectedIndex = random.nextInt(sslServers.length);
+      selectedServer = sslServers[selectedIndex];
+    }
+    
+    _selectedServer = selectedServer ?? sslServers.first;
+    _updateServerFields(_selectedServer!);
   }
 
   void _updateServerFields(ServerProfile profile) {
