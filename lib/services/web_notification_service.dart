@@ -20,12 +20,13 @@ class WebNotificationService {
   }
 
   /// Inicializa el servicio de notificaciones
+  /// NO solicita permisos automáticamente (requiere gesto del usuario)
   Future<void> initialize() async {
     if (!kIsWeb || !isSupported || _isInitialized) return;
     
     try {
-      // Solicitar permisos
-      await requestPermission();
+      // NO solicitar permisos automáticamente - solo escuchar cambios de visibilidad
+      // Los permisos se solicitarán cuando sea necesario (después de interacción del usuario)
       
       // Escuchar cambios de visibilidad de la pestaña
       html.document.onVisibilityChange.listen((event) {
