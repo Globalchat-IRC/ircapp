@@ -91,27 +91,13 @@ class WebNotificationService {
       // El constructor acepta título y opciones como parámetro opcional
       final bodyText = subtitle != null ? '$subtitle: $body' : body;
       
-      // Crear la notificación con opciones básicas
-      // En dart:html, Notification acepta título y opciones como Map
-      // Intentar usar ruta relativa, si falla, no usar icono (evitar 404)
-      String? iconPath;
-      try {
-        // Usar ruta relativa desde la raíz del sitio
-        iconPath = 'icons/Icon-192.png';
-        // Verificar que la ruta sea válida construyendo la URL completa
-        final fullUrl = html.window.location.origin + '/' + iconPath;
-        // No hacer request real, solo construir la URL
-        // Si el icono no existe, simplemente no lo usamos (iconPath será null)
-      } catch (e) {
-        // Si hay error, no usar icono
-        iconPath = null;
-      }
-      
-      // Crear notificación con o sin icono
+      // Crear la notificación SIN icono para evitar errores 404
+      // El icono no está disponible en mobilev1.globalchat.org (Apache2)
+      // Las notificaciones funcionan perfectamente sin icono
       final notification = html.Notification(
         title,
         body: bodyText,
-        icon: iconPath, // Puede ser null, lo cual es válido
+        // No incluir icono para evitar errores 404 en Apache2
       );
       
       // Manejar clic en la notificación
