@@ -15043,105 +15043,52 @@ class _CanalSurBackground extends StatelessWidget {
 }
 
 // Fondo con imagen difuminada y transparente para NuestrasVoces
+// NOTA: ImageFiltered puede causar errores en web, usar solución más simple
 class _NuestrasVocesBackground extends StatelessWidget {
   _NuestrasVocesBackground();
 
   @override
   Widget build(BuildContext context) {
-    // Envolver todo en un try-catch para evitar errores de JavaScript
+    // Solución simple sin ImageFiltered para evitar errores de JavaScript en web
+    // Usar solo Image.network con overlay para simular el efecto de blur
     try {
       return Stack(
         children: [
-          // Imagen de fondo con blur - PRIMERO en el Stack
-          // Usar try-catch también dentro del Positioned para mayor seguridad
+          // Imagen de fondo SIN blur (ImageFiltered causa problemas en web)
           Positioned.fill(
-            child: Builder(
-              builder: (context) {
-                try {
-                  return ImageFiltered(
-                    imageFilter: ui.ImageFilter.blur(sigmaX: 5.0, sigmaY: 5.0), // Blur suave
-                    child: Image.network(
-                      'https://duyn491kcolsw.cloudfront.net/files/0m/0mw/0mw5jp.jpg?ph=025d9b876e',
-                      fit: BoxFit.cover,
-                      width: double.infinity,
-                      height: double.infinity,
-                      alignment: Alignment.center,
-                      repeat: ImageRepeat.noRepeat,
-                      errorBuilder: (context, error, stackTrace) {
-                        // Si falla la carga, mostrar un placeholder visible para debug
-                        return Container(
-                          color: Colors.blue.withOpacity(0.3), // Color visible para debug
-                          child: Center(
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(Icons.image_not_supported, color: Colors.white, size: 48),
-                                const SizedBox(height: 8),
-                                Text(
-                                  'Error cargando imagen de fondo',
-                                  style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  error.toString(),
-                                  style: TextStyle(color: Colors.white70, fontSize: 10),
-                                  textAlign: TextAlign.center,
-                                ),
-                              ],
-                            ),
-                          ),
-                        );
-                      },
-                      loadingBuilder: (context, child, loadingProgress) {
-                        if (loadingProgress == null) {
-                          return child;
-                        }
-                        // Mostrar indicador de carga visible
-                        return Container(
-                          color: Colors.orange.withOpacity(0.3), // Color visible para debug
-                          child: const Center(
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                CircularProgressIndicator(
-                                  strokeWidth: 3,
-                                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                                ),
-                                SizedBox(height: 8),
-                                Text(
-                                  'Cargando imagen...',
-                                  style: TextStyle(color: Colors.white, fontSize: 12),
-                                ),
-                              ],
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                  );
-                } catch (e) {
-                  // Si ImageFiltered falla, usar solo la imagen sin blur
-                  return Image.network(
-                    'https://duyn491kcolsw.cloudfront.net/files/0m/0mw/0mw5jp.jpg?ph=025d9b876e',
-                    fit: BoxFit.cover,
-                    width: double.infinity,
-                    height: double.infinity,
-                    alignment: Alignment.center,
-                    repeat: ImageRepeat.noRepeat,
-                    errorBuilder: (context, error, stackTrace) {
-                      return Container(
-                        color: Colors.blue.withOpacity(0.3),
-                        child: const Center(
-                          child: Icon(Icons.image_not_supported, color: Colors.white, size: 48),
-                        ),
-                      );
-                    },
-                  );
+            child: Image.network(
+              'https://duyn491kcolsw.cloudfront.net/files/0m/0mw/0mw5jp.jpg?ph=025d9b876e',
+              fit: BoxFit.cover,
+              width: double.infinity,
+              height: double.infinity,
+              alignment: Alignment.center,
+              repeat: ImageRepeat.noRepeat,
+              errorBuilder: (context, error, stackTrace) {
+                // Si falla la carga, mostrar un placeholder
+                return Container(
+                  color: Colors.blue.withOpacity(0.3),
+                  child: const Center(
+                    child: Icon(Icons.image_not_supported, color: Colors.white, size: 48),
+                  ),
+                );
+              },
+              loadingBuilder: (context, child, loadingProgress) {
+                if (loadingProgress == null) {
+                  return child;
                 }
+                return Container(
+                  color: Colors.orange.withOpacity(0.3),
+                  child: const Center(
+                    child: CircularProgressIndicator(
+                      strokeWidth: 3,
+                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                    ),
+                  ),
+                );
               },
             ),
           ),
-          // Overlay oscuro muy sutil para mantener legibilidad del texto pero ver la imagen
+          // Overlay más opaco para simular efecto de blur y mantener legibilidad
           Positioned.fill(
             child: Container(
               decoration: BoxDecoration(
@@ -15149,8 +15096,8 @@ class _NuestrasVocesBackground extends StatelessWidget {
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
                   colors: [
-                    Colors.black.withOpacity(0.05), // Muy transparente para ver la imagen
-                    Colors.black.withOpacity(0.25), // Más transparente
+                    Colors.black.withOpacity(0.15), // Más opaco para simular blur
+                    Colors.black.withOpacity(0.35), // Más opaco
                   ],
                 ),
               ),
@@ -15159,7 +15106,7 @@ class _NuestrasVocesBackground extends StatelessWidget {
         ],
       );
     } catch (e) {
-      // Si hay error al construir el widget, devolver un placeholder seguro
+      // Si hay error, devolver un placeholder seguro
       return Container(
         color: Colors.red.withOpacity(0.5),
         child: const Center(
