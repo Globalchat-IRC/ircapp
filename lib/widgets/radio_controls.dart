@@ -329,60 +329,50 @@ class _RadioControlsState extends ConsumerState<RadioControls> {
                         ),
                         child: LayoutBuilder(
                           builder: (context, constraints) {
-                            return Stack(
-                              children: [
-                                // CustomPaint como fondo
-                                CustomPaint(
-                                  painter: _VerticalSliderPainter(
-                                    value: radioState.volume,
-                                    activeColor: appTheme.primary,
-                                    inactiveColor: appTheme.primary.withOpacity(0.3),
-                                    thumbRadius: 12.0,
+                            return Listener(
+                              behavior: HitTestBehavior.opaque,
+                              onPointerDown: (event) {
+                                final height = constraints.maxHeight;
+                                final dy = event.localPosition.dy;
+                                final newValue = 1.0 - (dy / height).clamp(0.0, 1.0);
+                                _changeVolume(newValue);
+                              },
+                              onPointerMove: (event) {
+                                if (event.down) {
+                                  final height = constraints.maxHeight;
+                                  final dy = event.localPosition.dy;
+                                  final newValue = 1.0 - (dy / height).clamp(0.0, 1.0);
+                                  _changeVolume(newValue);
+                                }
+                              },
+                              child: Stack(
+                                children: [
+                                  // CustomPaint como fondo
+                                  CustomPaint(
+                                    painter: _VerticalSliderPainter(
+                                      value: radioState.volume,
+                                      activeColor: appTheme.primary,
+                                      inactiveColor: appTheme.primary.withOpacity(0.3),
+                                      thumbRadius: 12.0,
+                                    ),
+                                    size: Size(constraints.maxWidth, constraints.maxHeight),
                                   ),
-                                  size: Size(constraints.maxWidth, constraints.maxHeight),
-                                ),
-                                // GestureDetector que captura todos los eventos
-                                GestureDetector(
-                                  behavior: HitTestBehavior.opaque,
-                                  onVerticalDragStart: (details) {
-                                    final height = constraints.maxHeight;
-                                    final dy = details.localPosition.dy;
-                                    final newValue = 1.0 - (dy / height).clamp(0.0, 1.0);
-                                    _changeVolume(newValue);
-                                  },
-                                  onVerticalDragUpdate: (details) {
-                                    final height = constraints.maxHeight;
-                                    final dy = details.localPosition.dy;
-                                    final newValue = 1.0 - (dy / height).clamp(0.0, 1.0);
-                                    _changeVolume(newValue);
-                                  },
-                                  onVerticalDragEnd: (_) {
-                                    // Opcional: hacer algo al terminar el arrastre
-                                  },
-                                  onTapDown: (details) {
-                                    final height = constraints.maxHeight;
-                                    final dy = details.localPosition.dy;
-                                    final newValue = 1.0 - (dy / height).clamp(0.0, 1.0);
-                                    _changeVolume(newValue);
-                                  },
-                                  child: Container(
+                                  // Texto centrado (no interactivo)
+                                  Container(
                                     width: double.infinity,
                                     height: double.infinity,
                                     alignment: Alignment.center,
-                                    // Hacer el texto no interactivo para que no bloquee los gestos
-                                    child: IgnorePointer(
-                                      child: Text(
-                                        '${(radioState.volume * 100).toInt()}%',
-                                        style: TextStyle(
-                                          color: appTheme.textPrimary,
-                                          fontSize: 14,
-                                          fontWeight: FontWeight.bold,
-                                        ),
+                                    child: Text(
+                                      '${(radioState.volume * 100).toInt()}%',
+                                      style: TextStyle(
+                                        color: appTheme.textPrimary,
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.bold,
                                       ),
                                     ),
                                   ),
-                                ),
-                              ],
+                                ],
+                              ),
                             );
                           },
                         ),
