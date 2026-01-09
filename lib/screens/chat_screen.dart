@@ -3959,53 +3959,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     }
   }
 
-  // Manejar archivos arrastrados y soltados (solo en nativo)
-  Future<void> _handleDroppedFiles(List<io.File> files) async {
-    if (files.isEmpty || PlatformUtils.isWeb) return;
-    
-    final file = files.first;
-    final fileName = file.path.split('/').last.toLowerCase();
-    
-    // Verificar si es una imagen o video
-    final isImage = fileName.endsWith('.jpg') || 
-                    fileName.endsWith('.jpeg') || 
-                    fileName.endsWith('.png') || 
-                    fileName.endsWith('.gif') || 
-                    fileName.endsWith('.webp');
-    final isVideo = fileName.endsWith('.mp4') || 
-                   fileName.endsWith('.webm') || 
-                   fileName.endsWith('.mov') || 
-                   fileName.endsWith('.avi');
-    
-    if (isImage || isVideo) {
-      try {
-        final bytes = await file.readAsBytes();
-        final mimeType = isImage ? 'image/${fileName.split('.').last}' : 'video/${fileName.split('.').last}';
-        final channel = ref.read(currentChannelProvider) ?? '';
-        if (channel.isNotEmpty) {
-          await _uploadAndSendToCloudinary(bytes, mimeType, channel);
-        }
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Error al procesar archivo: $e'),
-              duration: const Duration(seconds: 3),
-            ),
-          );
-        }
-      }
-    } else {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Solo se pueden arrastrar imágenes o videos'),
-            duration: Duration(seconds: 3),
-          ),
-        );
-      }
-    }
-  }
 
   Future<void> _uploadAndSendToCloudinary(Uint8List imageBytes, String mimeType, String channel) async {
     if (mounted) {
