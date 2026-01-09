@@ -5314,25 +5314,81 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         // Esto evita errores de JavaScript en web relacionados con Stack y Positioned.fill
                         if (PlatformUtils.isWeb || PlatformUtils.isAndroid) {
                           // Estructura mínima: Container con color de fondo + ListView directamente
-                          return Container(
-                            color: appTheme.background,
-                            child: ListView.builder(
-                              reverse: true,
-                              padding: const EdgeInsets.symmetric(vertical: 8),
-                              itemCount: allMessages.length,
-                              cacheExtent: 1000, // Cache más items para mejor scroll
-                              itemBuilder: (context, index) {
-                                try {
-                                  final message = allMessages[
-                                      allMessages.length - 1 - index];
-                                  return RepaintBoundary(
-                                    child: _buildMessageTile(message),
-                                  );
-                                } catch (e) {
-                                  return const SizedBox.shrink();
-                                }
-                              },
-                            ),
+                          // Envolver en Builder con try-catch para capturar errores de renderizado
+                          return Builder(
+                            builder: (context) {
+                              try {
+                                return Container(
+                                  color: appTheme.background,
+                                  child: ListView.builder(
+                                    reverse: true,
+                                    padding: const EdgeInsets.symmetric(vertical: 8),
+                                    itemCount: allMessages.length,
+                                    cacheExtent: 1000, // Cache más items para mejor scroll
+                                    itemBuilder: (context, index) {
+                                      try {
+                                        if (index >= allMessages.length) {
+                                          return const SizedBox.shrink();
+                                        }
+                                        final message = allMessages[
+                                            allMessages.length - 1 - index];
+                                        if (message == null) {
+                                          return const SizedBox.shrink();
+                                        }
+                                        return RepaintBoundary(
+                                          child: Builder(
+                                            builder: (context) {
+                                              try {
+                                                return _buildMessageTile(message);
+                                              } catch (e) {
+                                                // Si hay un error al construir el mensaje, mostrar un placeholder
+                                                return Container(
+                                                  padding: const EdgeInsets.all(8),
+                                                  child: Text(
+                                                    'Error al cargar mensaje',
+                                                    style: TextStyle(
+                                                      color: appTheme.textSecondary,
+                                                      fontSize: 12,
+                                                    ),
+                                                  ),
+                                                );
+                                              }
+                                            },
+                                          ),
+                                        );
+                                      } catch (e) {
+                                        return const SizedBox.shrink();
+                                      }
+                                    },
+                                  ),
+                                );
+                              } catch (e) {
+                                // Si hay un error crítico, mostrar un mensaje de error
+                                return Container(
+                                  color: appTheme.background,
+                                  child: Center(
+                                    child: Column(
+                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      children: [
+                                        Icon(
+                                          Icons.error_outline,
+                                          color: appTheme.textSecondary,
+                                          size: 48,
+                                        ),
+                                        const SizedBox(height: 16),
+                                        Text(
+                                          'Error al cargar el chat',
+                                          style: TextStyle(
+                                            color: appTheme.textSecondary,
+                                            fontSize: 16,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                );
+                              }
+                            },
                           );
                         }
                         // Para otras plataformas: estructura completa con fondos decorativos
