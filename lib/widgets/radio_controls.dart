@@ -301,76 +301,69 @@ class _RadioControlsState extends ConsumerState<RadioControls> {
                     elevation: 12,
                     borderRadius: BorderRadius.circular(8),
                     shadowColor: appTheme.primary.withOpacity(0.5),
-                    child: MouseRegion(
-                      onEnter: (_) => setState(() => _showVolumeSlider = true),
-                      onExit: (_) {
-                        // No ocultar inmediatamente, dar tiempo para interactuar
-                        Future.delayed(const Duration(milliseconds: 800), () {
-                          if (mounted) {
-                            setState(() => _showVolumeSlider = false);
-                          }
-                        });
-                      },
-                      child: Container(
-                        width: 120,
-                        height: 220,
-                        padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 12),
-                        decoration: BoxDecoration(
-                          color: appTheme.surface,
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: appTheme.primary, width: 2),
-                          boxShadow: [
-                            BoxShadow(
-                              color: appTheme.primary.withOpacity(0.3),
-                              blurRadius: 8,
-                              spreadRadius: 2,
-                            ),
-                          ],
-                        ),
-                        child: Stack(
-                          children: [
-                            // Slider vertical usando Transform.rotate
-                            Center(
-                              child: SizedBox(
-                                width: 180, // Ancho suficiente para el slider rotado
-                                height: 180, // Alto suficiente para el slider rotado
-                                child: Transform.rotate(
-                                  angle: -1.5708, // -90 grados en radianes (rotar 90° en sentido antihorario)
-                                  child: SliderTheme(
-                                    data: SliderTheme.of(context).copyWith(
-                                      trackHeight: 6.0,
-                                      thumbShape: RoundSliderThumbShape(enabledThumbRadius: 12.0),
-                                      overlayShape: RoundSliderOverlayShape(overlayRadius: 20.0),
-                                      activeTrackColor: appTheme.primary,
-                                      inactiveTrackColor: appTheme.primary.withOpacity(0.3),
-                                      thumbColor: appTheme.primary,
-                                      overlayColor: appTheme.primary.withOpacity(0.2),
-                                    ),
-                                    child: Slider(
-                                      value: radioState.volume,
-                                      min: 0.0,
-                                      max: 1.0,
-                                      onChanged: (value) {
-                                        _changeVolume(value);
-                                      },
+                    child: Container(
+                      width: 120,
+                      height: 220,
+                      padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 12),
+                      decoration: BoxDecoration(
+                        color: appTheme.surface,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: appTheme.primary, width: 2),
+                        boxShadow: [
+                          BoxShadow(
+                            color: appTheme.primary.withOpacity(0.3),
+                            blurRadius: 8,
+                            spreadRadius: 2,
+                          ),
+                        ],
+                      ),
+                      child: LayoutBuilder(
+                        builder: (context, constraints) {
+                          final sliderHeight = constraints.maxHeight;
+                          return GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onPanStart: (details) {
+                              final dy = details.localPosition.dy;
+                              final newValue = 1.0 - (dy / sliderHeight).clamp(0.0, 1.0);
+                              _changeVolume(newValue);
+                            },
+                            onPanUpdate: (details) {
+                              final dy = details.localPosition.dy;
+                              final newValue = 1.0 - (dy / sliderHeight).clamp(0.0, 1.0);
+                              _changeVolume(newValue);
+                            },
+                            onTapDown: (details) {
+                              final dy = details.localPosition.dy;
+                              final newValue = 1.0 - (dy / sliderHeight).clamp(0.0, 1.0);
+                              _changeVolume(newValue);
+                            },
+                            child: Stack(
+                              children: [
+                                // CustomPaint como fondo
+                                CustomPaint(
+                                  painter: _VerticalSliderPainter(
+                                    value: radioState.volume,
+                                    activeColor: appTheme.primary,
+                                    inactiveColor: appTheme.primary.withOpacity(0.3),
+                                    thumbRadius: 12.0,
+                                  ),
+                                  size: Size(constraints.maxWidth, constraints.maxHeight),
+                                ),
+                                // Texto del porcentaje centrado
+                                Center(
+                                  child: Text(
+                                    '${(radioState.volume * 100).toInt()}%',
+                                    style: TextStyle(
+                                      color: appTheme.textPrimary,
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.bold,
                                     ),
                                   ),
                                 ),
-                              ),
+                              ],
                             ),
-                            // Texto del porcentaje centrado
-                            Center(
-                              child: Text(
-                                '${(radioState.volume * 100).toInt()}%',
-                                style: TextStyle(
-                                  color: appTheme.textPrimary,
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
+                          );
+                        },
                       ),
                     ),
                   ),
