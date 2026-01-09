@@ -91,13 +91,15 @@ class WebNotificationService {
       // El constructor acepta título y opciones como parámetro opcional
       final bodyText = subtitle != null ? '$subtitle: $body' : body;
       
-      // Crear la notificación SIN icono para evitar errores 404
-      // El icono no está disponible en mobilev1.globalchat.org (Apache2)
-      // Las notificaciones funcionan perfectamente sin icono
+      // Crear la notificación con icono
+      // El icono ahora está disponible en mobilev1.globalchat.org (Apache2 configurado)
+      // Usar ruta relativa que funciona desde cualquier dominio
+      final iconPath = 'icons/Icon-192.png';
+      
       final notification = html.Notification(
         title,
         body: bodyText,
-        // No incluir icono para evitar errores 404 en Apache2
+        icon: iconPath,
       );
       
       // Manejar clic en la notificación
