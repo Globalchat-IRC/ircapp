@@ -5352,15 +5352,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                             // Para NuestrasVoces, mostrar la imagen directamente sin gradiente encima
                                             final themeName = appTheme.name;
                                             
-                                            // Verificar si el tema es NuestrasVoces (comparación exacta)
-                                            if (themeName == 'NuestrasVoces') {
-                                              // print('🎨 [DEBUG] Tema NuestrasVoces detectado, mostrando imagen de fondo');
+                                            // Verificar si el tema es NuestrasVoces (comparación case-insensitive)
+                                            final isNuestrasVoces = themeName.toLowerCase() == 'nuestrasvoces';
+                                            if (isNuestrasVoces) {
                                               try {
                                                 return const _NuestrasVocesBackground();
-                                              } catch (e, stackTrace) {
+                                              } catch (e) {
                                                 // Si hay error, mostrar un placeholder visible para debug
-                                                // print('❌ [ERROR] Error cargando fondo NuestrasVoces: $e');
-                                                // print('❌ [STACK] $stackTrace');
                                                 return Container(
                                                   color: Colors.red.withOpacity(0.7), // Rojo muy visible para debug
                                                   child: Center(
@@ -5389,9 +5387,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                                 );
                                               }
                                             }
-                                            
-                                            // Si no es NuestrasVoces, no mostrar nada aquí (se mostrará el fondo normal)
-                                            // print('🎨 [DEBUG] Tema actual: "$themeName" (no es NuestrasVoces)');
                                             
                                             // Para otros temas, usar el gradiente con el fondo decorativo
                                             return Container(
