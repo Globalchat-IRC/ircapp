@@ -100,14 +100,28 @@ class IRCChannel {
   }
 
   void addUser(String nick, {String? host, String? mode}) {
-    if (!users.contains(nick)) {
-      users.add(nick);
+    // Buscar si el usuario ya existe (case-insensitive)
+    final nickLower = nick.toLowerCase();
+    String? existingNick;
+    for (var existingUser in users) {
+      if (existingUser.toLowerCase() == nickLower) {
+        existingNick = existingUser;
+        break;
+      }
     }
+    
+    // Si no existe, agregarlo
+    if (existingNick == null) {
+      users.add(nick);
+      existingNick = nick;
+    }
+    
+    // Actualizar host y modo usando el nick existente (para mantener consistencia de mayúsculas/minúsculas)
     if (host != null) {
-      userHosts[nick] = host;
+      userHosts[existingNick] = host;
     }
     if (mode != null) {
-      userModes[nick] = mode;
+      userModes[existingNick] = mode;
     }
   }
 

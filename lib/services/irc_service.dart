@@ -1643,17 +1643,27 @@ class IRCService {
                     !cleanUser.startsWith('#') &&
                     !isServerHost &&
                     RegExp(r'^[a-zA-Z_\-][a-zA-Z0-9_\-]*$').hasMatch(cleanUser)) { // Removido el punto de la regex
+                  // Verificar si el usuario ya existe (case-insensitive)
+                  final cleanUserLower = cleanUser.toLowerCase();
+                  String? existingUser;
+                  for (var user in channels[channel]!.users) {
+                    if (user.toLowerCase() == cleanUserLower) {
+                      existingUser = user;
+                      break;
+                    }
+                  }
+                  
                   // Si el usuario ya existe, actualizar su modo
-                  if (channels[channel]!.users.contains(cleanUser)) {
+                  if (existingUser != null) {
                     if (userMode != null) {
-                      channels[channel]!.addUser(cleanUser, mode: userMode);
+                      channels[channel]!.addUser(existingUser, mode: userMode);
                       updatedCount++;
-                      // print('🔍 [DEBUG] ✅ Updated mode for existing user: "$cleanUser" -> "$userMode"');
+                      // print('🔍 [DEBUG] ✅ Updated mode for existing user: "$existingUser" -> "$userMode"');
                     } else {
                       // Si no tiene modo en la lista actual, mantener el modo existente si lo tiene
-                      final existingMode = channels[channel]!.getUserMode(cleanUser);
+                      final existingMode = channels[channel]!.getUserMode(existingUser);
                       if (existingMode != null) {
-                        // print('🔍 [DEBUG] ℹ️  Keeping existing mode for user: "$cleanUser" -> "$existingMode"');
+                        // print('🔍 [DEBUG] ℹ️  Keeping existing mode for user: "$existingUser" -> "$existingMode"');
                       }
                     }
                   } else {
@@ -2364,9 +2374,32 @@ class IRCService {
               // print('🔍 [DEBUG] Creado ${isChannel ? "canal" : "query"}: $channelKey');
             }
             
-            // Guardar el host del usuario si está disponible (solo para canales)
-            if (isChannel && host != null) {
-              channels[channelKey]!.addUser(nick, host: host);
+            // Agregar el usuario a la lista del canal si es un mensaje de canal
+            // Esto asegura que todos los usuarios que envían mensajes aparezcan en la lista
+            if (isChannel) {
+              final channelObj = channels[channelKey]!;
+              // Verificar si el usuario ya está en la lista (case-insensitive)
+              final nickLower = nick.toLowerCase();
+              bool userExists = false;
+              for (var existingUser in channelObj.users) {
+                if (existingUser.toLowerCase() == nickLower) {
+                  userExists = true;
+                  break;
+                }
+              }
+              
+              if (!userExists) {
+                // Agregar el usuario (con host si está disponible)
+                channelObj.addUser(nick, host: host);
+                // Notificar cambio en la lista de usuarios
+                _notifyUserListListeners(channelKey);
+                // print('🔍 [DEBUG] Usuario "$nick" agregado a la lista del canal "$channelKey" desde PRIVMSG');
+              } else if (host != null) {
+                // Si el usuario ya está en la lista pero tenemos un host nuevo, actualizarlo
+                channelObj.addUser(nick, host: host);
+                // Notificar para actualizar la UI
+                _notifyUserListListeners(channelKey);
+              }
             }
             
             // El formato es: :nick!user@host PRIVMSG target :mensaje

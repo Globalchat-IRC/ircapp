@@ -3936,27 +3936,100 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   }
 
   Future<void> _pickAndSendImage() async {
-    // En web, esta función no está disponible
-    if (PlatformUtils.isWeb) {
+    final currentChannel = ref.read(currentChannelProvider);
+    if (currentChannel == null) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Envío de imágenes no disponible en la versión web'),
-            duration: Duration(seconds: 3),
+            content: Text('Debes estar en un canal para enviar imágenes'),
+            duration: Duration(seconds: 2),
           ),
         );
       }
       return;
     }
-    
-    // En nativo, deshabilitado temporalmente
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Envío de imágenes deshabilitado temporalmente'),
-          duration: Duration(seconds: 3),
-        ),
-      );
+
+    if (PlatformUtils.isWeb) {
+      // En web, usar FilePicker
+      try {
+        FilePickerResult? result = await FilePicker.platform.pickFiles(
+          type: FileType.custom,
+          allowedExtensions: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'mp4', 'webm', 'mov'],
+          withData: true, // Obtener bytes directamente
+        );
+
+        if (result != null && result.files.single.bytes != null) {
+          final file = result.files.single;
+          final bytes = file.bytes!;
+          final fileName = file.name.toLowerCase();
+          
+          // Determinar tipo MIME
+          String mimeType;
+          bool isVideo = false;
+          
+          if (fileName.endsWith('.mp4') || fileName.endsWith('.webm') || fileName.endsWith('.mov')) {
+            if (fileName.endsWith('.mp4')) {
+              mimeType = 'video/mp4';
+            } else if (fileName.endsWith('.webm')) {
+              mimeType = 'video/webm';
+            } else {
+              mimeType = 'video/quicktime';
+            }
+            isVideo = true;
+          } else {
+            if (fileName.endsWith('.jpg') || fileName.endsWith('.jpeg')) {
+              mimeType = 'image/jpeg';
+            } else if (fileName.endsWith('.png')) {
+              mimeType = 'image/png';
+            } else if (fileName.endsWith('.gif')) {
+              mimeType = 'image/gif';
+            } else if (fileName.endsWith('.webp')) {
+              mimeType = 'image/webp';
+            } else {
+              mimeType = 'image/jpeg'; // Por defecto
+            }
+          }
+
+          // Subir y enviar
+          if (isVideo) {
+            await _uploadAndSendVideoToCloudinary(bytes, mimeType, currentChannel);
+          } else {
+            await _uploadAndSendToCloudinary(bytes, mimeType, currentChannel);
+          }
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Error al seleccionar archivo: ${e.toString()}'),
+              duration: const Duration(seconds: 3),
+            ),
+          );
+        }
+      }
+    } else {
+      // En nativo, usar ImagePicker (como en macOS)
+      try {
+        final XFile? image = await _imagePicker.pickImage(
+          source: ImageSource.gallery,
+          imageQuality: 85,
+        );
+
+        if (image != null) {
+          final bytes = await image.readAsBytes();
+          final mimeType = 'image/${image.path.split('.').last.toLowerCase()}';
+          await _uploadAndSendToCloudinary(bytes, mimeType, currentChannel);
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Error al seleccionar imagen: ${e.toString()}'),
+              duration: const Duration(seconds: 3),
+            ),
+          );
+        }
+      }
     }
   }
 
@@ -4781,7 +4854,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         return IconButton(
                           icon: Icon(
                             Icons.admin_panel_settings, 
-                            color: isIRCOp ? Colors.orange : Colors.orange.withOpacity(0.6),
+                            // Usar color del tema para mejor visibilidad
+                            color: isIRCOp 
+                                ? appTheme.accent // Color accent cuando está identificado
+                                : appTheme.textPrimary, // Color del texto del tema (blanco en la mayoría)
                           ),
                           tooltip: isIRCOp ? 'Menú IRCop (Identificado)' : 'Menú IRCop',
                           onPressed: () {
@@ -6160,20 +6236,38 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                             Container(
                                               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                               decoration: BoxDecoration(
-                                                color: appTheme.primary.withOpacity(0.3),
+                                                // Usar accent o primary con mayor opacidad para mejor visibilidad
+                                                color: appTheme.accent.withOpacity(0.25),
                                                 borderRadius: BorderRadius.circular(8),
                                                 border: Border.all(
-                                                  color: appTheme.primary.withOpacity(0.6),
-                                                  width: 1,
+                                                  color: appTheme.accent.withOpacity(0.8),
+                                                  width: 1.5,
                                                 ),
+                                                // Añadir sombra sutil para mejor contraste
+                                                boxShadow: [
+                                                  BoxShadow(
+                                                    color: appTheme.accent.withOpacity(0.3),
+                                                    blurRadius: 4,
+                                                    spreadRadius: 0.5,
+                                                  ),
+                                                ],
                                               ),
                                               child: Text(
                                                 userMode == '&' ? 'Dueño' : 'Operador',
                                                 style: TextStyle(
-                                                  color: appTheme.primary,
+                                                  // Usar accent o primary más brillante para mejor contraste
+                                                  color: appTheme.accent,
                                                   fontSize: 9,
                                                   fontWeight: FontWeight.bold,
                                                   letterSpacing: 0.3,
+                                                  // Añadir sombra al texto para mejor legibilidad
+                                                  shadows: [
+                                                    Shadow(
+                                                      color: appTheme.background.withOpacity(0.8),
+                                                      blurRadius: 2,
+                                                      offset: const Offset(0, 0.5),
+                                                    ),
+                                                  ],
                                                 ),
                                                 overflow: TextOverflow.ellipsis,
                                               ),

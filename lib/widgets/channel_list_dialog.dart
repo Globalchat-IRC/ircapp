@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../services/irc_service.dart';
 import '../providers/theme_provider.dart';
+import '../providers/irc_provider.dart';
 import '../models/app_theme.dart';
 
 enum ChannelSortType {
@@ -134,11 +135,19 @@ class _ChannelListDialogState extends ConsumerState<ChannelListDialog> {
   }
 
   void _joinChannel(String channelName) {
-    final normalizedChannel = channelName.startsWith('#') 
+    final normalizedChannel = (channelName.startsWith('#') 
         ? channelName 
-        : '#$channelName';
+        : '#$channelName').toLowerCase();
     
+    // Unirse al canal
     widget.ircService.joinChannel(normalizedChannel);
+    
+    // Cambiar el foco al canal seleccionado
+    ref.read(currentChannelProvider.notifier).state = normalizedChannel;
+    ref.read(lastChannelProvider.notifier).state = normalizedChannel;
+    ref.read(recentChannelsProvider.notifier).addRecent(normalizedChannel);
+    
+    // Cerrar el diálogo
     Navigator.pop(context);
   }
 
