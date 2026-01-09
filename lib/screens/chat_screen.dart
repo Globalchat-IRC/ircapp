@@ -3959,6 +3959,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     }
   }
 
+  // Manejar archivos arrastrados y soltados (solo en nativo)
+  // TODO: Implementar drag & drop con imports condicionales adecuados
+  Future<void> _handleDroppedFiles(List files) async {
+    // Temporalmente deshabilitado para evitar errores de compilación en web
+    // Requiere implementación con imports condicionales más robustos
+    if (files.isEmpty || PlatformUtils.isWeb) return;
+    
+    // Implementación futura para nativo
+    // Por ahora, solo retornar sin hacer nada
+  }
 
   Future<void> _uploadAndSendToCloudinary(Uint8List imageBytes, String mimeType, String channel) async {
     if (mounted) {
@@ -10934,8 +10944,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
                     colors: [
-                      Colors.orange,
-                      Colors.deepOrange,
+                      appTheme.primary,
+                      appTheme.secondary,
                     ],
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
@@ -10950,12 +10960,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     Container(
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.2),
+                        color: appTheme.textPrimary.withOpacity(0.2),
                         borderRadius: BorderRadius.circular(12),
                       ),
-                      child: const Icon(
+                      child: Icon(
                         Icons.admin_panel_settings,
-                        color: Colors.white,
+                        color: appTheme.textPrimary,
                         size: 24,
                       ),
                     ),
@@ -10964,10 +10974,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text(
+                          Text(
                             'Menú IRCop',
                             style: TextStyle(
-                              color: Colors.white,
+                              color: appTheme.textPrimary,
                               fontSize: 20,
                               fontWeight: FontWeight.bold,
                             ),
@@ -10978,7 +10988,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                 ? 'Comandos de operador IRC (UnrealIRCd)'
                                 : 'Comandos de operador IRC (requiere autenticación)',
                             style: TextStyle(
-                              color: Colors.white.withOpacity(0.9),
+                              color: appTheme.textSecondary,
                               fontSize: 14,
                             ),
                           ),
@@ -10986,7 +10996,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       ),
                     ),
                     IconButton(
-                      icon: const Icon(Icons.close, color: Colors.white),
+                      icon: Icon(Icons.close, color: appTheme.textPrimary),
                       onPressed: () => Navigator.pop(context),
                     ),
                   ],
@@ -10998,13 +11008,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   margin: const EdgeInsets.all(16),
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: Colors.orange.withOpacity(0.2),
+                    color: appTheme.accent.withOpacity(0.2),
                     borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.orange, width: 1),
+                    border: Border.all(color: appTheme.accent, width: 1),
                   ),
                   child: Row(
                     children: [
-                      Icon(Icons.warning, color: Colors.orange, size: 20),
+                      Icon(Icons.warning, color: appTheme.accent, size: 20),
                       const SizedBox(width: 8),
                       Expanded(
                         child: Column(
@@ -11013,7 +11023,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                             Text(
                               'No estás identificado como IRCop',
                               style: TextStyle(
-                                color: Colors.orange,
+                                color: appTheme.accent,
                                 fontWeight: FontWeight.bold,
                                 fontSize: 14,
                               ),
@@ -11022,7 +11032,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                             Text(
                               'Usa /oper nick contraseña o el menú de perfil para autenticarte',
                               style: TextStyle(
-                                color: Colors.orange.withOpacity(0.9),
+                                color: appTheme.textSecondary,
                                 fontSize: 12,
                               ),
                             ),

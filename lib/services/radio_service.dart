@@ -15,6 +15,7 @@ class RadioService {
   RadioStation? _currentStation;
   bool _isPlaying = false;
   AudioSession? _audioSession;
+  double _currentVolume = 0.1; // Volumen actual
 
   static final RadioService _instance = RadioService._internal();
   factory RadioService() => _instance;
@@ -23,12 +24,20 @@ class RadioService {
   /// Inicializar servicio
   Future<void> initialize() async {
     if (PlatformUtils.isWeb) {
-      _webPlayer = web_audio.AudioPlayer();
+      if (_webPlayer == null) {
+        _webPlayer = web_audio.AudioPlayer();
+        // Aplicar volumen inicial
+        await _webPlayer!.setVolume(_currentVolume);
+      }
       // print('✅ [RadioService] Inicializado para web');
       return;
     }
 
-    _player = AudioPlayer();
+    if (_player == null) {
+      _player = AudioPlayer();
+      // Aplicar volumen inicial
+      await _player!.setVolume(_currentVolume);
+    }
     
     // Configurar sesión de audio solo en plataformas móviles (iOS/Android)
     // DESHABILITADO TEMPORALMENTE PARA SIMPLIFICAR
@@ -82,8 +91,8 @@ class RadioService {
       await _webPlayer!.setReleaseMode(web_audio.ReleaseMode.stop);
       await _webPlayer!.setPlayerMode(web_audio.PlayerMode.mediaPlayer);
       
-      // Configurar volumen
-      await _webPlayer!.setVolume(0.1);
+      // Configurar volumen desde el estado guardado
+      await _webPlayer!.setVolume(_currentVolume);
       
       // Reproducir la estación
       await _webPlayer!.play(web_audio.UrlSource(station.source));
@@ -221,12 +230,16 @@ class RadioService {
 
   /// Establecer volumen (0.0 a 1.0)
   Future<void> setVolume(double volume) async {
+    _currentVolume = volume.clamp(0.0, 1.0);
     if (PlatformUtils.isWeb) {
-      await _webPlayer?.setVolume(volume.clamp(0.0, 1.0));
+      await _webPlayer?.setVolume(_currentVolume);
     } else {
-      await _player?.setVolume(volume.clamp(0.0, 1.0));
+      await _player?.setVolume(_currentVolume);
     }
   }
+  
+  /// Obtener volumen actual
+  double get currentVolume => _currentVolume;
 
   /// Liberar recursos
   Future<void> dispose() async {

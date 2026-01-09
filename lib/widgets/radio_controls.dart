@@ -49,6 +49,9 @@ class _RadioControlsState extends ConsumerState<RadioControls> {
     // Asegurar que el RadioService esté inicializado
     await radioService.initialize();
     
+    // Aplicar volumen desde el estado antes de reproducir
+    await radioService.setVolume(radioState.volume);
+    
     if (stationToPlay == null) {
       // print('📻 No hay estación seleccionada');
       // Si no hay estación activa, elegir la primera disponible
