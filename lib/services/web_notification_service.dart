@@ -93,10 +93,12 @@ class WebNotificationService {
       
       // Crear la notificación con opciones básicas
       // En dart:html, Notification acepta título y opciones como Map
+      // Usar ruta absoluta desde la raíz del sitio
+      final iconPath = html.window.location.origin + '/icons/Icon-192.png';
       final notification = html.Notification(
         title,
         body: bodyText,
-        icon: 'icons/Icon-192.png',
+        icon: iconPath,
       );
       
       // Manejar clic en la notificación
