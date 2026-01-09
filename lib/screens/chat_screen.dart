@@ -5345,37 +5345,43 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                   color: appTheme.name == 'NuestrasVoces' ? Colors.transparent : appTheme.background,
                                   child: Stack(
                                     children: [
-                                      // Fondo decorativo
+                                      // Fondo decorativo - PRIMERO en el Stack para que esté detrás
                                       Positioned.fill(
                                         child: Builder(
                                           builder: (context) {
                                             // Para NuestrasVoces, mostrar la imagen directamente sin gradiente encima
-                                            // Debug: verificar el nombre del tema
                                             final themeName = appTheme.name;
-                                            // print('🎨 [DEBUG] Tema actual: "$themeName"');
                                             
-                                            if (themeName == 'NuestrasVoces' || themeName.toLowerCase().contains('nuestrasvoces')) {
+                                            // Verificar si el tema es NuestrasVoces (comparación exacta)
+                                            if (themeName == 'NuestrasVoces') {
+                                              // print('🎨 [DEBUG] Tema NuestrasVoces detectado, mostrando imagen de fondo');
                                               try {
                                                 return const _NuestrasVocesBackground();
-                                              } catch (e) {
-                                                // Si hay error, mostrar un placeholder visible
+                                              } catch (e, stackTrace) {
+                                                // Si hay error, mostrar un placeholder visible para debug
+                                                // print('❌ [ERROR] Error cargando fondo NuestrasVoces: $e');
+                                                // print('❌ [STACK] $stackTrace');
                                                 return Container(
-                                                  color: Colors.red.withOpacity(0.5), // Rojo visible para debug
+                                                  color: Colors.red.withOpacity(0.7), // Rojo muy visible para debug
                                                   child: Center(
                                                     child: Column(
                                                       mainAxisAlignment: MainAxisAlignment.center,
                                                       children: [
-                                                        const Icon(Icons.error, color: Colors.white, size: 48),
-                                                        const SizedBox(height: 8),
-                                                        Text(
-                                                          'Error cargando fondo NuestrasVoces',
-                                                          style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold),
-                                                        ),
-                                                        const SizedBox(height: 4),
-                                                        Text(
-                                                          e.toString(),
-                                                          style: const TextStyle(color: Colors.white70, fontSize: 10),
+                                                        const Icon(Icons.error, color: Colors.white, size: 64),
+                                                        const SizedBox(height: 16),
+                                                        const Text(
+                                                          'ERROR: No se puede cargar la imagen de fondo',
+                                                          style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
                                                           textAlign: TextAlign.center,
+                                                        ),
+                                                        const SizedBox(height: 8),
+                                                        Padding(
+                                                          padding: const EdgeInsets.all(16.0),
+                                                          child: Text(
+                                                            e.toString(),
+                                                            style: const TextStyle(color: Colors.white70, fontSize: 12),
+                                                            textAlign: TextAlign.center,
+                                                          ),
                                                         ),
                                                       ],
                                                     ),
@@ -5383,6 +5389,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                                 );
                                               }
                                             }
+                                            
+                                            // Si no es NuestrasVoces, no mostrar nada aquí (se mostrará el fondo normal)
+                                            // print('🎨 [DEBUG] Tema actual: "$themeName" (no es NuestrasVoces)');
                                             
                                             // Para otros temas, usar el gradiente con el fondo decorativo
                                             return Container(
