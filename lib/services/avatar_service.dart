@@ -1,7 +1,7 @@
 import 'dart:convert';
-import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
+import '../utils/platform_utils.dart';
 
 class AvatarService {
   static const String _baseUrl = 'https://xmlrpc.globalchat.org';
@@ -84,23 +84,25 @@ class AvatarService {
     // Limpiar el nick (solo trim, mantener case-sensitive)
     final cleanNick = nick.trim();
     
-    // En web, debido a problemas de CORS, directamente usar el generador por defecto
-    // que debería funcionar mejor con elementos HTML <img>
-    // En plataformas nativas, intentar primero el avatar personalizado
-    // TODO: Verificar si PlatformUtils está disponible aquí
-    // Por ahora, intentar siempre el avatar personalizado primero
-    // El widget UserAvatar manejará el fallback si falla
-    
-    // Paso 1: Intentar con el avatar personalizado (hash MD5 del nick exacto)
-    final avatarUrl = getAvatarUrl(cleanNick);
-    
-    // En web, no verificar la existencia del avatar (causa errores de CORS)
-    // Dejar que el widget Image.network con WebHtmlElementStrategy.prefer
-    // intente cargarlo usando elementos HTML <img>
-    // Si falla, el errorBuilder mostrará el fallback
-    
-    // Retornar la URL del avatar personalizado
-    // El widget se encargará de mostrar el fallback si no se puede cargar
-    return avatarUrl;
+    // En web, usar directamente el generador de avatares por defecto para evitar:
+    // 1. Errores 404 que causan problemas de CORB (Cross-Origin Read Blocking)
+    // 2. El servidor devuelve HTML con Content-Type: text/html en lugar de image/png
+    // 3. Esto causa que el navegador bloquee las respuestas por seguridad
+    // El generador por defecto debería tener mejor soporte CORS y siempre devolver una imagen
+    try {
+      // En web, usar directamente el generador por defecto para evitar errores CORB
+      // En otras plataformas, intentar primero el avatar personalizado
+      if (PlatformUtils.isWeb) {
+        // Usar el generador por defecto que siempre devuelve una imagen válida
+        // Esto evita intentar cargar avatares que no existen (404) que causan CORB
+        return getDefaultAvatarUrl(cleanNick);
+      } else {
+        // En plataformas nativas, intentar primero el avatar personalizado
+        return getAvatarUrl(cleanNick);
+      }
+    } catch (e) {
+      // Si hay algún error, usar el generador por defecto como fallback
+      return getDefaultAvatarUrl(cleanNick);
+    }
   }
 }
