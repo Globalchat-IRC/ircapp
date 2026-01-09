@@ -307,60 +307,57 @@ class _RadioControlsState extends ConsumerState<RadioControls> {
                         }
                       });
                     },
-                    child: GestureDetector(
-                      onTap: () {}, // Prevenir que se cierre al hacer tap
-                      child: Material(
-                        elevation: 12,
-                        borderRadius: BorderRadius.circular(8),
-                        shadowColor: appTheme.primary.withOpacity(0.5),
-                        child: Container(
-                          width: 120,
-                          height: 220,
-                          padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 12),
-                          decoration: BoxDecoration(
-                            color: appTheme.surface,
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: appTheme.primary, width: 2),
-                            boxShadow: [
-                              BoxShadow(
-                                color: appTheme.primary.withOpacity(0.3),
-                                blurRadius: 8,
-                                spreadRadius: 2,
-                              ),
-                            ],
-                          ),
-                          child: RotatedBox(
-                            quarterTurns: 3,
-                            child: SliderTheme(
-                              data: SliderTheme.of(context).copyWith(
-                                trackHeight: 6.0, // Más grueso para mejor interacción
-                                thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 12.0), // Más grande
-                                overlayShape: const RoundSliderOverlayShape(overlayRadius: 20.0), // Área de toque más grande
-                              ),
-                              child: Slider(
-                                value: radioState.volume,
-                                onChanged: (value) {
-                                  _changeVolume(value);
-                                },
-                                onChangeStart: (_) {
-                                  // Mantener el slider visible mientras se arrastra
-                                  setState(() => _showVolumeSlider = true);
-                                },
-                                onChangeEnd: (_) {
-                                  // Mantener visible un poco más después de soltar
-                                  Future.delayed(const Duration(milliseconds: 1500), () {
-                                    if (mounted) {
-                                      setState(() => _showVolumeSlider = false);
-                                    }
-                                  });
-                                },
-                                min: 0.0,
-                                max: 1.0,
-                                divisions: 20,
-                                activeColor: appTheme.primary,
-                                inactiveColor: appTheme.primary.withOpacity(0.3),
-                                label: '${(radioState.volume * 100).toInt()}%',
-                              ),
+                    child: Material(
+                      elevation: 12,
+                      borderRadius: BorderRadius.circular(8),
+                      shadowColor: appTheme.primary.withOpacity(0.5),
+                      child: Container(
+                        width: 120,
+                        height: 220,
+                        padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 12),
+                        decoration: BoxDecoration(
+                          color: appTheme.surface,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: appTheme.primary, width: 2),
+                          boxShadow: [
+                            BoxShadow(
+                              color: appTheme.primary.withOpacity(0.3),
+                              blurRadius: 8,
+                              spreadRadius: 2,
+                            ),
+                          ],
+                        ),
+                        child: RotatedBox(
+                          quarterTurns: 3,
+                          child: SliderTheme(
+                            data: SliderTheme.of(context).copyWith(
+                              trackHeight: 6.0, // Más grueso para mejor interacción
+                              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 12.0), // Más grande
+                              overlayShape: const RoundSliderOverlayShape(overlayRadius: 20.0), // Área de toque más grande
+                            ),
+                            child: Slider(
+                              value: radioState.volume,
+                              onChanged: (value) {
+                                _changeVolume(value);
+                              },
+                              onChangeStart: (_) {
+                                // Mantener el slider visible mientras se arrastra
+                                setState(() => _showVolumeSlider = true);
+                              },
+                              onChangeEnd: (_) {
+                                // Mantener visible un poco más después de soltar
+                                Future.delayed(const Duration(milliseconds: 1500), () {
+                                  if (mounted) {
+                                    setState(() => _showVolumeSlider = false);
+                                  }
+                                });
+                              },
+                              min: 0.0,
+                              max: 1.0,
+                              divisions: 20,
+                              activeColor: appTheme.primary,
+                              inactiveColor: appTheme.primary.withOpacity(0.3),
+                              label: '${(radioState.volume * 100).toInt()}%',
                             ),
                           ),
                         ),
