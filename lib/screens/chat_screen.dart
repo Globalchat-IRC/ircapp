@@ -14987,21 +14987,29 @@ class _NuestrasVocesBackground extends StatelessWidget {
         // Imagen de fondo con blur
         Positioned.fill(
           child: ImageFiltered(
-            imageFilter: ui.ImageFilter.blur(sigmaX: 6.0, sigmaY: 6.0), // Blur suave
+            imageFilter: ui.ImageFilter.blur(sigmaX: 5.0, sigmaY: 5.0), // Blur suave
             child: Image.network(
               'https://duyn491kcolsw.cloudfront.net/files/0m/0mw/0mw5jp.jpg?ph=025d9b876e',
               fit: BoxFit.cover,
               width: double.infinity,
               height: double.infinity,
               alignment: Alignment.center,
+              repeat: ImageRepeat.noRepeat,
               errorBuilder: (context, error, stackTrace) {
                 // Si falla la carga, mostrar un placeholder para debug
                 return Container(
-                  color: Colors.black.withOpacity(0.3),
+                  color: Colors.black.withOpacity(0.2),
                   child: Center(
-                    child: Text(
-                      'Error cargando imagen',
-                      style: TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 12),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.image_not_supported, color: Colors.white.withOpacity(0.5), size: 32),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Error cargando imagen',
+                          style: TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 12),
+                        ),
+                      ],
                     ),
                   ),
                 );
@@ -15012,7 +15020,7 @@ class _NuestrasVocesBackground extends StatelessWidget {
                 }
                 // Mostrar indicador de carga
                 return Container(
-                  color: Colors.black.withOpacity(0.3),
+                  color: Colors.black.withOpacity(0.2),
                   child: const Center(
                     child: CircularProgressIndicator(
                       strokeWidth: 2,
@@ -15024,7 +15032,7 @@ class _NuestrasVocesBackground extends StatelessWidget {
             ),
           ),
         ),
-        // Overlay oscuro para mantener legibilidad del texto
+        // Overlay oscuro más sutil para mantener legibilidad del texto
         Positioned.fill(
           child: Container(
             decoration: BoxDecoration(
@@ -15032,8 +15040,8 @@ class _NuestrasVocesBackground extends StatelessWidget {
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
                 colors: [
-                  Colors.black.withOpacity(0.3),
-                  Colors.black.withOpacity(0.5),
+                  Colors.black.withOpacity(0.2), // Más transparente
+                  Colors.black.withOpacity(0.4), // Más transparente
                 ],
               ),
             ),

@@ -303,54 +303,58 @@ class _RadioControlsState extends ConsumerState<RadioControls> {
                       onEnter: (_) => setState(() => _showVolumeSlider = true),
                       onExit: (_) {
                         // No ocultar inmediatamente, dar tiempo para interactuar
-                        Future.delayed(const Duration(milliseconds: 300), () {
+                        Future.delayed(const Duration(milliseconds: 500), () {
                           if (mounted) {
                             setState(() => _showVolumeSlider = false);
                           }
                         });
                       },
-                      child: Material(
-                        elevation: 8,
-                        borderRadius: BorderRadius.circular(8),
-                        child: Container(
-                          width: 100,
-                          height: 200,
-                          padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
-                          decoration: BoxDecoration(
-                            color: appTheme.surface,
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: appTheme.primary, width: 2),
-                          ),
-                          child: RotatedBox(
-                            quarterTurns: 3,
-                            child: SliderTheme(
-                              data: SliderTheme.of(context).copyWith(
-                                trackHeight: 4.0,
-                                thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8.0),
-                              ),
-                              child: Slider(
-                                value: radioState.volume,
-                                onChanged: (value) {
-                                  _changeVolume(value);
-                                },
-                                onChangeStart: (_) {
-                                  // Mantener el slider visible mientras se arrastra
-                                  setState(() => _showVolumeSlider = true);
-                                },
-                                onChangeEnd: (_) {
-                                  // Mantener visible un poco más después de soltar
-                                  Future.delayed(const Duration(milliseconds: 500), () {
-                                    if (mounted) {
-                                      setState(() => _showVolumeSlider = false);
-                                    }
-                                  });
-                                },
-                                min: 0.0,
-                                max: 1.0,
-                                divisions: 20,
-                                activeColor: appTheme.primary,
-                                inactiveColor: appTheme.primary.withOpacity(0.3),
-                                label: '${(radioState.volume * 100).toInt()}%',
+                      child: GestureDetector(
+                        onTap: () {}, // Prevenir que se cierre al hacer tap
+                        child: Material(
+                          elevation: 8,
+                          borderRadius: BorderRadius.circular(8),
+                          child: Container(
+                            width: 100,
+                            height: 200,
+                            padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
+                            decoration: BoxDecoration(
+                              color: appTheme.surface,
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: appTheme.primary, width: 2),
+                            ),
+                            child: RotatedBox(
+                              quarterTurns: 3,
+                              child: SliderTheme(
+                                data: SliderTheme.of(context).copyWith(
+                                  trackHeight: 6.0, // Más grueso para mejor interacción
+                                  thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 10.0), // Más grande
+                                  overlayShape: const RoundSliderOverlayShape(overlayRadius: 16.0), // Área de toque más grande
+                                ),
+                                child: Slider(
+                                  value: radioState.volume,
+                                  onChanged: (value) {
+                                    _changeVolume(value);
+                                  },
+                                  onChangeStart: (_) {
+                                    // Mantener el slider visible mientras se arrastra
+                                    setState(() => _showVolumeSlider = true);
+                                  },
+                                  onChangeEnd: (_) {
+                                    // Mantener visible un poco más después de soltar
+                                    Future.delayed(const Duration(milliseconds: 1000), () {
+                                      if (mounted) {
+                                        setState(() => _showVolumeSlider = false);
+                                      }
+                                    });
+                                  },
+                                  min: 0.0,
+                                  max: 1.0,
+                                  divisions: 20,
+                                  activeColor: appTheme.primary,
+                                  inactiveColor: appTheme.primary.withOpacity(0.3),
+                                  label: '${(radioState.volume * 100).toInt()}%',
+                                ),
                               ),
                             ),
                           ),
