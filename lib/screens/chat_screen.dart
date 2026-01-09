@@ -3959,6 +3959,54 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     }
   }
 
+  // Manejar archivos arrastrados y soltados (solo en nativo)
+  Future<void> _handleDroppedFiles(List<io.File> files) async {
+    if (files.isEmpty || PlatformUtils.isWeb) return;
+    
+    final file = files.first;
+    final fileName = file.path.split('/').last.toLowerCase();
+    
+    // Verificar si es una imagen o video
+    final isImage = fileName.endsWith('.jpg') || 
+                    fileName.endsWith('.jpeg') || 
+                    fileName.endsWith('.png') || 
+                    fileName.endsWith('.gif') || 
+                    fileName.endsWith('.webp');
+    final isVideo = fileName.endsWith('.mp4') || 
+                   fileName.endsWith('.webm') || 
+                   fileName.endsWith('.mov') || 
+                   fileName.endsWith('.avi');
+    
+    if (isImage || isVideo) {
+      try {
+        final bytes = await file.readAsBytes();
+        final mimeType = isImage ? 'image/${fileName.split('.').last}' : 'video/${fileName.split('.').last}';
+        final channel = ref.read(currentChannelProvider) ?? '';
+        if (channel.isNotEmpty) {
+          await _uploadAndSendToCloudinary(bytes, mimeType, channel);
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Error al procesar archivo: $e'),
+              duration: const Duration(seconds: 3),
+            ),
+          );
+        }
+      }
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Solo se pueden arrastrar imágenes o videos'),
+            duration: Duration(seconds: 3),
+          ),
+        );
+      }
+    }
+  }
+
   Future<void> _uploadAndSendToCloudinary(Uint8List imageBytes, String mimeType, String channel) async {
     if (mounted) {
       ScaffoldMessenger.of(context).hideCurrentSnackBar();
@@ -7461,43 +7509,18 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               }
             },
           ),
-          // Mostrar reacciones existentes
-          if (message.reactions.isNotEmpty) ...[
-              const SizedBox(width: 8),
-            ...message.reactions.entries.map((entry) {
-              return GestureDetector(
-                onTap: () {
-                  if (message.messageId != null) {
-                    _ircService.toggleReaction(message.channel, message.messageId!, entry.key);
-                  }
-                },
-                child: Container(
-                  margin: const EdgeInsets.only(right: 4),
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: appTheme.surface,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: appTheme.primary.withOpacity(0.3)),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(entry.key, style: const TextStyle(fontSize: 12)),
-                      const SizedBox(width: 4),
-              Text(
-                        '${entry.value}',
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: appTheme.textSecondary,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            }),
-          ],
+          // Mostrar reacciones usando el widget MessageReactions
+          const SizedBox(width: 8),
+          MessageReactions(
+            messageId: message.messageId ?? '',
+            appTheme: appTheme,
+            reactions: message.reactions.map((key, value) => MapEntry(key, List<String>.filled(value, ''))),
+            onReactionTap: (emoji) {
+              if (message.messageId != null) {
+                _ircService.toggleReaction(message.channel, message.messageId!, emoji);
+              }
+            },
+          ),
           // Botón de editar (solo para mensajes propios con delay que aún no se han enviado)
           if (isOwnMessage && !message.isSystem && message.isPending && message.delaySeconds != null && message.delaySeconds! > 0) ...[
             const SizedBox(width: 4),
@@ -7855,6 +7878,53 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               isBot: isBot,
             ),
           ],
+        ],
+      );
+    }
+    
+    // Detectar URLs normales (no medios) para mostrar preview
+    final urlRegex = RegExp(
+      r'(?:(?:https?|ftp):\/\/)?(?:www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b(?:[-a-zA-Z0-9()@:%_\+.~#?&\/=]*)',
+      caseSensitive: false,
+    );
+    final urlMatches = urlRegex.allMatches(messageText);
+    
+    // Filtrar URLs que no sean medios ni videoconferencias
+    final nonMediaUrls = urlMatches.where((match) {
+      final url = match.group(0)!;
+      final lowerUrl = url.toLowerCase();
+      // Excluir URLs de medios y videoconferencias
+      return !lowerUrl.contains('.jpg') && 
+             !lowerUrl.contains('.jpeg') && 
+             !lowerUrl.contains('.png') && 
+             !lowerUrl.contains('.gif') && 
+             !lowerUrl.contains('.webp') && 
+             !lowerUrl.contains('.mp4') && 
+             !lowerUrl.contains('.webm') && 
+             !lowerUrl.contains('.mov') && 
+             !lowerUrl.contains('.avi') &&
+             !lowerUrl.contains('video.globalchat.org');
+    }).toList();
+    
+    if (nonMediaUrls.isNotEmpty) {
+      final firstUrl = nonMediaUrls.first.group(0)!;
+      final fullUrl = firstUrl.startsWith('http://') || firstUrl.startsWith('https://') || firstUrl.startsWith('ftp://')
+          ? firstUrl
+          : 'https://$firstUrl';
+      
+      final appTheme = ref.read(themeProvider);
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildTextWithEmojis(
+            messageText,
+            isOwnMessage: isOwnMessage,
+            isBot: isBot,
+          ),
+          LinkPreview(
+            url: fullUrl,
+            appTheme: appTheme,
+          ),
         ],
       );
     }
