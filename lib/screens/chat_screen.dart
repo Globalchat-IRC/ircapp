@@ -15028,18 +15028,24 @@ class _NuestrasVocesBackground extends StatelessWidget {
               alignment: Alignment.center,
               repeat: ImageRepeat.noRepeat,
               errorBuilder: (context, error, stackTrace) {
-                // Si falla la carga, mostrar un placeholder para debug
+                // Si falla la carga, mostrar un placeholder visible para debug
                 return Container(
-                  color: Colors.black.withOpacity(0.2),
+                  color: Colors.blue.withOpacity(0.3), // Color visible para debug
                   child: Center(
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Icon(Icons.image_not_supported, color: Colors.white.withOpacity(0.5), size: 32),
+                        Icon(Icons.image_not_supported, color: Colors.white, size: 48),
                         const SizedBox(height: 8),
                         Text(
-                          'Error cargando imagen',
-                          style: TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 12),
+                          'Error cargando imagen de fondo',
+                          style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          error.toString(),
+                          style: TextStyle(color: Colors.white70, fontSize: 10),
+                          textAlign: TextAlign.center,
                         ),
                       ],
                     ),
@@ -15050,13 +15056,23 @@ class _NuestrasVocesBackground extends StatelessWidget {
                 if (loadingProgress == null) {
                   return child;
                 }
-                // Mostrar indicador de carga
+                // Mostrar indicador de carga visible
                 return Container(
-                  color: Colors.black.withOpacity(0.2),
+                  color: Colors.orange.withOpacity(0.3), // Color visible para debug
                   child: const Center(
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white24),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        CircularProgressIndicator(
+                          strokeWidth: 3,
+                          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                        ),
+                        SizedBox(height: 8),
+                        Text(
+                          'Cargando imagen...',
+                          style: TextStyle(color: Colors.white, fontSize: 12),
+                        ),
+                      ],
                     ),
                   ),
                 );
