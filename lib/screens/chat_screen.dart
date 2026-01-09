@@ -5346,58 +5346,63 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                     children: [
                                       // Fondo decorativo
                                       Positioned.fill(
-                                        child: Container(
-                                          decoration: BoxDecoration(
-                                            gradient: LinearGradient(
-                                              begin: Alignment.topLeft,
-                                              end: Alignment.bottomRight,
-                                              colors: [
-                                                appTheme.primary.withOpacity(0.08),
-                                                appTheme.secondary.withOpacity(0.06),
-                                                appTheme.accent.withOpacity(0.04),
-                                                appTheme.background,
-                                              ],
-                                              stops: const [0.0, 0.35, 0.65, 1.0],
-                                            ),
-                                          ),
-                                          child: Builder(
-                                            builder: (context) {
-                                              // Opacidad específica para cada tema
-                                              double opacity = 0.38;
-                                              if (appTheme.name == 'Semana Santa Sevilla' || appTheme.name == 'Canal Sur') {
-                                                opacity = 0.15;
-                                              } else if (appTheme.name == 'NuestrasVoces') {
-                                                opacity = 0.35; // Más visible para NuestrasVoces
-                                              }
-                                              
-                                              return Opacity(
-                                                opacity: opacity,
-                                                child: Builder(
-                                                  builder: (context) {
-                                                    // print('🎨 [Background] Tema activo: ${appTheme.name}');
-                                                    try {
-                                                      if (appTheme.name == 'Semana Santa Sevilla') {
-                                                        // print('🎨 [Background] Mostrando logo Semana Santa Sevilla');
-                                                        return const _SemanaSantaBackground();
-                                                      } else if (appTheme.name == 'Canal Sur') {
-                                                        // print('🎨 [Background] Mostrando logo Canal Sur');
-                                                        return const _CanalSurBackground();
-                                                      } else if (appTheme.name == 'NuestrasVoces') {
-                                                        // print('🎨 [Background] Mostrando fondo NuestrasVoces');
-                                                        return _NuestrasVocesBackground();
-                                                      } else {
-                                                        // print('🎨 [Background] Mostrando fondo ASCII');
-                                                        return const _AsciiBackground();
-                                                      }
-                                                    } catch (e) {
-                                                      // print('🎨 [Background] Error al renderizar fondo: $e');
-                                                      return const SizedBox.shrink();
-                                                    }
-                                                  },
+                                        child: Builder(
+                                          builder: (context) {
+                                            // Para NuestrasVoces, mostrar la imagen directamente sin gradiente encima
+                                            if (appTheme.name == 'NuestrasVoces') {
+                                              return _NuestrasVocesBackground();
+                                            }
+                                            
+                                            // Para otros temas, usar el gradiente con el fondo decorativo
+                                            return Container(
+                                              decoration: BoxDecoration(
+                                                gradient: LinearGradient(
+                                                  begin: Alignment.topLeft,
+                                                  end: Alignment.bottomRight,
+                                                  colors: [
+                                                    appTheme.primary.withOpacity(0.08),
+                                                    appTheme.secondary.withOpacity(0.06),
+                                                    appTheme.accent.withOpacity(0.04),
+                                                    appTheme.background,
+                                                  ],
+                                                  stops: const [0.0, 0.35, 0.65, 1.0],
                                                 ),
-                                              );
-                                            },
-                                          ),
+                                              ),
+                                              child: Builder(
+                                                builder: (context) {
+                                                  // Opacidad específica para cada tema
+                                                  double opacity = 0.38;
+                                                  if (appTheme.name == 'Semana Santa Sevilla' || appTheme.name == 'Canal Sur') {
+                                                    opacity = 0.15;
+                                                  }
+                                                  
+                                                  return Opacity(
+                                                    opacity: opacity,
+                                                    child: Builder(
+                                                      builder: (context) {
+                                                        // print('🎨 [Background] Tema activo: ${appTheme.name}');
+                                                        try {
+                                                          if (appTheme.name == 'Semana Santa Sevilla') {
+                                                            // print('🎨 [Background] Mostrando logo Semana Santa Sevilla');
+                                                            return const _SemanaSantaBackground();
+                                                          } else if (appTheme.name == 'Canal Sur') {
+                                                            // print('🎨 [Background] Mostrando logo Canal Sur');
+                                                            return const _CanalSurBackground();
+                                                          } else {
+                                                            // print('🎨 [Background] Mostrando fondo ASCII');
+                                                            return const _AsciiBackground();
+                                                          }
+                                                        } catch (e) {
+                                                          // print('🎨 [Background] Error al renderizar fondo: $e');
+                                                          return const SizedBox.shrink();
+                                                        }
+                                                      },
+                                                    ),
+                                                  );
+                                                },
+                                              ),
+                                            );
+                                          },
                                         ),
                                       ),
                                       // Lista de mensajes
@@ -14977,42 +14982,64 @@ class _NuestrasVocesBackground extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ImageFiltered(
-      imageFilter: ui.ImageFilter.blur(sigmaX: 8.0, sigmaY: 8.0), // Blur más suave para mejor visibilidad
-      child: Image.network(
-        'https://duyn491kcolsw.cloudfront.net/files/0m/0mw/0mw5jp.jpg?ph=025d9b876e',
-        fit: BoxFit.cover,
-        width: double.infinity,
-        height: double.infinity,
-        alignment: Alignment.center,
-        errorBuilder: (context, error, stackTrace) {
-          // Si falla la carga, mostrar un placeholder para debug
-          return Container(
-            color: Colors.transparent,
-            child: Center(
-              child: Text(
-                'Error cargando imagen',
-                style: TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 12),
+    return Stack(
+      children: [
+        // Imagen de fondo con blur
+        Positioned.fill(
+          child: ImageFiltered(
+            imageFilter: ui.ImageFilter.blur(sigmaX: 6.0, sigmaY: 6.0), // Blur suave
+            child: Image.network(
+              'https://duyn491kcolsw.cloudfront.net/files/0m/0mw/0mw5jp.jpg?ph=025d9b876e',
+              fit: BoxFit.cover,
+              width: double.infinity,
+              height: double.infinity,
+              alignment: Alignment.center,
+              errorBuilder: (context, error, stackTrace) {
+                // Si falla la carga, mostrar un placeholder para debug
+                return Container(
+                  color: Colors.black.withOpacity(0.3),
+                  child: Center(
+                    child: Text(
+                      'Error cargando imagen',
+                      style: TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 12),
+                    ),
+                  ),
+                );
+              },
+              loadingBuilder: (context, child, loadingProgress) {
+                if (loadingProgress == null) {
+                  return child;
+                }
+                // Mostrar indicador de carga
+                return Container(
+                  color: Colors.black.withOpacity(0.3),
+                  child: const Center(
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white24),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
+        // Overlay oscuro para mantener legibilidad del texto
+        Positioned.fill(
+          child: Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Colors.black.withOpacity(0.3),
+                  Colors.black.withOpacity(0.5),
+                ],
               ),
             ),
-          );
-        },
-        loadingBuilder: (context, child, loadingProgress) {
-          if (loadingProgress == null) {
-            return child;
-          }
-          // Mostrar indicador de carga
-          return Container(
-            color: Colors.transparent,
-            child: const Center(
-              child: CircularProgressIndicator(
-                strokeWidth: 2,
-                valueColor: AlwaysStoppedAnimation<Color>(Colors.white24),
-              ),
-            ),
-          );
-        },
-      ),
+          ),
+        ),
+      ],
     );
   }
 }
