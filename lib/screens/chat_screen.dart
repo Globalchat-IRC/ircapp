@@ -15048,89 +15048,103 @@ class _NuestrasVocesBackground extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Stack(
-      children: [
-        // Imagen de fondo con blur
-        Positioned.fill(
-          child: ImageFiltered(
-            imageFilter: ui.ImageFilter.blur(sigmaX: 5.0, sigmaY: 5.0), // Blur suave
-            child: Image.network(
-              'https://duyn491kcolsw.cloudfront.net/files/0m/0mw/0mw5jp.jpg?ph=025d9b876e',
-              fit: BoxFit.cover,
-              width: double.infinity,
-              height: double.infinity,
-              alignment: Alignment.center,
-              repeat: ImageRepeat.noRepeat,
-              errorBuilder: (context, error, stackTrace) {
-                // Si falla la carga, mostrar un placeholder visible para debug
-                return Container(
-                  color: Colors.blue.withOpacity(0.3), // Color visible para debug
-                  child: Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.image_not_supported, color: Colors.white, size: 48),
-                        const SizedBox(height: 8),
-                        Text(
-                          'Error cargando imagen de fondo',
-                          style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          error.toString(),
-                          style: TextStyle(color: Colors.white70, fontSize: 10),
-                          textAlign: TextAlign.center,
-                        ),
-                      ],
+    // Envolver todo en un try-catch para evitar errores de JavaScript
+    try {
+      return Stack(
+        children: [
+          // Imagen de fondo con blur - PRIMERO en el Stack
+          Positioned.fill(
+            child: ImageFiltered(
+              imageFilter: ui.ImageFilter.blur(sigmaX: 5.0, sigmaY: 5.0), // Blur suave
+              child: Image.network(
+                'https://duyn491kcolsw.cloudfront.net/files/0m/0mw/0mw5jp.jpg?ph=025d9b876e',
+                fit: BoxFit.cover,
+                width: double.infinity,
+                height: double.infinity,
+                alignment: Alignment.center,
+                repeat: ImageRepeat.noRepeat,
+                errorBuilder: (context, error, stackTrace) {
+                  // Si falla la carga, mostrar un placeholder visible para debug
+                  return Container(
+                    color: Colors.blue.withOpacity(0.3), // Color visible para debug
+                    child: Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.image_not_supported, color: Colors.white, size: 48),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Error cargando imagen de fondo',
+                            style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            error.toString(),
+                            style: TextStyle(color: Colors.white70, fontSize: 10),
+                            textAlign: TextAlign.center,
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                );
-              },
-              loadingBuilder: (context, child, loadingProgress) {
-                if (loadingProgress == null) {
-                  return child;
-                }
-                // Mostrar indicador de carga visible
-                return Container(
-                  color: Colors.orange.withOpacity(0.3), // Color visible para debug
-                  child: const Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        CircularProgressIndicator(
-                          strokeWidth: 3,
-                          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                        ),
-                        SizedBox(height: 8),
-                        Text(
-                          'Cargando imagen...',
-                          style: TextStyle(color: Colors.white, fontSize: 12),
-                        ),
-                      ],
+                  );
+                },
+                loadingBuilder: (context, child, loadingProgress) {
+                  if (loadingProgress == null) {
+                    return child;
+                  }
+                  // Mostrar indicador de carga visible
+                  return Container(
+                    color: Colors.orange.withOpacity(0.3), // Color visible para debug
+                    child: const Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          CircularProgressIndicator(
+                            strokeWidth: 3,
+                            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                          ),
+                          SizedBox(height: 8),
+                          Text(
+                            'Cargando imagen...',
+                            style: TextStyle(color: Colors.white, fontSize: 12),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                );
-              },
-            ),
-          ),
-        ),
-        // Overlay oscuro muy sutil para mantener legibilidad del texto pero ver la imagen
-        Positioned.fill(
-          child: Container(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  Colors.black.withOpacity(0.05), // Muy transparente para ver la imagen
-                  Colors.black.withOpacity(0.25), // Más transparente
-                ],
+                  );
+                },
               ),
             ),
           ),
+          // Overlay oscuro muy sutil para mantener legibilidad del texto pero ver la imagen
+          Positioned.fill(
+            child: Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Colors.black.withOpacity(0.05), // Muy transparente para ver la imagen
+                    Colors.black.withOpacity(0.25), // Más transparente
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      );
+    } catch (e) {
+      // Si hay error al construir el widget, devolver un placeholder seguro
+      return Container(
+        color: Colors.red.withOpacity(0.5),
+        child: const Center(
+          child: Text(
+            'Error construyendo fondo',
+            style: TextStyle(color: Colors.white),
+          ),
         ),
-      ],
-    );
+      );
+    }
   }
 }
 
