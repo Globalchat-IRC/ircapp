@@ -5350,17 +5350,34 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                         child: Builder(
                                           builder: (context) {
                                             // Para NuestrasVoces, mostrar la imagen directamente sin gradiente encima
-                                            if (appTheme.name == 'NuestrasVoces') {
+                                            // Debug: verificar el nombre del tema
+                                            final themeName = appTheme.name;
+                                            // print('🎨 [DEBUG] Tema actual: "$themeName"');
+                                            
+                                            if (themeName == 'NuestrasVoces' || themeName.toLowerCase().contains('nuestrasvoces')) {
                                               try {
                                                 return const _NuestrasVocesBackground();
                                               } catch (e) {
-                                                // Si hay error, mostrar un placeholder
+                                                // Si hay error, mostrar un placeholder visible
                                                 return Container(
-                                                  color: Colors.blue.withOpacity(0.1),
+                                                  color: Colors.red.withOpacity(0.5), // Rojo visible para debug
                                                   child: Center(
-                                                    child: Text(
-                                                      'Error cargando fondo: $e',
-                                                      style: const TextStyle(color: Colors.white70, fontSize: 12),
+                                                    child: Column(
+                                                      mainAxisAlignment: MainAxisAlignment.center,
+                                                      children: [
+                                                        const Icon(Icons.error, color: Colors.white, size: 48),
+                                                        const SizedBox(height: 8),
+                                                        Text(
+                                                          'Error cargando fondo NuestrasVoces',
+                                                          style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold),
+                                                        ),
+                                                        const SizedBox(height: 4),
+                                                        Text(
+                                                          e.toString(),
+                                                          style: const TextStyle(color: Colors.white70, fontSize: 10),
+                                                          textAlign: TextAlign.center,
+                                                        ),
+                                                      ],
                                                     ),
                                                   ),
                                                 );
