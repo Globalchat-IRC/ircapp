@@ -5341,7 +5341,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                               ),
                               Expanded(
                                 child: Container(
-                                  color: appTheme.background,
+                                  // Para NuestrasVoces, usar color transparente para que se vea la imagen
+                                  color: appTheme.name == 'NuestrasVoces' ? Colors.transparent : appTheme.background,
                                   child: Stack(
                                     children: [
                                       // Fondo decorativo
