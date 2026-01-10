@@ -133,12 +133,19 @@ sudo tee "$CONFIG_FILE" > /dev/null <<'EOF'
         Header always append Access-Control-Max-Age "86400"
         
         # Headers específicos para listen2myradio.com (enviar al servidor)
+        # IMPORTANTE: Hacer que la petición parezca venir directamente del navegador
+        RequestHeader unset Via env=LISTEN2MYRADIO
+        RequestHeader unset X-Forwarded-For env=LISTEN2MYRADIO
+        RequestHeader unset X-Forwarded-Host env=LISTEN2MYRADIO
+        RequestHeader unset X-Forwarded-Proto env=LISTEN2MYRADIO
         RequestHeader set User-Agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" env=LISTEN2MYRADIO
         RequestHeader set Referer "https://listen2myradio.com/" env=LISTEN2MYRADIO
         RequestHeader set Origin "https://listen2myradio.com" env=LISTEN2MYRADIO
         RequestHeader set Accept "audio/webm,audio/ogg,audio/*;q=0.9,application/ogg;q=0.7,video/*;q=0.6,*/*;q=0.5" env=LISTEN2MYRADIO
         RequestHeader set Accept-Encoding "identity" env=LISTEN2MYRADIO
         RequestHeader set Accept-Language "en-US,en;q=0.9" env=LISTEN2MYRADIO
+        RequestHeader set Connection "keep-alive" env=LISTEN2MYRADIO
+        RequestHeader set Cache-Control "no-cache" env=LISTEN2MYRADIO
         SetEnvIf Request_URI "^/radio-proxy/.*listen2myradio\.com.*" LISTEN2MYRADIO
         
         # NO sobrescribir Content-Type del servidor - dejar que el servidor lo establezca
