@@ -2,7 +2,8 @@ import 'dart:async';
 import 'dart:ui' as ui;
 import 'dart:convert';
 // Conditional import for Platform (native only)
-import 'dart:io' if (dart.library.html) 'dart:html' as io;
+import 'dart:io' if (dart.library.html) 'package:irc_app/utils/html_stub.dart' as io;
+import 'dart:html' if (dart.library.io) 'package:irc_app/utils/html_stub.dart' as html;
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
@@ -18,6 +19,7 @@ import '../models/irc_message.dart';
 import '../providers/irc_provider.dart';
 import '../models/server_profile.dart';
 import '../providers/theme_provider.dart';
+import '../providers/channel_background_provider.dart';
 import '../models/app_theme.dart';
 import '../services/irc_service.dart';
 import '../services/chat_history_service.dart';
@@ -48,6 +50,8 @@ import '../widgets/reputation_badge.dart';
 import '../widgets/user_profile_dialog.dart';
 import '../widgets/email_verification_dialog.dart';
 import '../models/user_role.dart';
+import '../widgets/debug_connection_window.dart';
+import '../providers/debug_log_provider.dart';
 import '../models/video_report.dart' as video_report_model;
 import '../services/video_conference_service.dart' show ConferenceType;
 import '../services/video_database_service.dart';
@@ -378,6 +382,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     
     // Listen for lag updates
     _ircService.addLagListener(_onLagUpdated);
+    
+    // Registrar listener de debug logs
+    final debugLogs = ref.read(debugLogProvider.notifier);
+    _ircService.addDebugLogListener((message) {
+      debugLogs.addLog(message);
+    });
     
     // Listener para autocompletado de comandos
     _messageController.addListener(_onMessageTextChanged);
@@ -1948,6 +1958,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   void dispose() {
     // Detener la radio cuando se sale del chat
     RadioService().stop();
+    
+    // Remover listener de debug logs
+    final debugLogs = ref.read(debugLogProvider.notifier);
+    _ircService.removeDebugLogListener((message) {
+      debugLogs.addLog(message);
+    });
     
     _ircService.removeUserListListener(_onUserListChanged);
     _ircService.removeTopicListener(_onTopicChanged);
@@ -3914,10 +3930,50 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               onPressed: selected == null
                   ? null
                   : () {
-                      // Guardar perfil seleccionado y desconectar
+                      // Guardar nick y canales actuales antes de desconectar
+                      final currentNick = ref.read(currentNicknameProvider);
+                      final currentChannel = ref.read(currentChannelProvider);
+                      final channels = ref.read(channelsProvider);
+                      
+                      // Obtener todos los canales abiertos (solo los que empiezan con #)
+                      final openChannels = channels.keys
+                          .where((channel) => channel.startsWith('#'))
+                          .toList();
+                      
+                      print('🔍 [SERVER_SWITCH] Guardando estado antes de cambiar servidor:');
+                      print('🔍 [SERVER_SWITCH] Nick: $currentNick');
+                      print('🔍 [SERVER_SWITCH] Canal actual: $currentChannel');
+                      print('🔍 [SERVER_SWITCH] Canales abiertos: $openChannels');
+                      
+                      // Guardar perfil seleccionado (selected ya está verificado que no es null por el onPressed)
+                      final serverToSave = selected!;
+                      print('🔍 [SERVER_SWITCH] Servidor seleccionado: ${serverToSave.name} (${serverToSave.host}:${serverToSave.port})');
                       ref
                           .read(currentServerProfileProvider.notifier)
-                          .state = selected;
+                          .setServerProfile(serverToSave);
+                      
+                      // Verificar que se guardó correctamente
+                      final savedProfile = ref.read(currentServerProfileProvider);
+                      print('🔍 [SERVER_SWITCH] Servidor guardado en provider: ${savedProfile?.name} (${savedProfile?.host}:${savedProfile?.port})');
+                      
+                      // Asegurar que el nick y canal estén guardados en los providers
+                      if (currentNick != null && currentNick.isNotEmpty) {
+                        ref.read(currentNicknameProvider.notifier).state = currentNick;
+                        print('🔍 [SERVER_SWITCH] ✅ Nick guardado en provider: $currentNick');
+                      }
+                      
+                      // Guardar todos los canales abiertos para autojoin
+                      if (openChannels.isNotEmpty) {
+                        ref.read(autoJoinChannelsProvider.notifier).state = openChannels;
+                        print('🔍 [SERVER_SWITCH] ✅ Canales guardados para autojoin: $openChannels');
+                      }
+                      
+                      if (currentChannel != null && currentChannel.isNotEmpty) {
+                        ref.read(currentChannelProvider.notifier).state = currentChannel;
+                        ref.read(lastChannelProvider.notifier).state = currentChannel;
+                        print('🔍 [SERVER_SWITCH] ✅ Canal actual guardado en provider: $currentChannel');
+                      }
+                      
                       Navigator.of(context).pop();
                       _disconnect();
                       // Volver al login para reconectar con el nuevo servidor
@@ -4601,6 +4657,23 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 );
               },
             ),
+            // Botón de Debug (siempre visible, segunda posición)
+            IconButton(
+              icon: Icon(Icons.bug_report, color: Colors.orange),
+              tooltip: 'Ventana de Debug (Conexión)',
+              onPressed: () {
+                showDialog(
+                  context: context,
+                  builder: (context) {
+                    final debugLogs = ref.watch(debugLogProvider);
+                    return DebugConnectionWindow(
+                      appTheme: appTheme,
+                      logs: debugLogs,
+                    );
+                  },
+                );
+              },
+            ),
             LayoutBuilder(
               builder: (context, constraints) {
                 final screenWidth = MediaQuery.of(context).size.width;
@@ -5018,8 +5091,31 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                 onPressed: () {
                                   _disconnect();
                                   Navigator.pop(context);
-                                  // En web, no podemos cerrar la aplicación
-                                  // En nativo, la aplicación se cierra al desconectar
+                                  
+                                  // Cerrar la aplicación completamente
+                                  if (PlatformUtils.isWeb) {
+                                    // En web, recargar la página
+                                    try {
+                                      html.window.location.reload();
+                                    } catch (e) {
+                                      // Si falla, mostrar mensaje
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        const SnackBar(
+                                          content: Text('Por favor, cierra la pestaña del navegador.'),
+                                          duration: Duration(seconds: 2),
+                                        ),
+                                      );
+                                    }
+                                  } else {
+                                    // En nativo (macOS, iOS, Android), cerrar la aplicación
+                                    // Usar exit solo si está disponible (no en web)
+                                    try {
+                                      io.exit(0);
+                                    } catch (e) {
+                                      // Si falla, simplemente no hacer nada
+                                      print('⚠️ No se pudo cerrar la aplicación: $e');
+                                    }
+                                  }
                                 },
                                 style: ElevatedButton.styleFrom(
                                   backgroundColor: Colors.red,
@@ -5478,136 +5574,87 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                 appTheme,
                               ),
                               Expanded(
-                                child: Container(
-                                  // Para NuestrasVoces, usar color transparente para que se vea la imagen
-                                  color: appTheme.name == 'NuestrasVoces' ? Colors.transparent : appTheme.background,
-                                  child: Builder(
-                                    builder: (context) {
-                                      try {
-                                        return Stack(
-                                          children: [
-                                            // Fondo decorativo - PRIMERO en el Stack para que esté detrás
+                                child: Consumer(
+                                  builder: (context, ref, child) {
+                                    // Obtener imagen de fondo configurada para el canal actual
+                                    final channelBackgrounds = ref.watch(channelBackgroundProvider);
+                                    final backgroundUrl = currentChannel != null
+                                        ? channelBackgrounds[currentChannel!.toLowerCase()]
+                                        : null;
+                                    
+                                    return Container(
+                                      decoration: BoxDecoration(
+                                        // Imagen de fondo configurada para el canal (si existe)
+                                        image: backgroundUrl != null ? DecorationImage(
+                                          image: NetworkImage(backgroundUrl),
+                                          fit: BoxFit.contain,
+                                          alignment: Alignment.center,
+                                          opacity: 0.15,
+                                          onError: (exception, stackTrace) {},
+                                        ) : null,
+                                        color: appTheme.background,
+                                      ),
+                                      child: Stack(
+                                        children: [
+                                          // Fondo ASCII por defecto si no hay imagen configurada
+                                          if (backgroundUrl == null)
                                             Positioned.fill(
-                                              child: Builder(
-                                                builder: (context) {
-                                                  try {
-                                                    // Para NuestrasVoces, mostrar la imagen directamente sin gradiente encima
-                                                    final themeName = appTheme.name;
-                                                    
-                                                    // Verificar si el tema es NuestrasVoces (comparación case-insensitive)
-                                                    final isNuestrasVoces = themeName.toLowerCase() == 'nuestrasvoces';
-                                                    if (isNuestrasVoces) {
-                                                      // TEMPORALMENTE DESHABILITADO para evitar error JavaScript
-                                                      // El widget _NuestrasVocesBackground causa Uncaught Error
-                                                      // Usar solo un Container con color de fondo del tema
-                                                      return Container(
-                                                        color: appTheme.background,
-                                                        child: const SizedBox.shrink(),
-                                                      );
+                                              child: Opacity(
+                                                opacity: 0.38,
+                                                child: Builder(
+                                                  builder: (context) {
+                                                    try {
+                                                      if (appTheme.name == 'Semana Santa Sevilla') {
+                                                        return const _SemanaSantaBackground();
+                                                      } else if (appTheme.name == 'Canal Sur') {
+                                                        return const _CanalSurBackground();
+                                                      } else {
+                                                        return const _AsciiBackground();
+                                                      }
+                                                    } catch (e) {
+                                                      return const SizedBox.shrink();
                                                     }
-                                                    
-                                                    // Para otros temas, usar el gradiente con el fondo decorativo
-                                                    return Container(
-                                                      decoration: BoxDecoration(
-                                                        gradient: LinearGradient(
-                                                          begin: Alignment.topLeft,
-                                                          end: Alignment.bottomRight,
-                                                          colors: [
-                                                            appTheme.primary.withOpacity(0.08),
-                                                            appTheme.secondary.withOpacity(0.06),
-                                                            appTheme.accent.withOpacity(0.04),
-                                                            appTheme.background,
-                                                          ],
-                                                          stops: const [0.0, 0.35, 0.65, 1.0],
-                                                        ),
-                                                      ),
-                                                      child: Builder(
-                                                        builder: (context) {
-                                                          try {
-                                                            // Opacidad específica para cada tema
-                                                            double opacity = 0.38;
-                                                            if (appTheme.name == 'Semana Santa Sevilla' || appTheme.name == 'Canal Sur') {
-                                                              opacity = 0.15;
-                                                            }
-                                                            
-                                                            return Opacity(
-                                                              opacity: opacity,
-                                                              child: Builder(
-                                                                builder: (context) {
-                                                                  try {
-                                                                    if (appTheme.name == 'Semana Santa Sevilla') {
-                                                                      return const _SemanaSantaBackground();
-                                                                    } else if (appTheme.name == 'Canal Sur') {
-                                                                      return const _CanalSurBackground();
-                                                                    } else {
-                                                                      return const _AsciiBackground();
-                                                                    }
-                                                                  } catch (e) {
-                                                                    return const SizedBox.shrink();
-                                                                  }
-                                                                },
-                                                              ),
-                                                            );
-                                                          } catch (e) {
-                                                            return const SizedBox.shrink();
-                                                          }
-                                                        },
-                                                      ),
-                                                    );
-                                                  } catch (e) {
-                                                    return Container(
-                                                      color: appTheme.background,
-                                                      child: const SizedBox.shrink(),
-                                                    );
-                                                  }
-                                                },
+                                                  },
+                                                ),
                                               ),
                                             ),
-                                            // Lista de mensajes
-                                            Positioned.fill(
-                                              child: Builder(
-                                                builder: (context) {
-                                                  try {
-                                                    return ListView.builder(
-                                                      reverse: true,
-                                                      padding: const EdgeInsets.symmetric(vertical: 8),
-                                                      itemCount: allMessages.length,
-                                                      cacheExtent: 1000, // Cache más items para mejor scroll
-                                                      itemBuilder: (context, index) {
-                                                        try {
-                                                          final message = allMessages[
-                                                              allMessages.length - 1 - index];
-                                                          return RepaintBoundary(
-                                                            child: _buildMessageTile(message),
-                                                          );
-                                                        } catch (e) {
-                                                          return const SizedBox.shrink();
-                                                        }
-                                                      },
-                                                    );
-                                                  } catch (e) {
-                                                    return Container(
-                                                      color: appTheme.background,
-                                                      child: const Center(
-                                                        child: Text('Error cargando mensajes'),
-                                                      ),
-                                                    );
-                                                  }
-                                                },
-                                              ),
+                                          // Lista de mensajes
+                                          Positioned.fill(
+                                            child: Builder(
+                                              builder: (context) {
+                                                try {
+                                                  return ListView.builder(
+                                                    reverse: true,
+                                                    padding: const EdgeInsets.symmetric(vertical: 8),
+                                                    itemCount: allMessages.length,
+                                                    cacheExtent: 1000, // Cache más items para mejor scroll
+                                                    itemBuilder: (context, index) {
+                                                      try {
+                                                        final message = allMessages[
+                                                            allMessages.length - 1 - index];
+                                                        return RepaintBoundary(
+                                                          child: _buildMessageTile(message),
+                                                        );
+                                                      } catch (e) {
+                                                        return const SizedBox.shrink();
+                                                      }
+                                                    },
+                                                  );
+                                                } catch (e) {
+                                                  return Container(
+                                                    color: appTheme.background,
+                                                    child: const Center(
+                                                      child: Text('Error cargando mensajes'),
+                                                    ),
+                                                  );
+                                                }
+                                              },
                                             ),
-                                          ],
-                                        );
-                                      } catch (e) {
-                                        return Container(
-                                          color: appTheme.background,
-                                          child: const Center(
-                                            child: Text('Error cargando chat'),
                                           ),
-                                        );
-                                      }
-                                    },
-                                  ),
+                                        ],
+                                      ),
+                                    );
+                                  },
                                 ),
                               ),
                             ],

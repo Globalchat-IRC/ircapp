@@ -12,7 +12,7 @@ import 'services/chat_history_service.dart';
 import 'utils/platform_utils.dart';
 import 'models/app_theme.dart';
 // Conditional import for web page lifecycle events
-import 'dart:html' if (dart.library.io) 'dart:io' as html;
+import 'utils/html_stub.dart' as html;
 
 void globalLog(String message) {
   // Logs deshabilitados para producción

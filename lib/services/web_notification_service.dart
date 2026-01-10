@@ -1,6 +1,8 @@
-import 'dart:html' as html;
 import 'package:flutter/foundation.dart' show kIsWeb;
 import '../utils/platform_utils.dart';
+
+// Import condicional de dart:html solo para web
+import '../utils/html_stub.dart' as html;
 
 /// Servicio para notificaciones web usando la Web Notifications API
 class WebNotificationService {

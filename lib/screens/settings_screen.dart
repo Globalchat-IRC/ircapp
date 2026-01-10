@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/irc_provider.dart';
 import '../providers/theme_provider.dart';
+import '../providers/channel_background_provider.dart';
 import '../models/app_theme.dart';
 import '../services/backup_service.dart';
 import '../services/cache_service.dart';
@@ -373,6 +374,88 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           ),
           const SizedBox(height: 16),
           
+          // Sección de Imágenes de Fondo por Canal
+          Card(
+            color: appTheme.surface,
+            elevation: 2,
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.image,
+                        color: appTheme.primary,
+                        size: 24,
+                      ),
+                      const SizedBox(width: 12),
+                      Text(
+                        'Imágenes de Fondo por Canal',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: appTheme.textPrimary,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Configura imágenes de fondo personalizadas para cada canal',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: appTheme.textSecondary,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Consumer(
+                    builder: (context, ref, child) {
+                      final backgrounds = ref.watch(channelBackgroundProvider);
+                      return Column(
+                        children: [
+                          if (backgrounds.isEmpty)
+                            Padding(
+                              padding: const EdgeInsets.all(16),
+                              child: Text(
+                                'No hay imágenes configuradas',
+                                style: TextStyle(
+                                  color: appTheme.textSecondary,
+                                  fontStyle: FontStyle.italic,
+                                ),
+                              ),
+                            )
+                          else
+                            ...backgrounds.entries.map((entry) {
+                              return _buildBackgroundItem(
+                                context,
+                                ref,
+                                appTheme,
+                                entry.key,
+                                entry.value,
+                              );
+                            }),
+                          const SizedBox(height: 12),
+                          ElevatedButton.icon(
+                            onPressed: () => _showAddBackgroundDialog(context, ref, appTheme),
+                            icon: const Icon(Icons.add),
+                            label: const Text('Agregar Imagen de Fondo'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: appTheme.primary,
+                              foregroundColor: appTheme.textPrimary,
+                            ),
+                          ),
+                        ],
+                      );
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          
           // Sección de Privacidad
           Card(
             color: appTheme.surface,
@@ -611,6 +694,205 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             ],
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildBackgroundItem(
+    BuildContext context,
+    WidgetRef ref,
+    AppTheme appTheme,
+    String channel,
+    String imageUrl,
+  ) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      color: appTheme.surface,
+      child: ListTile(
+        leading: Container(
+          width: 50,
+          height: 50,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(8),
+            image: DecorationImage(
+              image: NetworkImage(imageUrl),
+              fit: BoxFit.cover,
+              onError: (exception, stackTrace) {},
+            ),
+            color: appTheme.primary.withOpacity(0.1),
+          ),
+          child: imageUrl.isEmpty
+              ? Icon(Icons.image, color: appTheme.primary)
+              : null,
+        ),
+        title: Text(
+          channel,
+          style: TextStyle(
+            color: appTheme.textPrimary,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        subtitle: Text(
+          imageUrl.length > 50 ? '${imageUrl.substring(0, 50)}...' : imageUrl,
+          style: TextStyle(
+            color: appTheme.textSecondary,
+            fontSize: 12,
+          ),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        trailing: IconButton(
+          icon: Icon(Icons.delete, color: Colors.red),
+          onPressed: () async {
+            final confirmed = await showDialog<bool>(
+              context: context,
+              builder: (context) => AlertDialog(
+                title: const Text('Eliminar Imagen'),
+                content: Text('¿Eliminar la imagen de fondo del canal $channel?'),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(context, false),
+                    child: const Text('Cancelar'),
+                  ),
+                  TextButton(
+                    onPressed: () => Navigator.pop(context, true),
+                    child: const Text('Eliminar', style: TextStyle(color: Colors.red)),
+                  ),
+                ],
+              ),
+            );
+            if (confirmed == true) {
+              await ref.read(channelBackgroundProvider.notifier).removeBackgroundForChannel(channel);
+            }
+          },
+        ),
+        onTap: () => _showEditBackgroundDialog(context, ref, appTheme, channel, imageUrl),
+      ),
+    );
+  }
+
+  Future<void> _showAddBackgroundDialog(
+    BuildContext context,
+    WidgetRef ref,
+    AppTheme appTheme,
+  ) async {
+    final channelController = TextEditingController();
+    final urlController = TextEditingController();
+
+    await showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Agregar Imagen de Fondo'),
+        backgroundColor: appTheme.surface,
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: channelController,
+              decoration: InputDecoration(
+                labelText: 'Canal (ej: #nuestrasvoces)',
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                filled: true,
+                fillColor: appTheme.background,
+              ),
+              style: TextStyle(color: appTheme.textPrimary),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: urlController,
+              decoration: InputDecoration(
+                labelText: 'URL de la Imagen',
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                filled: true,
+                fillColor: appTheme.background,
+                hintText: 'https://ejemplo.com/imagen.jpg',
+              ),
+              style: TextStyle(color: appTheme.textPrimary),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancelar'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final channel = channelController.text.trim();
+              final url = urlController.text.trim();
+              
+              if (channel.isNotEmpty && url.isNotEmpty) {
+                await ref.read(channelBackgroundProvider.notifier).setBackgroundForChannel(channel, url);
+                if (context.mounted) {
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Imagen de fondo agregada para $channel'),
+                      backgroundColor: Colors.green,
+                    ),
+                  );
+                }
+              }
+            },
+            child: const Text('Guardar'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showEditBackgroundDialog(
+    BuildContext context,
+    WidgetRef ref,
+    AppTheme appTheme,
+    String channel,
+    String currentUrl,
+  ) async {
+    final urlController = TextEditingController(text: currentUrl);
+
+    await showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Editar Imagen de Fondo - $channel'),
+        backgroundColor: appTheme.surface,
+        content: TextField(
+          controller: urlController,
+          decoration: InputDecoration(
+            labelText: 'URL de la Imagen',
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+            filled: true,
+            fillColor: appTheme.background,
+          ),
+          style: TextStyle(color: appTheme.textPrimary),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancelar'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final url = urlController.text.trim();
+              await ref.read(channelBackgroundProvider.notifier).setBackgroundForChannel(channel, url);
+              if (context.mounted) {
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Imagen de fondo actualizada para $channel'),
+                    backgroundColor: Colors.green,
+                  ),
+                );
+              }
+            },
+            child: const Text('Guardar'),
+          ),
+        ],
       ),
     );
   }

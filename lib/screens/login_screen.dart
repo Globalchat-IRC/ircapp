@@ -5,7 +5,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'dart:convert';
 import 'dart:math';
 // Conditional import for web URL parameters
-import 'dart:html' if (dart.library.io) 'dart:io' as html;
+import 'dart:html' if (dart.library.io) '../utils/html_stub.dart' as html;
 import '../providers/irc_provider.dart';
 import '../providers/theme_provider.dart';
 import '../models/app_theme.dart';
@@ -40,7 +40,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   ServerProfile? _selectedServer;
   bool _identifyWithNick = false; // Checkbox para identificar con nick registrado
   bool _obscurePassword = true; // Controlar visibilidad de la contraseña
-  String _appVersion = 'v3.0.0'; // Versión por defecto
+  String _appVersion = 'v3.0.4'; // Versión por defecto
   bool _isAutoJoining = false; // Flag para indicar que está en proceso de autojoin
   
   // Lista de canales prohibidos que no se mostrarán en el combo
@@ -64,53 +64,49 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     // Cargar versión de la app
     _loadAppVersion();
     
-    // Leer parámetros de la URL si estamos en web
+    // Leer parámetros de la URL PRIMERO (si estamos en web)
+    // Esto debe hacerse antes de leer el provider para que los parámetros de URL tengan prioridad
     String? urlNick;
     String? urlChannel;
     bool autoJoin = false;
     
     if (PlatformUtils.isWeb) {
       print('🔍 [INIT] PlatformUtils.isWeb = true, leyendo parámetros de URL');
-      String? hash = '';
       try {
-        // Usar dart:html para leer la URL del navegador directamente
+        // Usar dart:html directamente para leer la URL (más confiable en Flutter web)
         final window = html.window;
         final location = window.location;
-        
-        // Leer parámetros de la query string y hash
-        final searchParams = location.search ?? '';
-        hash = location.hash ?? '';
         final fullUrl = location.href ?? '';
         
-        print('🔍 [URL] searchParams="$searchParams"');
-        print('🔍 [URL] hash="$hash"');
-        print('🔍 [URL] fullUrl="$fullUrl"');
+        print('🔍 [URL] location.href: "$fullUrl"');
+        print('🔍 [URL] location.search: "${location.search}"');
+        print('🔍 [URL] location.hash: "${location.hash}"');
         
-        // IMPORTANTE: Si el canal tiene # en la query string, el navegador lo mueve al hash
-        // Ejemplo: ?channel=#Globalchat&nick=test -> searchParams="channel=", hash="#Globalchat&nick=test"
-        // Necesitamos parsear manualmente la query string completa antes de que el navegador la procese
-        
-        // Intentar leer directamente de la URL completa usando Uri.parse
-        try {
+        if (fullUrl.isNotEmpty) {
           final fullUri = Uri.parse(fullUrl);
+          print('🔍 [URL] fullUri.queryParameters: ${fullUri.queryParameters}');
           
-          // Leer parámetros del query string (puede estar vacío si el # está presente)
+          // Leer parámetros del query string
           final nickParam = fullUri.queryParameters['nick'];
           final channelParam = fullUri.queryParameters['channel'];
           final autoJoinParam = fullUri.queryParameters['autojoin'];
           
-          print('🔍 [URL] fullUri.queryParameters: ${fullUri.queryParameters}');
-          
           if (nickParam != null && nickParam.trim().isNotEmpty) {
             urlNick = nickParam.trim();
+            print('🔍 [URL] ✅ Nick leído: "$urlNick"');
           }
           
-          // Si channelParam está vacío o solo tiene "=", el canal probablemente está en el hash
-          if (channelParam != null && channelParam.trim().isNotEmpty && channelParam != '=') {
-            urlChannel = channelParam.trim();
-            print('🔍 [URL] Canal leído de query: "$urlChannel"');
-          } else if (channelParam == '=' || (channelParam != null && channelParam.isEmpty)) {
-            print('🔍 [URL] Canal vacío en query, probablemente está en hash');
+          // Leer canal de query string
+          if (channelParam != null) {
+            final trimmed = channelParam.trim();
+            if (trimmed.isNotEmpty && trimmed != '=') {
+              urlChannel = trimmed;
+              print('🔍 [URL] ✅ Canal leído: "$urlChannel"');
+            } else {
+              print('🔍 [URL] ⚠️ Canal vacío o solo "=", channelParam="$channelParam"');
+            }
+          } else {
+            print('🔍 [URL] ⚠️ channelParam es null');
           }
           
           // Leer parámetro autojoin
@@ -119,121 +115,44 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             autoJoin = autoJoinValue == 'true' || 
                        autoJoinValue == '1' || 
                        autoJoinValue == 'yes';
-            print('🔍 [URL] autoJoinParam="$autoJoinParam" -> autoJoin=$autoJoin');
+            print('🔍 [URL] ✅ autoJoin leído: "$autoJoinParam" -> autoJoin=$autoJoin');
           }
-        } catch (e) {
-          // Si falla, intentar parsing manual más robusto
-          final queryString = searchParams.startsWith('?') ? searchParams.substring(1) : searchParams;
-          final params = queryString.split('&');
+        } else {
+          // Fallback a Uri.base si location.href está vacío
+          final uri = Uri.base;
+          print('🔍 [URL] Fallback a Uri.base: ${Uri.base}');
+          print('🔍 [URL] Uri.base.queryParameters: ${uri.queryParameters}');
           
-          for (final param in params) {
-            if (param.trim().isEmpty) continue;
-            
-            final equalIndex = param.indexOf('=');
-            if (equalIndex > 0) {
-              final key = Uri.decodeComponent(param.substring(0, equalIndex).trim());
-              final value = Uri.decodeComponent(param.substring(equalIndex + 1).trim());
-              
-              if (key == 'nick' && value.isNotEmpty) {
-                urlNick = value;
-              } else if (key == 'channel' && value.isNotEmpty) {
-                urlChannel = value;
-              } else if (key == 'autojoin') {
-                autoJoin = value.toLowerCase() == 'true' || 
-                           value == '1' || 
-                           value.toLowerCase() == 'yes';
-              }
+          final nickParam = uri.queryParameters['nick'];
+          final channelParam = uri.queryParameters['channel'];
+          final autoJoinParam = uri.queryParameters['autojoin'];
+          
+          if (nickParam != null && nickParam.trim().isNotEmpty) {
+            urlNick = nickParam.trim();
+            print('🔍 [URL] ✅ Nick leído de Uri.base: "$urlNick"');
+          }
+          
+          if (channelParam != null) {
+            final trimmed = channelParam.trim();
+            if (trimmed.isNotEmpty && trimmed != '=') {
+              urlChannel = trimmed;
+              print('🔍 [URL] ✅ Canal leído de Uri.base: "$urlChannel"');
             }
           }
-        }
-        
-        // IMPORTANTE:
-        // Si el parámetro channel está vacío pero hay un fragmento que empieza con #,
-        // es probable que el usuario haya usado algo como:
-        //   ?channel=#Globalchat&nick=Usuario123&autojoin=true
-        // y el navegador haya movido todo a hash: "#Globalchat&nick=Usuario123&autojoin=true"
-        //
-        // En ese caso:
-        //  - La parte antes del primer & es el canal (#Globalchat)
-        //  - El resto lo tratamos como query string adicional (ej: nick=Usuario123&autojoin=true)
-        if (hash != null && hash.isNotEmpty && hash.startsWith('#')) {
-          print('🔍 [URL] Procesando hash: "$hash"');
           
-          // Solo usar el fragmento si NO tenemos canal de los parámetros
-          String fragment = hash.substring(1); // quitar '#'
-          if (fragment.isNotEmpty) {
-            final ampIndex = fragment.indexOf('&');
-            String channelFromHash;
-            String extraQuery = '';
-
-            if (ampIndex >= 0) {
-              channelFromHash = fragment.substring(0, ampIndex);
-              extraQuery = fragment.substring(ampIndex + 1);
-            } else {
-              channelFromHash = fragment;
-            }
-
-            print('🔍 [URL] channelFromHash="$channelFromHash", extraQuery="$extraQuery"');
-
-            if ((urlChannel == null || urlChannel.isEmpty || urlChannel == '=') &&
-                channelFromHash.trim().isNotEmpty) {
-              urlChannel = '#${channelFromHash.replaceAll('#', '').trim()}';
-              print('🔍 [URL] Canal establecido desde hash: "$urlChannel"');
-            }
-
-            // Si todavía no tenemos nick y en el fragmento viene algo como nick=Usuario123
-            if (extraQuery.trim().isNotEmpty) {
-              try {
-                final fragUri = Uri(query: extraQuery);
-                print('🔍 [URL] fragUri.queryParameters: ${fragUri.queryParameters}');
-                
-                if ((urlNick == null || urlNick.isEmpty)) {
-                  final nickFromHash = fragUri.queryParameters['nick'];
-                  if (nickFromHash != null && nickFromHash.trim().isNotEmpty) {
-                    urlNick = nickFromHash.trim();
-                    print('🔍 [URL] Nick establecido desde hash: "$urlNick"');
-                  }
-                }
-                
-                // También leer autojoin del hash si está presente
-                if (!autoJoin) {
-                  final autoJoinFromHash = fragUri.queryParameters['autojoin'];
-                  if (autoJoinFromHash != null) {
-                    final autoJoinValue = autoJoinFromHash.toLowerCase().trim();
-                    autoJoin = autoJoinValue == 'true' || 
-                               autoJoinValue == '1' || 
-                               autoJoinValue == 'yes';
-                    print('🔍 [URL] autoJoin establecido desde hash: $autoJoin');
-                  }
-                }
-              } catch (e) {
-                print('🔍 [URL] Error parseando fragmento: $e');
-              }
-            }
+          if (autoJoinParam != null) {
+            final autoJoinValue = autoJoinParam.toLowerCase().trim();
+            autoJoin = autoJoinValue == 'true' || 
+                       autoJoinValue == '1' || 
+                       autoJoinValue == 'yes';
+            print('🔍 [URL] ✅ autoJoin leído de Uri.base: "$autoJoinParam" -> autoJoin=$autoJoin');
           }
         }
         
         // Debug: verificar que se leyeron los parámetros
-        print('🔍 [URL] Parámetros leídos - nick: $urlNick, channel: $urlChannel, autojoin: $autoJoin, hash: $hash');
+        print('🔍 [URL] Parámetros finales - nick: $urlNick, channel: $urlChannel, autojoin: $autoJoin');
       } catch (e) {
-        // Si hay error leyendo la URL, intentar con Uri.base como fallback
-        try {
-          final uri = Uri.base;
-          final nickParam = uri.queryParameters['nick'];
-          final channelParam = uri.queryParameters['channel'];
-          
-          urlNick = (nickParam != null && nickParam.trim().isNotEmpty) ? nickParam.trim() : null;
-          urlChannel = (channelParam != null && channelParam.trim().isNotEmpty) ? channelParam.trim() : null;
-          
-          // También verificar el fragmento
-          if (uri.fragment.isNotEmpty && uri.fragment.startsWith('#')) {
-            if (urlChannel == null || urlChannel.isEmpty) {
-              urlChannel = '#${uri.fragment}';
-            }
-          }
-        } catch (e2) {
-          // Si ambos fallan, continuar sin parámetros
-        }
+        print('🔍 [URL] Error leyendo URL: $e');
       }
     }
     
@@ -252,74 +171,146 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         channel = '#$channel';
       }
       _channelController.text = channel;
+      print('🔍 [URL] ✅ Canal aplicado al controlador: $channel');
+      print('🔍 [URL] Verificación - _channelController.text = "${_channelController.text}"');
+    } else {
+      print('🔍 [URL] ⚠️ No se aplicó canal - urlChannel: $urlChannel');
     }
     
-    // Debug temporal: verificar autojoin
-    if (PlatformUtils.isWeb) {
-      print('🔍 [AUTOJOIN] autoJoin=$autoJoin, urlChannel=$urlChannel, channelController=${_channelController.text}');
-    }
-    
-    // Si autojoin está activado, seleccionar un servidor aleatorio con puerto 6697
-    if (autoJoin && PlatformUtils.isWeb) {
-      // Asegurar que el canal esté en el controlador (puede venir de URL)
-      String? channelToUse = urlChannel;
-      if (channelToUse == null || channelToUse.trim().isEmpty) {
-        channelToUse = _channelController.text.trim();
-      }
+    // Leer servidor seleccionado del provider (si se cambió desde el AppBar)
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      // Esperar un momento para asegurar que el provider se haya inicializado
+      await Future.delayed(const Duration(milliseconds: 100));
       
-      if (channelToUse != null && channelToUse.trim().isNotEmpty) {
-        // Normalizar el canal
-        String finalChannel = channelToUse.trim();
-        if (!finalChannel.startsWith('#')) {
-          finalChannel = '#$finalChannel';
+      final selectedServerProfile = ref.read(currentServerProfileProvider);
+      final currentChannel = ref.read(currentChannelProvider);
+      final currentNick = ref.read(currentNicknameProvider);
+      final autoJoinChannels = ref.read(autoJoinChannelsProvider);
+      
+      print('🔍 [LOGIN] ========== INICIO LOGIN ==========');
+      print('🔍 [LOGIN] Estado inicial - servidor: ${selectedServerProfile?.name ?? "null"}');
+      print('🔍 [LOGIN] Servidor host: ${selectedServerProfile?.host ?? "null"}, port: ${selectedServerProfile?.port ?? "null"}');
+      print('🔍 [LOGIN] Nick: $currentNick');
+      print('🔍 [LOGIN] Canal: $currentChannel');
+      print('🔍 [LOGIN] Canales autojoin: $autoJoinChannels');
+      print('🔍 [LOGIN] Canal desde URL: $urlChannel');
+      print('🔍 [LOGIN] ===================================');
+      
+      // Verificar si hay datos guardados para autojoin (viene de cambio de servidor)
+      final hasAutoJoinData = currentNick != null && currentNick.isNotEmpty && 
+                             (currentChannel != null && currentChannel.isNotEmpty || autoJoinChannels.isNotEmpty);
+      
+      if (selectedServerProfile != null) {
+        print('🔍 [LOGIN] ✅ Servidor seleccionado desde provider: ${selectedServerProfile.name}');
+        print('🔍 [LOGIN] Servidor host: ${selectedServerProfile.host}, port: ${selectedServerProfile.port}');
+        _selectedServer = selectedServerProfile;
+        _updateServerFields(selectedServerProfile);
+        
+        // Verificar que los campos se actualizaron correctamente
+        print('🔍 [LOGIN] Campos actualizados - host: ${_hostController.text}, port: ${_portController.text}');
+        
+        // Obtener el canal actual si existe (solo si no hay canal de URL)
+        if (urlChannel == null || urlChannel.isEmpty) {
+          if (currentChannel != null && currentChannel.isNotEmpty) {
+            _channelController.text = currentChannel;
+            print('🔍 [LOGIN] Canal actual desde provider: $currentChannel');
+          } else if (autoJoinChannels.isNotEmpty) {
+            // Si no hay canal actual pero hay canales para autojoin, usar el primero
+            _channelController.text = autoJoinChannels.first;
+            print('🔍 [LOGIN] Usando primer canal de autojoin: ${autoJoinChannels.first}');
+          }
+        } else {
+          print('🔍 [LOGIN] Canal de URL tiene prioridad, no se sobrescribe con provider');
         }
-        _channelController.text = finalChannel;
         
-        // Filtrar servidores con puerto 6697 (SSL)
-        final sslServers = ServerProfile.defaultGlobalChatProfiles
-            .where((profile) => profile.port == 6697 && profile.useSSL)
-            .toList();
+        // Obtener el nick del provider si está disponible (solo si no hay nick de URL)
+        if ((urlNick == null || urlNick.isEmpty) && currentNick != null && currentNick.isNotEmpty) {
+          _nickController.text = currentNick;
+          print('🔍 [LOGIN] Nick actual desde provider: $currentNick');
+        } else if (urlNick != null && urlNick.isNotEmpty) {
+          print('🔍 [LOGIN] Nick de URL tiene prioridad, no se sobrescribe con provider');
+        }
         
-        if (sslServers.isNotEmpty) {
-          // Asegurar que el puerto sea 6697
-          _portController.text = '6697';
+        // Hacer autojoin automáticamente cuando se cambia de servidor
+        if (hasAutoJoinData) {
+          print('🔍 [AUTOJOIN] ✅ Condiciones cumplidas para autojoin: servidor=${selectedServerProfile.name}, nick=$currentNick, canales=$autoJoinChannels');
           
-          // Detectar ubicación geográfica usando GeoIP y seleccionar servidor
-          // Luego conectar automáticamente
-          WidgetsBinding.instance.addPostFrameCallback((_) async {
-            // Primero seleccionar el servidor basado en GeoIP
-            await _selectServerByGeoIPFromList(sslServers);
+          // Esperar un momento para que los campos se actualicen
+          Future.delayed(const Duration(milliseconds: 500), () {
+            final host = _hostController.text.trim();
+            final portText = _portController.text.trim();
+            final port = int.tryParse(portText) ?? 6697;
+            final nick = _nickController.text.trim();
+            final channel = _channelController.text.trim();
             
-            // Esperar un momento para asegurar que el servidor se haya actualizado
-            await Future.delayed(const Duration(milliseconds: 100));
+            print('🔍 [AUTOJOIN] Verificando campos: host=$host, port=$port, nick=$nick, channel=$channel');
             
-            if (mounted) {
-              // Verificar que tenemos todos los datos necesarios
-              final host = _hostController.text.trim();
-              final portText = _portController.text.trim();
-              final port = int.tryParse(portText) ?? 6697;
-              final nick = _nickController.text.trim();
-              final channel = _channelController.text.trim();
+            if (host.isNotEmpty && nick.isNotEmpty && channel.isNotEmpty) {
+              print('🔍 [AUTOJOIN] ✅ Todos los campos están completos, iniciando conexión...');
+              print('🔍 [AUTOJOIN] Auto-uniéndose después de cambiar servidor: host=$host, port=$port, nick=$nick, channel=$channel');
               
-              // Verificar que todos los campos estén completos
-              if (host.isNotEmpty && nick.isNotEmpty && channel.isNotEmpty) {
-                print('🔍 [AUTOJOIN] Intentando conectar: host=$host, port=$port, nick=$nick, channel=$channel');
-                
-                // Mostrar estado de carga para autojoin
+              // Esperar un momento antes de conectar
+              Future.delayed(const Duration(milliseconds: 300), () async {
                 if (mounted) {
                   setState(() {
                     _isAutoJoining = true;
                     _isLoading = true;
                   });
+                  
+                  try {
+                    await _connect();
+                    print('🔍 [AUTOJOIN] ✅ Conexión exitosa después de cambiar servidor');
+                  } catch (e) {
+                    print('🔍 [AUTOJOIN] ❌ Error en conexión: $e');
+                    if (mounted) {
+                      setState(() {
+                        _errorMessage = 'Error en auto-join: $e';
+                        _isLoading = false;
+                        _isAutoJoining = false;
+                      });
+                    }
+                  }
                 }
+              });
+            } else {
+              print('🔍 [AUTOJOIN] ⚠️ Campos incompletos - host: ${host.isNotEmpty}, nick: ${nick.isNotEmpty}, channel: ${channel.isNotEmpty}');
+            }
+          });
+        } else {
+          print('🔍 [LOGIN] No se cumplen condiciones para autojoin - nick: ${currentNick != null && currentNick.isNotEmpty}, canal: ${currentChannel != null && currentChannel.isNotEmpty}, canales autojoin: ${autoJoinChannels.isNotEmpty}');
+        }
+      } else {
+        print('🔍 [LOGIN] No hay servidor seleccionado en el provider, usando selección por GeoIP');
+        
+        // Si autojoin está activado desde URL y no hay servidor seleccionado, hacer autojoin
+        if (autoJoin && PlatformUtils.isWeb && (urlNick != null || urlChannel != null)) {
+          print('🔍 [AUTOJOIN_URL] ✅ Autojoin activado desde URL - nick: $urlNick, channel: $urlChannel');
+          
+          // Verificar que tenemos todos los campos necesarios
+          final host = _hostController.text.trim();
+          final portText = _portController.text.trim();
+          final port = int.tryParse(portText) ?? 6697;
+          final nick = _nickController.text.trim();
+          final channel = _channelController.text.trim();
+          
+          print('🔍 [AUTOJOIN_URL] Verificando campos: host=$host, port=$port, nick=$nick, channel=$channel');
+          
+          if (host.isNotEmpty && nick.isNotEmpty && channel.isNotEmpty) {
+            print('🔍 [AUTOJOIN_URL] ✅ Todos los campos están completos, iniciando conexión...');
+            
+            // Esperar un momento antes de conectar
+            Future.delayed(const Duration(milliseconds: 800), () async {
+              if (mounted) {
+                setState(() {
+                  _isAutoJoining = true;
+                  _isLoading = true;
+                });
                 
-                // Conectar automáticamente
                 try {
                   await _connect();
-                  print('🔍 [AUTOJOIN] Conexión exitosa');
+                  print('🔍 [AUTOJOIN_URL] ✅ Conexión exitosa desde URL');
                 } catch (e) {
-                  print('🔍 [AUTOJOIN] Error en conexión: $e');
-                  // Si hay error, mostrar mensaje pero no bloquear
+                  print('🔍 [AUTOJOIN_URL] ❌ Error en conexión: $e');
                   if (mounted) {
                     setState(() {
                       _errorMessage = 'Error en auto-join: $e';
@@ -329,24 +320,102 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   }
                 }
               }
-            }
-          });
-        } else {
-          // Si no hay servidores SSL, usar selección basada en GeoIP
-          WidgetsBinding.instance.addPostFrameCallback((_) async {
-            await _selectServerByGeoIP();
-          });
+            });
+          } else {
+            print('🔍 [AUTOJOIN_URL] ⚠️ Campos incompletos - host: ${host.isNotEmpty}, nick: ${nick.isNotEmpty}, channel: ${channel.isNotEmpty}');
+          }
         }
-      } else {
-        // Si no hay canal, usar selección basada en GeoIP
-        WidgetsBinding.instance.addPostFrameCallback((_) async {
-          await _selectServerByGeoIP();
-        });
       }
-    } else {
-      // Seleccionar el servidor basado en GeoIP
+    });
+    
+    // Si autojoin está activado desde URL, hacer autojoin automáticamente
+    // (Este bloque es para cuando no hay servidor seleccionado del provider)
+    if (autoJoin && PlatformUtils.isWeb) {
       WidgetsBinding.instance.addPostFrameCallback((_) async {
-        await _selectServerByGeoIP();
+        // Verificar si hay servidor seleccionado del provider
+        final selectedServerProfile = ref.read(currentServerProfileProvider);
+        
+        if (selectedServerProfile == null) {
+          // Asegurar que el canal esté en el controlador (puede venir de URL)
+          String? channelToUse = urlChannel;
+          if (channelToUse == null || channelToUse.trim().isEmpty) {
+            channelToUse = _channelController.text.trim();
+          }
+          
+          if (channelToUse != null && channelToUse.trim().isNotEmpty) {
+            // Normalizar el canal
+            String finalChannel = channelToUse.trim();
+            if (!finalChannel.startsWith('#')) {
+              finalChannel = '#$finalChannel';
+            }
+            _channelController.text = finalChannel;
+            print('🔍 [AUTOJOIN_URL] Canal normalizado: $finalChannel');
+            
+            // Filtrar servidores con puerto 6697 (SSL)
+            final sslServers = ServerProfile.defaultGlobalChatProfiles
+                .where((profile) => profile.port == 6697 && profile.useSSL)
+                .toList();
+            
+            if (sslServers.isNotEmpty) {
+              // Asegurar que el puerto sea 6697
+              _portController.text = '6697';
+              
+              // Detectar ubicación geográfica usando GeoIP y seleccionar servidor
+              // Luego conectar automáticamente
+              // Primero seleccionar el servidor basado en GeoIP
+              await _selectServerByGeoIPFromList(sslServers);
+              
+              // Esperar un momento para asegurar que el servidor se haya actualizado
+              await Future.delayed(const Duration(milliseconds: 200));
+              
+              if (mounted) {
+                // Verificar que tenemos todos los datos necesarios
+                final host = _hostController.text.trim();
+                final portText = _portController.text.trim();
+                final port = int.tryParse(portText) ?? 6697;
+                final nick = _nickController.text.trim();
+                final channel = _channelController.text.trim();
+                
+                // Verificar que todos los campos estén completos
+                if (host.isNotEmpty && nick.isNotEmpty && channel.isNotEmpty) {
+                  print('🔍 [AUTOJOIN_URL] Intentando conectar: host=$host, port=$port, nick=$nick, channel=$channel');
+                  
+                  // Mostrar estado de carga para autojoin
+                  if (mounted) {
+                    setState(() {
+                      _isAutoJoining = true;
+                      _isLoading = true;
+                    });
+                  }
+                  
+                  // Conectar automáticamente
+                  try {
+                    await _connect();
+                    print('🔍 [AUTOJOIN_URL] ✅ Conexión exitosa');
+                  } catch (e) {
+                    print('🔍 [AUTOJOIN_URL] ❌ Error en conexión: $e');
+                    // Si hay error, mostrar mensaje pero no bloquear
+                    if (mounted) {
+                      setState(() {
+                        _errorMessage = 'Error en auto-join: $e';
+                        _isLoading = false;
+                        _isAutoJoining = false;
+                      });
+                    }
+                  }
+                } else {
+                  print('🔍 [AUTOJOIN_URL] ⚠️ Campos incompletos - host: ${host.isNotEmpty}, nick: ${nick.isNotEmpty}, channel: ${channel.isNotEmpty}');
+                }
+              }
+            } else {
+              // Si no hay servidores SSL, usar selección basada en GeoIP
+              await _selectServerByGeoIP();
+            }
+          } else {
+            // Si no hay canal, usar selección basada en GeoIP
+            await _selectServerByGeoIP();
+          }
+        }
       });
     }
     
@@ -641,8 +710,46 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       // Normalizar a minúsculas para consistencia
       normalizedChannel = normalizedChannel.toLowerCase();
       
-      // Set the channel to join (normalizado)
-      ref.read(currentChannelProvider.notifier).state = normalizedChannel;
+      // Verificar si hay canales guardados para autojoin (cuando se cambia de servidor)
+      final autoJoinChannels = ref.read(autoJoinChannelsProvider);
+      final currentChannelFromProvider = ref.read(currentChannelProvider);
+      
+      print('🔍 [CONNECT] Canales para autojoin: $autoJoinChannels');
+      print('🔍 [CONNECT] Canal actual desde provider: $currentChannelFromProvider');
+      
+      if (autoJoinChannels.isNotEmpty) {
+        // Si hay canales guardados, hacer JOIN a todos ellos después de conectarse
+        print('🔍 [AUTOJOIN] ✅ Hay ${autoJoinChannels.length} canales para autojoin: $autoJoinChannels');
+        
+        // Esperar a que la conexión esté completamente establecida antes de hacer JOIN
+        Future.delayed(const Duration(milliseconds: 2000), () {
+          if (mounted && ircService.isConnected) {
+            // Hacer JOIN a cada canal con un pequeño delay
+            for (int i = 0; i < autoJoinChannels.length; i++) {
+              final channelToJoin = autoJoinChannels[i];
+              Future.delayed(Duration(milliseconds: 500 + (i * 300)), () {
+                if (mounted && ircService.isConnected) {
+                  print('🔍 [AUTOJOIN] Uniéndose a canal: $channelToJoin');
+                  ircService.joinChannel(channelToJoin);
+                }
+              });
+            }
+            
+            // Establecer el canal actual como el primero de la lista (o el que estaba antes)
+            final channelToSet = currentChannelFromProvider ?? autoJoinChannels.first;
+            Future.delayed(const Duration(milliseconds: 1000), () {
+              if (mounted) {
+                ref.read(currentChannelProvider.notifier).state = channelToSet;
+                print('🔍 [AUTOJOIN] Canal actual establecido: $channelToSet');
+              }
+            });
+          }
+        });
+      } else {
+        // Si no hay canales guardados, usar el canal del formulario (comportamiento normal)
+        ref.read(currentChannelProvider.notifier).state = normalizedChannel;
+        print('🔍 [CONNECT] Usando canal del formulario: $normalizedChannel');
+      }
       // globalLog('🔵 [LOGIN] Set channel in provider: "$channel" -> normalized: "$normalizedChannel"');
 
       // globalLog('🔵 [LOGIN] About to navigate to ChatScreen');

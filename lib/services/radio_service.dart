@@ -8,6 +8,8 @@ import '../main.dart' show globalLog;
 import '../utils/platform_utils.dart';
 // Conditional import for Platform (native only)
 import 'dart:io' if (dart.library.html) 'dart:html' as io;
+// Conditional import for window location (web only)
+import 'dart:html' if (dart.library.io) 'package:irc_app/utils/html_stub.dart' as html;
 
 class RadioService {
   AudioPlayer? _player; // just_audio para nativo
@@ -94,8 +96,73 @@ class RadioService {
       // Configurar volumen desde el estado guardado
       await _webPlayer!.setVolume(_currentVolume);
       
-      // Reproducir la estación
-      await _webPlayer!.play(web_audio.UrlSource(station.source));
+      // Verificar que la URL sea válida
+      String sourceUrl = station.source;
+      if (sourceUrl.isEmpty) {
+        throw Exception('URL de la estación está vacía');
+      }
+      
+      // En web, usar proxy para listen2myradio.com para evitar problemas CORS
+      if (sourceUrl.contains('listen2myradio.com')) {
+        try {
+          final uri = Uri.parse(sourceUrl);
+          // Construir URL del proxy: /radio-proxy/host/path?query
+          final proxyPath = '/radio-proxy/${uri.host}${uri.path}${uri.hasQuery ? '?${uri.query}' : ''}';
+          // Usar la misma base URL de la página actual
+          try {
+            final baseHref = html.window.location.href;
+            if (baseHref != null && baseHref.isNotEmpty) {
+              final baseUri = Uri.parse(baseHref);
+              sourceUrl = '${baseUri.scheme}://${baseUri.host}${baseUri.hasPort ? ':${baseUri.port}' : ''}$proxyPath';
+              print('📻 [RadioService Web] Usando proxy para listen2myradio.com: $sourceUrl');
+            } else {
+              // Fallback: usar URL relativa
+              sourceUrl = proxyPath;
+              print('📻 [RadioService Web] Usando proxy relativo: $sourceUrl');
+            }
+          } catch (e) {
+            // Fallback: usar URL relativa
+            sourceUrl = proxyPath;
+            print('📻 [RadioService Web] Error obteniendo base URL, usando proxy relativo: $sourceUrl');
+          }
+        } catch (e) {
+          print('⚠️ [RadioService Web] Error construyendo URL proxy, usando URL original: $e');
+          // Continuar con la URL original si hay error
+        }
+      }
+      
+      // Agregar listener para detectar errores
+      _webPlayer!.onPlayerStateChanged.listen((state) {
+        if (state == web_audio.PlayerState.stopped && _isPlaying) {
+          // Si se detuvo inesperadamente, marcar como error
+          _isPlaying = false;
+          print('⚠️ [RadioService Web] Reproducción detenida inesperadamente');
+        }
+      });
+      
+      _webPlayer!.onLog.listen((log) {
+        print('📻 [RadioService Web] Log: $log');
+      });
+      
+      // En web, usar UrlSource (puede ser URL directa o proxy)
+      try {
+        await _webPlayer!.play(web_audio.UrlSource(sourceUrl));
+        
+        // Esperar un momento para verificar si hay errores de reproducción
+        await Future.delayed(const Duration(milliseconds: 800));
+        
+        // Verificar el estado del player
+        final playerState = _webPlayer!.state;
+        if (playerState == web_audio.PlayerState.stopped && _isPlaying == false) {
+          // Si se detuvo inmediatamente, probablemente hay un error
+          throw Exception('No se pudo iniciar la reproducción. El servidor puede tener restricciones CORS o la URL no es válida.');
+        }
+      } catch (playError) {
+        // Si hay un error al reproducir, intentar con un enfoque alternativo
+        print('⚠️ [RadioService Web] Error al reproducir, intentando método alternativo...');
+        throw playError;
+      }
+      
       _currentStation = station;
       _isPlaying = true;
     } catch (e, stackTrace) {
@@ -107,6 +174,12 @@ class RadioService {
         await _webPlayer?.release();
       } catch (_) {}
       _webPlayer = null;
+      
+      // Log del error para debugging
+      print('❌ [RadioService Web] Error reproduciendo ${station.name}: $e');
+      print('❌ [RadioService Web] URL: ${station.source}');
+      print('❌ [RadioService Web] Stack: $stackTrace');
+      
       rethrow; // Re-lanzar el error para que el widget pueda manejarlo
     }
   }

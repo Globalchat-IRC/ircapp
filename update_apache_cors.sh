@@ -82,6 +82,42 @@ sudo tee "$CONFIG_FILE" > /dev/null <<'EOF'
         ExpiresActive On
         ExpiresDefault "access plus 1 year"
     </LocationMatch>
+    
+    # Proxy para streaming de radio (evitar problemas CORS)
+    ProxyPreserveHost Off
+    ProxyRequests Off
+    SSLProxyEngine On
+    SSLProxyVerify none
+    SSLProxyCheckPeerCN off
+    SSLProxyCheckPeerName off
+    
+    # Regla de proxy para listen2myradio.com usando ProxyPass
+    # La URL será: /radio-proxy/uk21freenew.listen2myradio.com/live.mp3?params
+    <Proxy https://uk21freenew.listen2myradio.com/*>
+        Order allow,deny
+        Allow from all
+    </Proxy>
+    
+    ProxyPass /radio-proxy/uk21freenew.listen2myradio.com/ https://uk21freenew.listen2myradio.com/
+    ProxyPassReverse /radio-proxy/uk21freenew.listen2myradio.com/ https://uk21freenew.listen2myradio.com/
+    
+    <LocationMatch "^/radio-proxy/">
+        # Headers CORS para el proxy
+        Header always set Access-Control-Allow-Origin "*"
+        Header always set Access-Control-Allow-Methods "GET, OPTIONS, HEAD"
+        Header always set Access-Control-Allow-Headers "Range, Content-Type, Accept, Origin, User-Agent"
+        Header always set Access-Control-Expose-Headers "Content-Length, Content-Range, Accept-Ranges"
+        
+        # Headers para streaming
+        Header always set Cache-Control "no-cache, no-store, must-revalidate"
+        Header always set Pragma "no-cache"
+        Header always set Expires "0"
+        
+        # Manejar preflight OPTIONS
+        RewriteEngine On
+        RewriteCond %{REQUEST_METHOD} OPTIONS
+        RewriteRule ^(.*)$ $1 [R=200,L]
+    </LocationMatch>
 </VirtualHost>
 
 # HTTP to HTTPS redirect
@@ -99,6 +135,9 @@ sudo a2enmod ssl
 sudo a2enmod rewrite
 sudo a2enmod headers
 sudo a2enmod env
+sudo a2enmod proxy
+sudo a2enmod proxy_http
+sudo a2enmod proxy_connect
 
 # Habilitar el sitio
 echo "🔧 Habilitando sitio..."

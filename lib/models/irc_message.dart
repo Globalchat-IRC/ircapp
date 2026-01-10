@@ -126,9 +126,22 @@ class IRCChannel {
   }
 
   void removeUser(String nick) {
-    users.remove(nick);
-    userHosts.remove(nick);
-    userModes.remove(nick);
+    // Buscar el usuario de forma case-insensitive
+    final nickLower = nick.toLowerCase();
+    String? existingNick;
+    for (var user in users) {
+      if (user.toLowerCase() == nickLower) {
+        existingNick = user;
+        break;
+      }
+    }
+    
+    // Si se encontró, remover usando el nick exacto (para mantener consistencia)
+    if (existingNick != null) {
+      users.remove(existingNick);
+      userHosts.remove(existingNick);
+      userModes.remove(existingNick);
+    }
   }
 
   void setTopic(String? newTopic) {

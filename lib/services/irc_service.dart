@@ -25,6 +25,7 @@ class IRCService {
   final List<Function(String)> _nickChangeListeners = []; // Listeners para cambios de nick
   final List<Function()> _ircopListeners = []; // Listeners para cuando se identifica como IRCop
   final List<Function(int)> _lagListeners = []; // Listeners para actualizaciones de lag
+  final List<Function(String)> _debugLogListeners = []; // Listeners para logs de debug
   Map<String, WhoisInfo> _whoisCache = {};
   Map<String, WhoisInfo> _pendingWhois = {}; // Para acumular información de whois
   DateTime? _lastPingTime; // Timestamp del último PING recibido
@@ -76,8 +77,8 @@ class IRCService {
     try {
       _useSSL = useSSL;
       _currentHost = host;
-      // print('📡 [IRCService.connect] Connecting to $host:$port as $nickname (SSL: $useSSL)');
-      // print('📡 [IRCService.connect] Platform: ${PlatformUtils.isWeb ? "Web" : "Native"}');
+      print('📡 [IRCService.connect] Connecting to $host:$port as $nickname (SSL: $useSSL)');
+      print('📡 [IRCService.connect] Platform: ${PlatformUtils.isWeb ? "Web" : "Native"}');
       _nickname = nickname;
       _isRegistered = false; // Reset registration status
       _connectionCompleter = Completer<void>(); // Reinicializar el completer
@@ -87,7 +88,7 @@ class IRCService {
       
       // Conectar usando la interfaz abstracta
       await _connection!.connect(host, port, useSSL: useSSL);
-      // print('✅ [IRCService] Connection established');
+      print('✅ [IRCService] Connection established to $host:$port');
       
       // Start listening to incoming data (non-blocking)
       // El stream ya devuelve String, no necesita decodificación
@@ -109,7 +110,7 @@ class IRCService {
       _sendCommand('NICK $nickname');
       _sendCommand('USER $nickname 0 * :$nickname');
       
-      // print('✅ [IRCService] Commands sent');
+      print('✅ [IRCService] Commands sent: NICK $nickname, USER $nickname');
       // print('✅ [IRCService] Listener registered');
       
       // Set connection as established
@@ -644,8 +645,8 @@ class IRCService {
 
   void sendNames(String channel) {
     final normalized = _normalizeChannelName(channel);
-    _sendCommand('NAMES $normalized');
-    // print('👥 [IRCService] Solicitando lista de usuarios de $normalized');
+        _sendCommand('NAMES $normalized');
+        print('👥 [IRCService] Solicitando lista de usuarios de $normalized');
   }
 
   // Comandos de gestión
@@ -1280,7 +1281,29 @@ class IRCService {
     }
   }
 
+  // Método para agregar listeners de debug
+  void addDebugLogListener(Function(String) listener) {
+    _debugLogListeners.add(listener);
+  }
+
+  void removeDebugLogListener(Function(String) listener) {
+    _debugLogListeners.remove(listener);
+  }
+
+  void _notifyDebugLog(String message) {
+    for (var listener in _debugLogListeners) {
+      try {
+        listener(message);
+      } catch (e) {
+        // Ignorar errores en listeners
+      }
+    }
+  }
+
   void _handleData(String rawData) {
+    // Notificar a los listeners de debug
+    _notifyDebugLog(rawData);
+    
     final lines = rawData.split('\r\n');
     
     for (var line in lines) {
@@ -1383,7 +1406,7 @@ class IRCService {
 
       switch (command) {
         case '001': // Welcome
-          // print('✅ Welcome message received - connected as $nick');
+          print('✅ Welcome message received - connected as $nick to $_currentHost');
           // print('🔍 [DEBUG] ✅✅✅ User is now fully registered! Ready for JOIN commands ✅✅✅');
           _isRegistered = true; // Marcar que el usuario está registrado
           if (!_connectionCompleter.isCompleted) {
@@ -1502,105 +1525,132 @@ class IRCService {
           break;
         
         case '353': // Names reply (users in channel)
-          // print('🔍 [DEBUG] 📋 Received user list (353) from server');
-          // print('🔍 [DEBUG] Raw line: $line');
-          if (args.length >= 3) {
-            // Format: 353 nick = #channel :user1 user2 user3
-            final channelPrivacy = args[1]; // '=' for public
-            var channel = args[2]; // The actual channel name
-            
-            // print('🔍 [DEBUG] Original channel from args[2]: "$channel"');
-            // print('🔍 [DEBUG] All args: $args');
-            
-            // Normalizar el nombre del canal primero
-            final originalChannel = channel;
-            channel = _normalizeChannelName(channel);
-            
-            // print('🔍 [DEBUG] Normalized channel: "$channel" (from "$originalChannel")');
-            
-            // Validación adicional: si todavía tiene problemas, intentar extraer del mensaje completo
-            if (channel.contains(':#') || channel.startsWith(':#')) {
-              // print('🔍 [DEBUG] ⚠️  Channel still has issues, trying to extract from full line');
-              // Intentar extraer el canal del formato completo
-              final match = RegExp(r'353\s+\S+\s+=\s+(#\S+)').firstMatch(line);
-              if (match != null) {
-                channel = _normalizeChannelName(match.group(1)!);
-                // print('🔍 [DEBUG] Extracted channel from regex: "$channel"');
+          print('🔍 [DEBUG] 📋 Received user list (353) from server');
+          print('🔍 [DEBUG] Raw line: $line');
+          print('🔍 [DEBUG] 📋 Args count: ${args.length}, Args: $args');
+          
+          // Método más simple y robusto: buscar cualquier palabra que empiece con # en la línea
+          String? channel;
+          
+          // Primero intentar con regex para encontrar cualquier #canal en la línea
+          final channelMatch = RegExp(r'(#\S+)').firstMatch(line);
+          if (channelMatch != null) {
+            channel = channelMatch.group(1);
+            print('🔍 [DEBUG] 📋 Found channel with regex: "$channel"');
+          }
+          
+          // Si no se encontró, intentar con args
+          if (channel == null || !channel.startsWith('#')) {
+            // Buscar en todos los args el que empiece con #
+            for (var arg in args) {
+              if (arg.startsWith('#')) {
+                channel = arg;
+                print('🔍 [DEBUG] 📋 Found channel in args: "$channel"');
+                break;
               }
             }
+          }
+          
+          // Si todavía no se encontró, intentar métodos alternativos
+          if (channel == null || !channel.startsWith('#')) {
+            if (args.length >= 3) {
+              // Formato típico: 353 nick = #channel :users
+              // args[1] podría ser '=' y args[2] el canal
+              if (args[1] == '=' || args[1] == '@' || args[1] == '&' || args[1] == '*') {
+                channel = args[2];
+              } else if (args[1].startsWith('#')) {
+                channel = args[1];
+              } else if (args[2].startsWith('#')) {
+                channel = args[2];
+              }
+              print('🔍 [DEBUG] 📋 Channel from args (method 2): "$channel"');
+            } else if (args.length >= 2) {
+              channel = args[1];
+              print('🔍 [DEBUG] 📋 Channel from args[1]: "$channel"');
+            }
+          }
+          
+          if (channel == null || channel.isEmpty || !channel.startsWith('#')) {
+            print('🔍 [DEBUG] ⚠️  ⚠️  ⚠️  Could not extract channel from 353 command');
+            print('🔍 [DEBUG] Full line was: $line');
+            print('🔍 [DEBUG] Args were: $args');
+            break;
+          }
+          
+          // Normalizar el nombre del canal
+          String originalChannel = channel;
+          channel = _normalizeChannelName(channel);
+          
+          print('🔍 [DEBUG] 📋 Normalized channel: "$channel" (from "$originalChannel")');
+          print('🔍 [DEBUG] 📋 Available channels in map: ${channels.keys.toList()}');
+          
+          // En este punto, channel no puede ser null (ya validado arriba)
+          final validChannel = channel;
+          
+          // Validación CRÍTICA: el canal NO debe ser igual al nickname (con o sin #)
+          // Esto evita crear canales como #flutteruser cuando el nickname es FlutterUser
+          if (_nickname != null) {
+            final normalizedNick = _nickname!.toLowerCase();
+            final channelWithoutHash = validChannel.toLowerCase().replaceFirst('#', '');
             
-            // print('🔍 [DEBUG] Final normalized channel: "$channel"');
-            // print('🔍 [DEBUG] All current channels in map: ${channels.keys.toList()}');
-            
-            // Solo procesar si es un canal válido (empieza con #)
-            if (!channel.startsWith('#')) {
-              // print('🔍 [DEBUG] ⚠️  Invalid channel name (doesn\'t start with #): $channel');
+            // Verificar si el canal es igual al nickname (con o sin #)
+            if (channelWithoutHash == normalizedNick || 
+                validChannel.toLowerCase() == '#$normalizedNick' ||
+                originalChannel.toLowerCase() == normalizedNick) {
+              print('🔍 [DEBUG] ⚠️  ⚠️  ⚠️  BLOCKING 353: channel "$validChannel" matches nickname "$_nickname" - SKIPPING');
               break;
             }
+          }
+          
+          // Si el canal no existe con el nombre exacto, buscar por nombre normalizado (case-insensitive)
+          // Esto es importante porque el servidor puede devolver el nombre con diferente capitalización
+          String finalChannel = validChannel;
+          
+          // Buscar el canal con el mismo nombre normalizado (case-insensitive)
+          if (!channels.containsKey(validChannel)) {
+            print('🔍 [DEBUG] ⚠️  Channel "$validChannel" not found with exact name, searching case-insensitive...');
+            print('🔍 [DEBUG] Available channels: ${channels.keys.map((k) => '"$k"').join(", ")}');
             
-            // Validación CRÍTICA: el canal NO debe ser igual al nickname (con o sin #)
-            // Esto evita crear canales como #flutteruser cuando el nickname es FlutterUser
-            if (_nickname != null) {
-              final normalizedNick = _nickname!.toLowerCase();
-              final channelWithoutHash = channel.toLowerCase().replaceFirst('#', '');
-              
-              // Verificar si el canal es igual al nickname (con o sin #)
-              if (channelWithoutHash == normalizedNick || 
-                  channel.toLowerCase() == '#$normalizedNick' ||
-                  originalChannel.toLowerCase() == normalizedNick) {
-                // print('🔍 [DEBUG] ⚠️  ⚠️  ⚠️  BLOCKING 353: channel "$channel" matches nickname "$_nickname" - SKIPPING');
+            for (var existingKey in channels.keys) {
+              if (existingKey.toLowerCase() == validChannel.toLowerCase()) {
+                finalChannel = existingKey;
+                print('🔍 [DEBUG] ✅ Found matching channel: "$existingKey" (normalized matches "$validChannel")');
                 break;
               }
             }
             
-            // Si el canal no existe con el nombre exacto, buscar por nombre normalizado (case-insensitive)
-            // Esto es importante porque el servidor puede devolver el nombre con diferente capitalización
-            String? actualChannelKey = channel;
-            if (!channels.containsKey(channel)) {
-              // print('🔍 [DEBUG] ⚠️  Channel "$channel" not found with exact name, searching case-insensitive...');
-              // print('🔍 [DEBUG] Available channels: ${channels.keys.map((k) => '"$k"').join(", ")}');
-              
-              // Buscar el canal con el mismo nombre normalizado
-              for (var existingKey in channels.keys) {
-                if (existingKey.toLowerCase() == channel.toLowerCase()) {
-                  actualChannelKey = existingKey;
-                  // print('🔍 [DEBUG] ✅ Found matching channel: "$existingKey" (normalized matches "$channel")');
-                  channel = existingKey; // Usar el nombre que realmente existe en el mapa
-                  break;
-                }
-              }
-              
-              if (actualChannelKey == channel && !channels.containsKey(channel)) {
-                // print('🔍 [DEBUG] ⚠️  Channel not found even with case-insensitive search, will create new: $channel');
-              }
-            } else {
-              // print('🔍 [DEBUG] ✅ Channel found with exact name: $channel');
+            // Si no se encontró, crear el canal con el nombre normalizado
+            if (!channels.containsKey(finalChannel)) {
+              print('🔍 [DEBUG] ⚠️  Channel not found, will create new: $finalChannel');
             }
-            
-            // Find the position of ':' to get the users list
-            final colonIndex = line.indexOf(':');
-            if (colonIndex != -1) {
+          } else {
+            print('🔍 [DEBUG] ✅ Channel found with exact name: $validChannel');
+          }
+          
+          // Find the position of ':' to get the users list
+          final colonIndex = line.indexOf(':');
+          if (colonIndex != -1) {
               final usersList = line.substring(colonIndex + 1).trim();
               final users = usersList.split(' ').where((u) => u.isNotEmpty).toList();
               
-              // print('🔍 [DEBUG] Channel: $channel (privacy: $channelPrivacy)');
-              // print('🔍 [DEBUG] Raw users string: "$usersList"');
-              // print('🔍 [DEBUG] Parsed users count: ${users.length}');
-              // print('🔍 [DEBUG] Parsed users list: $users');
-              
-              // Create channel if it doesn't exist (usar nombre normalizado)
-              if (!channels.containsKey(channel)) {
-                // print('🔍 [DEBUG] ℹ️  Channel not in map, creating it: $channel');
-                channels[channel] = IRCChannel(name: channel);
-              } else {
-                // print('🔍 [DEBUG] ✅ Channel already exists: $channel');
-                // print('🔍 [DEBUG] Current users in channel before update: ${channels[channel]!.users}');
-              }
-              
-              int addedCount = 0;
-              int updatedCount = 0;
-              // Agregar usuarios a la lista (addUser ya verifica duplicados)
-              for (var user in users) {
+            print('🔍 [DEBUG] Channel: $finalChannel');
+            print('🔍 [DEBUG] Raw users string: "$usersList"');
+            print('🔍 [DEBUG] Parsed users count: ${users.length}');
+            print('🔍 [DEBUG] Parsed users list: $users');
+            
+            // Create channel if it doesn't exist (usar nombre normalizado)
+            if (!channels.containsKey(finalChannel)) {
+              // print('🔍 [DEBUG] ℹ️  Channel not in map, creating it: $finalChannel');
+              channels[finalChannel] = IRCChannel(name: finalChannel);
+            } else {
+              // print('🔍 [DEBUG] ✅ Channel already exists: $finalChannel');
+              // print('🔍 [DEBUG] Current users in channel before update: ${channels[finalChannel]!.users}');
+            }
+            
+            int addedCount = 0;
+            int updatedCount = 0;
+            // Agregar usuarios a la lista (addUser ya verifica duplicados)
+            for (var user in users) {
                 // Extraer el prefijo de modo IRC antes de limpiar
                 String? userMode;
                 String cleanUser = user.trim();
@@ -1646,7 +1696,7 @@ class IRCService {
                   // Verificar si el usuario ya existe (case-insensitive)
                   final cleanUserLower = cleanUser.toLowerCase();
                   String? existingUser;
-                  for (var user in channels[channel]!.users) {
+                  for (var user in channels[finalChannel]!.users) {
                     if (user.toLowerCase() == cleanUserLower) {
                       existingUser = user;
                       break;
@@ -1656,59 +1706,56 @@ class IRCService {
                   // Si el usuario ya existe, actualizar su modo
                   if (existingUser != null) {
                     if (userMode != null) {
-                      channels[channel]!.addUser(existingUser, mode: userMode);
+                      channels[finalChannel]!.addUser(existingUser, mode: userMode);
                       updatedCount++;
                       // print('🔍 [DEBUG] ✅ Updated mode for existing user: "$existingUser" -> "$userMode"');
                     } else {
                       // Si no tiene modo en la lista actual, mantener el modo existente si lo tiene
-                      final existingMode = channels[channel]!.getUserMode(existingUser);
+                      final existingMode = channels[finalChannel]!.getUserMode(existingUser);
                       if (existingMode != null) {
                         // print('🔍 [DEBUG] ℹ️  Keeping existing mode for user: "$existingUser" -> "$existingMode"');
                       }
                     }
                   } else {
                     // print('🔍 [DEBUG] ➕ Adding new user: "$cleanUser" with mode: "$userMode"');
-                    channels[channel]!.addUser(cleanUser, mode: userMode);
-                    addedCount++;
+                    channels[finalChannel]!.addUser(cleanUser, mode: userMode);
+                  addedCount++;
                 }
+              } else {
+                if (isServerHost) {
+                  // print('🔍 [DEBUG] ❌ Skipping server/host name: "$cleanUser"');
                 } else {
-                  if (isServerHost) {
-                    // print('🔍 [DEBUG] ❌ Skipping server/host name: "$cleanUser"');
-                  } else {
-                    // print('🔍 [DEBUG] ❌ Skipping invalid user: "$cleanUser"');
-                  }
+                  // print('🔍 [DEBUG] ❌ Skipping invalid user: "$cleanUser"');
                 }
               }
-              
-              // print('🔍 [DEBUG] Added $addedCount new users, updated $updatedCount existing users');
-              // print('🔍 [DEBUG] Total users in channel now: ${channels[channel]!.users.length}');
-              // print('🔍 [DEBUG] Users list: ${channels[channel]!.users}');
-              // Debug: mostrar modos de todos los usuarios
-              for (var u in channels[channel]!.users) {
-                final mode = channels[channel]!.getUserMode(u);
-                if (mode != null) {
-                  // print('🔍 [DEBUG] User "$u" has mode: "$mode"');
-                }
-              }
-              
-              // Notificar que la lista de usuarios se actualizó
-              // print('🔍 [DEBUG] Notifying user list listeners for channel: $channel');
-              _notifyUserListListeners(channel);
-              // print('🔍 [DEBUG] ✅ User list updated for $channel with ${channels[channel]!.users.length} users');
-            } else {
-              // print('🔍 [DEBUG] ⚠️  No colon found in line, cannot parse users');
             }
+            
+            print('🔍 [DEBUG] Added $addedCount new users, updated $updatedCount existing users');
+            print('🔍 [DEBUG] Total users in channel now: ${channels[finalChannel]!.users.length}');
+            print('🔍 [DEBUG] Users list: ${channels[finalChannel]!.users}');
+            // Debug: mostrar modos de todos los usuarios
+            for (var u in channels[finalChannel]!.users) {
+              final mode = channels[finalChannel]!.getUserMode(u);
+              if (mode != null) {
+                // print('🔍 [DEBUG] User "$u" has mode: "$mode"');
+              }
+            }
+            
+            // Notificar que la lista de usuarios se actualizó
+            // print('🔍 [DEBUG] Notifying user list listeners for channel: $finalChannel');
+            _notifyUserListListeners(finalChannel);
+            // print('🔍 [DEBUG] ✅ User list updated for $channel with ${channels[channel]!.users.length} users');
           } else {
-            // print('🔍 [DEBUG] ⚠️  Not enough args in 353 command: ${args.length}');
+            print('🔍 [DEBUG] ⚠️  No colon found in line, cannot parse users');
           }
           break;
         
         case '366': // End of NAMES list
-          // print('📋 End of NAMES list (366)');
+          print('📋 End of NAMES list (366)');
           if (args.length >= 2) {
             var channel = args[1];
             channel = _normalizeChannelName(channel);
-            // print('  ✅ Finished receiving user list for $channel');
+            print('  ✅ Finished receiving user list for $channel');
             // Notificar una vez más para asegurar que la UI se actualice
             if (channels.containsKey(channel)) {
               _notifyUserListListeners(channel);
@@ -1719,7 +1766,7 @@ class IRCService {
                   sendWho(channel);
                 }
               });
-              // print('  ✅ Final user count for $channel: ${channels[channel]!.users.length}');
+              print('  ✅ Final user count for $channel: ${channels[channel]!.users.length}');
             }
           }
           break;
@@ -1846,8 +1893,8 @@ class IRCService {
             // print('🔍 [DEBUG] JOIN check: nick="$nick" == nickname="$_nickname" ? $isOurJoin');
             
             if (isOurJoin) {
-              // print('🔍 [DEBUG] ✅✅✅ Our own JOIN detected! ✅✅✅');
-              // print('🔍 [DEBUG] Requesting NAMES for $channel (immediate)');
+              print('🔍 [DEBUG] ✅✅✅ Our own JOIN detected! ✅✅✅');
+              print('🔍 [DEBUG] Requesting NAMES for $channel (immediate)');
               _sendCommand('NAMES $channel');
               
               // Solicitar el TOPIC del canal
@@ -1963,11 +2010,22 @@ class IRCService {
               realName: realName,
             );
             
-            // Actualizar el host en todos los canales donde esté el usuario
+            // Actualizar el host en todos los canales donde esté el usuario (case-insensitive)
             final affectedChannels = <String>[];
+            final targetNickLower = targetNick.toLowerCase();
             for (var channelEntry in channels.entries) {
-              if (channelEntry.value.users.contains(targetNick)) {
-                channelEntry.value.addUser(targetNick, host: host);
+              // Buscar el usuario de forma case-insensitive
+              bool userExists = false;
+              String? existingNick;
+              for (var user in channelEntry.value.users) {
+                if (user.toLowerCase() == targetNickLower) {
+                  userExists = true;
+                  existingNick = user;
+                  break;
+                }
+              }
+              if (userExists && existingNick != null) {
+                channelEntry.value.addUser(existingNick, host: host);
                 affectedChannels.add(channelEntry.key);
               }
             }

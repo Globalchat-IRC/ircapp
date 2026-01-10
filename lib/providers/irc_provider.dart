@@ -98,6 +98,11 @@ final lastChannelProvider = StateProvider<String?>((ref) {
   return null;
 });
 
+/// Lista de canales para autojoin cuando se cambia de servidor
+final autoJoinChannelsProvider = StateProvider<List<String>>((ref) {
+  return [];
+});
+
 /// Canales/nicks marcados como favoritos (para autounirse y sección destacada)
 final favoritesProvider =
     StateNotifierProvider<FavoritesNotifier, Set<String>>((ref) {
@@ -124,13 +129,68 @@ final notificationSettingsProvider =
 });
 
 /// Perfil de servidor actual (para multi-servidor/multi-red)
-final currentServerProfileProvider = StateProvider<ServerProfile?>((ref) {
-  // Por defecto, usar el primer perfil de GlobalChat (Ceres 6667)
-  return ServerProfile.defaultGlobalChatProfiles.firstWhere(
-    (p) => p.isDefault,
-    orElse: () => ServerProfile.defaultGlobalChatProfiles.first,
-  );
+/// Persistido en SharedPreferences para mantener el valor entre navegaciones
+final currentServerProfileProvider = StateNotifierProvider<CurrentServerProfileNotifier, ServerProfile?>((ref) {
+  return CurrentServerProfileNotifier();
 });
+
+class CurrentServerProfileNotifier extends StateNotifier<ServerProfile?> {
+  static const _prefsKey = 'current_server_profile_v1';
+
+  CurrentServerProfileNotifier() : super(null) {
+    _loadFromPrefs();
+  }
+
+  Future<void> _loadFromPrefs() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final serverId = prefs.getString(_prefsKey);
+      print('🔍 [SERVER_PROFILE] Leyendo desde prefs, serverId: $serverId');
+      if (serverId != null && serverId.isNotEmpty) {
+        // Buscar el perfil por ID en la lista de perfiles por defecto
+        final profile = ServerProfile.defaultGlobalChatProfiles.firstWhere(
+          (p) => p.id == serverId,
+          orElse: () => ServerProfile.defaultGlobalChatProfiles.firstWhere(
+            (p) => p.isDefault,
+            orElse: () => ServerProfile.defaultGlobalChatProfiles.first,
+          ),
+        );
+        state = profile;
+        print('🔍 [SERVER_PROFILE] ✅ Cargado desde prefs: ${profile.name} (${profile.host}:${profile.port})');
+      } else {
+        print('🔍 [SERVER_PROFILE] No hay serverId guardado en prefs');
+      }
+    } catch (e) {
+      print('❌ [SERVER_PROFILE] Error cargando desde prefs: $e');
+    }
+  }
+
+  Future<void> setServerProfile(ServerProfile profile) async {
+    print('🔍 [SERVER_PROFILE] setServerProfile llamado: ${profile.name} (${profile.host}:${profile.port}, id: ${profile.id})');
+    state = profile;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_prefsKey, profile.id);
+      print('🔍 [SERVER_PROFILE] ✅ Guardado en prefs: ${profile.name} (id: ${profile.id})');
+      
+      // Verificar que se guardó correctamente
+      final savedId = prefs.getString(_prefsKey);
+      print('🔍 [SERVER_PROFILE] Verificación - serverId en prefs: $savedId');
+    } catch (e) {
+      print('❌ [SERVER_PROFILE] Error guardando en prefs: $e');
+    }
+  }
+
+  void clearServerProfile() {
+    state = null;
+    try {
+      final prefs = SharedPreferences.getInstance();
+      prefs.then((p) => p.remove(_prefsKey));
+    } catch (e) {
+      print('❌ [SERVER_PROFILE] Error limpiando prefs: $e');
+    }
+  }
+}
 
 /// Lista de perfiles de servidor disponibles (inicialmente los de GlobalChat)
 final serverProfilesProvider =

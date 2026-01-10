@@ -22,13 +22,20 @@ class IRCSocketConnection implements IRCConnection {
     _host = host;
     try {
       if (useSSL) {
+        // Crear un SecurityContext más permisivo para macOS
         final context = SecurityContext.defaultContext;
+        // Permitir certificados autofirmados y certificados con problemas de validación
         _secureSocket = await SecureSocket.connect(
           host,
           port,
           context: context,
-          timeout: const Duration(seconds: 15),
-          onBadCertificate: (certificate) => true, // Aceptar certificados autofirmados
+          timeout: const Duration(seconds: 20), // Aumentar timeout para conexiones lentas
+          onBadCertificate: (certificate) {
+            // Aceptar certificados autofirmados o con problemas de validación
+            // Esto es necesario para algunos servidores IRC
+            print('⚠️ [IRC] Certificado con problemas de validación para $host:$port, aceptando de todas formas');
+            return true;
+          },
         );
         _subscription = _secureSocket!.listen(
           (data) {

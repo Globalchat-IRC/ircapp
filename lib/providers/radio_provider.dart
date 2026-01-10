@@ -189,7 +189,7 @@ class RadioNotifier extends StateNotifier<RadioState> {
         id: 'sonic1',
         name: 'Radio Sonic Frequency',
         description: 'Radio SONIC Frequency - Canal #SonicFrequency en IRC GlobalChat',
-        source: 'https://fdsfdsfdsf.radio12345.com/intro.mp3',
+        source: 'https://uk21freenew.listen2myradio.com/live.mp3?typeportmount=s1_26732_stream_402169724',
         namesite: 'https://globalchat.org/',
         salon: '#SonicFrequency',
         genre: 'VARIEDAD',
