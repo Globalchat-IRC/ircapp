@@ -1,29 +1,26 @@
-# IRC App - Cliente IRC Multiplataforma
+# IRC App - Cliente IRC para GlobalChat
 
-Un cliente IRC moderno y multiplataforma construido con **Flutter**, diseñado para conectarse a servidores IRC de GlobalChat y otras redes IRC estándar.
+Cliente IRC moderno y multiplataforma diseñado exclusivamente para conectarse a la red IRC **GlobalChat**.
 
 **Versión actual: 3.0.3**
 
 ---
 
-## 📱 Plataformas Soportadas
+## 📱 Plataformas Disponibles
 
 - ✅ **macOS** (nativo)
 - ✅ **iOS** (iPhone/iPad)
 - ✅ **Android**
 - ✅ **Web** (PWA)
-- ✅ **Windows** (en desarrollo)
-- ✅ **Linux** (en desarrollo)
 
 ---
 
 ## ✨ Características Principales
 
 ### 🔌 Conexión IRC
-- ✅ Conexión a servidores IRC estándar (RFC 2812)
+- ✅ Conexión a servidores IRC de GlobalChat
 - ✅ Soporte SSL/TLS para conexiones seguras
 - ✅ Selección automática de servidor basada en GeoIP
-- ✅ Múltiples perfiles de servidor configurables
 - ✅ Reconexión automática
 - ✅ Detección de lag y ping en tiempo real
 
@@ -131,13 +128,6 @@ Un cliente IRC moderno y multiplataforma construido con **Flutter**, diseñado p
 - ✅ Soporte para múltiples ventanas
 - ✅ Dock integration
 
-### Permisos y Seguridad
-- ✅ **Sandboxing** configurado correctamente
-- ✅ Permisos de red para conexiones salientes
-- ✅ Permisos de archivos para descargas
-- ✅ Soporte para certificados SSL/TLS
-- ✅ Aceptación de certificados autofirmados (configurable)
-
 ### Rendimiento
 - ✅ Optimizado para Apple Silicon (M1/M2/M3)
 - ✅ Soporte para Intel (x86_64)
@@ -155,44 +145,16 @@ Un cliente IRC moderno y multiplataforma construido con **Flutter**, diseñado p
 
 ## 📦 Instalación en macOS
 
-### Opción 1: Instalador DMG (Recomendado)
+### Instalador DMG
 
 1. Descarga el archivo `irc_app_macos_v3.0.3.dmg` desde la carpeta `releases/`
 2. Abre el archivo DMG
 3. Arrastra la aplicación a la carpeta Applications
 4. Ejecuta la aplicación desde Applications
 
-### Opción 2: Compilación desde Código Fuente
-
-#### Requisitos
-- macOS 10.14 o superior
-- Xcode 12.0 o superior
-- Flutter 3.38.4 o superior
-- CocoaPods (se instala automáticamente)
-
-#### Pasos de Compilación
-
-```bash
-# 1. Clonar el repositorio
-git clone https://github.com/Globalchat-IRC/ircapp.git
-cd ircapp
-
-# 2. Obtener dependencias
-flutter pub get
-
-# 3. Instalar dependencias de CocoaPods
-cd macos
-pod install
-cd ..
-
-# 4. Compilar la aplicación
-flutter build macos --release
-
-# 5. Crear el instalador DMG (opcional)
-./build_dmg.sh
-```
-
-La aplicación compilada estará en: `build/macos/Build/Products/Release/irc_app.app`
+**Nota**: Si macOS muestra una advertencia de seguridad al abrir la aplicación por primera vez:
+1. Ve a **Preferencias del Sistema** → **Seguridad y Privacidad**
+2. Haz clic en **"Abrir de todas formas"** junto al mensaje de advertencia
 
 ---
 
@@ -296,64 +258,6 @@ Si eres moderador o founder de un canal:
 
 ---
 
-## 🛠️ Desarrollo
-
-### Estructura del Proyecto
-
-```
-lib/
-├── main.dart                    # Punto de entrada
-├── models/                      # Modelos de datos
-│   ├── irc_message.dart        # Mensajes y canales IRC
-│   ├── app_theme.dart          # Temas visuales
-│   ├── radio_station.dart      # Estaciones de radio
-│   └── ...
-├── services/                    # Servicios
-│   ├── irc_service.dart        # Servicio IRC principal
-│   ├── radio_service.dart       # Servicio de radio
-│   ├── irc_socket_connection.dart  # Conexión TCP nativa
-│   └── ...
-├── providers/                   # Providers Riverpod
-│   ├── irc_provider.dart        # Estado IRC
-│   ├── theme_provider.dart      # Temas
-│   ├── radio_provider.dart      # Radio
-│   └── ...
-├── screens/                     # Pantallas
-│   ├── login_screen.dart        # Pantalla de login
-│   ├── chat_screen.dart         # Pantalla principal
-│   ├── settings_screen.dart     # Ajustes
-│   └── ...
-└── widgets/                     # Widgets reutilizables
-    ├── radio_controls.dart      # Controles de radio
-    ├── moderator_menu.dart      # Menú de moderador
-    └── ...
-
-macos/
-├── Runner/                      # Configuración macOS
-│   ├── AppDelegate.swift        # Delegado de la app
-│   ├── MainFlutterWindow.swift  # Ventana principal
-│   ├── DebugProfile.entitlements # Permisos (debug)
-│   └── Release.entitlements     # Permisos (release)
-└── ...
-```
-
-### Compilación para Desarrollo
-
-```bash
-# Modo debug
-flutter run -d macos
-
-# Modo release
-flutter build macos --release
-```
-
-### Scripts Útiles
-
-- `build_dmg.sh`: Crea el instalador DMG
-- `backup_git.sh`: Crea backup local del repositorio
-
----
-
 ## 📋 Requisitos del Sistema
 
 ### macOS
@@ -362,12 +266,6 @@ flutter build macos --release
 - **Arquitectura**: Apple Silicon (M1/M2/M3) o Intel (x86_64)
 - **Memoria**: 4 GB RAM mínimo, 8 GB recomendado
 - **Espacio en disco**: 100 MB para la aplicación
-
-### Para Desarrollo
-- **Xcode**: 12.0 o superior
-- **Flutter**: 3.38.4 o superior
-- **Dart**: 3.10.3 o superior
-- **CocoaPods**: Instalado automáticamente
 
 ---
 
@@ -436,39 +334,55 @@ flutter build macos --release
 
 ---
 
-## 🤝 Contribuir
-
-Las contribuciones son bienvenidas. Por favor:
-
-1. Fork el repositorio
-2. Crea una rama para tu feature (`git checkout -b feature/AmazingFeature`)
-3. Commit tus cambios (`git commit -m 'Add some AmazingFeature'`)
-4. Push a la rama (`git push origin feature/AmazingFeature`)
-5. Abre un Pull Request
-
----
-
 ## 📄 Licencia
 
-Este proyecto está disponible bajo la licencia MIT.
+**Copyright © 2024 GlobalChat IRC Network**
+
+Este software y sus binarios son propiedad de GlobalChat IRC Network y están protegidos por derechos de autor.
+
+### Términos de Uso
+
+1. **Uso Exclusivo**: Este software está diseñado y autorizado **exclusivamente** para conectarse a la red IRC GlobalChat (`*.globalchat.org`).
+
+2. **Prohibiciones**:
+   - Está **prohibido** usar este software para conectarse a otras redes IRC que no sean GlobalChat
+   - Está **prohibido** modificar, descompilar, ingeniería inversa o alterar los binarios
+   - Está **prohibido** redistribuir este software sin autorización expresa de GlobalChat IRC Network
+   - Está **prohibido** usar este software con fines comerciales sin licencia
+
+3. **Permisos**:
+   - Puedes usar este software libremente para conectarte a GlobalChat
+   - Puedes instalar el software en múltiples dispositivos para uso personal
+   - Puedes compartir los binarios oficiales con otros usuarios de GlobalChat
+
+4. **Sin Garantías**: Este software se proporciona "tal cual", sin garantías de ningún tipo, expresas o implícitas.
+
+5. **Limitación de Responsabilidad**: GlobalChat IRC Network no será responsable de ningún daño derivado del uso de este software.
+
+### Contacto
+
+Para solicitudes de licencia o permisos especiales, contacta con GlobalChat IRC Network a través de:
+- **IRC**: Conéctate a `#globalchat` en `irc.globalchat.org`
+- **Web**: [GlobalChat.org](https://globalchat.org)
 
 ---
 
 ## 👥 Créditos
 
-Desarrollado con ❤️ usando Flutter para GlobalChat IRC Network.
+Desarrollado con ❤️ para **GlobalChat IRC Network**.
 
 **Red IRC**: [GlobalChat.org](https://globalchat.org)  
-**Repositorio**: [GitHub](https://github.com/Globalchat-IRC/ircapp)
+**Repositorio de Binarios**: [GitHub](https://github.com/Globalchat-IRC/ircapp)
 
 ---
 
 ## 📞 Soporte
 
-Para reportar bugs o solicitar features:
-- **Issues**: [GitHub Issues](https://github.com/Globalchat-IRC/ircapp/issues)
+Para reportar bugs o solicitar ayuda:
 - **IRC**: Conéctate a `#globalchat` en `irc.globalchat.org`
+- **Issues**: [GitHub Issues](https://github.com/Globalchat-IRC/ircapp/issues) (solo para binarios oficiales)
 
 ---
 
-**¡Disfruta chateando en IRC! 🎉**
+**¡Disfruta chateando en GlobalChat IRC! 🎉**
+
