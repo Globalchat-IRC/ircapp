@@ -58,21 +58,18 @@ sudo tee "$CONFIG_FILE" > /dev/null <<'EOF'
             RewriteCond %{REQUEST_METHOD} OPTIONS
             RewriteRule ^(.*)$ $1 [R=200,L]
             
-            # Excluir archivos estáticos conocidos del SPA routing - DEBE estar ANTES del rewrite
-            # Si la URI coincide con alguno de estos patrones, NO aplicar el rewrite
-            RewriteCond %{REQUEST_URI} ^/icons/ [OR]
-            RewriteCond %{REQUEST_URI} ^/assets/ [OR]
-            RewriteCond %{REQUEST_URI} ^/canvaskit/ [OR]
-            RewriteCond %{REQUEST_URI} ^/flutter_service_worker\.js [OR]
-            RewriteCond %{REQUEST_URI} ^/manifest\.json [OR]
-            RewriteCond %{REQUEST_URI} ^/favicon\.png [OR]
-            RewriteCond %{REQUEST_URI} ^/radio-proxy/
-            RewriteRule ^ - [L]
-            
             # SPA routing - redirect all requests to index.html
-            # Solo si el archivo no existe físicamente Y no es un archivo estático
+            # PERO excluir archivos estáticos y archivos que existen físicamente
             RewriteCond %{REQUEST_FILENAME} !-f
             RewriteCond %{REQUEST_FILENAME} !-d
+            # Excluir rutas estáticas conocidas
+            RewriteCond %{REQUEST_URI} !^/icons/
+            RewriteCond %{REQUEST_URI} !^/assets/
+            RewriteCond %{REQUEST_URI} !^/canvaskit/
+            RewriteCond %{REQUEST_URI} !^/flutter_service_worker\.js$
+            RewriteCond %{REQUEST_URI} !^/manifest\.json$
+            RewriteCond %{REQUEST_URI} !^/favicon\.png$
+            RewriteCond %{REQUEST_URI} !^/radio-proxy/
             RewriteRule ^ index.html [L]
         </IfModule>
         
