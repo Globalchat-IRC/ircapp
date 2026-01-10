@@ -96,8 +96,10 @@ sudo tee "$CONFIG_FILE" > /dev/null <<'EOF'
     # Regla de proxy para listen2myradio.com usando ProxyPass directo
     # La URL será: /radio-proxy/uk21freenew.listen2myradio.com/live.mp3?params
     # Usar RewriteRule con [P] para proxy dinámico
+    # IMPORTANTE: El RewriteRule debe estar ANTES del LocationMatch para que funcione correctamente
     RewriteEngine On
     RewriteCond %{REQUEST_URI} ^/radio-proxy/([^/]+)/(.*)$
+    RewriteCond %{REQUEST_METHOD} !OPTIONS
     RewriteRule ^/radio-proxy/([^/]+)/(.*)$ https://$1/$2 [P,L]
     ProxyPassReverse /radio-proxy/ https://uk21freenew.listen2myradio.com/
     
