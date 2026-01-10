@@ -58,18 +58,22 @@ sudo tee "$CONFIG_FILE" > /dev/null <<'EOF'
             RewriteCond %{REQUEST_METHOD} OPTIONS
             RewriteRule ^(.*)$ $1 [R=200,L]
             
-            # SPA routing - redirect all requests to index.html
-            # PERO excluir archivos estáticos y archivos que existen físicamente
-            RewriteCond %{REQUEST_FILENAME} !-f
-            RewriteCond %{REQUEST_FILENAME} !-d
-            # Excluir rutas estáticas conocidas
-            RewriteCond %{REQUEST_URI} !^/icons/
-            RewriteCond %{REQUEST_URI} !^/assets/
-            RewriteCond %{REQUEST_URI} !^/canvaskit/
-            RewriteCond %{REQUEST_URI} !^/flutter_service_worker\.js$
-            RewriteCond %{REQUEST_URI} !^/manifest\.json$
-            RewriteCond %{REQUEST_URI} !^/favicon\.png$
-            RewriteCond %{REQUEST_URI} !^/radio-proxy/
+            # PRIMERO: Si es un archivo estático conocido, NO hacer nada (dejar que Apache lo sirva)
+            RewriteCond %{REQUEST_URI} ^/icons/ [OR]
+            RewriteCond %{REQUEST_URI} ^/assets/ [OR]
+            RewriteCond %{REQUEST_URI} ^/canvaskit/ [OR]
+            RewriteCond %{REQUEST_URI} ^/flutter_service_worker\.js$ [OR]
+            RewriteCond %{REQUEST_URI} ^/manifest\.json$ [OR]
+            RewriteCond %{REQUEST_URI} ^/favicon\.png$ [OR]
+            RewriteCond %{REQUEST_URI} ^/radio-proxy/
+            RewriteRule ^ - [L]
+            
+            # SEGUNDO: Si el archivo existe físicamente, NO hacer nada (dejar que Apache lo sirva)
+            RewriteCond %{REQUEST_FILENAME} -f [OR]
+            RewriteCond %{REQUEST_FILENAME} -d
+            RewriteRule ^ - [L]
+            
+            # TERCERO: Si llegamos aquí, es una ruta de SPA - redirigir a index.html
             RewriteRule ^ index.html [L]
         </IfModule>
         
