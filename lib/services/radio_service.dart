@@ -102,34 +102,9 @@ class RadioService {
         throw Exception('URL de la estación está vacía');
       }
       
-      // En web, usar proxy para listen2myradio.com para evitar problemas CORS
-      if (sourceUrl.contains('listen2myradio.com')) {
-        try {
-          final uri = Uri.parse(sourceUrl);
-          // Construir URL del proxy: /radio-proxy/host/path?query
-          final proxyPath = '/radio-proxy/${uri.host}${uri.path}${uri.hasQuery ? '?${uri.query}' : ''}';
-          // Usar la misma base URL de la página actual
-          try {
-            final baseHref = html.window.location.href;
-            if (baseHref != null && baseHref.isNotEmpty) {
-              final baseUri = Uri.parse(baseHref);
-              sourceUrl = '${baseUri.scheme}://${baseUri.host}${baseUri.hasPort ? ':${baseUri.port}' : ''}$proxyPath';
-              print('📻 [RadioService Web] Usando proxy para listen2myradio.com: $sourceUrl');
-            } else {
-              // Fallback: usar URL relativa
-              sourceUrl = proxyPath;
-              print('📻 [RadioService Web] Usando proxy relativo: $sourceUrl');
-            }
-          } catch (e) {
-            // Fallback: usar URL relativa
-            sourceUrl = proxyPath;
-            print('📻 [RadioService Web] Error obteniendo base URL, usando proxy relativo: $sourceUrl');
-          }
-        } catch (e) {
-          print('⚠️ [RadioService Web] Error construyendo URL proxy, usando URL original: $e');
-          // Continuar con la URL original si hay error
-        }
-      }
+      // Intentar usar la URL directamente primero
+      // El servidor de radio puede tener CORS configurado o puede requerir headers específicos
+      print('📻 [RadioService Web] Reproduciendo desde URL: $sourceUrl');
       
       // Agregar listener para detectar errores
       _webPlayer!.onPlayerStateChanged.listen((state) {
