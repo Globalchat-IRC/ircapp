@@ -59,14 +59,17 @@ sudo tee "$CONFIG_FILE" > /dev/null <<'EOF'
             RewriteRule ^(.*)$ $1 [R=200,L]
             
             # Excluir Service Worker y otros archivos estáticos del SPA routing
+            # IMPORTANTE: Verificar que el archivo existe ANTES de aplicar el rewrite
             RewriteCond %{REQUEST_URI} !^/flutter_service_worker\.js
             RewriteCond %{REQUEST_URI} !^/manifest\.json
             RewriteCond %{REQUEST_URI} !^/favicon\.png
             RewriteCond %{REQUEST_URI} !^/icons/
             RewriteCond %{REQUEST_URI} !^/assets/
             RewriteCond %{REQUEST_URI} !^/radio-proxy/
+            RewriteCond %{REQUEST_URI} !^/canvaskit/
             
             # SPA routing - redirect all requests to index.html
+            # Solo si el archivo no existe físicamente
             RewriteCond %{REQUEST_FILENAME} !-f
             RewriteCond %{REQUEST_FILENAME} !-d
             RewriteRule ^ index.html [L]
