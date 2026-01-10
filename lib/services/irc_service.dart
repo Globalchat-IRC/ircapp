@@ -77,9 +77,12 @@ class IRCService {
     try {
       _useSSL = useSSL;
       _currentHost = host;
-      print('📡 [IRCService.connect] Connecting to $host:$port as $nickname (SSL: $useSSL)');
+      // Limpiar el nick antes de asignarlo (eliminar espacios y guiones al final)
+      final cleanNick = nickname.trim();
+      print('📡 [IRCService.connect] Connecting to $host:$port as $cleanNick (SSL: $useSSL)');
       print('📡 [IRCService.connect] Platform: ${PlatformUtils.isWeb ? "Web" : "Native"}');
-      _nickname = nickname;
+      print('📡 [IRCService.connect] Nick original: "$nickname" -> Limpio: "$cleanNick"');
+      _nickname = cleanNick;
       _isRegistered = false; // Reset registration status
       _connectionCompleter = Completer<void>(); // Reinicializar el completer
       
@@ -107,10 +110,13 @@ class IRCService {
       );
 
       // Send initial IRC commands
-      _sendCommand('NICK $nickname');
-      _sendCommand('USER $nickname 0 * :$nickname');
+      // Usar el nick limpio (sin espacios, sin guiones al final)
+      final cleanNick = _nickname ?? nickname.trim();
+      print('📡 [IRCService] Enviando NICK con nick limpio: "$cleanNick"');
+      _sendCommand('NICK $cleanNick');
+      _sendCommand('USER $cleanNick 0 * :$cleanNick');
       
-      print('✅ [IRCService] Commands sent: NICK $nickname, USER $nickname');
+      print('✅ [IRCService] Commands sent: NICK $cleanNick, USER $cleanNick');
       // print('✅ [IRCService] Listener registered');
       
       // Set connection as established
@@ -1529,18 +1535,33 @@ class IRCService {
           break;
         
         case '433': // Nickname in use - try alternative
+          print('⚠️ [IRCService] Error 433 recibido - Nickname in use: $_nickname');
+          print('⚠️ [IRCService] Línea completa: $line');
+          // Solo añadir guion si realmente el nick no termina en guion
+          // y si el mensaje realmente indica que el nick está en uso
           if (_nickname != null && !_nickname!.endsWith('_')) {
-            final newNick = '${_nickname}_';
-            _nickname = newNick;
-            _sendCommand('NICK $newNick');
-            // Notificar a los listeners del cambio de nick
-            for (var listener in _nickChangeListeners) {
-              try {
-                listener(newNick);
-              } catch (e) {
-                // Ignorar errores en listeners
+            // Verificar que el mensaje realmente dice que el nick está en uso
+            final lineLower = line.toLowerCase();
+            if (lineLower.contains('nickname is already in use') || 
+                lineLower.contains('nick already in use') ||
+                lineLower.contains('nickname already in use')) {
+              print('⚠️ [IRCService] Nick realmente en uso, añadiendo guion: $_nickname -> ${_nickname}_');
+              final newNick = '${_nickname}_';
+              _nickname = newNick;
+              _sendCommand('NICK $newNick');
+              // Notificar a los listeners del cambio de nick
+              for (var listener in _nickChangeListeners) {
+                try {
+                  listener(newNick);
+                } catch (e) {
+                  // Ignorar errores en listeners
+                }
               }
+            } else {
+              print('⚠️ [IRCService] Error 433 recibido pero el mensaje no indica que el nick esté en uso. Ignorando.');
             }
+          } else {
+            print('⚠️ [IRCService] Nick ya termina en guion o es null, no se añade otro guion.');
           }
           break;
         
