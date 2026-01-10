@@ -110,13 +110,12 @@ class IRCService {
       );
 
       // Send initial IRC commands
-      // Usar el nick limpio (sin espacios, sin guiones al final)
-      final cleanNick = _nickname ?? nickname.trim();
-      print('📡 [IRCService] Enviando NICK con nick limpio: "$cleanNick"');
-      _sendCommand('NICK $cleanNick');
-      _sendCommand('USER $cleanNick 0 * :$cleanNick');
+      // Usar el nick limpio (ya está en _nickname)
+      print('📡 [IRCService] Enviando NICK con nick limpio: "$_nickname"');
+      _sendCommand('NICK $_nickname');
+      _sendCommand('USER $_nickname 0 * :$_nickname');
       
-      print('✅ [IRCService] Commands sent: NICK $cleanNick, USER $cleanNick');
+      print('✅ [IRCService] Commands sent: NICK $_nickname, USER $_nickname');
       // print('✅ [IRCService] Listener registered');
       
       // Set connection as established
