@@ -93,8 +93,13 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           final autoJoinParam = fullUri.queryParameters['autojoin'];
           
           if (nickParam != null && nickParam.trim().isNotEmpty) {
-            urlNick = nickParam.trim();
-            print('🔍 [URL] ✅ Nick leído: "$urlNick"');
+            // Limpiar el nick: eliminar espacios y guiones al final
+            var cleanNick = nickParam.trim();
+            while (cleanNick.endsWith('_')) {
+              cleanNick = cleanNick.substring(0, cleanNick.length - 1).trim();
+            }
+            urlNick = cleanNick;
+            print('🔍 [URL] ✅ Nick leído: "$nickParam" -> Limpio: "$urlNick"');
           }
           
           // Leer canal de query string
@@ -129,8 +134,13 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           final autoJoinParam = uri.queryParameters['autojoin'];
           
           if (nickParam != null && nickParam.trim().isNotEmpty) {
-            urlNick = nickParam.trim();
-            print('🔍 [URL] ✅ Nick leído de Uri.base: "$urlNick"');
+            // Limpiar el nick: eliminar espacios y guiones al final
+            var cleanNick = nickParam.trim();
+            while (cleanNick.endsWith('_')) {
+              cleanNick = cleanNick.substring(0, cleanNick.length - 1).trim();
+            }
+            urlNick = cleanNick;
+            print('🔍 [URL] ✅ Nick leído de Uri.base: "$nickParam" -> Limpio: "$urlNick"');
           }
           
           if (channelParam != null) {
@@ -161,8 +171,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     // O usar el de la URL si está presente
     final random = Random();
     final randomNumber = random.nextInt(90000) + 10000; // Número entre 10000 y 99999
-    final defaultNick = urlNick?.trim() ?? 'GlobalChat-$randomNumber';
+    // Asegurarse de que el nick de la URL esté limpio (sin guiones al final)
+    final cleanUrlNick = urlNick != null ? urlNick.trim() : null;
+    final defaultNick = cleanUrlNick ?? 'GlobalChat-$randomNumber';
     _nickController = TextEditingController(text: defaultNick);
+    print('🔍 [LOGIN] NickController inicializado con: "$defaultNick"');
     
     // Pre-llenar el canal si viene en la URL
     if (urlChannel != null && urlChannel.trim().isNotEmpty) {
@@ -645,8 +658,15 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   Future<void> _connect() async {
     final host = _hostController.text.trim();
     final port = int.tryParse(_portController.text) ?? 6697;
-    final nick = _nickController.text.trim();
+    // Limpiar el nick: eliminar espacios y guiones al final que puedan venir de la URL
+    var nick = _nickController.text.trim();
+    // Si el nick termina en guion, eliminarlo (puede venir de una conexión anterior)
+    while (nick.endsWith('_')) {
+      nick = nick.substring(0, nick.length - 1).trim();
+    }
     final channel = _channelController.text.trim();
+    
+    print('🔍 [LOGIN] Nick procesado: "${_nickController.text}" -> "$nick"');
 
     if (host.isEmpty || nick.isEmpty || channel.isEmpty) {
       setState(() => _errorMessage = 'Por favor completa todos los campos');
