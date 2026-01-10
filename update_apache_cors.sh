@@ -44,6 +44,13 @@ sudo tee "$CONFIG_FILE" > /dev/null <<'EOF'
     # Fallback: permitir todos los dominios de GlobalChat
     Header always set Access-Control-Allow-Origin "*"
     
+    # Alias directo para iconos (evitar problemas con rewrite)
+    Alias /icons /var/www/irc_app/icons
+    <Directory /var/www/irc_app/icons>
+        Options -Indexes +FollowSymLinks
+        Require all granted
+    </Directory>
+    
     <Directory /var/www/irc_app>
         Options -Indexes +FollowSymLinks
         AllowOverride All
