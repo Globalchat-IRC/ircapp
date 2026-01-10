@@ -251,13 +251,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           print('🔍 [AUTOJOIN] ✅ Condiciones cumplidas para autojoin: servidor=${selectedServerProfile.name}, nick=$currentNick, canales=$autoJoinChannels');
           
           // Esperar un momento para que los campos se actualicen
-          Future.delayed(const Duration(milliseconds: 500), () {
-            // Verificar que no se haya iniciado otra conexión
-            final ircService = ref.read(ircServiceProvider);
-            if (ircService.isConnected || _isLoading || _isAutoJoining) {
-              print('⚠️ [AUTOJOIN] Ya hay una conexión en proceso o activa, cancelando autojoin desde provider');
-              return;
-            }
+          Future.delayed(const Duration(milliseconds: 500), () async {
+            if (!mounted) return;
             
             final host = _hostController.text.trim();
             final portText = _portController.text.trim();
@@ -271,33 +266,24 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               print('🔍 [AUTOJOIN] ✅ Todos los campos están completos, iniciando conexión...');
               print('🔍 [AUTOJOIN] Auto-uniéndose después de cambiar servidor: host=$host, port=$port, nick=$nick, channel=$channel');
               
-              // Esperar un momento antes de conectar
-              Future.delayed(const Duration(milliseconds: 300), () async {
-                // Verificar nuevamente antes de conectar
-                final ircServiceCheck = ref.read(ircServiceProvider);
-                if (mounted && !_isLoading && !_isAutoJoining && !ircServiceCheck.isConnected) {
-                  setState(() {
-                    _isAutoJoining = true;
-                    _isLoading = true;
-                  });
-                  
-                  try {
-                    await _connect();
-                    print('🔍 [AUTOJOIN] ✅ Conexión exitosa después de cambiar servidor');
-                  } catch (e) {
-                    print('🔍 [AUTOJOIN] ❌ Error en conexión: $e');
-                    if (mounted) {
-                      setState(() {
-                        _errorMessage = 'Error en auto-join: $e';
-                        _isLoading = false;
-                        _isAutoJoining = false;
-                      });
-                    }
-                  }
-                } else {
-                  print('⚠️ [AUTOJOIN] Conexión cancelada - ya hay otra conexión en proceso o activa');
-                }
+              setState(() {
+                _isAutoJoining = true;
+                _isLoading = true;
               });
+              
+              try {
+                await _connect();
+                print('🔍 [AUTOJOIN] ✅ Conexión exitosa después de cambiar servidor');
+              } catch (e) {
+                print('🔍 [AUTOJOIN] ❌ Error en conexión: $e');
+                if (mounted) {
+                  setState(() {
+                    _errorMessage = 'Error en auto-join: $e';
+                    _isLoading = false;
+                    _isAutoJoining = false;
+                  });
+                }
+              }
             } else {
               print('🔍 [AUTOJOIN] ⚠️ Campos incompletos - host: ${host.isNotEmpty}, nick: ${nick.isNotEmpty}, channel: ${channel.isNotEmpty}');
             }
@@ -313,15 +299,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         print('🔍 [LOGIN] No hay servidor seleccionado en el provider, usando selección por GeoIP');
         
         // Si autojoin está activado desde URL y no hay servidor seleccionado, hacer autojoin
-        // Verificar que no haya otra conexión en proceso
         if (autoJoin && PlatformUtils.isWeb && (urlNick != null || urlChannel != null)) {
-          // Verificar que no haya una conexión ya en proceso
-          final ircService = ref.read(ircServiceProvider);
-          if (ircService.isConnected || _isLoading || _isAutoJoining) {
-            print('⚠️ [AUTOJOIN_URL] Ya hay una conexión en proceso o activa, cancelando autojoin desde URL');
-            return;
-          }
-          
           print('🔍 [AUTOJOIN_URL] ✅ Autojoin activado desde URL - nick: $urlNick, channel: $urlChannel');
           
           // Asegurar que el canal esté en el controlador (puede venir de URL)
@@ -633,17 +611,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   }
 
   Future<void> _connect() async {
-    // Prevenir conexiones duplicadas
-    if (_isLoading || _isAutoJoining) {
-      print('⚠️ [LOGIN] Ya hay una conexión en proceso, ignorando llamada duplicada');
-      return;
-    }
-    
-    final ircService = ref.read(ircServiceProvider);
-    if (ircService.isConnected) {
-      print('⚠️ [LOGIN] Ya hay una conexión activa, ignorando llamada duplicada');
-      return;
-    }
     
     final host = _hostController.text.trim();
     final port = int.tryParse(_portController.text) ?? 6697;
