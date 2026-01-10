@@ -144,10 +144,11 @@ sudo tee "$CONFIG_FILE" > /dev/null <<'EOF'
         # NO sobrescribir Content-Type del servidor - dejar que el servidor lo establezca
         # NO establecer Cache-Control, Pragma, Expires - dejar que el servidor los establezca
         
-        # Manejar preflight OPTIONS
-        RewriteEngine On
-        RewriteCond %{REQUEST_METHOD} OPTIONS
-        RewriteRule ^(.*)$ $1 [R=200,L]
+        # Manejar preflight OPTIONS (sin RewriteEngine duplicado)
+        <IfModule mod_rewrite.c>
+            RewriteCond %{REQUEST_METHOD} OPTIONS
+            RewriteRule ^(.*)$ $1 [R=200,L]
+        </IfModule>
     </LocationMatch>
 </VirtualHost>
 
