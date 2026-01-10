@@ -58,30 +58,31 @@ sudo tee "$CONFIG_FILE" > /dev/null <<'EOF'
             RewriteCond %{REQUEST_METHOD} OPTIONS
             RewriteRule ^(.*)$ $1 [R=200,L]
             
-            # PRIMERO: Si el archivo existe físicamente, NO hacer nada (dejar que Apache lo sirva)
-            RewriteCond %{REQUEST_FILENAME} -f
-            RewriteRule ^ - [L]
-            RewriteCond %{REQUEST_FILENAME} -d
-            RewriteRule ^ - [L]
-            
-            # SEGUNDO: Si es un archivo estático conocido, NO hacer nada (dejar que Apache lo sirva)
+            # PRIMERO: Si es un archivo estático conocido, NO hacer nada (dejar que Apache lo sirva)
+            # Esto debe estar ANTES de verificar si el archivo existe
             RewriteCond %{REQUEST_URI} ^/icons/
-            RewriteRule ^ - [L]
+            RewriteRule .* - [L]
             RewriteCond %{REQUEST_URI} ^/assets/
-            RewriteRule ^ - [L]
+            RewriteRule .* - [L]
             RewriteCond %{REQUEST_URI} ^/canvaskit/
-            RewriteRule ^ - [L]
+            RewriteRule .* - [L]
             RewriteCond %{REQUEST_URI} ^/flutter_service_worker\.js$
-            RewriteRule ^ - [L]
+            RewriteRule .* - [L]
             RewriteCond %{REQUEST_URI} ^/manifest\.json$
-            RewriteRule ^ - [L]
+            RewriteRule .* - [L]
             RewriteCond %{REQUEST_URI} ^/favicon\.png$
-            RewriteRule ^ - [L]
+            RewriteRule .* - [L]
             RewriteCond %{REQUEST_URI} ^/radio-proxy/
-            RewriteRule ^ - [L]
+            RewriteRule .* - [L]
+            
+            # SEGUNDO: Si el archivo existe físicamente, NO hacer nada (dejar que Apache lo sirva)
+            RewriteCond %{REQUEST_FILENAME} -f
+            RewriteRule .* - [L]
+            RewriteCond %{REQUEST_FILENAME} -d
+            RewriteRule .* - [L]
             
             # TERCERO: Si llegamos aquí, es una ruta de SPA - redirigir a index.html
-            RewriteRule ^ index.html [L]
+            RewriteRule .* index.html [L]
         </IfModule>
         
         # Service Worker - MIME type correcto
