@@ -300,56 +300,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         if (autoJoin && PlatformUtils.isWeb && (urlNick != null || urlChannel != null)) {
           print('🔍 [AUTOJOIN_URL] ✅ Autojoin activado desde URL - nick: $urlNick, channel: $urlChannel');
           
-          // Verificar que tenemos todos los campos necesarios
-          final host = _hostController.text.trim();
-          final portText = _portController.text.trim();
-          final port = int.tryParse(portText) ?? 6697;
-          final nick = _nickController.text.trim();
-          final channel = _channelController.text.trim();
-          
-          print('🔍 [AUTOJOIN_URL] Verificando campos: host=$host, port=$port, nick=$nick, channel=$channel');
-          
-          if (host.isNotEmpty && nick.isNotEmpty && channel.isNotEmpty) {
-            print('🔍 [AUTOJOIN_URL] ✅ Todos los campos están completos, iniciando conexión...');
-            
-            // Esperar un momento antes de conectar
-            Future.delayed(const Duration(milliseconds: 800), () async {
-              if (mounted) {
-                setState(() {
-                  _isAutoJoining = true;
-                  _isLoading = true;
-                });
-                
-                try {
-                  await _connect();
-                  print('🔍 [AUTOJOIN_URL] ✅ Conexión exitosa desde URL');
-                } catch (e) {
-                  print('🔍 [AUTOJOIN_URL] ❌ Error en conexión: $e');
-                  if (mounted) {
-                    setState(() {
-                      _errorMessage = 'Error en auto-join: $e';
-                      _isLoading = false;
-                      _isAutoJoining = false;
-                    });
-                  }
-                }
-              }
-            });
-          } else {
-            print('🔍 [AUTOJOIN_URL] ⚠️ Campos incompletos - host: ${host.isNotEmpty}, nick: ${nick.isNotEmpty}, channel: ${channel.isNotEmpty}');
-          }
-        }
-      }
-    });
-    
-    // Si autojoin está activado desde URL, hacer autojoin automáticamente
-    // (Este bloque es para cuando no hay servidor seleccionado del provider)
-    if (autoJoin && PlatformUtils.isWeb) {
-      WidgetsBinding.instance.addPostFrameCallback((_) async {
-        // Verificar si hay servidor seleccionado del provider
-        final selectedServerProfile = ref.read(currentServerProfileProvider);
-        
-        if (selectedServerProfile == null) {
           // Asegurar que el canal esté en el controlador (puede venir de URL)
           String? channelToUse = urlChannel;
           if (channelToUse == null || channelToUse.trim().isEmpty) {
@@ -380,7 +330,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               await _selectServerByGeoIPFromList(sslServers);
               
               // Esperar un momento para asegurar que el servidor se haya actualizado
-              await Future.delayed(const Duration(milliseconds: 200));
+              await Future.delayed(const Duration(milliseconds: 500));
               
               if (mounted) {
                 // Verificar que tenemos todos los datos necesarios
@@ -430,8 +380,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             await _selectServerByGeoIP();
           }
         }
-      });
-    }
+      }
+    });
     
     _loadChannels();
   }
