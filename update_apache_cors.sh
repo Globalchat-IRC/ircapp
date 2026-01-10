@@ -32,9 +32,10 @@ sudo tee "$CONFIG_FILE" > /dev/null <<'EOF'
     
     # Headers CORS
     Header always set Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS, HEAD"
-    Header always set Access-Control-Allow-Headers "Origin, X-Requested-With, Content-Type, Accept, Authorization, Referer"
+    Header always set Access-Control-Allow-Headers "Origin, X-Requested-With, Content-Type, Accept, Authorization, Referer, Range, User-Agent, Cache-Control, Pragma"
     Header always set Access-Control-Allow-Credentials "true"
-    Header always set Access-Control-Max-Age "3600"
+    Header always set Access-Control-Max-Age "86400"
+    Header always set Access-Control-Expose-Headers "Content-Length, Content-Range, Accept-Ranges, Content-Type"
     
     # Permitir origen basado en el header Origin si es de GlobalChat
     SetEnvIf Origin "^https?://(www\.)?(webchat|mobilev1|irc|registro-chan|xmlrpc)\.globalchat\.org" CORS_ORIGIN=$0
@@ -101,11 +102,13 @@ sudo tee "$CONFIG_FILE" > /dev/null <<'EOF'
     ProxyPassReverse /radio-proxy/ https://uk21freenew.listen2myradio.com/
     
     <LocationMatch "^/radio-proxy/">
-        # Headers CORS para el proxy
+        # Headers CORS completos para el proxy
         Header always set Access-Control-Allow-Origin "*"
-        Header always set Access-Control-Allow-Methods "GET, OPTIONS, HEAD"
-        Header always set Access-Control-Allow-Headers "Range, Content-Type, Accept, Origin, User-Agent, Referer"
-        Header always set Access-Control-Expose-Headers "Content-Length, Content-Range, Accept-Ranges, Content-Type"
+        Header always set Access-Control-Allow-Methods "GET, OPTIONS, HEAD, POST"
+        Header always set Access-Control-Allow-Headers "Range, Content-Type, Accept, Origin, User-Agent, Referer, X-Requested-With, Authorization, Cache-Control, Pragma"
+        Header always set Access-Control-Expose-Headers "Content-Length, Content-Range, Accept-Ranges, Content-Type, Content-Encoding, Transfer-Encoding"
+        Header always set Access-Control-Allow-Credentials "true"
+        Header always set Access-Control-Max-Age "86400"
         
         # Headers para streaming
         Header always set Cache-Control "no-cache, no-store, must-revalidate"
@@ -118,9 +121,11 @@ sudo tee "$CONFIG_FILE" > /dev/null <<'EOF'
         RequestHeader set Origin "https://listen2myradio.com" env=LISTEN2MYRADIO
         RequestHeader set Accept "audio/webm,audio/ogg,audio/*;q=0.9,application/ogg;q=0.7,video/*;q=0.6,*/*;q=0.5" env=LISTEN2MYRADIO
         RequestHeader set Accept-Encoding "identity" env=LISTEN2MYRADIO
+        RequestHeader set Accept-Language "en-US,en;q=0.9" env=LISTEN2MYRADIO
         SetEnvIf Request_URI "^/radio-proxy/.*listen2myradio\.com.*" LISTEN2MYRADIO
         
         # Manejar preflight OPTIONS - debe estar antes del RewriteRule
+        RewriteEngine On
         RewriteCond %{REQUEST_METHOD} OPTIONS
         RewriteRule ^(.*)$ $1 [R=200,L]
     </LocationMatch>
