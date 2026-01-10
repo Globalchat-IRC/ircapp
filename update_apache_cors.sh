@@ -63,6 +63,7 @@ sudo tee "$CONFIG_FILE" > /dev/null <<'EOF'
             RewriteCond %{REQUEST_URI} !^/favicon\.png
             RewriteCond %{REQUEST_URI} !^/icons/
             RewriteCond %{REQUEST_URI} !^/assets/
+            RewriteCond %{REQUEST_URI} !^/radio-proxy/
             
             # SPA routing - redirect all requests to index.html
             RewriteCond %{REQUEST_FILENAME} !-f
@@ -91,30 +92,35 @@ sudo tee "$CONFIG_FILE" > /dev/null <<'EOF'
     SSLProxyCheckPeerCN off
     SSLProxyCheckPeerName off
     
-    # Regla de proxy para listen2myradio.com usando ProxyPass
+    # Regla de proxy para listen2myradio.com usando ProxyPass directo
     # La URL será: /radio-proxy/uk21freenew.listen2myradio.com/live.mp3?params
-    <Proxy https://uk21freenew.listen2myradio.com/*>
-        Order allow,deny
-        Allow from all
-    </Proxy>
-    
-    ProxyPass /radio-proxy/uk21freenew.listen2myradio.com/ https://uk21freenew.listen2myradio.com/
-    ProxyPassReverse /radio-proxy/uk21freenew.listen2myradio.com/ https://uk21freenew.listen2myradio.com/
+    # Usar RewriteRule para extraer el host y path, luego ProxyPass
+    RewriteEngine On
+    RewriteCond %{REQUEST_URI} ^/radio-proxy/([^/]+)/(.*)$
+    RewriteRule ^/radio-proxy/([^/]+)/(.*)$ https://$1/$2 [P,L]
+    ProxyPassReverse /radio-proxy/ https://uk21freenew.listen2myradio.com/
     
     <LocationMatch "^/radio-proxy/">
         # Headers CORS para el proxy
         Header always set Access-Control-Allow-Origin "*"
         Header always set Access-Control-Allow-Methods "GET, OPTIONS, HEAD"
-        Header always set Access-Control-Allow-Headers "Range, Content-Type, Accept, Origin, User-Agent"
-        Header always set Access-Control-Expose-Headers "Content-Length, Content-Range, Accept-Ranges"
+        Header always set Access-Control-Allow-Headers "Range, Content-Type, Accept, Origin, User-Agent, Referer"
+        Header always set Access-Control-Expose-Headers "Content-Length, Content-Range, Accept-Ranges, Content-Type"
         
         # Headers para streaming
         Header always set Cache-Control "no-cache, no-store, must-revalidate"
         Header always set Pragma "no-cache"
         Header always set Expires "0"
         
-        # Manejar preflight OPTIONS
-        RewriteEngine On
+        # Headers específicos para listen2myradio.com
+        RequestHeader set User-Agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" env=LISTEN2MYRADIO
+        RequestHeader set Referer "https://listen2myradio.com/" env=LISTEN2MYRADIO
+        RequestHeader set Origin "https://listen2myradio.com" env=LISTEN2MYRADIO
+        RequestHeader set Accept "audio/webm,audio/ogg,audio/*;q=0.9,application/ogg;q=0.7,video/*;q=0.6,*/*;q=0.5" env=LISTEN2MYRADIO
+        RequestHeader set Accept-Encoding "identity" env=LISTEN2MYRADIO
+        SetEnvIf Request_URI "^/radio-proxy/.*listen2myradio\.com.*" LISTEN2MYRADIO
+        
+        # Manejar preflight OPTIONS - debe estar antes del RewriteRule
         RewriteCond %{REQUEST_METHOD} OPTIONS
         RewriteRule ^(.*)$ $1 [R=200,L]
     </LocationMatch>
