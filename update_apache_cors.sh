@@ -104,20 +104,15 @@ sudo tee "$CONFIG_FILE" > /dev/null <<'EOF'
     ProxyPassReverse /radio-proxy/ https://uk21freenew.listen2myradio.com/
     
     <LocationMatch "^/radio-proxy/">
-        # Headers CORS completos para el proxy
-        Header always set Access-Control-Allow-Origin "*"
-        Header always set Access-Control-Allow-Methods "GET, OPTIONS, HEAD, POST"
-        Header always set Access-Control-Allow-Headers "Range, Content-Type, Accept, Origin, User-Agent, Referer, X-Requested-With, Authorization, Cache-Control, Pragma"
-        Header always set Access-Control-Expose-Headers "Content-Length, Content-Range, Accept-Ranges, Content-Type, Content-Encoding, Transfer-Encoding"
-        Header always set Access-Control-Allow-Credentials "true"
-        Header always set Access-Control-Max-Age "86400"
+        # Headers CORS completos para el proxy (solo añadir, no sobrescribir)
+        Header always append Access-Control-Allow-Origin "*"
+        Header always append Access-Control-Allow-Methods "GET, OPTIONS, HEAD, POST"
+        Header always append Access-Control-Allow-Headers "Range, Content-Type, Accept, Origin, User-Agent, Referer, X-Requested-With, Authorization, Cache-Control, Pragma"
+        Header always append Access-Control-Expose-Headers "Content-Length, Content-Range, Accept-Ranges, Content-Type, Content-Encoding, Transfer-Encoding"
+        Header always append Access-Control-Allow-Credentials "true"
+        Header always append Access-Control-Max-Age "86400"
         
-        # Headers para streaming
-        Header always set Cache-Control "no-cache, no-store, must-revalidate"
-        Header always set Pragma "no-cache"
-        Header always set Expires "0"
-        
-        # Headers específicos para listen2myradio.com
+        # Headers específicos para listen2myradio.com (enviar al servidor)
         RequestHeader set User-Agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" env=LISTEN2MYRADIO
         RequestHeader set Referer "https://listen2myradio.com/" env=LISTEN2MYRADIO
         RequestHeader set Origin "https://listen2myradio.com" env=LISTEN2MYRADIO
@@ -125,6 +120,9 @@ sudo tee "$CONFIG_FILE" > /dev/null <<'EOF'
         RequestHeader set Accept-Encoding "identity" env=LISTEN2MYRADIO
         RequestHeader set Accept-Language "en-US,en;q=0.9" env=LISTEN2MYRADIO
         SetEnvIf Request_URI "^/radio-proxy/.*listen2myradio\.com.*" LISTEN2MYRADIO
+        
+        # NO sobrescribir Content-Type del servidor - dejar que el servidor lo establezca
+        # NO establecer Cache-Control, Pragma, Expires - dejar que el servidor los establezca
         
         # Manejar preflight OPTIONS
         RewriteEngine On
