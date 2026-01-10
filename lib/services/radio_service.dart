@@ -102,10 +102,6 @@ class RadioService {
         throw Exception('URL de la estación está vacía');
       }
       
-      // Intentar usar la URL directamente primero (el servidor puede tener CORS configurado)
-      // Si falla, el error handler intentará métodos alternativos
-      print('📻 [RadioService Web] Reproduciendo desde URL: $sourceUrl');
-      
       // Agregar listener para detectar errores
       _webPlayer!.onPlayerStateChanged.listen((state) {
         if (state == web_audio.PlayerState.stopped && _isPlaying) {
@@ -119,9 +115,31 @@ class RadioService {
         print('📻 [RadioService Web] Log: $log');
       });
       
-      // En web, usar UrlSource (puede ser URL directa o proxy)
+      // En web, intentar primero con proxy si es listen2myradio.com, luego URL directa
+      String finalUrl = sourceUrl;
+      bool useProxy = sourceUrl.contains('listen2myradio.com');
+      
+      if (useProxy) {
+        try {
+          final uri = Uri.parse(sourceUrl);
+          final proxyPath = '/radio-proxy/${uri.host}${uri.path}${uri.hasQuery ? '?${uri.query}' : ''}';
+          final baseHref = html.window.location.href;
+          if (baseHref != null && baseHref.isNotEmpty) {
+            final baseUri = Uri.parse(baseHref);
+            finalUrl = '${baseUri.scheme}://${baseUri.host}${baseUri.hasPort ? ':${baseUri.port}' : ''}$proxyPath';
+            print('📻 [RadioService Web] Intentando con proxy: $finalUrl');
+          }
+        } catch (e) {
+          print('⚠️ [RadioService Web] Error construyendo proxy, usando URL directa: $e');
+          useProxy = false;
+        }
+      } else {
+        print('📻 [RadioService Web] Reproduciendo desde URL directa: $sourceUrl');
+      }
+      
+      // Intentar reproducir
       try {
-        await _webPlayer!.play(web_audio.UrlSource(sourceUrl));
+        await _webPlayer!.play(web_audio.UrlSource(finalUrl));
         
         // Esperar un momento para verificar si hay errores de reproducción
         await Future.delayed(const Duration(milliseconds: 800));
@@ -129,13 +147,52 @@ class RadioService {
         // Verificar el estado del player
         final playerState = _webPlayer!.state;
         if (playerState == web_audio.PlayerState.stopped && _isPlaying == false) {
-          // Si se detuvo inmediatamente, probablemente hay un error
-          throw Exception('No se pudo iniciar la reproducción. El servidor puede tener restricciones CORS o la URL no es válida.');
+          // Si se detuvo inmediatamente y usamos proxy, intentar URL directa
+          if (useProxy && finalUrl != sourceUrl) {
+            print('⚠️ [RadioService Web] Proxy falló, intentando URL directa...');
+            try {
+              await _webPlayer!.stop();
+              await _webPlayer!.release();
+              _webPlayer = web_audio.AudioPlayer();
+              await _webPlayer!.setReleaseMode(web_audio.ReleaseMode.stop);
+              await _webPlayer!.setPlayerMode(web_audio.PlayerMode.mediaPlayer);
+              await _webPlayer!.setVolume(_currentVolume);
+              await _webPlayer!.play(web_audio.UrlSource(sourceUrl));
+              await Future.delayed(const Duration(milliseconds: 800));
+              final retryState = _webPlayer!.state;
+              if (retryState == web_audio.PlayerState.stopped && _isPlaying == false) {
+                throw Exception('No se pudo iniciar la reproducción. El servidor puede tener restricciones CORS o la URL no es válida.');
+              }
+            } catch (retryError) {
+              throw Exception('No se pudo iniciar la reproducción. Error: $retryError');
+            }
+          } else {
+            throw Exception('No se pudo iniciar la reproducción. El servidor puede tener restricciones CORS o la URL no es válida.');
+          }
         }
       } catch (playError) {
-        // Si hay un error al reproducir, intentar con un enfoque alternativo
-        print('⚠️ [RadioService Web] Error al reproducir, intentando método alternativo...');
-        throw playError;
+        // Si hay un error al reproducir y usamos proxy, intentar URL directa
+        if (useProxy && finalUrl != sourceUrl) {
+          print('⚠️ [RadioService Web] Error con proxy, intentando URL directa...');
+          try {
+            await _webPlayer!.stop();
+            await _webPlayer!.release();
+            _webPlayer = web_audio.AudioPlayer();
+            await _webPlayer!.setReleaseMode(web_audio.ReleaseMode.stop);
+            await _webPlayer!.setPlayerMode(web_audio.PlayerMode.mediaPlayer);
+            await _webPlayer!.setVolume(_currentVolume);
+            await _webPlayer!.play(web_audio.UrlSource(sourceUrl));
+            await Future.delayed(const Duration(milliseconds: 800));
+            final retryState = _webPlayer!.state;
+            if (retryState == web_audio.PlayerState.stopped && _isPlaying == false) {
+              throw playError; // Re-lanzar el error original
+            }
+          } catch (retryError) {
+            throw playError; // Re-lanzar el error original
+          }
+        } else {
+          throw playError;
+        }
       }
       
       _currentStation = station;
