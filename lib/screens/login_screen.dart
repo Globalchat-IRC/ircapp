@@ -334,8 +334,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               // Esperar un momento para asegurar que el servidor se haya actualizado
               await Future.delayed(const Duration(milliseconds: 500));
               
-              // Verificar nuevamente antes de conectar
-              if (mounted && !_isLoading && !_isAutoJoining && !ircService.isConnected) {
+              // Conectar automáticamente
+              if (mounted) {
                 // Verificar que tenemos todos los datos necesarios
                 final host = _hostController.text.trim();
                 final portText = _portController.text.trim();
@@ -348,12 +348,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   print('🔍 [AUTOJOIN_URL] Intentando conectar: host=$host, port=$port, nick=$nick, channel=$channel');
                   
                   // Mostrar estado de carga para autojoin
-                  if (mounted) {
-                    setState(() {
-                      _isAutoJoining = true;
-                      _isLoading = true;
-                    });
-                  }
+                  setState(() {
+                    _isAutoJoining = true;
+                    _isLoading = true;
+                  });
                   
                   // Conectar automáticamente
                   try {
@@ -373,8 +371,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 } else {
                   print('🔍 [AUTOJOIN_URL] ⚠️ Campos incompletos - host: ${host.isNotEmpty}, nick: ${nick.isNotEmpty}, channel: ${channel.isNotEmpty}');
                 }
-              } else {
-                print('⚠️ [AUTOJOIN_URL] Conexión cancelada - ya hay otra conexión en proceso o activa');
               }
             } else {
               // Si no hay servidores SSL, usar selección basada en GeoIP
