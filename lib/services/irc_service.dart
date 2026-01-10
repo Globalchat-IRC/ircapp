@@ -1409,6 +1409,18 @@ class IRCService {
           print('✅ Welcome message received - connected as $nick to $_currentHost');
           // print('🔍 [DEBUG] ✅✅✅ User is now fully registered! Ready for JOIN commands ✅✅✅');
           _isRegistered = true; // Marcar que el usuario está registrado
+          // Actualizar el nickname con el confirmado por el servidor (puede tener guion si fue rechazado)
+          if (nick != null && nick.isNotEmpty && nick != _nickname) {
+            _nickname = nick;
+            // Notificar a los listeners del cambio de nick
+            for (var listener in _nickChangeListeners) {
+              try {
+                listener(nick);
+              } catch (e) {
+                // Ignorar errores en listeners
+              }
+            }
+          }
           if (!_connectionCompleter.isCompleted) {
             _connectionCompleter.complete();
           }
@@ -1521,6 +1533,14 @@ class IRCService {
             final newNick = '${_nickname}_';
             _nickname = newNick;
             _sendCommand('NICK $newNick');
+            // Notificar a los listeners del cambio de nick
+            for (var listener in _nickChangeListeners) {
+              try {
+                listener(newNick);
+              } catch (e) {
+                // Ignorar errores en listeners
+              }
+            }
           }
           break;
         

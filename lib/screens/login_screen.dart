@@ -33,6 +33,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _channelController = TextEditingController(); // Vacío por defecto
   final _passwordController = TextEditingController(); // Contraseña para identificación
   final _channelFocusNode = FocusNode();
+  Function(String)? _nickChangeListener; // Listener para cambios de nick
   bool _isLoading = false;
   String? _errorMessage;
   List<ChannelInfo> _channels = [];
@@ -627,6 +628,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
   @override
   void dispose() {
+    // Eliminar listener de cambio de nick si existe
+    if (_nickChangeListener != null) {
+      final ircService = ref.read(ircServiceProvider);
+      ircService.removeNickChangeListener(_nickChangeListener!);
+    }
     _hostController.dispose();
     _portController.dispose();
     _nickController.dispose();
@@ -637,10 +643,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   }
 
   Future<void> _connect() async {
-    final host = _hostController.text;
+    final host = _hostController.text.trim();
     final port = int.tryParse(_portController.text) ?? 6697;
-    final nick = _nickController.text;
-    final channel = _channelController.text;
+    final nick = _nickController.text.trim();
+    final channel = _channelController.text.trim();
 
     if (host.isEmpty || nick.isEmpty || channel.isEmpty) {
       setState(() => _errorMessage = 'Por favor completa todos los campos');
@@ -667,6 +673,15 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       
       // En web, el gateway maneja la conexión, así que siempre pasamos el puerto IRC real
       // El gateway se conecta internamente al servidor IRC usando este puerto
+      // Añadir listener para actualizar el provider cuando el nick cambie (por ejemplo, si se añade guion)
+      _nickChangeListener = (newNick) {
+        if (mounted) {
+          ref.read(currentNicknameProvider.notifier).state = newNick;
+          print('🔍 [LOGIN] Nick actualizado en provider: $newNick');
+        }
+      };
+      ircService.addNickChangeListener(_nickChangeListener!);
+      
       await ircService.connect(
         host: host,
         port: port, // Siempre usar el puerto IRC real (6667 o 6697)
@@ -686,6 +701,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         ircService.identifyNick(_passwordController.text.trim());
       }
       
+      // Actualizar el provider con el nick inicial (se actualizará automáticamente si el servidor lo modifica)
       ref.read(currentNicknameProvider.notifier).state = nick;
       // globalLog('🔵 [LOGIN] Set nickname in provider');
       
