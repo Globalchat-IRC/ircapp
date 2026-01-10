@@ -58,19 +58,26 @@ sudo tee "$CONFIG_FILE" > /dev/null <<'EOF'
             RewriteCond %{REQUEST_METHOD} OPTIONS
             RewriteRule ^(.*)$ $1 [R=200,L]
             
-            # PRIMERO: Si es un archivo estático conocido, NO hacer nada (dejar que Apache lo sirva)
-            RewriteCond %{REQUEST_URI} ^/icons/ [OR]
-            RewriteCond %{REQUEST_URI} ^/assets/ [OR]
-            RewriteCond %{REQUEST_URI} ^/canvaskit/ [OR]
-            RewriteCond %{REQUEST_URI} ^/flutter_service_worker\.js$ [OR]
-            RewriteCond %{REQUEST_URI} ^/manifest\.json$ [OR]
-            RewriteCond %{REQUEST_URI} ^/favicon\.png$ [OR]
-            RewriteCond %{REQUEST_URI} ^/radio-proxy/
+            # PRIMERO: Si el archivo existe físicamente, NO hacer nada (dejar que Apache lo sirva)
+            RewriteCond %{REQUEST_FILENAME} -f
+            RewriteRule ^ - [L]
+            RewriteCond %{REQUEST_FILENAME} -d
             RewriteRule ^ - [L]
             
-            # SEGUNDO: Si el archivo existe físicamente, NO hacer nada (dejar que Apache lo sirva)
-            RewriteCond %{REQUEST_FILENAME} -f [OR]
-            RewriteCond %{REQUEST_FILENAME} -d
+            # SEGUNDO: Si es un archivo estático conocido, NO hacer nada (dejar que Apache lo sirva)
+            RewriteCond %{REQUEST_URI} ^/icons/
+            RewriteRule ^ - [L]
+            RewriteCond %{REQUEST_URI} ^/assets/
+            RewriteRule ^ - [L]
+            RewriteCond %{REQUEST_URI} ^/canvaskit/
+            RewriteRule ^ - [L]
+            RewriteCond %{REQUEST_URI} ^/flutter_service_worker\.js$
+            RewriteRule ^ - [L]
+            RewriteCond %{REQUEST_URI} ^/manifest\.json$
+            RewriteRule ^ - [L]
+            RewriteCond %{REQUEST_URI} ^/favicon\.png$
+            RewriteRule ^ - [L]
+            RewriteCond %{REQUEST_URI} ^/radio-proxy/
             RewriteRule ^ - [L]
             
             # TERCERO: Si llegamos aquí, es una ruta de SPA - redirigir a index.html
