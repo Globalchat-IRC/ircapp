@@ -8276,21 +8276,27 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         // Texto antes de la URL
         if (match.start > lastEnd) {
           final textBefore = messageText.substring(lastEnd, match.start);
-          if (isBot && (textBefore.contains('\x03') || textBefore.contains('\x02'))) {
+          if (isBot) {
+            // Para bots, siempre limpiar agresivamente
+            final cleaned = IRCColorParser.stripIRCFormatting(textBefore, aggressive: true);
+            parts.add(_buildTextWithEmojis(
+              cleaned,
+              isOwnMessage: isOwnMessage,
+              isBot: isBot,
+            ));
+          } else if (textBefore.contains('\x03') || textBefore.contains('\x02')) {
             final defaultColor = isOwnMessage 
                 ? Colors.white 
-                : isBot
-                    ? const Color(0xFF8B6914)
-                    : ref.read(themeProvider).textPrimary;
+                : ref.read(themeProvider).textPrimary;
             final spans = IRCColorParser.parseIRCMessage(textBefore, defaultColor: defaultColor);
             parts.add(RichText(
               text: TextSpan(
                 children: spans,
                 style: TextStyle(
-                  fontSize: isBot ? 16 : 15,
+                  fontSize: 15,
                   height: 1.6,
-                  fontWeight: isBot ? FontWeight.w500 : FontWeight.w400,
-                  letterSpacing: isBot ? 0.3 : 0.0,
+                  fontWeight: FontWeight.w400,
+                  letterSpacing: 0.0,
                 ),
               ),
             ));
@@ -8392,21 +8398,27 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       // Texto después de la última URL
       if (lastEnd < messageText.length) {
         final textAfter = messageText.substring(lastEnd);
-        if (isBot && (textAfter.contains('\x03') || textAfter.contains('\x02'))) {
+        if (isBot) {
+          // Para bots, siempre limpiar agresivamente
+          final cleaned = IRCColorParser.stripIRCFormatting(textAfter, aggressive: true);
+          parts.add(_buildTextWithEmojis(
+            cleaned,
+            isOwnMessage: isOwnMessage,
+            isBot: isBot,
+          ));
+        } else if (textAfter.contains('\x03') || textAfter.contains('\x02')) {
           final defaultColor = isOwnMessage 
               ? Colors.white 
-              : isBot
-                  ? const Color(0xFF8B6914)
-                  : ref.read(themeProvider).textPrimary;
+              : ref.read(themeProvider).textPrimary;
           final spans = IRCColorParser.parseIRCMessage(textAfter, defaultColor: defaultColor);
           parts.add(RichText(
             text: TextSpan(
               children: spans,
               style: TextStyle(
-                fontSize: isBot ? 16 : 15,
+                fontSize: 15,
                 height: 1.6,
-                fontWeight: isBot ? FontWeight.w500 : FontWeight.w400,
-                letterSpacing: isBot ? 0.3 : 0.0,
+                fontWeight: FontWeight.w400,
+                letterSpacing: 0.0,
               ),
             ),
           ));
@@ -8444,21 +8456,27 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         // Texto antes de la URL
         if (match.start > lastEnd) {
           final textBefore = messageText.substring(lastEnd, match.start);
-          if (isBot && (textBefore.contains('\x03') || textBefore.contains('\x02'))) {
+          if (isBot) {
+            // Para bots, siempre limpiar agresivamente
+            final cleaned = IRCColorParser.stripIRCFormatting(textBefore, aggressive: true);
+            parts.add(_buildTextWithEmojis(
+              cleaned,
+              isOwnMessage: isOwnMessage,
+              isBot: isBot,
+            ));
+          } else if (textBefore.contains('\x03') || textBefore.contains('\x02')) {
             final defaultColor = isOwnMessage 
                 ? Colors.white 
-                : isBot
-                    ? const Color(0xFF8B6914)
-                    : ref.read(themeProvider).textPrimary;
+                : ref.read(themeProvider).textPrimary;
             final spans = IRCColorParser.parseIRCMessage(textBefore, defaultColor: defaultColor);
             parts.add(RichText(
               text: TextSpan(
                 children: spans,
                 style: TextStyle(
-                  fontSize: isBot ? 16 : 15,
+                  fontSize: 15,
                   height: 1.6,
-                  fontWeight: isBot ? FontWeight.w500 : FontWeight.w400,
-                  letterSpacing: isBot ? 0.3 : 0.0,
+                  fontWeight: FontWeight.w400,
+                  letterSpacing: 0.0,
                 ),
               ),
             ));
@@ -8517,21 +8535,27 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       // Texto después de la última URL
       if (lastEnd < messageText.length) {
         final textAfter = messageText.substring(lastEnd);
-        if (isBot && (textAfter.contains('\x03') || textAfter.contains('\x02'))) {
+        if (isBot) {
+          // Para bots, siempre limpiar agresivamente
+          final cleaned = IRCColorParser.stripIRCFormatting(textAfter, aggressive: true);
+          parts.add(_buildTextWithEmojis(
+            cleaned,
+            isOwnMessage: isOwnMessage,
+            isBot: isBot,
+          ));
+        } else if (textAfter.contains('\x03') || textAfter.contains('\x02')) {
           final defaultColor = isOwnMessage 
               ? Colors.white 
-              : isBot
-                  ? const Color(0xFF8B6914)
-                  : ref.read(themeProvider).textPrimary;
+              : ref.read(themeProvider).textPrimary;
           final spans = IRCColorParser.parseIRCMessage(textAfter, defaultColor: defaultColor);
           parts.add(RichText(
             text: TextSpan(
               children: spans,
               style: TextStyle(
-                fontSize: isBot ? 16 : 15,
+                fontSize: 15,
                 height: 1.6,
-                fontWeight: isBot ? FontWeight.w500 : FontWeight.w400,
-                letterSpacing: isBot ? 0.3 : 0.0,
+                fontWeight: FontWeight.w400,
+                letterSpacing: 0.0,
               ),
             ),
           ));
