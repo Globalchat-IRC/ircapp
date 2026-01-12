@@ -8411,8 +8411,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             ),
           ));
         } else {
+          // Para bots, limpiar agresivamente antes de mostrar
+          final textToShow = isBot 
+              ? IRCColorParser.stripIRCFormatting(textAfter, aggressive: true)
+              : textAfter;
           parts.add(_buildTextWithEmojis(
-            textAfter,
+            textToShow,
             isOwnMessage: isOwnMessage,
             isBot: isBot,
           ));
@@ -8532,8 +8536,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             ),
           ));
         } else {
+          // Para bots, limpiar agresivamente antes de mostrar
+          final textToShow = isBot 
+              ? IRCColorParser.stripIRCFormatting(textAfter, aggressive: true)
+              : textAfter;
           parts.add(_buildTextWithEmojis(
-            textAfter,
+            textToShow,
             isOwnMessage: isOwnMessage,
             isBot: isBot,
           ));
@@ -8551,7 +8559,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     
     // Para bots, siempre limpiar completamente los códigos IRC y mostrar texto limpio
     if (isBot) {
-      final cleaned = IRCColorParser.stripIRCFormatting(messageText);
+      // Usar limpieza agresiva para bots
+      final cleaned = IRCColorParser.stripIRCFormatting(messageText, aggressive: true);
       if (cleaned.isNotEmpty) {
         return _buildTextWithEmojis(
           cleaned,

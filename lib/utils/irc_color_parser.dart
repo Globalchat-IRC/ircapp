@@ -225,7 +225,7 @@ class IRCColorParser {
   }
   
   // Limpiar códigos IRC de un mensaje (para búsqueda, etc.)
-  static String stripIRCFormatting(String message) {
+  static String stripIRCFormatting(String message, {bool aggressive = false}) {
     // Primero, limpiar códigos de color con formato completo: \x03[0-15][,0-15]?
     var cleaned = message.replaceAll(RegExp(r'\x03\d{1,2}(,\d{1,2})?'), '');
     // Luego, limpiar \x03 sueltos (sin código numérico)
@@ -243,6 +243,17 @@ class IRCColorParser {
     
     // Limpiar el carácter ≡ (U+2261) que puede aparecer como código de formato mal formado
     cleaned = cleaned.replaceAll('≡', '');
+    
+    // Limpieza agresiva para bots: eliminar dígitos sueltos que aparecen antes de palabras
+    // Esto elimina patrones como "4Emitiendo" -> "Emitiendo"
+    if (aggressive) {
+      // Eliminar dígitos sueltos al inicio de palabras (pero no números completos)
+      cleaned = cleaned.replaceAll(RegExp(r'\b(\d)([A-Za-zÁÉÍÓÚáéíóúÑñ])'), r'$2');
+      // Eliminar múltiples espacios y símbolos ≡ repetidos
+      cleaned = cleaned.replaceAll(RegExp(r'≡+'), ' ');
+      // Limpiar espacios múltiples
+      cleaned = cleaned.replaceAll(RegExp(r'\s+'), ' ');
+    }
     
     return cleaned.trim();
   }
