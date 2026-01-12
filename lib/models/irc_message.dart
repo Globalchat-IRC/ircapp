@@ -148,7 +148,38 @@ class IRCChannel {
     topic = newTopic;
   }
 
-  bool isRobot(String nick) {
+  bool isRobot(String nick, {List<Map<String, dynamic>>? customRobots}) {
+    // Verificar primero robots personalizados si se proporcionan
+    if (customRobots != null) {
+      final nickLower = nick.toLowerCase();
+      final host = userHosts[nick] ?? '';
+      
+      for (var robotData in customRobots) {
+        final robotNick = (robotData['nick'] as String?)?.toLowerCase();
+        final robotHost = robotData['host'] as String?;
+        
+        // Verificar por nick
+        if (robotNick == nickLower) {
+          // Si tiene host especificado, verificar que coincida
+          if (robotHost != null && host.isNotEmpty) {
+            if (host.toLowerCase().contains(robotHost.toLowerCase())) {
+              return true;
+            }
+          } else {
+            // Si no tiene host, cualquier host es válido
+            return true;
+          }
+        }
+        
+        // Verificar por host si no se encontró por nick
+        if (robotHost != null && host.isNotEmpty) {
+          if (host.toLowerCase().contains(robotHost.toLowerCase())) {
+            return true;
+          }
+        }
+      }
+    }
+    
     // Verificar primero el modo +b (más rápido y confiable)
     if (userModes[nick] == '+b') {
       return true;
@@ -171,6 +202,7 @@ class IRCChannel {
     final hostLower = host.toLowerCase();
     // Verificar si el host contiene "robot.globalchat.org" o "robot"
     // También verificar variaciones con mayúsculas/minúsculas
+    // Por defecto, detectar automáticamente robots con "Robot.GlobalChat.Org" en su host
     final isBotByHost = hostLower.contains('robot.globalchat.org') ||
                         hostLower.contains('robot.globalchat') ||
                         hostLower.contains('.robot.') ||

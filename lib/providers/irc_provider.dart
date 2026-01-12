@@ -6,6 +6,7 @@ import '../models/irc_message.dart';
 import '../models/whois_info.dart';
 import '../models/emoji_config.dart';
 import '../models/server_profile.dart';
+import '../models/custom_robot.dart';
 import '../services/irc_service.dart';
 
 final ircServiceProvider = Provider((ref) {
@@ -1404,6 +1405,111 @@ class UserIconsNotifier extends StateNotifier<Map<String, String>> {
   
   String? getIcon(String nick) {
     return state[nick.toLowerCase()];
+  }
+}
+
+/// Provider para robots personalizados
+/// Permite añadir robots manualmente y asignarles iconos personalizados
+final customRobotsProvider = StateNotifierProvider<CustomRobotsNotifier, List<CustomRobot>>((ref) {
+  return CustomRobotsNotifier();
+});
+
+class CustomRobotsNotifier extends StateNotifier<List<CustomRobot>> {
+  static const _prefsKey = 'custom_robots';
+  
+  CustomRobotsNotifier() : super([]) {
+    _loadFromPrefs();
+  }
+  
+  Future<void> _loadFromPrefs() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final robotsJson = prefs.getString(_prefsKey);
+      if (robotsJson != null) {
+        final List<dynamic> decoded = json.decode(robotsJson);
+        state = decoded.map((json) => CustomRobot.fromJson(json as Map<String, dynamic>)).toList();
+      } else {
+        // Inicializar con robots por defecto (los que tienen Robot.GlobalChat.Org en su host)
+        // Estos se detectan automáticamente, pero los añadimos a la lista para que puedan tener iconos personalizados
+        state = [];
+      }
+    } catch (e) {
+      print('Error cargando robots personalizados: $e');
+      state = [];
+    }
+  }
+  
+  Future<void> _saveToPrefs() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final robotsJson = json.encode(state.map((r) => r.toJson()).toList());
+      await prefs.setString(_prefsKey, robotsJson);
+    } catch (e) {
+      print('Error guardando robots personalizados: $e');
+    }
+  }
+  
+  Future<void> addRobot(CustomRobot robot) async {
+    // Verificar que no exista ya
+    final existingIndex = state.indexWhere((r) => r.nick.toLowerCase() == robot.nick.toLowerCase());
+    if (existingIndex != -1) {
+      // Actualizar el existente
+      final newState = List<CustomRobot>.from(state);
+      newState[existingIndex] = robot;
+      state = newState;
+    } else {
+      // Añadir nuevo
+      state = [...state, robot];
+    }
+    await _saveToPrefs();
+  }
+  
+  Future<void> removeRobot(String nick) async {
+    state = state.where((r) => r.nick.toLowerCase() != nick.toLowerCase()).toList();
+    await _saveToPrefs();
+  }
+  
+  Future<void> updateRobot(String nick, CustomRobot updatedRobot) async {
+    final index = state.indexWhere((r) => r.nick.toLowerCase() == nick.toLowerCase());
+    if (index != -1) {
+      final newState = List<CustomRobot>.from(state);
+      newState[index] = updatedRobot;
+      state = newState;
+      await _saveToPrefs();
+    }
+  }
+  
+  CustomRobot? getRobot(String nick) {
+    try {
+      return state.firstWhere(
+        (r) => r.nick.toLowerCase() == nick.toLowerCase(),
+      );
+    } catch (e) {
+      return null;
+    }
+  }
+  
+  bool isCustomRobot(String nick, {String? host}) {
+    // Verificar por nick
+    final robot = getRobot(nick);
+    if (robot != null) {
+      // Si tiene host especificado, verificar que coincida
+      if (robot.host != null && host != null) {
+        return host.toLowerCase().contains(robot.host!.toLowerCase());
+      }
+      // Si no tiene host, cualquier host es válido
+      return true;
+    }
+    
+    // Verificar por host si no se encontró por nick
+    if (host != null) {
+      return state.any((r) => 
+        r.host != null && 
+        host.toLowerCase().contains(r.host!.toLowerCase())
+      );
+    }
+    
+    return false;
   }
 }
 

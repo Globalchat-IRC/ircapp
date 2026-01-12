@@ -7,6 +7,7 @@ import '../models/app_theme.dart';
 import '../services/backup_service.dart';
 import '../services/cache_service.dart';
 import 'privacy_settings_screen.dart';
+import 'robots_settings_screen.dart';
 import 'package:file_picker/file_picker.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
@@ -469,6 +470,26 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 Navigator.of(context).push(
                   MaterialPageRoute(
                     builder: (context) => const PrivacySettingsScreen(),
+                  ),
+                );
+              },
+            ),
+          ),
+          const SizedBox(height: 16),
+          
+          // Sección de Gestión de Robots
+          Card(
+            color: appTheme.surface,
+            elevation: 2,
+            child: ListTile(
+              leading: Icon(Icons.smart_toy, color: appTheme.primary),
+              title: const Text('Gestión de Robots'),
+              subtitle: const Text('Añadir robots y asignarles iconos personalizados'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (context) => const RobotsSettingsScreen(),
                   ),
                 );
               },

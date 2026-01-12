@@ -18,6 +18,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../models/irc_message.dart';
 import '../providers/irc_provider.dart';
 import '../models/server_profile.dart';
+import '../models/custom_robot.dart';
 import '../providers/theme_provider.dart';
 import '../providers/channel_background_provider.dart';
 import '../models/app_theme.dart';
@@ -6187,11 +6188,19 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                               
                               // Ordenar usuarios por prioridad y luego alfabéticamente
                               sortedUsers.addAll(channelUsers);
+                              // Obtener robots personalizados para la detección
+                              final customRobots = ref.read(customRobotsProvider);
+                              final customRobotsData = customRobots.map((r) => {
+                                'nick': r.nick,
+                                'icon': r.icon,
+                                'host': r.host,
+                              }).toList();
+                              
                               sortedUsers.sort((a, b) {
                                 final modeA = currentChannelData?.getUserMode(a);
                                 final modeB = currentChannelData?.getUserMode(b);
-                                final isRobotA = currentChannelData?.isRobot(a) ?? false;
-                                final isRobotB = currentChannelData?.isRobot(b) ?? false;
+                                final isRobotA = currentChannelData?.isRobot(a, customRobots: customRobotsData) ?? false;
+                                final isRobotB = currentChannelData?.isRobot(b, customRobots: customRobotsData) ?? false;
                                 
                                 final priorityA = getModePriority(modeA, isRobotA);
                                 final priorityB = getModePriority(modeB, isRobotB);
@@ -6209,8 +6218,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                   final user = sortedUsers[index];
                                   // Obtener el modo del usuario
                                   final userMode = currentChannelData?.getUserMode(user);
-                                  final isRobot = currentChannelData?.isRobot(user) ?? false;
-                                  final userIcon = _getUserIcon(userMode, isRobot);
+                                  final isRobot = currentChannelData?.isRobot(user, customRobots: customRobotsData) ?? false;
+                                  final userIcon = _getUserIcon(userMode, isRobot, nick: user);
                                   
                                   final appTheme = ref.read(themeProvider);
                                   // Generar color para el avatar
@@ -6956,7 +6965,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final channelKey = message.channel.toLowerCase();
     final channels = ref.read(channelsProvider);
     final channelData = channels[channelKey];
-    final isBot = channelData?.isRobot(message.nick) ?? false;
+    // Obtener robots personalizados y convertirlos al formato esperado
+    final customRobots = ref.read(customRobotsProvider);
+    final customRobotsData = customRobots.map((r) => {
+      'nick': r.nick,
+      'icon': r.icon,
+      'host': r.host,
+    }).toList();
+    final isBot = channelData?.isRobot(message.nick, customRobots: customRobotsData) ?? false;
     final userMode = channelData?.getUserMode(message.nick);
     
     // Generar color basado en el hash del nickname para consistencia
@@ -6975,7 +6991,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final showTimestamp = formatPrefs.showTimestamp;
     
     // Obtener inicial del usuario para el avatar (o emoji para bots/modos especiales)
-    final userIcon = _getUserIcon(userMode, isBot);
+    final userIcon = _getUserIcon(userMode, isBot, nick: message.nick);
     final userInitial = isBot || userMode != null ? userIcon : (message.nick.isNotEmpty 
         ? message.nick[0].toUpperCase() 
         : '?');
@@ -8848,9 +8864,25 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   }
 
   // Obtener el emoticono según el modo del usuario
-  String _getUserIcon(String? mode, bool isRobot) {
+  String _getUserIcon(String? mode, bool isRobot, {String? nick}) {
     final emojiConfig = ref.read(emojiConfigProvider);
-    if (isRobot) return emojiConfig.robotEmoji;
+    if (isRobot) {
+      // Verificar si hay un icono personalizado para este robot
+      if (nick != null) {
+        final customRobots = ref.read(customRobotsProvider);
+        try {
+          final robot = customRobots.firstWhere(
+            (r) => r.nick.toLowerCase() == nick.toLowerCase(),
+          );
+          if (robot.icon.isNotEmpty) {
+            return robot.icon;
+          }
+        } catch (e) {
+          // Robot no encontrado en la lista personalizada, usar el por defecto
+        }
+      }
+      return emojiConfig.robotEmoji;
+    }
     switch (mode) {
       case '@': // Operador
         return emojiConfig.operatorEmoji;

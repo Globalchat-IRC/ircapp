@@ -22,3 +22,4 @@ final debugLogProvider = StateNotifierProvider<DebugLogNotifier, List<String>>((
   return DebugLogNotifier();
 });
 
+
