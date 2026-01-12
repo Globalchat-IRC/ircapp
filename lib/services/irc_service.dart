@@ -1411,16 +1411,29 @@ class IRCService {
 
       switch (command) {
         case '001': // Welcome
-          print('✅ Welcome message received - connected as $nick to $_currentHost');
+          // En el mensaje 001, el formato es: :server 001 nickname :Welcome message
+          // El nickname está en args[0], no en el source (que es el nombre del servidor)
+          String? confirmedNick;
+          if (args.isNotEmpty) {
+            confirmedNick = args[0];
+            if (confirmedNick.startsWith(':')) {
+              confirmedNick = confirmedNick.substring(1);
+            }
+            confirmedNick = confirmedNick.trim();
+          } else {
+            confirmedNick = _nickname; // Fallback al nick que enviamos
+          }
+          
+          print('✅ Welcome message received - connected as $confirmedNick to $_currentHost');
           // print('🔍 [DEBUG] ✅✅✅ User is now fully registered! Ready for JOIN commands ✅✅✅');
           _isRegistered = true; // Marcar que el usuario está registrado
           // Actualizar el nickname con el confirmado por el servidor (puede tener guion si fue rechazado)
-          if (nick != null && nick.isNotEmpty && nick != _nickname) {
-            _nickname = nick;
+          if (confirmedNick != null && confirmedNick.isNotEmpty && confirmedNick != _nickname) {
+            _nickname = confirmedNick;
             // Notificar a los listeners del cambio de nick
             for (var listener in _nickChangeListeners) {
               try {
-                listener(nick);
+                listener(confirmedNick);
               } catch (e) {
                 // Ignorar errores en listeners
               }
