@@ -249,7 +249,6 @@ class _RobotsSettingsScreenState extends ConsumerState<RobotsSettingsScreen> {
                       MaterialPageRoute(
                         builder: (context) => IconSelectorScreen(
                           nick: nickController.text,
-                          currentIcon: selectedIcon,
                         ),
                       ),
                     );
@@ -296,7 +295,6 @@ class _RobotsSettingsScreenState extends ConsumerState<RobotsSettingsScreen> {
                       MaterialPageRoute(
                         builder: (context) => IconSelectorScreen(
                           nick: nickController.text,
-                          currentIcon: selectedIcon,
                         ),
                       ),
                     );
@@ -406,7 +404,6 @@ class _RobotsSettingsScreenState extends ConsumerState<RobotsSettingsScreen> {
                       MaterialPageRoute(
                         builder: (context) => IconSelectorScreen(
                           nick: nickController.text,
-                          currentIcon: selectedIcon,
                         ),
                       ),
                     );
@@ -453,7 +450,6 @@ class _RobotsSettingsScreenState extends ConsumerState<RobotsSettingsScreen> {
                       MaterialPageRoute(
                         builder: (context) => IconSelectorScreen(
                           nick: nickController.text,
-                          currentIcon: selectedIcon,
                         ),
                       ),
                     );
