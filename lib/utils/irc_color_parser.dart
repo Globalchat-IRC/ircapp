@@ -226,7 +226,7 @@ class IRCColorParser {
   
   // Limpiar códigos IRC de un mensaje (para búsqueda, etc.)
   static String stripIRCFormatting(String message) {
-    // Primero, limpiar códigos de color con formato completo
+    // Primero, limpiar códigos de color con formato completo: \x03[0-15][,0-15]?
     var cleaned = message.replaceAll(RegExp(r'\x03\d{1,2}(,\d{1,2})?'), '');
     // Luego, limpiar \x03 sueltos (sin código numérico)
     cleaned = cleaned.replaceAll('\x03', '');
