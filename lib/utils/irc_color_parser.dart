@@ -236,7 +236,15 @@ class IRCColorParser {
         .replaceAll('\x02', '') // Bold
         .replaceAll('\x1F', '') // Underline
         .replaceAll('\x1D', ''); // Italic
-    return cleaned;
+    
+    // Limpiar caracteres de control adicionales que puedan aparecer
+    // Limpiar caracteres de control no imprimibles (0x00-0x1F excepto los ya manejados)
+    cleaned = cleaned.replaceAll(RegExp(r'[\x00-\x08\x0B-\x0C\x0E-\x1A\x1C\x1E]'), '');
+    
+    // Limpiar el carácter ≡ (U+2261) que puede aparecer como código de formato mal formado
+    cleaned = cleaned.replaceAll('≡', '');
+    
+    return cleaned.trim();
   }
 }
 

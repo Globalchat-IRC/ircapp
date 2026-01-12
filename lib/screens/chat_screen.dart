@@ -8549,15 +8549,24 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     // Mensaje normal sin imágenes
     final appTheme = ref.read(themeProvider);
     
-    // Siempre parsear códigos IRC si están presentes (para bots y mensajes con formato)
-    // También parsear si es un bot para asegurar que se limpien todos los códigos
-    if (isBot || messageText.contains('\x03') || messageText.contains('\x02') || 
+    // Para bots, siempre limpiar completamente los códigos IRC y mostrar texto limpio
+    if (isBot) {
+      final cleaned = IRCColorParser.stripIRCFormatting(messageText);
+      if (cleaned.isNotEmpty) {
+        return _buildTextWithEmojis(
+          cleaned,
+          isOwnMessage: isOwnMessage,
+          isBot: isBot,
+        );
+      }
+    }
+    
+    // Para mensajes normales con códigos IRC, parsearlos
+    if (messageText.contains('\x03') || messageText.contains('\x02') || 
         messageText.contains('\x1F') || messageText.contains('\x1D') || messageText.contains('\x0F')) {
       final defaultColor = isOwnMessage 
           ? Colors.white 
-          : isBot
-              ? const Color(0xFF8B6914) // Marrón oscuro para mejor contraste
-              : appTheme.textPrimary;
+          : appTheme.textPrimary;
       
       final spans = IRCColorParser.parseIRCMessage(messageText, defaultColor: defaultColor);
       
