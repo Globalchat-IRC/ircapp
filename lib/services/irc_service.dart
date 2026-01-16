@@ -88,10 +88,24 @@ class IRCService {
       
       // Crear conexión apropiada para la plataforma
       _connection = IRCConnectionFactory.create();
+      print('📡 [IRCService] Connection type: ${_connection.runtimeType}');
+      print('📡 [IRCService] PlatformUtils.canUseNativeSockets: ${PlatformUtils.canUseNativeSockets}');
+      print('📡 [IRCService] PlatformUtils.mustUseWebSocket: ${PlatformUtils.mustUseWebSocket}');
       
       // Conectar usando la interfaz abstracta
-      await _connection!.connect(host, port, useSSL: useSSL);
-      print('✅ [IRCService] Connection established to $host:$port');
+      try {
+        await _connection!.connect(host, port, useSSL: useSSL);
+        print('✅ [IRCService] Connection established to $host:$port using ${_connection.runtimeType}');
+      } catch (e, stackTrace) {
+        print('❌ [IRCService] Connection failed: $e');
+        print('❌ [IRCService] Error type: ${e.runtimeType}');
+        print('❌ [IRCService] Stack trace: $stackTrace');
+        
+        // NO hacer fallback automático - dejar que el error se propague
+        // El usuario debe saber que la conexión TCP falló
+        print('❌ [IRCService] Native TCP connection failed. Check firewall, network, or server availability.');
+        rethrow;
+      }
       
       // Start listening to incoming data (non-blocking)
       // El stream ya devuelve String, no necesita decodificación
@@ -113,9 +127,29 @@ class IRCService {
       // Usar el nick limpio (ya está en _nickname)
       print('📡 [IRCService] Enviando NICK con nick limpio: "$_nickname"');
       _sendCommand('NICK $_nickname');
-      _sendCommand('USER $_nickname 0 * :$_nickname');
       
-      print('✅ [IRCService] Commands sent: NICK $_nickname, USER $_nickname');
+      // Comando USER con formato correcto: USER username hostname servername :realname
+      // El servidor rechaza conexiones que parecen bots, así que usamos valores más realistas
+      // username: usar una parte del nickname pero más específica para evitar "user" genérico
+      String cleanUsername;
+      final nickLower = _nickname!.toLowerCase();
+      
+      // Intentar extraer parte alfabética del nick
+      final alphaPart = nickLower.replaceAll(RegExp(r'[^a-zA-Z]'), '');
+      
+      if (alphaPart.isNotEmpty && alphaPart.length >= 3) {
+        // Si hay al menos 3 letras, usar esa parte (máximo 8 caracteres)
+        cleanUsername = alphaPart.length > 8 ? alphaPart.substring(0, 8) : alphaPart;
+      } else {
+        // Si no hay suficientes letras, usar "ircapp" en lugar de "user" genérico
+        cleanUsername = 'ircapp';
+      }
+      
+      // realname: algo descriptivo pero no genérico
+      final realname = '${_nickname} - IRC App';
+      _sendCommand('USER $cleanUsername 0 * :$realname');
+      
+      print('✅ [IRCService] Commands sent: NICK $_nickname, USER $cleanUsername 0 * :$realname');
       // print('✅ [IRCService] Listener registered');
       
       // Set connection as established
@@ -225,8 +259,11 @@ class IRCService {
   }
   
   void _doJoinChannel(String normalized) {
+    print('🚪 [IRC] Intentando unirse al canal: $normalized');
+    print('🚪 [IRC] Estado: isRegistered=$_isRegistered, isConnected=$_isConnected');
     _currentChannel = normalized;
     _sendCommand('JOIN $normalized');
+    print('🚪 [IRC] Comando JOIN enviado: JOIN $normalized');
     
     // Initialize channel if not exists (usar nombre normalizado)
     if (!channels.containsKey(normalized)) {
@@ -1313,7 +1350,9 @@ class IRCService {
     
     for (var line in lines) {
       if (line.isEmpty) continue;
-      // print('IRC >> $line');
+      
+      // LOG TODOS LOS MENSAJES DEL SERVIDOR para diagnóstico
+      print('📥 [IRC] Mensaje recibido: $line');
       
       // Log especial para comandos JOIN, 353, 366, 332 (TOPIC), NICK
       if (line.contains(' JOIN ') || line.contains(' 353 ') || line.contains(' 366 ') || line.contains(' 332 ') || line.contains(' NICK ')) {
@@ -1424,7 +1463,8 @@ class IRCService {
             confirmedNick = _nickname; // Fallback al nick que enviamos
           }
           
-          print('✅ Welcome message received - connected as $confirmedNick to $_currentHost');
+          print('✅ [IRC] Welcome message received (001) - connected as $confirmedNick to $_currentHost');
+          print('✅ [IRC] Usuario registrado correctamente, listo para JOIN');
           // print('🔍 [DEBUG] ✅✅✅ User is now fully registered! Ready for JOIN commands ✅✅✅');
           _isRegistered = true; // Marcar que el usuario está registrado
           // Actualizar el nickname con el confirmado por el servidor (puede tener guion si fue rechazado)
@@ -1758,19 +1798,16 @@ class IRCService {
                   
                   // Si el usuario ya existe, actualizar su modo
                   if (existingUser != null) {
+                    // Siempre actualizar el modo si se proporciona uno, incluso si el usuario ya existe
                     if (userMode != null) {
                       channels[finalChannel]!.addUser(existingUser, mode: userMode);
                       updatedCount++;
-                      // print('🔍 [DEBUG] ✅ Updated mode for existing user: "$existingUser" -> "$userMode"');
-                    } else {
-                      // Si no tiene modo en la lista actual, mantener el modo existente si lo tiene
-                      final existingMode = channels[finalChannel]!.getUserMode(existingUser);
-                      if (existingMode != null) {
-                        // print('🔍 [DEBUG] ℹ️  Keeping existing mode for user: "$existingUser" -> "$existingMode"');
-                      }
+                      print('🔍 [DEBUG] ✅ Updated mode for existing user: "$existingUser" -> "$userMode"');
                     }
+                    // Si no tiene modo en este mensaje NAMES, NO hacer nada - mantener el modo existente
+                    // (no limpiar el modo si el usuario viene sin prefijo en algún mensaje)
                   } else {
-                    // print('🔍 [DEBUG] ➕ Adding new user: "$cleanUser" with mode: "$userMode"');
+                    print('🔍 [DEBUG] ➕ Adding new user: "$cleanUser" with mode: "$userMode"');
                     channels[finalChannel]!.addUser(cleanUser, mode: userMode);
                   addedCount++;
                 }
@@ -1787,11 +1824,10 @@ class IRCService {
             print('🔍 [DEBUG] Total users in channel now: ${channels[finalChannel]!.users.length}');
             print('🔍 [DEBUG] Users list: ${channels[finalChannel]!.users}');
             // Debug: mostrar modos de todos los usuarios
+            print('🔍 [DEBUG] User modes after NAMES processing:');
             for (var u in channels[finalChannel]!.users) {
               final mode = channels[finalChannel]!.getUserMode(u);
-              if (mode != null) {
-                // print('🔍 [DEBUG] User "$u" has mode: "$mode"');
-              }
+              print('🔍 [DEBUG] User "$u" -> mode: "$mode" (stored modes: ${channels[finalChannel]!.userModes})');
             }
             
             // Notificar que la lista de usuarios se actualizó
@@ -1896,24 +1932,27 @@ class IRCService {
           break;
         
         case 'JOIN':
-          // print('🔍 [DEBUG] ⭐ JOIN command received! Full line: $line');
-          // print('🔍 [DEBUG] JOIN - args: $args, nick from source: "$nick", our nickname: "$_nickname"');
+          print('🚪 [IRC] JOIN recibido: $nick se unió a ${args.isNotEmpty ? args[0] : "canal desconocido"}');
           
           if (args.isNotEmpty) {
             var channel = args[0];
-            // print('🔍 [DEBUG] JOIN - raw channel from args[0]: "$channel"');
             channel = _normalizeChannelName(channel);
-            // print('🔍 [DEBUG] JOIN - normalized channel: "$channel"');
             
             // Solo procesar si es un canal válido
             if (!channel.startsWith('#')) {
-              // print('🔍 [DEBUG] ⚠️  Invalid channel name in JOIN: $channel');
+              print('⚠️ [IRC] Invalid channel name in JOIN: $channel');
               break;
             }
             
             if (!channels.containsKey(channel)) {
               channels[channel] = IRCChannel(name: channel);
-              // print('🔍 [DEBUG] Created channel entry for JOIN: $channel');
+              print('✅ [IRC] Canal creado: $channel');
+            }
+            
+            // Si somos nosotros los que nos unimos
+            if (nick == _nickname) {
+              print('✅ [IRC] ¡Nos unimos exitosamente al canal: $channel!');
+              _currentChannel = channel;
             }
             
             // Validar que el nick no sea un servidor/host antes de agregarlo

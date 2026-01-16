@@ -120,9 +120,13 @@ class IRCChannel {
     if (host != null) {
       userHosts[existingNick] = host;
     }
+    // IMPORTANTE: Actualizar el modo SIEMPRE que se proporcione, incluso si el usuario ya existe
+    // Esto asegura que los modos se actualicen correctamente cuando se procesa NAMES
     if (mode != null) {
       userModes[existingNick] = mode;
+      print('🔍 [addUser] Guardado modo "$mode" para usuario "$existingNick" (userModes ahora: $userModes)');
     }
+    // Si mode es null, NO limpiar el modo existente - mantenerlo
   }
 
   void removeUser(String nick) {
@@ -212,7 +216,26 @@ class IRCChannel {
   }
 
   // Obtener el modo del usuario (prefijo IRC)
+  // Buscar de forma case-insensitive para encontrar el modo correcto
   String? getUserMode(String nick) {
-    return userModes[nick];
+    // Primero intentar con el nick exacto
+    if (userModes.containsKey(nick)) {
+      final mode = userModes[nick];
+      print('🔍 [getUserMode] Encontrado modo "$mode" para "$nick" (búsqueda exacta)');
+      return mode;
+    }
+    
+    // Si no se encuentra, buscar de forma case-insensitive
+    final nickLower = nick.toLowerCase();
+    for (var entry in userModes.entries) {
+      if (entry.key.toLowerCase() == nickLower) {
+        final mode = entry.value;
+        print('🔍 [getUserMode] Encontrado modo "$mode" para "$nick" (búsqueda case-insensitive, key original: "${entry.key}")');
+        return mode;
+      }
+    }
+    
+    print('🔍 [getUserMode] NO encontrado modo para "$nick" (userModes keys: ${userModes.keys.toList()})');
+    return null;
   }
 }

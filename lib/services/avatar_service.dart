@@ -84,25 +84,22 @@ class AvatarService {
     // Limpiar el nick (solo trim, mantener case-sensitive)
     final cleanNick = nick.trim();
     
-    // En web, usar directamente el generador de avatares por defecto para evitar:
-    // 1. Errores 404 que causan problemas de CORB (Cross-Origin Read Blocking)
-    // 2. El servidor devuelve HTML con Content-Type: text/html en lugar de image/png
-    // 3. Esto causa que el navegador bloquee las respuestas por seguridad
-    // El generador por defecto debería tener mejor soporte CORS y siempre devolver una imagen
     try {
-      // En web, usar directamente el generador por defecto para evitar errores CORB
-      // En otras plataformas, intentar primero el avatar personalizado
-      if (PlatformUtils.isWeb) {
-        // Usar el generador por defecto que siempre devuelve una imagen válida
-        // Esto evita intentar cargar avatares que no existen (404) que causan CORB
-        return getDefaultAvatarUrl(cleanNick);
-      } else {
-        // En plataformas nativas, intentar primero el avatar personalizado
+      // Siempre intentar primero el avatar personalizado (configurado por el usuario)
+      // Esto permite que los usuarios con avatares configurados los vean correctamente
+      final customAvatarExists = await avatarExists(cleanNick);
+      
+      if (customAvatarExists) {
+        // Si existe el avatar personalizado, usarlo
         return getAvatarUrl(cleanNick);
+      } else {
+        // Si no existe, usar el generador por defecto
+        return getDefaultAvatarUrl(cleanNick);
       }
     } catch (e) {
-      // Si hay algún error, usar el generador por defecto como fallback
-      return getDefaultAvatarUrl(cleanNick);
+      // Si hay algún error al verificar, intentar primero el avatar personalizado
+      // y dejar que el widget maneje el fallback si falla
+      return getAvatarUrl(cleanNick);
     }
   }
 }

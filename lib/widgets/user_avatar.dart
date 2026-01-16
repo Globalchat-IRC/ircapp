@@ -152,7 +152,7 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
                   key: ValueKey('${widget.nick}_${_avatarUrl}_${_lastRefreshTimestamp ?? 0}'), // Clave única para que AnimatedSwitcher detecte el cambio
                   width: widget.size,
                   height: widget.size,
-                  fit: BoxFit.cover,
+                  fit: BoxFit.contain,
                   // En web, usar WebHtmlElementStrategy.prefer para evitar problemas de CORS
                   // Esto intenta usar elementos HTML <img> que no tienen las mismas restricciones CORS
                   // Nota: Los errores de CORS en la consola son esperados y no afectan la funcionalidad
@@ -192,7 +192,7 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
         widget.fallbackIcon!,
         width: widget.size,
         height: widget.size,
-        fit: BoxFit.cover,
+        fit: BoxFit.contain,
         errorBuilder: (context, error, stackTrace) {
           // Si falla, mostrar texto
           return Center(

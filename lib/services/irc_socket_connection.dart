@@ -20,23 +20,26 @@ class IRCSocketConnection implements IRCConnection {
     }
 
     _host = host;
+    print('🔌 [IRCSocketConnection] Attempting TCP connection to $host:$port (SSL: $useSSL)');
     try {
       if (useSSL) {
-        // Crear un SecurityContext más permisivo para macOS
+        // Crear un SecurityContext más permisivo
         final context = SecurityContext.defaultContext;
         // Permitir certificados autofirmados y certificados con problemas de validación
+        print('🔌 [IRCSocketConnection] Connecting with SSL...');
         _secureSocket = await SecureSocket.connect(
           host,
           port,
           context: context,
-          timeout: const Duration(seconds: 20), // Aumentar timeout para conexiones lentas
+          timeout: const Duration(seconds: 30), // Aumentar timeout
           onBadCertificate: (certificate) {
             // Aceptar certificados autofirmados o con problemas de validación
             // Esto es necesario para algunos servidores IRC
-            print('⚠️ [IRC] Certificado con problemas de validación para $host:$port, aceptando de todas formas');
+            print('⚠️ [IRCSocketConnection] Certificado con problemas de validación para $host:$port, aceptando de todas formas');
             return true;
           },
         );
+        print('✅ [IRCSocketConnection] SSL connection established');
         _subscription = _secureSocket!.listen(
           (data) {
             // Decodificar como UTF-8 para soportar emoticonos y caracteres especiales
@@ -53,7 +56,9 @@ class IRCSocketConnection implements IRCConnection {
         );
         _isConnected = true;
       } else {
-        _socket = await Socket.connect(host, port, timeout: const Duration(seconds: 10));
+        print('🔌 [IRCSocketConnection] Connecting without SSL...');
+        _socket = await Socket.connect(host, port, timeout: const Duration(seconds: 30));
+        print('✅ [IRCSocketConnection] TCP connection established');
         _subscription = _socket!.listen(
           (data) {
             // Decodificar como UTF-8 para soportar emoticonos y caracteres especiales
@@ -70,8 +75,11 @@ class IRCSocketConnection implements IRCConnection {
         );
         _isConnected = true;
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
       _isConnected = false;
+      print('❌ [IRCSocketConnection] Connection error: $e');
+      print('❌ [IRCSocketConnection] Error type: ${e.runtimeType}');
+      print('❌ [IRCSocketConnection] Stack trace: $stackTrace');
       rethrow;
     }
   }

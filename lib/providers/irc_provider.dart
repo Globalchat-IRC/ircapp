@@ -1427,11 +1427,33 @@ class CustomRobotsNotifier extends StateNotifier<List<CustomRobot>> {
       final robotsJson = prefs.getString(_prefsKey);
       if (robotsJson != null) {
         final List<dynamic> decoded = json.decode(robotsJson);
-        state = decoded.map((json) => CustomRobot.fromJson(json as Map<String, dynamic>)).toList();
+        final loadedRobots = decoded.map((json) => CustomRobot.fromJson(json as Map<String, dynamic>)).toList();
+        
+        // Verificar si GlobalChat ya está en la lista
+        final hasGlobalChat = loadedRobots.any((r) => r.nick.toLowerCase() == 'globalchat');
+        if (!hasGlobalChat) {
+          // Agregar GlobalChat si no está presente
+          loadedRobots.add(CustomRobot(
+            nick: 'GlobalChat',
+            icon: '🤖',
+            host: 'GlobalChat.Org',
+          ));
+          state = loadedRobots;
+          await _saveToPrefs(); // Guardar con GlobalChat incluido
+        } else {
+          state = loadedRobots;
+        }
       } else {
-        // Inicializar con robots por defecto (los que tienen Robot.GlobalChat.Org en su host)
-        // Estos se detectan automáticamente, pero los añadimos a la lista para que puedan tener iconos personalizados
-        state = [];
+        // Inicializar con robots por defecto
+        // GlobalChat es un seudorobot de Anope que debe tener icono de robot
+        state = [
+          CustomRobot(
+            nick: 'GlobalChat',
+            icon: '🤖',
+            host: 'GlobalChat.Org',
+          ),
+        ];
+        await _saveToPrefs(); // Guardar la lista inicial
       }
     } catch (e) {
       print('Error cargando robots personalizados: $e');
@@ -1512,4 +1534,3 @@ class CustomRobotsNotifier extends StateNotifier<List<CustomRobot>> {
     return false;
   }
 }
-

@@ -119,23 +119,32 @@ void _setupWebLifecycleListeners() {
       // Esto se hará a través del WidgetsBinding cuando la app se cierre
     }
     
+    // onBeforeUnload se dispara antes de cerrar la pestaña/navegador
+    // Aquí sí podemos limpiar mensajes privados ya que la app se está cerrando
     if (window.onBeforeUnload != null) {
       window.onBeforeUnload.listen((event) {
-        cleanup();
+        RadioService().stop();
+        // Limpiar mensajes privados solo cuando realmente se cierra la pestaña
+        // Nota: esto requiere acceso al ref, así que se manejará en dispose()
       });
     }
     
-    // También detener cuando la página pierde visibilidad
+    // onPageHide se dispara cuando se cambia de pestaña, NO limpiar mensajes aquí
+    // Solo detener la radio cuando la página se oculta
     if (window.onPageHide != null) {
       window.onPageHide.listen((event) {
-        cleanup();
+        RadioService().stop();
+        // NO limpiar mensajes privados aquí - se perderían al cambiar de pestaña
       });
     }
     
     // Detener cuando la página se descarga (cierre de pestaña/navegador)
+    // Aquí sí podemos limpiar ya que la app se está cerrando
     if (window.onUnload != null) {
       window.onUnload.listen((event) {
-        cleanup();
+        RadioService().stop();
+        // Limpiar mensajes privados solo cuando realmente se cierra la pestaña
+        // Nota: esto requiere acceso al ref, así que se manejará en dispose()
       });
     }
   } catch (e) {
@@ -159,12 +168,8 @@ class _MyAppState extends ConsumerState<MyApp> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     
-    // Aplicar tema de la URL si está presente
-    if (widget.initialTheme != null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _applyThemeFromUrl(widget.initialTheme!);
-      });
-    }
+    // El tema de la URL ya se maneja en ThemeNotifier._initializeTheme()
+    // No necesitamos aplicarlo aquí para evitar conflictos
   }
 
   @override
@@ -177,12 +182,13 @@ class _MyAppState extends ConsumerState<MyApp> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // Cuando la app se cierra o se oculta, limpiar mensajes privados
-    if (state == AppLifecycleState.detached || 
-        state == AppLifecycleState.hidden ||
-        state == AppLifecycleState.paused) {
+    // Solo limpiar mensajes privados cuando la app se cierra completamente (detached)
+    // NO limpiar cuando solo se pierde el foco (hidden/paused) para preservar los mensajes
+    if (state == AppLifecycleState.detached) {
       _cleanupPrivateMessages();
     }
+    // Nota: hidden y paused se disparan cuando se cambia de pestaña o se pierde el foco,
+    // pero queremos preservar los mensajes privados en esos casos
   }
 
   void _cleanupPrivateMessages() {
@@ -216,16 +222,25 @@ class _MyAppState extends ConsumerState<MyApp> with WidgetsBindingObserver {
   
   void _applyThemeFromUrl(String themeName) {
     try {
-      // Buscar el tema por nombre (case-insensitive)
-      final theme = AppTheme.themes.firstWhere(
-        (t) => t.name.toLowerCase() == themeName.toLowerCase(),
-        orElse: () => AppTheme.themes[0], // Fallback al tema por defecto
-      );
+      // Buscar el tema por nombre (case-insensitive y sin espacios extra)
+      final normalizedThemeName = themeName.trim().toLowerCase();
+      AppTheme? foundTheme;
       
-      // Aplicar el tema usando el notifier
-      ref.read(themeProvider.notifier).setTheme(theme);
+      // Buscar en todos los temas
+      for (final theme in AppTheme.themes) {
+        if (theme.name.toLowerCase().trim() == normalizedThemeName) {
+          foundTheme = theme;
+          break;
+        }
+      }
+      
+      // Solo aplicar si encontramos el tema correcto
+      if (foundTheme != null) {
+        // Aplicar el tema usando el notifier (esto también guarda en SharedPreferences)
+        ref.read(themeProvider.notifier).setTheme(foundTheme);
+      }
     } catch (e) {
-      // Si hay error, usar el tema por defecto
+      // Si hay error, no hacer nada (el provider ya maneja el tema)
     }
   }
 

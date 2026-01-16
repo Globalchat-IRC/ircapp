@@ -40,6 +40,7 @@ import '../utils/platform_utils.dart';
 import '../widgets/radio_controls.dart';
 import '../services/emoji_service.dart';
 import '../models/whois_info.dart';
+import '../widgets/whois_dialog.dart';
 import '../widgets/emoji_picker.dart';
 import '../widgets/update_banner.dart';  // Sistema de actualizaciones
 import '../providers/update_provider.dart';  // Provider de actualizaciones
@@ -3246,115 +3247,61 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   // Ventana para mostrar resultados de /whois
   void _showWhoisResultsWindow(String nick) {
+    print('🔍 [WHOIS] Solicitando información de: $nick');
     // Esperar a que llegue la información de whois
     Function(WhoisInfo)? listener;
     listener = (info) {
+      print('🔍 [WHOIS] Información recibida para: ${info.nick} (buscando: $nick)');
       if (info.nick.toLowerCase() == nick.toLowerCase() && mounted) {
+        print('🔍 [WHOIS] Coincidencia encontrada, mostrando diálogo...');
         if (listener != null) {
           _ircService.removeWhoisListener(listener);
         }
-        _displayWhoisResults(info);
+        // Usar un pequeño delay para asegurar que el contexto esté disponible
+        Future.delayed(const Duration(milliseconds: 100), () {
+          if (mounted) {
+            _displayWhoisResults(info);
+          }
+        });
       }
     };
     _ircService.addWhoisListener(listener);
+    
+    // También verificar si ya tenemos la información en caché
+    final cachedInfo = _ircService.getWhoisInfo(nick);
+    if (cachedInfo != null) {
+      print('🔍 [WHOIS] Información encontrada en caché, mostrando diálogo...');
+      Future.delayed(const Duration(milliseconds: 100), () {
+        if (mounted) {
+          _displayWhoisResults(cachedInfo);
+        }
+      });
+    }
   }
 
   void _displayWhoisResults(WhoisInfo info) {
-    final appTheme = ref.read(themeProvider);
-    
+    print('🔍 [WHOIS] Mostrando diálogo para: ${info.nick}');
     // Detectar si es un robot
     final isRobot = _isRobotUser(info);
     
+    if (!mounted) {
+      print('❌ [WHOIS] Widget no está montado, no se puede mostrar el diálogo');
+      return;
+    }
+    
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: appTheme.surface,
-        title: Row(
-          children: [
-            Icon(
-              isRobot ? Icons.smart_toy : Icons.person,
-              color: isRobot ? Colors.orange : Colors.blue,
-            ),
-            const SizedBox(width: 8),
-            Text(
-              'Información de ${info.nick}',
-              style: TextStyle(color: appTheme.textPrimary),
-            ),
-            if (isRobot) ...[
-              const SizedBox(width: 8),
-              const Text('🤖', style: TextStyle(fontSize: 20)),
-            ],
-          ],
-        ),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (info.username != null || info.host != null) ...[
-                _buildInfoRow('Usuario', '${info.username ?? "N/A"}@${info.host ?? "N/A"}'),
-                const SizedBox(height: 8),
-              ],
-              if (info.realName != null) ...[
-                _buildInfoRow('Nombre real', info.realName!),
-                const SizedBox(height: 8),
-              ],
-              if (info.server != null) ...[
-                _buildInfoRow('Servidor', info.server!),
-                const SizedBox(height: 8),
-              ],
-              if (info.serverInfo != null) ...[
-                _buildInfoRow('Info del servidor', info.serverInfo!),
-                const SizedBox(height: 8),
-              ],
-              if (info.isStaff) ...[
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: Colors.orange.withOpacity(0.2),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.shield, color: Colors.orange, size: 20),
-                      const SizedBox(width: 8),
-                      Text(
-                        'Staff: ${info.staffRole ?? "Operador IRC"}',
-                        style: const TextStyle(
-                          color: Colors.orange,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 8),
-              ],
-              if (info.idleSeconds != null) ...[
-                _buildInfoRow('Tiempo inactivo', '${info.idleSeconds}s'),
-                const SizedBox(height: 8),
-              ],
-              if (info.signonTime != null) ...[
-                _buildInfoRow('Conectado desde', _formatDateTime(info.signonTime!)),
-                const SizedBox(height: 8),
-              ],
-              if (info.channels != null && info.channels!.isNotEmpty) ...[
-                _buildInfoRow('Canales', info.channels!.join(', ')),
-              ],
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text(
-              'Cerrar',
-              style: TextStyle(color: appTheme.primary),
-            ),
-          ),
-        ],
+      barrierDismissible: true,
+      barrierColor: Colors.black54,
+      builder: (context) => WhoisDialog(
+        info: info,
+        isRobot: isRobot,
       ),
-    );
+    ).then((_) {
+      print('🔍 [WHOIS] Diálogo cerrado');
+    }).catchError((error) {
+      print('❌ [WHOIS] Error al mostrar diálogo: $error');
+    });
   }
 
   Widget _buildInfoRow(String label, String value) {
@@ -4614,7 +4561,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     padding: const EdgeInsets.all(8.0),
                     child: UserAvatar(
                       nick: nickname!,
-                      size: 40,
+                      size: 32,
                     ),
                   ),
                 )
@@ -6175,19 +6122,31 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                               final sortedUsers = <String>[];
                               
                               // Función para obtener la prioridad del modo
+                              // IMPORTANTE: El modo tiene prioridad sobre si es robot
+                              // Un usuario puede ser operador Y robot, y debe priorizarse por su modo
                               int getModePriority(String? mode, bool isRobot) {
-                                if (isRobot) return 5;
-                                switch (mode) {
-                                  case '&': return 1; // Dueño (más alto)
-                                  case '@': return 2; // Operador
-                                  case '%': return 3; // Halfop
-                                  case '+': return 4; // Voz
-                                  default: return 6; // Usuario normal
+                                // Primero verificar el modo (tiene prioridad sobre ser robot)
+                                if (mode != null && mode.isNotEmpty) {
+                                  switch (mode) {
+                                    case '&': return 1; // Dueño (más alto)
+                                    case '@': return 2; // Operador
+                                    case '%': return 3; // Halfop
+                                    case '+': return 4; // Voz
+                                    default: break; // Si el modo no es reconocido, continuar
+                                  }
                                 }
+                                // Si no tiene modo o el modo no es reconocido, verificar si es robot
+                                if (isRobot) return 5;
+                                // Si no tiene modo ni es robot, es usuario normal
+                                return 6;
                               }
                               
+                              // Usar la lista de usuarios del canal actual (currentChannelData) en lugar de channelUsers
+                              // para asegurar que tenemos la lista más actualizada con los modos correctos
+                              final usersToSort = currentChannelData?.users ?? channelUsers;
+                              
                               // Ordenar usuarios por prioridad y luego alfabéticamente
-                              sortedUsers.addAll(channelUsers);
+                              sortedUsers.addAll(usersToSort);
                               // Obtener robots personalizados para la detección
                               final customRobots = ref.read(customRobotsProvider);
                               final customRobotsData = customRobots.map((r) => {
@@ -6196,20 +6155,59 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                 'host': r.host,
                               }).toList();
                               
+                              // Debug: verificar modos antes de ordenar
+                              if (currentChannelData != null) {
+                                print('🔍 [SORT DEBUG] ========================================');
+                                print('🔍 [SORT DEBUG] channelUsers count: ${channelUsers.length}');
+                                print('🔍 [SORT DEBUG] currentChannelData.users count: ${currentChannelData.users.length}');
+                                print('🔍 [SORT DEBUG] usersToSort count: ${usersToSort.length}');
+                                print('🔍 [SORT DEBUG] User modes map: ${currentChannelData.userModes}');
+                                print('🔍 [SORT DEBUG] All users in channel: ${currentChannelData.users}');
+                                for (var user in usersToSort) {
+                                  final mode = currentChannelData.getUserMode(user);
+                                  final isRobot = currentChannelData.isRobot(user, customRobots: customRobotsData);
+                                  final priority = getModePriority(mode, isRobot);
+                                  print('🔍 [SORT DEBUG] User: "$user" -> Mode: "$mode", IsRobot: $isRobot, Priority: $priority');
+                                }
+                                print('🔍 [SORT DEBUG] ========================================');
+                              }
+                              
+                              // Ordenar usuarios por prioridad y luego alfabéticamente
                               sortedUsers.sort((a, b) {
-                                final modeA = currentChannelData?.getUserMode(a);
-                                final modeB = currentChannelData?.getUserMode(b);
-                                final isRobotA = currentChannelData?.isRobot(a, customRobots: customRobotsData) ?? false;
-                                final isRobotB = currentChannelData?.isRobot(b, customRobots: customRobotsData) ?? false;
+                                // Obtener modos de forma robusta
+                                String? modeA;
+                                String? modeB;
+                                bool isRobotA = false;
+                                bool isRobotB = false;
+                                
+                                if (currentChannelData != null) {
+                                  modeA = currentChannelData.getUserMode(a);
+                                  modeB = currentChannelData.getUserMode(b);
+                                  isRobotA = currentChannelData.isRobot(a, customRobots: customRobotsData);
+                                  isRobotB = currentChannelData.isRobot(b, customRobots: customRobotsData);
+                                }
                                 
                                 final priorityA = getModePriority(modeA, isRobotA);
                                 final priorityB = getModePriority(modeB, isRobotB);
+                                
+                                // Debug para usuarios con modos
+                                if (modeA != null || modeB != null) {
+                                  print('🔍 [SORT] Comparing: "$a" (mode: $modeA, priority: $priorityA) vs "$b" (mode: $modeB, priority: $priorityB)');
+                                }
                                 
                                 if (priorityA != priorityB) {
                                   return priorityA.compareTo(priorityB);
                                 }
                                 return a.toLowerCase().compareTo(b.toLowerCase());
                               });
+                              
+                              // Debug: verificar el orden final
+                              print('🔍 [SORT DEBUG] First 10 sorted users:');
+                              for (var user in sortedUsers.take(10)) {
+                                final mode = currentChannelData?.getUserMode(user);
+                                final priority = getModePriority(mode, currentChannelData?.isRobot(user, customRobots: customRobotsData) ?? false);
+                                print('🔍 [SORT DEBUG]   $user (mode: $mode, priority: $priority)');
+                              }
                               
                               return ListView.builder(
                                 itemCount: sortedUsers.length,
@@ -7008,7 +7006,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               onTap: () => _showUserContextMenu(context, message.nick),
               child: UserAvatar(
                 nick: message.nick,
-                size: 42,
+                size: 36,
                 fallbackIcon: userInitial,
                 gradient: isBot
                     ? LinearGradient(
@@ -7256,7 +7254,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             // Avatar moderno para mensajes propios
             UserAvatar(
               nick: currentNick ?? '',
-              size: 42,
+              size: 36,
               fallbackIcon: currentNick != null && currentNick.isNotEmpty
                   ? currentNick[0].toUpperCase()
                   : 'Y',
@@ -10367,7 +10365,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       ),
                       child: UserAvatar(
                         nick: nick,
-                        size: 60,
+                        size: 48,
                       ),
                     ),
                     const SizedBox(width: 16),
@@ -10455,6 +10453,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 onTap: () {
                   Navigator.pop(context);
                   _ircService.sendWhois(nick);
+                  // Mostrar ventana modal con los resultados cuando lleguen
+                  _showWhoisResultsWindow(nick);
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
                       content: Text('Solicitando información de $nick...'),
@@ -13375,6 +13375,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 onTap: () {
                   Navigator.pop(context);
                   _ircService.sendWhois(nick);
+                  // Mostrar ventana modal con los resultados cuando lleguen
+                  _showWhoisResultsWindow(nick);
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
                       content: Text('Solicitando información de $nick...'),

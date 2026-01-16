@@ -27,11 +27,17 @@ class RadioService {
   Future<void> initialize() async {
     if (PlatformUtils.isWeb) {
       if (_webPlayer == null) {
+        print('📻 [RadioService] Inicializando para web...');
         _webPlayer = web_audio.AudioPlayer();
+        // Configurar el player para web
+        await _webPlayer!.setReleaseMode(web_audio.ReleaseMode.stop);
+        await _webPlayer!.setPlayerMode(web_audio.PlayerMode.mediaPlayer);
         // Aplicar volumen inicial
         await _webPlayer!.setVolume(_currentVolume);
+        print('✅ [RadioService] Inicializado para web correctamente');
+      } else {
+        print('📻 [RadioService] Ya estaba inicializado para web');
       }
-      // print('✅ [RadioService] Inicializado para web');
       return;
     }
 
@@ -139,14 +145,28 @@ class RadioService {
       
       // Intentar reproducir
       try {
+        print('📻 [RadioService Web] Iniciando reproducción de: $finalUrl');
         await _webPlayer!.play(web_audio.UrlSource(finalUrl));
         
         // Esperar un momento para verificar si hay errores de reproducción
-        await Future.delayed(const Duration(milliseconds: 800));
+        await Future.delayed(const Duration(milliseconds: 1000));
         
         // Verificar el estado del player
         final playerState = _webPlayer!.state;
-        if (playerState == web_audio.PlayerState.stopped && _isPlaying == false) {
+        print('📻 [RadioService Web] Estado del player después de iniciar: $playerState');
+        
+        // Verificar si hay errores
+        _webPlayer!.onPlayerComplete.listen((_) {
+          print('📻 [RadioService Web] Reproducción completada');
+          _isPlaying = false;
+        });
+        
+        // Verificar errores de reproducción
+        _webPlayer!.onLog.listen((log) {
+          print('📻 [RadioService Web] Log del player: $log');
+        });
+        
+        if (playerState == web_audio.PlayerState.stopped) {
           // Si se detuvo inmediatamente y usamos proxy, intentar URL directa
           if (useProxy && finalUrl != sourceUrl) {
             print('⚠️ [RadioService Web] Proxy falló, intentando URL directa...');
@@ -157,20 +177,27 @@ class RadioService {
               await _webPlayer!.setReleaseMode(web_audio.ReleaseMode.stop);
               await _webPlayer!.setPlayerMode(web_audio.PlayerMode.mediaPlayer);
               await _webPlayer!.setVolume(_currentVolume);
+              print('📻 [RadioService Web] Intentando URL directa: $sourceUrl');
               await _webPlayer!.play(web_audio.UrlSource(sourceUrl));
-              await Future.delayed(const Duration(milliseconds: 800));
+              await Future.delayed(const Duration(milliseconds: 1000));
               final retryState = _webPlayer!.state;
-              if (retryState == web_audio.PlayerState.stopped && _isPlaying == false) {
+              print('📻 [RadioService Web] Estado después de retry: $retryState');
+              if (retryState == web_audio.PlayerState.stopped) {
                 throw Exception('No se pudo iniciar la reproducción. El servidor puede tener restricciones CORS o la URL no es válida.');
               }
             } catch (retryError) {
+              print('❌ [RadioService Web] Error en retry: $retryError');
               throw Exception('No se pudo iniciar la reproducción. Error: $retryError');
             }
           } else {
             throw Exception('No se pudo iniciar la reproducción. El servidor puede tener restricciones CORS o la URL no es válida.');
           }
         }
+        
+        // Si llegamos aquí, la reproducción debería estar funcionando
+        print('✅ [RadioService Web] Reproducción iniciada correctamente');
       } catch (playError) {
+        print('❌ [RadioService Web] Error al reproducir: $playError');
         // Si hay un error al reproducir y usamos proxy, intentar URL directa
         if (useProxy && finalUrl != sourceUrl) {
           print('⚠️ [RadioService Web] Error con proxy, intentando URL directa...');
@@ -195,8 +222,34 @@ class RadioService {
         }
       }
       
-      _currentStation = station;
-      _isPlaying = true;
+      // Verificar una vez más que el player esté realmente reproduciendo
+      await Future.delayed(const Duration(milliseconds: 500));
+      final finalState = _webPlayer!.state;
+      print('📻 [RadioService Web] Estado final antes de confirmar: $finalState');
+      
+      if (finalState == web_audio.PlayerState.playing) {
+        _currentStation = station;
+        _isPlaying = true;
+        print('✅ [RadioService Web] Reproducción confirmada: ${station.name}');
+      } else {
+        print('⚠️ [RadioService Web] El player no está en estado playing, estado actual: $finalState');
+        // Intentar una vez más
+        if (finalState == web_audio.PlayerState.stopped || finalState == web_audio.PlayerState.paused) {
+          try {
+            await _webPlayer!.resume();
+            await Future.delayed(const Duration(milliseconds: 500));
+            if (_webPlayer!.state == web_audio.PlayerState.playing) {
+              _currentStation = station;
+              _isPlaying = true;
+              print('✅ [RadioService Web] Reproducción iniciada después de resume');
+            } else {
+              throw Exception('No se pudo iniciar la reproducción después de varios intentos');
+            }
+          } catch (e) {
+            throw Exception('No se pudo iniciar la reproducción. Estado: $finalState, Error: $e');
+          }
+        }
+      }
     } catch (e, stackTrace) {
       _isPlaying = false;
       _currentStation = null;
