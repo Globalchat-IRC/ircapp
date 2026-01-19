@@ -25,7 +25,7 @@ if %ERRORLEVEL% neq 0 (
 )
 
 REM Verificar que Inno Setup esté instalado
-set INNO_PATH=C:\Program Files (x86)\Inno Setup 6\ISCC.exe
+set "INNO_PATH=C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
 if not exist "%INNO_PATH%" (
     echo [ERROR] Inno Setup no encontrado en: %INNO_PATH%
     echo Por favor instala Inno Setup 6 desde: https://jrsoftware.org/isdl.php
@@ -83,12 +83,42 @@ REM Paso 4: Verificar archivos compilados
 echo ========================================
 echo [4/5] Verificando archivos compilados...
 echo ========================================
-if not exist "build\windows\x64\runner\Release\irc_app.exe" (
-    echo [ERROR] No se encontro irc_app.exe en la carpeta Release
+REM Buscar el ejecutable en diferentes ubicaciones posibles
+set EXE_FOUND=0
+if exist "build\windows\x64\runner\Release\irc_app.exe" (
+    set EXE_PATH=build\windows\x64\runner\Release
+    set EXE_FOUND=1
+) else if exist "build\windows\runner\Release\irc_app.exe" (
+    set EXE_PATH=build\windows\runner\Release
+    set EXE_FOUND=1
+) else if exist "build\windows\x64\runner\Debug\irc_app.exe" (
+    echo [WARNING] Solo se encontro version Debug, compilando Release...
+    call flutter build windows --release
+    if exist "build\windows\x64\runner\Release\irc_app.exe" (
+        set EXE_PATH=build\windows\x64\runner\Release
+        set EXE_FOUND=1
+    )
+) else (
+    echo [ERROR] No se encontro irc_app.exe
+    echo.
+    echo Buscando en las siguientes ubicaciones:
+    if exist "build\windows" (
+        echo Carpeta build\windows existe
+        dir /s /b build\windows\*.exe 2>nul
+    ) else (
+        echo Carpeta build\windows NO existe
+    )
     pause
     exit /b 1
 )
-echo [OK] Archivo irc_app.exe encontrado
+
+if %EXE_FOUND%==0 (
+    echo [ERROR] No se encontro irc_app.exe en ninguna ubicacion
+    pause
+    exit /b 1
+)
+
+echo [OK] Archivo irc_app.exe encontrado en: %EXE_PATH%
 echo.
 
 REM Crear carpeta de salida para instaladores
@@ -98,7 +128,7 @@ REM Paso 5: Crear instalador con Inno Setup
 echo ========================================
 echo [5/5] Creando instalador con Inno Setup...
 echo ========================================
-"%INNO_PATH%" installer.iss
+call "%INNO_PATH%" installer.iss
 if %ERRORLEVEL% neq 0 (
     echo [ERROR] Creacion del instalador fallo
     pause
@@ -129,7 +159,7 @@ if defined INSTALLER_FILE (
     REM Mostrar información del ejecutable
     echo.
     echo Archivos principales:
-    dir /B build\windows\x64\runner\Release\*.exe
+    dir /B %EXE_PATH%\*.exe
     echo.
     
     REM Preguntar si desea abrir la carpeta

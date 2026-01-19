@@ -11,4 +11,22 @@
       <supportedOS Id="{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}"/>
     </application>
   </compatibility>
+  <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
+    <security>
+      <requestedPrivileges>
+        <requestedExecutionLevel level="asInvoker" uiAccess="false" />
+      </requestedPrivileges>
+    </security>
+  </trustInfo>
+  <application xmlns="urn:schemas-microsoft-com:asm.v3">
+    <windowsSettings>
+      <appExecutionAlias xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10">
+        <desktopApp>
+          <desktopAppExecutionAlias>
+            <desktopAppExecutionAliasEntry executable="irc_app.exe" />
+          </desktopAppExecutionAlias>
+        </desktopApp>
+      </appExecutionAlias>
+    </windowsSettings>
+  </application>
 </assembly>
