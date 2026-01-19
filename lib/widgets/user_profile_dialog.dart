@@ -10,10 +10,12 @@ import 'email_verification_dialog.dart';
 /// Diálogo de perfil de usuario completo
 class UserProfileDialog extends ConsumerStatefulWidget {
   final String nick;
+  final String? currentChannel; // Canal actual para detectar si es el robot oficial
   
   const UserProfileDialog({
     super.key,
     required this.nick,
+    this.currentChannel,
   });
   
   @override
@@ -209,11 +211,83 @@ class _UserProfileDialogState extends ConsumerState<UserProfileDialog> with Sing
   }
   
   Widget _buildInfoTab() {
+    // Detectar si es el robot oficial de GlobalChat
+    final isGlobalChatBot = widget.nick.toLowerCase() == 'globalchat' && 
+                          widget.currentChannel?.toLowerCase() == '#globalchat';
+    
     return SingleChildScrollView(
       padding: const EdgeInsets.all(20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Etiqueta de Robot Oficial de GlobalChat
+          if (isGlobalChatBot) ...[
+            Container(
+              padding: const EdgeInsets.all(16),
+              margin: const EdgeInsets.only(bottom: 20),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    const Color(0xFFFFD700).withOpacity(0.2),
+                    const Color(0xFFFFA500).withOpacity(0.2),
+                  ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: const Color(0xFFFFD700).withOpacity(0.5),
+                  width: 2,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFFFFD700).withOpacity(0.3),
+                    blurRadius: 8,
+                    spreadRadius: 1,
+                  ),
+                ],
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFFD700).withOpacity(0.3),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Text(
+                      '🤖',
+                      style: TextStyle(fontSize: 28),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Robot Oficial del Canal GlobalChat',
+                          style: TextStyle(
+                            color: const Color(0xFFFFD700),
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Bot oficial de la red GlobalChat que gestiona el canal #globalchat',
+                          style: TextStyle(
+                            color: Colors.grey[700],
+                            fontSize: 13,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
           _buildInfoCard(
             '📅 Registro',
             _profile!.registrationDate != null

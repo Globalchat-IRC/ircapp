@@ -193,7 +193,7 @@ class _MyAppState extends ConsumerState<MyApp> with WidgetsBindingObserver {
 
   void _cleanupPrivateMessages() {
     // Limpiar mensajes privados de la memoria
-    ref.read(messagesProvider.notifier).clearPrivateMessages();
+    ref.read(messagesProvider.notifier).clearPrivateMessages(); // async, pero no esperamos
     
     // Limpiar específicamente mensajes del privado de "nick" y "nickserv"
     final messages = ref.read(messagesProvider);

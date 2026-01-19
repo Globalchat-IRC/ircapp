@@ -50,7 +50,7 @@ class ChannelBackgroundNotifier extends StateNotifier<Map<String, String>> {
   Future<void> _loadDefaults() async {
     // Asegurar que los defaults estén presentes si no existen
     final defaults = {
-      '#sonicfrequency': 'https://technosonic.radio12345.com/banner_images/3418735/128/95/785047816424filebaner.png',
+      '#urbanflow': 'https://technosonic.radio12345.com/banner_images/3418735/128/95/785047816424filebaner.png',
     };
     final newState = Map<String, String>.from(state);
     bool hasChanges = false;

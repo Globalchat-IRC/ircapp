@@ -273,6 +273,45 @@ class IRCService {
       // print('🔍 [DEBUG] Channel already exists: $normalized');
     }
     
+    // Autojoin a #globalchat (canal oficial) si no es el canal que estamos uniéndonos
+    const globalChatChannel = '#globalchat';
+    if (normalized.toLowerCase() != globalChatChannel.toLowerCase()) {
+      // Verificar si realmente estamos en #globalchat
+      // El canal existe y tiene nuestro nick en la lista de usuarios
+      final globalChat = channels[globalChatChannel];
+      final isInGlobalChat = globalChat != null && 
+          _nickname != null &&
+          globalChat.users.any((user) => user.toLowerCase() == _nickname!.toLowerCase());
+      
+      print('🌐 [IRC] Verificando autojoin a #globalchat: canal=$normalized, enGlobalChat=$isInGlobalChat, globalChatExists=${globalChat != null}');
+      
+      if (!isInGlobalChat) {
+        // Esperar un poco antes de unirse a #globalchat para no saturar el servidor
+        Future.delayed(const Duration(milliseconds: 1500), () {
+          // Verificar nuevamente antes de hacer JOIN
+          final globalChatNow = channels[globalChatChannel];
+          final stillNotInGlobalChat = globalChatNow == null || 
+              (_nickname != null && 
+               !globalChatNow.users.any((user) => user.toLowerCase() == _nickname!.toLowerCase()));
+          
+          print('🌐 [IRC] Verificación retrasada: stillNotInGlobalChat=$stillNotInGlobalChat, connected=$_isConnected, hasActive=$_hasActiveConnection, nick=$_nickname');
+          
+          if (_isConnected && _hasActiveConnection && stillNotInGlobalChat && _nickname != null) {
+            print('🌐 [IRC] ✅ Auto-uniéndose al canal oficial #globalchat');
+            _sendCommand('JOIN $globalChatChannel');
+            // Crear el canal en el mapa si no existe
+            if (!channels.containsKey(globalChatChannel)) {
+              channels[globalChatChannel] = IRCChannel(name: globalChatChannel);
+            }
+          } else {
+            print('🌐 [IRC] ⚠️ No se puede unir a #globalchat: connected=$_isConnected, hasActive=$_hasActiveConnection, stillNotInGlobalChat=$stillNotInGlobalChat, nick=$_nickname');
+          }
+        });
+      } else {
+        print('🌐 [IRC] ✅ Ya estamos en #globalchat, no es necesario autojoin');
+      }
+    }
+    
     // Solicitar la lista de usuarios y el TOPIC después de unirse
     // Usar múltiples intentos para asegurar que se reciba la lista
     Future.delayed(const Duration(milliseconds: 500), () {

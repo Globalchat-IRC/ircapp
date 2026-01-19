@@ -15,6 +15,7 @@ class UserAvatar extends ConsumerStatefulWidget {
   final Gradient? gradient;
   final Border? border;
   final List<BoxShadow>? boxShadow;
+  final bool isRobot; // Si es true, no intenta cargar avatar de la red, usa directamente el fallback
 
   const UserAvatar({
     Key? key,
@@ -25,6 +26,7 @@ class UserAvatar extends ConsumerStatefulWidget {
     this.gradient,
     this.border,
     this.boxShadow,
+    this.isRobot = false,
   }) : super(key: key);
 
   @override
@@ -98,6 +100,18 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
       return;
     }
     
+    // Si es un robot, no intentar cargar avatar de la red, usar directamente el fallback
+    if (widget.isRobot) {
+      print('🤖 [UserAvatar] Robot detectado para "${widget.nick}", usando fallback: "${widget.fallbackIcon}"');
+      if (mounted) {
+        setState(() {
+          _avatarUrl = null; // Forzar uso del fallback
+          _avatarLoaded = true;
+        });
+      }
+      return;
+    }
+    
     // print('🔍 [AVATAR WIDGET] Loading avatar for: "$cleanNick" (original: "${widget.nick}")');
     
     // Obtener la URL correcta del avatar (intenta ambas variantes)
@@ -121,6 +135,11 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
     final fallback = widget.fallbackIcon ?? 
         customIcon ??
         (widget.nick.isNotEmpty ? widget.nick[0].toUpperCase() : '?');
+    
+    // Debug para robots
+    if (widget.isRobot) {
+      print('🤖 [UserAvatar] Construyendo avatar para robot "${widget.nick}", fallback: "$fallback", _avatarUrl: $_avatarUrl, _avatarLoaded: $_avatarLoaded');
+    }
     
     // Detectar si el fallbackIcon es una URL (emoticono de JoyPixels)
     final isFallbackUrl = widget.fallbackIcon != null && 

@@ -552,14 +552,54 @@ class _ChannelListDialogState extends ConsumerState<ChannelListDialog> {
                     Row(
                       children: [
                         Expanded(
-                          child: Text(
-                            channelName,
-                            style: TextStyle(
-                              color: appTheme.textPrimary,
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                            ),
-                            overflow: TextOverflow.ellipsis,
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Flexible(
+                                child: Text(
+                                  channelName,
+                                  style: TextStyle(
+                                    color: appTheme.textPrimary,
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              if (channelName.toLowerCase() == '#globalchat') ...[
+                                const SizedBox(width: 6),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 6,
+                                    vertical: 2,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: Colors.amber.withOpacity(0.2),
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(
+                                        Icons.verified,
+                                        size: 12,
+                                        color: Colors.amber.shade700,
+                                      ),
+                                      const SizedBox(width: 2),
+                                      Text(
+                                        'Canal Oficial',
+                                        style: TextStyle(
+                                          color: Colors.amber.shade700,
+                                          fontSize: 9,
+                                          fontWeight: FontWeight.bold,
+                                          letterSpacing: 0.5,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ],
                           ),
                         ),
                         Container(

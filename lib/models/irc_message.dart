@@ -71,6 +71,50 @@ class IRCMessage {
     return 'msg_${DateTime.now().millisecondsSinceEpoch}_${DateTime.now().microsecondsSinceEpoch}';
   }
 
+  // Serializar a JSON para persistencia
+  Map<String, dynamic> toJson() {
+    return {
+      'nick': nick,
+      'channel': channel,
+      'message': message,
+      'timestamp': timestamp.millisecondsSinceEpoch,
+      'isSystem': isSystem,
+      'isPending': isPending,
+      'pendingId': pendingId,
+      'delaySeconds': delaySeconds,
+      'isAction': isAction,
+      'messageId': messageId,
+      'isEdited': isEdited,
+      'editedAt': editedAt?.millisecondsSinceEpoch,
+      'replyToMessageId': replyToMessageId,
+      'reactions': reactions,
+    };
+  }
+
+  // Deserializar desde JSON
+  factory IRCMessage.fromJson(Map<String, dynamic> json) {
+    return IRCMessage(
+      nick: json['nick'] as String,
+      channel: json['channel'] as String,
+      message: json['message'] as String,
+      timestamp: DateTime.fromMillisecondsSinceEpoch(json['timestamp'] as int),
+      isSystem: json['isSystem'] as bool? ?? false,
+      isPending: json['isPending'] as bool? ?? false,
+      pendingId: json['pendingId'] as String?,
+      delaySeconds: json['delaySeconds'] as int?,
+      isAction: json['isAction'] as bool? ?? false,
+      messageId: json['messageId'] as String?,
+      isEdited: json['isEdited'] as bool? ?? false,
+      editedAt: json['editedAt'] != null 
+          ? DateTime.fromMillisecondsSinceEpoch(json['editedAt'] as int)
+          : null,
+      replyToMessageId: json['replyToMessageId'] as String?,
+      reactions: json['reactions'] != null
+          ? Map<String, int>.from(json['reactions'] as Map)
+          : {},
+    );
+  }
+
   @override
   String toString() => '[$channel] <$nick> $message${isPending ? " [PENDIENTE]" : ""}';
 }
@@ -153,9 +197,10 @@ class IRCChannel {
   }
 
   bool isRobot(String nick, {List<Map<String, dynamic>>? customRobots}) {
+    final nickLower = nick.toLowerCase().trim();
+    
     // Verificar primero robots personalizados si se proporcionan
     if (customRobots != null) {
-      final nickLower = nick.toLowerCase();
       final host = userHosts[nick] ?? '';
       
       for (var robotData in customRobots) {
@@ -185,13 +230,45 @@ class IRCChannel {
     }
     
     // Verificar primero el modo +b (más rápido y confiable)
-    if (userModes[nick] == '+b') {
+    // Buscar de forma case-insensitive en userModes
+    String? userMode;
+    if (userModes.containsKey(nick)) {
+      userMode = userModes[nick];
+    } else {
+      // Buscar de forma case-insensitive
+      for (var entry in userModes.entries) {
+        if (entry.key.toLowerCase() == nickLower) {
+          userMode = entry.value;
+          break;
+        }
+      }
+    }
+    if (userMode == '+b') {
       return true;
+    }
+    
+    // Verificar si es el usuario "globalchat" en el canal "#globalchat" (es un robot)
+    // Normalizar el nombre del canal: remover espacios y convertir a minúsculas
+    final channelNameLower = name.toLowerCase().trim();
+    final channelNameWithoutHash = channelNameLower.replaceFirst(RegExp(r'^#+'), '');
+    
+    if (nickLower == 'globalchat') {
+      // Debug: imprimir información de detección
+      print('🤖 [isRobot] Verificando robot para nick: "$nick" (lower: "$nickLower") en canal: "$name" (lower: "$channelNameLower", sin #: "$channelNameWithoutHash")');
+      
+      // Verificar si estamos en el canal #globalchat (con o sin #, case-insensitive)
+      final isGlobalChatChannel = channelNameLower == '#globalchat' || channelNameWithoutHash == 'globalchat';
+      
+      if (isGlobalChatChannel) {
+        print('🤖 [isRobot] ✅ Detectado usuario "$nick" como robot en canal "$name"');
+        return true;
+      } else {
+        print('🤖 [isRobot] ❌ Usuario "$nick" NO es robot (canal "$name" no es #globalchat)');
+      }
     }
     
     // Si no tiene modo +b, verificar el host
     final host = userHosts[nick] ?? '';
-    final nickLower = nick.toLowerCase();
     
     // Verificar si el nick contiene "robot", "bot", o empieza con "radio" (para bots de radio)
     final isBotByNick = nickLower.contains('robot') || 

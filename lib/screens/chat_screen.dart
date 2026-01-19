@@ -1015,8 +1015,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final channelToRadioMap = {
       '#nuestrasvoces': 'NuestrasVoces',
       '#soundmusic': 'SoundMusic',
-      '#sonicfrequence': 'Radio Sonic Frequency',
-      '#sonicfrequency': 'Radio Sonic Frequency', // También aceptar con mayúscula
+      '#urbanflow': 'UrbanFlow',
     };
     
     final radioName = channelToRadioMap[channelLower];
@@ -1921,9 +1920,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   
   // Mostrar perfil de usuario
   void _showUserProfile(String nick) {
+    final currentChannel = ref.read(currentChannelProvider);
     showDialog(
       context: context,
-      builder: (context) => UserProfileDialog(nick: nick),
+      builder: (context) => UserProfileDialog(
+        nick: nick,
+        currentChannel: currentChannel,
+      ),
     );
   }
   
@@ -3284,6 +3287,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     // Detectar si es un robot
     final isRobot = _isRobotUser(info);
     
+    // Detectar si es el robot oficial de GlobalChat (usuario "globalchat" en canal "#globalchat")
+    final currentChannel = ref.read(currentChannelProvider);
+    final isGlobalChatBot = info.nick.toLowerCase() == 'globalchat' && 
+                          currentChannel?.toLowerCase() == '#globalchat';
+    
     if (!mounted) {
       print('❌ [WHOIS] Widget no está montado, no se puede mostrar el diálogo');
       return;
@@ -3295,7 +3303,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       barrierColor: Colors.black54,
       builder: (context) => WhoisDialog(
         info: info,
-        isRobot: isRobot,
+        isRobot: isRobot || isGlobalChatBot, // Incluir isGlobalChatBot en isRobot
+        isGlobalChatBot: isGlobalChatBot, // Pasar información específica
       ),
     ).then((_) {
       print('🔍 [WHOIS] Diálogo cerrado');
@@ -4572,9 +4581,44 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
             children: [
-                  SizedBox(
-                    width: constraints.maxWidth > 0 ? constraints.maxWidth : 200,
-                    child: _buildChannelNameWithHash(currentChannel ?? 'Cliente IRC', appTheme),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      SizedBox(
+                        width: constraints.maxWidth > 0 ? constraints.maxWidth - 100 : 200,
+                        child: _buildChannelNameWithHash(currentChannel ?? 'Cliente IRC', appTheme),
+                      ),
+                      if (currentChannel != null && currentChannel.toLowerCase() == '#globalchat') ...[
+                        const SizedBox(width: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: Colors.amber.withOpacity(0.2),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.verified,
+                                size: 12,
+                                color: Colors.amber.shade700,
+                              ),
+                              const SizedBox(width: 2),
+                              Text(
+                                'Canal Oficial',
+                                style: TextStyle(
+                                  color: Colors.amber.shade700,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                  letterSpacing: 0.5,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
               if (nickname != null)
                     SizedBox(
@@ -6112,6 +6156,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         Expanded(
                           child: Builder(
                             builder: (context) {
+                              // Obtener el canal actual del provider
+                              final currentChannel = ref.read(currentChannelProvider);
                               // Obtener el canal para acceder a los modos
                               IRCChannel? currentChannelData;
                               if (channelKey != null && channels.containsKey(channelKey)) {
@@ -6217,7 +6263,19 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                   // Obtener el modo del usuario
                                   final userMode = currentChannelData?.getUserMode(user);
                                   final isRobot = currentChannelData?.isRobot(user, customRobots: customRobotsData) ?? false;
+                                  
+                                  // Debug: verificar detección de robot para "globalchat"
+                                  if (user.toLowerCase() == 'globalchat' && currentChannel?.toLowerCase() == '#globalchat') {
+                                    print('🔍 [DEBUG] Usuario: $user, Canal: $currentChannel, isRobot: $isRobot, userMode: $userMode');
+                                    print('🔍 [DEBUG] currentChannelData?.name: ${currentChannelData?.name}');
+                                  }
+                                  
                                   final userIcon = _getUserIcon(userMode, isRobot, nick: user);
+                                  
+                                  // Debug adicional para robots
+                                  if (isRobot && user.toLowerCase() == 'globalchat') {
+                                    print('🤖 [DEBUG] userIcon generado para robot "$user": "$userIcon"');
+                                  }
                                   
                                   final appTheme = ref.read(themeProvider);
                                   // Generar color para el avatar
@@ -6238,6 +6296,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                         nick: user,
                                         size: 48,
                                         fallbackIcon: userIcon,
+                                        isRobot: isRobot,
                                         gradient: isRobot
                                             ? LinearGradient(
                                                 colors: [
@@ -6271,21 +6330,26 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                               )
                                             : null,
                                       ),
-                                      title: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          Flexible(
-                                            child: Text(
-                                    user,
-                                              style: TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 12,
-                                                fontWeight: (isRobot || userMode != null) ? FontWeight.bold : FontWeight.normal,
+                                      title: Builder(
+                                        builder: (context) {
+                                          // No mostrar etiquetas de Dueño/Operador para el usuario "globalchat" en #globalchat (es un robot)
+                                          final isGlobalChatBot = user.toLowerCase() == 'globalchat' && 
+                                                                  currentChannel?.toLowerCase() == '#globalchat';
+                                          return Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Flexible(
+                                                child: Text(
+                                                  user,
+                                                  style: TextStyle(
+                                                    color: Colors.white,
+                                                    fontSize: 12,
+                                                    fontWeight: (isRobot || userMode != null) ? FontWeight.bold : FontWeight.normal,
+                                                  ),
+                                                  overflow: TextOverflow.ellipsis,
+                                                ),
                                               ),
-                                              overflow: TextOverflow.ellipsis,
-                                            ),
-                                          ),
-                                          if (userMode == '@' || userMode == '&') ...[
+                                              if ((userMode == '@' || userMode == '&') && !isGlobalChatBot) ...[
                                             const SizedBox(width: 6),
                                             Container(
                                               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -6327,7 +6391,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                               ),
                                             ),
                                           ],
-                                        ],
+                                            ],
+                                          );
+                                        },
                                       ),
                                       onTap: () {
                                         // print('🔍 [DEBUG] Tapped on user: $user (mode: $userMode)');
@@ -7008,6 +7074,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 nick: message.nick,
                 size: 36,
                 fallbackIcon: userInitial,
+                isRobot: isBot,
                 gradient: isBot
                     ? LinearGradient(
                         colors: [
@@ -9204,6 +9271,36 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 fontSize: 13,
               ),
             ),
+            if (!isQuery && (normalizedChannel == '#globalchat' || normalizedChannel == 'globalchat')) ...[
+              const SizedBox(width: 4),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Colors.amber.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.verified,
+                      size: 10,
+                      color: Colors.amber.shade700,
+                    ),
+                    const SizedBox(width: 2),
+                    Text(
+                      'Canal Oficial',
+                      style: TextStyle(
+                        color: Colors.amber.shade700,
+                        fontSize: 9,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
             if (isQuery) ...[
               const SizedBox(width: 4),
               Container(

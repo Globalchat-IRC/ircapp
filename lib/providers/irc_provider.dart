@@ -8,6 +8,7 @@ import '../models/emoji_config.dart';
 import '../models/server_profile.dart';
 import '../models/custom_robot.dart';
 import '../services/irc_service.dart';
+import '../utils/platform_utils.dart';
 
 final ircServiceProvider = Provider((ref) {
   return IRCService();
@@ -215,9 +216,52 @@ final unreadMessagesProvider = StateNotifierProvider<UnreadMessagesNotifier, Map
 
 class MessagesNotifier extends StateNotifier<List<IRCMessage>> {
   final IRCService _service;
+  static const String _privateMessagesKey = 'private_messages_web';
 
   MessagesNotifier(this._service) : super([]) {
     _service.addMessageListener(_onMessage);
+    _loadPrivateMessages();
+  }
+
+  /// Cargar mensajes privados desde SharedPreferences (solo en web)
+  Future<void> _loadPrivateMessages() async {
+    if (!PlatformUtils.isWeb) return;
+    
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final jsonString = prefs.getString(_privateMessagesKey);
+      if (jsonString != null && jsonString.isNotEmpty) {
+        final List<dynamic> jsonList = jsonDecode(jsonString);
+        final privateMessages = jsonList
+            .map((json) => IRCMessage.fromJson(json as Map<String, dynamic>))
+            .where((msg) => !msg.channel.startsWith('#')) // Solo mensajes privados
+            .toList();
+        
+        // Añadir los mensajes privados al estado actual (sin duplicar canales)
+        final currentChannels = state.where((m) => m.channel.startsWith('#')).toList();
+        state = [...currentChannels, ...privateMessages];
+      }
+    } catch (e) {
+      // Ignorar errores de carga
+      print('⚠️ [MessagesNotifier] Error cargando mensajes privados: $e');
+    }
+  }
+
+  /// Guardar mensajes privados en SharedPreferences (solo en web)
+  Future<void> _savePrivateMessages() async {
+    if (!PlatformUtils.isWeb) return;
+    
+    try {
+      final privateMessages = state.where((m) => !m.channel.startsWith('#')).toList();
+      final jsonList = privateMessages.map((msg) => msg.toJson()).toList();
+      final jsonString = jsonEncode(jsonList);
+      
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_privateMessagesKey, jsonString);
+    } catch (e) {
+      // Ignorar errores de guardado
+      print('⚠️ [MessagesNotifier] Error guardando mensajes privados: $e');
+    }
   }
 
   /// Limpiar todos los mensajes privados (canales que no empiezan con #)
