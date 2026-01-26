@@ -305,74 +305,137 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
                                   // Etiqueta de Dueño del Canal
                                   Consumer(
                                     builder: (context, ref, _) {
-                                      final currentChannel = ref.watch(currentChannelProvider);
                                       final channels = ref.watch(channelsProvider);
                                       
-                                      if (currentChannel != null && channels.containsKey(currentChannel)) {
-                                        final channel = channels[currentChannel];
-                                        final userMode = channel?.getUserMode(widget.nick);
+                                      // Buscar todos los canales donde el usuario es dueño
+                                      final ownerChannels = <String>[];
+                                      for (var entry in channels.entries) {
+                                        final channelName = entry.key;
+                                        final channel = entry.value;
+                                        final userMode = channel.getUserMode(widget.nick);
                                         
                                         if (userMode == '~' || userMode == '&') {
-                                          return Column(
-                                            children: [
-                                              const SizedBox(height: 8),
-                                              Container(
-                                                constraints: BoxConstraints(
-                                                  maxWidth: MediaQuery.of(context).size.width - 120,
-                                                ),
-                                                padding: const EdgeInsets.symmetric(
-                                                  horizontal: 12,
-                                                  vertical: 4,
-                                                ),
-                                                decoration: BoxDecoration(
-                                                  color: const Color(0xFFFF5722).withOpacity(0.25),
-                                                  borderRadius: BorderRadius.circular(14),
-                                                  border: Border.all(
-                                                    color: const Color(0xFFFF5722).withOpacity(0.8),
-                                                    width: 1.5,
-                                                  ),
-                                                  boxShadow: [
-                                                    BoxShadow(
-                                                      color: const Color(0xFFFF5722).withOpacity(0.3),
-                                                      blurRadius: 4,
-                                                      spreadRadius: 0.5,
-                                                    ),
-                                                  ],
-                                                ),
-                                                child: Row(
-                                                  mainAxisSize: MainAxisSize.min,
-                                                  children: [
-                                                    const Icon(
-                                                      Icons.admin_panel_settings,
-                                                      size: 16,
-                                                      color: Color(0xFFFF5722),
-                                                    ),
-                                                    const SizedBox(width: 6),
-                                                    Flexible(
-                                                      child: Text(
-                                                        'Dueño del canal',
-                                                        style: TextStyle(
-                                                          color: const Color(0xFFFF5722),
-                                                          fontSize: 12,
-                                                          fontWeight: FontWeight.bold,
-                                                          shadows: [
-                                                            Shadow(
-                                                              color: appTheme.background.withOpacity(0.8),
-                                                              blurRadius: 2,
-                                                              offset: const Offset(0, 0.5),
-                                                            ),
-                                                          ],
-                                                        ),
-                                                        overflow: TextOverflow.ellipsis,
-                                                        maxLines: 1,
-                                                      ),
-                                                    ),
-                                                  ],
-                                                ),
-                                              ),
-                                            ],
-                                          );
+                                          ownerChannels.add(channelName);
                                         }
+                                      }
+                                      
+                                      if (ownerChannels.isNotEmpty) {
+                                        // Usar colores del tema adaptados para dueño
+                                        // Color naranja/rojo adaptado al tema
+                                        final ownerColor = appTheme.primary.withOpacity(0.9).computeLuminance() > 0.5
+                                            ? const Color(0xFFFF5722) // Naranja/rojo para temas claros
+                                            : appTheme.accent.withOpacity(0.8); // Adaptado para temas oscuros
+                                        
+                                        return Column(
+                                          children: [
+                                            const SizedBox(height: 8),
+                                            Container(
+                                              constraints: BoxConstraints(
+                                                maxWidth: MediaQuery.of(context).size.width - 120,
+                                              ),
+                                              padding: const EdgeInsets.symmetric(
+                                                horizontal: 12,
+                                                vertical: 6,
+                                              ),
+                                              decoration: BoxDecoration(
+                                                color: ownerColor.withOpacity(0.25),
+                                                borderRadius: BorderRadius.circular(14),
+                                                border: Border.all(
+                                                  color: ownerColor.withOpacity(0.8),
+                                                  width: 1.5,
+                                                ),
+                                                boxShadow: [
+                                                  BoxShadow(
+                                                    color: ownerColor.withOpacity(0.3),
+                                                    blurRadius: 4,
+                                                    spreadRadius: 0.5,
+                                                  ),
+                                                ],
+                                              ),
+                                              child: Row(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  Icon(
+                                                    Icons.admin_panel_settings,
+                                                    size: 16,
+                                                    color: ownerColor,
+                                                  ),
+                                                  const SizedBox(width: 6),
+                                                  Flexible(
+                                                    child: Column(
+                                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                                      mainAxisSize: MainAxisSize.min,
+                                                      children: [
+                                                        Text(
+                                                          ownerChannels.length == 1
+                                                              ? 'Dueño del canal'
+                                                              : 'Dueño de ${ownerChannels.length} canales',
+                                                          style: TextStyle(
+                                                            color: ownerColor,
+                                                            fontSize: 12,
+                                                            fontWeight: FontWeight.bold,
+                                                            shadows: [
+                                                              Shadow(
+                                                                color: appTheme.background.withOpacity(0.8),
+                                                                blurRadius: 2,
+                                                                offset: const Offset(0, 0.5),
+                                                              ),
+                                                            ],
+                                                          ),
+                                                          overflow: TextOverflow.ellipsis,
+                                                          maxLines: 1,
+                                                        ),
+                                                        if (ownerChannels.length <= 3) ...[
+                                                          const SizedBox(height: 4),
+                                                          Wrap(
+                                                            spacing: 4,
+                                                            runSpacing: 2,
+                                                            children: ownerChannels.map((channel) {
+                                                              return Container(
+                                                                padding: const EdgeInsets.symmetric(
+                                                                  horizontal: 6,
+                                                                  vertical: 2,
+                                                                ),
+                                                                decoration: BoxDecoration(
+                                                                  color: ownerColor.withOpacity(0.2),
+                                                                  borderRadius: BorderRadius.circular(6),
+                                                                  border: Border.all(
+                                                                    color: ownerColor.withOpacity(0.5),
+                                                                    width: 1,
+                                                                  ),
+                                                                ),
+                                                                child: Text(
+                                                                  channel,
+                                                                  style: TextStyle(
+                                                                    color: ownerColor,
+                                                                    fontSize: 10,
+                                                                    fontWeight: FontWeight.w600,
+                                                                  ),
+                                                                ),
+                                                              );
+                                                            }).toList(),
+                                                          ),
+                                                        ] else ...[
+                                                          const SizedBox(height: 4),
+                                                          Text(
+                                                            ownerChannels.take(2).join(', ') + '...',
+                                                            style: TextStyle(
+                                                              color: ownerColor.withOpacity(0.9),
+                                                              fontSize: 10,
+                                                              fontWeight: FontWeight.w500,
+                                                            ),
+                                                            overflow: TextOverflow.ellipsis,
+                                                            maxLines: 1,
+                                                          ),
+                                                        ],
+                                                      ],
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                          ],
+                                        );
                                       }
                                       return const SizedBox.shrink();
                                     },
