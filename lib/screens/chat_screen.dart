@@ -3805,11 +3805,27 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final realName = info.realName?.toLowerCase() ?? '';
     final server = info.server?.toLowerCase() ?? '';
     
-    return nick.contains('robot') ||
-           username.contains('robot') ||
-           host.contains('robot') ||
-           realName.contains('robot') ||
-           server.contains('robot');
+    // Verificar si el nick contiene indicadores MUY específicos de bot
+    // Ser MUY restrictivo: solo detectar si el nick TERMINA en "bot" o EMPIEZA con "radio"
+    // NO usar "contains" porque puede dar falsos positivos
+    final isBotByNick = nick.endsWith('bot') ||
+                        nick.startsWith('radio') ||
+                        nick == 'robot' ||
+                        nick == 'bot';
+    
+    // Verificar host de forma MUY restrictiva (solo robots de GlobalChat)
+    // SOLO detectar si el host es EXACTAMENTE de robots de GlobalChat
+    final isBotByHost = host == 'robot.globalchat.org' ||
+                        host.endsWith('.robot.globalchat.org') ||
+                        (host.startsWith('robot.') && host.contains('globalchat.org') && !host.contains('netadmin') && !host.contains('admin'));
+    
+    // Verificar otros campos de forma MUY restrictiva
+    // Solo si AMBOS campos contienen "robot" Y "globalchat"
+    final isBotByOther = (username.contains('robot') && username.contains('globalchat')) ||
+                         (realName.contains('robot') && realName.contains('globalchat')) ||
+                         (server.contains('robot') && server.contains('globalchat'));
+    
+    return isBotByNick || isBotByHost || isBotByOther;
   }
 
   /// Mostrar diálogo para cambiar de servidor / red mientras estamos conectados.
@@ -6165,34 +6181,27 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                               }
                               
                               // Organizar usuarios por tipo y ordenar
-                              final sortedUsers = <String>[];
-                              
                               // Función para obtener la prioridad del modo
-                              // IMPORTANTE: El modo tiene prioridad sobre si es robot
-                              // Un usuario puede ser operador Y robot, y debe priorizarse por su modo
+                              // Orden: Dueño (~) > Dueño (&) > Operador > Voz > Hop > Robots > Usuarios normales
                               int getModePriority(String? mode, bool isRobot) {
-                                // Primero verificar el modo (tiene prioridad sobre ser robot)
+                                // Si es robot, va después de moderadores pero antes de usuarios normales
+                                if (isRobot) return 6; // Robots después de moderadores
+                                
+                                // Si no es robot, verificar el modo
                                 if (mode != null && mode.isNotEmpty) {
                                   switch (mode) {
-                                    case '&': return 1; // Dueño (más alto)
+                                    case '~': return 0; // Dueño (más alto, encima de todos)
+                                    case '&': return 1; // Dueño
                                     case '@': return 2; // Operador
-                                    case '%': return 3; // Halfop
-                                    case '+': return 4; // Voz
+                                    case '+': return 3; // Voz
+                                    case '%': return 4; // Hop
                                     default: break; // Si el modo no es reconocido, continuar
                                   }
                                 }
-                                // Si no tiene modo o el modo no es reconocido, verificar si es robot
-                                if (isRobot) return 5;
-                                // Si no tiene modo ni es robot, es usuario normal
-                                return 6;
+                                // Si no tiene modo ni es robot, es usuario normal (al final)
+                                return 7;
                               }
                               
-                              // Usar la lista de usuarios del canal actual (currentChannelData) en lugar de channelUsers
-                              // para asegurar que tenemos la lista más actualizada con los modos correctos
-                              final usersToSort = currentChannelData?.users ?? channelUsers;
-                              
-                              // Ordenar usuarios por prioridad y luego alfabéticamente
-                              sortedUsers.addAll(usersToSort);
                               // Obtener robots personalizados para la detección
                               final customRobots = ref.read(customRobotsProvider);
                               final customRobotsData = customRobots.map((r) => {
@@ -6201,24 +6210,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                 'host': r.host,
                               }).toList();
                               
-                              // Debug: verificar modos antes de ordenar
-                              if (currentChannelData != null) {
-                                print('🔍 [SORT DEBUG] ========================================');
-                                print('🔍 [SORT DEBUG] channelUsers count: ${channelUsers.length}');
-                                print('🔍 [SORT DEBUG] currentChannelData.users count: ${currentChannelData.users.length}');
-                                print('🔍 [SORT DEBUG] usersToSort count: ${usersToSort.length}');
-                                print('🔍 [SORT DEBUG] User modes map: ${currentChannelData.userModes}');
-                                print('🔍 [SORT DEBUG] All users in channel: ${currentChannelData.users}');
-                                for (var user in usersToSort) {
-                                  final mode = currentChannelData.getUserMode(user);
-                                  final isRobot = currentChannelData.isRobot(user, customRobots: customRobotsData);
-                                  final priority = getModePriority(mode, isRobot);
-                                  print('🔍 [SORT DEBUG] User: "$user" -> Mode: "$mode", IsRobot: $isRobot, Priority: $priority');
-                                }
-                                print('🔍 [SORT DEBUG] ========================================');
-                              }
+                              // Usar la lista de usuarios del canal actual (currentChannelData) en lugar de channelUsers
+                              // para asegurar que tenemos la lista más actualizada con los modos correctos
+                              final usersToSort = currentChannelData?.users ?? channelUsers;
+                              
+                              // Crear lista ordenada de usuarios
+                              final sortedUsers = <String>[];
+                              sortedUsers.addAll(usersToSort);
                               
                               // Ordenar usuarios por prioridad y luego alfabéticamente
+                              // Asegurarse de que el ordenamiento siempre se ejecute
                               sortedUsers.sort((a, b) {
                                 // Obtener modos de forma robusta
                                 String? modeA;
@@ -6226,43 +6227,57 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                 bool isRobotA = false;
                                 bool isRobotB = false;
                                 
+                                // Siempre intentar obtener los datos del canal si está disponible
                                 if (currentChannelData != null) {
                                   modeA = currentChannelData.getUserMode(a);
                                   modeB = currentChannelData.getUserMode(b);
                                   isRobotA = currentChannelData.isRobot(a, customRobots: customRobotsData);
                                   isRobotB = currentChannelData.isRobot(b, customRobots: customRobotsData);
+                                } else if (channelKey != null && channels.containsKey(channelKey)) {
+                                  // Fallback: usar el canal del mapa directamente
+                                  final channelData = channels[channelKey]!;
+                                  modeA = channelData.getUserMode(a);
+                                  modeB = channelData.getUserMode(b);
+                                  isRobotA = channelData.isRobot(a, customRobots: customRobotsData);
+                                  isRobotB = channelData.isRobot(b, customRobots: customRobotsData);
                                 }
                                 
                                 final priorityA = getModePriority(modeA, isRobotA);
                                 final priorityB = getModePriority(modeB, isRobotB);
                                 
-                                // Debug para usuarios con modos
-                                if (modeA != null || modeB != null) {
-                                  print('🔍 [SORT] Comparing: "$a" (mode: $modeA, priority: $priorityA) vs "$b" (mode: $modeB, priority: $priorityB)');
-                                }
-                                
+                                // Primero ordenar por prioridad
                                 if (priorityA != priorityB) {
                                   return priorityA.compareTo(priorityB);
                                 }
+                                // Si tienen la misma prioridad, ordenar alfabéticamente
                                 return a.toLowerCase().compareTo(b.toLowerCase());
                               });
-                              
-                              // Debug: verificar el orden final
-                              print('🔍 [SORT DEBUG] First 10 sorted users:');
-                              for (var user in sortedUsers.take(10)) {
-                                final mode = currentChannelData?.getUserMode(user);
-                                final priority = getModePriority(mode, currentChannelData?.isRobot(user, customRobots: customRobotsData) ?? false);
-                                print('🔍 [SORT DEBUG]   $user (mode: $mode, priority: $priority)');
-                              }
                               
                               return ListView.builder(
                                 itemCount: sortedUsers.length,
                                 cacheExtent: 500, // Cache para mejor scroll
                                 itemBuilder: (context, index) {
                                   final user = sortedUsers[index];
-                                  // Obtener el modo del usuario
-                                  final userMode = currentChannelData?.getUserMode(user);
-                                  final isRobot = currentChannelData?.isRobot(user, customRobots: customRobotsData) ?? false;
+                                  // Obtener el modo del usuario con fallback
+                                  String? userMode;
+                                  bool isRobot = false;
+                                  
+                                  if (currentChannelData != null) {
+                                    userMode = currentChannelData.getUserMode(user);
+                                    isRobot = currentChannelData.isRobot(user, customRobots: customRobotsData);
+                                    // Debug para todos los usuarios (temporal para diagnosticar)
+                                    print('🔍 [DEBUG USER LIST] Usuario: "$user", isRobot: $isRobot, userMode: $userMode, customRobots: ${customRobotsData.length}');
+                                  } else if (channelKey != null && channels.containsKey(channelKey)) {
+                                    final channelData = channels[channelKey]!;
+                                    userMode = channelData.getUserMode(user);
+                                    isRobot = channelData.isRobot(user, customRobots: customRobotsData);
+                                    // Debug para todos los usuarios (temporal para diagnosticar)
+                                    print('🔍 [DEBUG USER LIST] Usuario: "$user", isRobot: $isRobot, userMode: $userMode (usando channelData), customRobots: ${customRobotsData.length}');
+                                  } else {
+                                    // Si no hay channelData, asegurarse de que isRobot sea false
+                                    isRobot = false;
+                                    print('🔍 [DEBUG USER LIST] Usuario: "$user", isRobot: $isRobot (sin channelData)');
+                                  }
                                   
                                   // Debug: verificar detección de robot para "globalchat"
                                   if (user.toLowerCase() == 'globalchat' && currentChannel?.toLowerCase() == '#globalchat') {
@@ -6290,8 +6305,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                     _openPrivateMessage(user);
                                   }
                                 },
-                                child: ListTile(
-                                  dense: true,
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(vertical: 4.0),
+                                  child: ListTile(
+                                    dense: true,
                                       leading: UserAvatar(
                                         nick: user,
                                         size: 48,
@@ -6332,9 +6349,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                       ),
                                       title: Builder(
                                         builder: (context) {
-                                          // No mostrar etiquetas de Dueño/Operador para el usuario "globalchat" en #globalchat (es un robot)
-                                          final isGlobalChatBot = user.toLowerCase() == 'globalchat' && 
-                                                                  currentChannel?.toLowerCase() == '#globalchat';
+                                          // Detectar si es GlobalChat (bot oficial)
+                                          final isGlobalChatBot = user.toLowerCase() == 'globalchat';
                                           return Row(
                                             mainAxisSize: MainAxisSize.min,
                                             children: [
@@ -6349,7 +6365,51 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                                   overflow: TextOverflow.ellipsis,
                                                 ),
                                               ),
-                                              if ((userMode == '@' || userMode == '&') && !isGlobalChatBot) ...[
+                                              // Mostrar etiqueta de Dueño
+                                              if ((userMode == '&' || userMode == '~') && !isGlobalChatBot && !isRobot) ...[
+                                            const SizedBox(width: 6),
+                                            Container(
+                                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                              decoration: BoxDecoration(
+                                                // Usar color rojo/naranja para Dueño
+                                                color: const Color(0xFFFF5722).withOpacity(0.25),
+                                                borderRadius: BorderRadius.circular(8),
+                                                border: Border.all(
+                                                  color: const Color(0xFFFF5722).withOpacity(0.8),
+                                                  width: 1.5,
+                                                ),
+                                                // Añadir sombra sutil para mejor contraste
+                                                boxShadow: [
+                                                  BoxShadow(
+                                                    color: const Color(0xFFFF5722).withOpacity(0.3),
+                                                    blurRadius: 4,
+                                                    spreadRadius: 0.5,
+                                                  ),
+                                                ],
+                                              ),
+                                              child: Text(
+                                                'Dueño',
+                                                style: TextStyle(
+                                                  // Usar color rojo/naranja para Dueño
+                                                  color: const Color(0xFFFF5722),
+                                                  fontSize: 9,
+                                                  fontWeight: FontWeight.bold,
+                                                  letterSpacing: 0.3,
+                                                  // Añadir sombra al texto para mejor legibilidad
+                                                  shadows: [
+                                                    Shadow(
+                                                      color: appTheme.background.withOpacity(0.8),
+                                                      blurRadius: 2,
+                                                      offset: const Offset(0, 0.5),
+                                                    ),
+                                                  ],
+                                                ),
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                            ),
+                                          ],
+                                          // Mostrar etiqueta de Operador
+                                          if (userMode == '@' && !isGlobalChatBot && !isRobot) ...[
                                             const SizedBox(width: 6),
                                             Container(
                                               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -6371,10 +6431,139 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                                 ],
                                               ),
                                               child: Text(
-                                                userMode == '&' ? 'Dueño' : 'Operador',
+                                                'Operador',
                                                 style: TextStyle(
                                                   // Usar accent o primary más brillante para mejor contraste
                                                   color: appTheme.accent,
+                                                  fontSize: 9,
+                                                  fontWeight: FontWeight.bold,
+                                                  letterSpacing: 0.3,
+                                                  // Añadir sombra al texto para mejor legibilidad
+                                                  shadows: [
+                                                    Shadow(
+                                                      color: appTheme.background.withOpacity(0.8),
+                                                      blurRadius: 2,
+                                                      offset: const Offset(0, 0.5),
+                                                    ),
+                                                  ],
+                                                ),
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                            ),
+                                          ],
+                                          // Mostrar etiqueta de Voz (+v)
+                                          if (userMode == '+' && !isGlobalChatBot && !isRobot) ...[
+                                            const SizedBox(width: 6),
+                                            Container(
+                                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                              decoration: BoxDecoration(
+                                                // Usar color morado para Voz
+                                                color: const Color(0xFF9C27B0).withOpacity(0.25),
+                                                borderRadius: BorderRadius.circular(8),
+                                                border: Border.all(
+                                                  color: const Color(0xFF9C27B0).withOpacity(0.8),
+                                                  width: 1.5,
+                                                ),
+                                                // Añadir sombra sutil para mejor contraste
+                                                boxShadow: [
+                                                  BoxShadow(
+                                                    color: const Color(0xFF9C27B0).withOpacity(0.3),
+                                                    blurRadius: 4,
+                                                    spreadRadius: 0.5,
+                                                  ),
+                                                ],
+                                              ),
+                                              child: Text(
+                                                'Voz',
+                                                style: TextStyle(
+                                                  // Usar color morado para Voz
+                                                  color: const Color(0xFF9C27B0),
+                                                  fontSize: 9,
+                                                  fontWeight: FontWeight.bold,
+                                                  letterSpacing: 0.3,
+                                                  // Añadir sombra al texto para mejor legibilidad
+                                                  shadows: [
+                                                    Shadow(
+                                                      color: appTheme.background.withOpacity(0.8),
+                                                      blurRadius: 2,
+                                                      offset: const Offset(0, 0.5),
+                                                    ),
+                                                  ],
+                                                ),
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                            ),
+                                          ],
+                                          // Mostrar etiqueta de Hop (+h o %)
+                                          if ((userMode == '%' || userMode == 'h') && !isGlobalChatBot && !isRobot) ...[
+                                            const SizedBox(width: 6),
+                                            Container(
+                                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                              decoration: BoxDecoration(
+                                                // Usar color verde para Hop
+                                                color: const Color(0xFF4CAF50).withOpacity(0.25),
+                                                borderRadius: BorderRadius.circular(8),
+                                                border: Border.all(
+                                                  color: const Color(0xFF4CAF50).withOpacity(0.8),
+                                                  width: 1.5,
+                                                ),
+                                                // Añadir sombra sutil para mejor contraste
+                                                boxShadow: [
+                                                  BoxShadow(
+                                                    color: const Color(0xFF4CAF50).withOpacity(0.3),
+                                                    blurRadius: 4,
+                                                    spreadRadius: 0.5,
+                                                  ),
+                                                ],
+                                              ),
+                                              child: Text(
+                                                'Hop',
+                                                style: TextStyle(
+                                                  // Usar color verde para Hop
+                                                  color: const Color(0xFF4CAF50),
+                                                  fontSize: 9,
+                                                  fontWeight: FontWeight.bold,
+                                                  letterSpacing: 0.3,
+                                                  // Añadir sombra al texto para mejor legibilidad
+                                                  shadows: [
+                                                    Shadow(
+                                                      color: appTheme.background.withOpacity(0.8),
+                                                      blurRadius: 2,
+                                                      offset: const Offset(0, 0.5),
+                                                    ),
+                                                  ],
+                                                ),
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                            ),
+                                          ],
+                                          // Mostrar etiqueta de Robot si es robot (incluso si también es operador)
+                                          if (isRobot) ...[
+                                            const SizedBox(width: 6),
+                                            Container(
+                                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                              decoration: BoxDecoration(
+                                                // Usar color dorado para robots
+                                                color: const Color(0xFFFFD700).withOpacity(0.25),
+                                                borderRadius: BorderRadius.circular(8),
+                                                border: Border.all(
+                                                  color: const Color(0xFFFFD700).withOpacity(0.8),
+                                                  width: 1.5,
+                                                ),
+                                                // Añadir sombra sutil para mejor contraste
+                                                boxShadow: [
+                                                  BoxShadow(
+                                                    color: const Color(0xFFFFD700).withOpacity(0.3),
+                                                    blurRadius: 4,
+                                                    spreadRadius: 0.5,
+                                                  ),
+                                                ],
+                                              ),
+                                              child: Text(
+                                                'Robot',
+                                                style: TextStyle(
+                                                  // Usar color dorado para robots
+                                                  color: const Color(0xFFFFD700),
                                                   fontSize: 9,
                                                   fontWeight: FontWeight.bold,
                                                   letterSpacing: 0.3,
@@ -6407,6 +6596,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                         }
                                       },
                                     ),
+                                  ),
                               );
                                 },
                               );
@@ -9239,25 +9429,100 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         selectedTileColor: Colors.transparent,
         dense: true,
         contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        leading: Container(
-          width: 32,
-          height: 32,
-          decoration: BoxDecoration(
-            color: isQuery
-                ? appTheme.accent.withOpacity(isSelected ? 0.3 : 0.15)
-                : appTheme.primary.withOpacity(isSelected ? 0.3 : 0.15),
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Icon(
-            isQuery ? Icons.person : Icons.tag,
-            color: isSelected
-                ? (isQuery ? appTheme.accent : appTheme.accent)
-                : (isQuery 
-                    ? appTheme.accent.withOpacity(0.8)
-                    : appTheme.textPrimary.withOpacity(0.7)),
-            size: 18,
-          ),
-        ),
+        leading: isQuery
+            ? Builder(
+                builder: (context) {
+                  // Para mensajes privados, mostrar el avatar del usuario
+                  final nick = channel; // En queries, el channel es el nick del usuario
+                  final customRobots = ref.read(customRobotsProvider);
+                  final customRobotsData = customRobots.map((r) => {
+                    'nick': r.nick,
+                    'icon': r.icon,
+                    'host': r.host,
+                  }).toList();
+                  
+                  // Verificar si es robot usando la lista de customRobots
+                  bool isRobot = false;
+                  try {
+                    final robot = customRobots.firstWhere(
+                      (r) => r.nick.toLowerCase() == nick.toLowerCase(),
+                    );
+                    isRobot = true;
+                  } catch (e) {
+                    // No es robot personalizado, verificar con detección automática
+                    // Usar una lógica simple basada en el nick
+                    final nickLower = nick.toLowerCase();
+                    isRobot = nickLower.endsWith('bot') || 
+                              nickLower.startsWith('radio') ||
+                              nickLower == 'robot' ||
+                              nickLower == 'bot';
+                  }
+                  
+                  // Obtener icono del usuario
+                  final userIcon = _getUserIcon(null, isRobot, nick: nick);
+                  final userInitial = isRobot || userIcon != null ? userIcon : (nick.isNotEmpty 
+                      ? nick[0].toUpperCase() 
+                      : '?');
+                  
+                  // Generar color para el avatar
+                  final nickHash = nick.hashCode;
+                  final userColor = isRobot ? const Color(0xFFFFD700) : _getUserColor(nickHash);
+                  
+                  return UserAvatar(
+                    nick: nick,
+                    size: 32,
+                    fallbackIcon: userInitial,
+                    isRobot: isRobot,
+                    gradient: isRobot
+                        ? LinearGradient(
+                            colors: [
+                              const Color(0xFFFFD700),
+                              const Color(0xFFFFA500),
+                            ],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          )
+                        : LinearGradient(
+                            colors: [
+                              userColor,
+                              userColor.withOpacity(0.7),
+                            ],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: isRobot
+                            ? const Color(0xFFFFD700).withOpacity(0.5)
+                            : userColor.withOpacity(0.4),
+                        blurRadius: 4,
+                        offset: const Offset(0, 1),
+                      ),
+                    ],
+                    border: isRobot
+                        ? Border.all(
+                            color: const Color(0xFFFFD700).withOpacity(0.6),
+                            width: 1.5,
+                          )
+                        : null,
+                  );
+                },
+              )
+            : Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  color: appTheme.primary.withOpacity(isSelected ? 0.3 : 0.15),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(
+                  Icons.tag,
+                  color: isSelected
+                      ? appTheme.accent
+                      : appTheme.textPrimary.withOpacity(0.7),
+                  size: 18,
+                ),
+              ),
         title: Row(
           mainAxisSize: MainAxisSize.min,
           children: [

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/irc_provider.dart';
 import '../providers/theme_provider.dart';
 import '../providers/channel_background_provider.dart';
+import '../providers/history_provider.dart';
 import '../models/app_theme.dart';
 import '../services/backup_service.dart';
 import '../services/cache_service.dart';
@@ -473,6 +474,49 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   ),
                 );
               },
+            ),
+          ),
+          const SizedBox(height: 16),
+          
+          // Sección de Historial de Mensajes
+          Card(
+            color: appTheme.surface,
+            elevation: 2,
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.history,
+                        color: appTheme.primary,
+                        size: 24,
+                      ),
+                      const SizedBox(width: 12),
+                      Text(
+                        'Historial de Mensajes',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: appTheme.textPrimary,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  SwitchListTile(
+                    title: const Text('Mantener historial de chats y privados'),
+                    subtitle: const Text('Si está activado, los mensajes se guardarán y se mantendrán entre sesiones'),
+                    value: ref.watch(historyEnabledProvider),
+                    onChanged: (value) {
+                      ref.read(historyEnabledProvider.notifier).setEnabled(value);
+                    },
+                    activeColor: appTheme.primary,
+                  ),
+                ],
+              ),
             ),
           ),
           const SizedBox(height: 16),

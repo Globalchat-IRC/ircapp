@@ -302,6 +302,81 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
                                       ),
                                     ),
                                   ],
+                                  // Etiqueta de Dueño del Canal
+                                  Consumer(
+                                    builder: (context, ref, _) {
+                                      final currentChannel = ref.watch(currentChannelProvider);
+                                      final channels = ref.watch(channelsProvider);
+                                      
+                                      if (currentChannel != null && channels.containsKey(currentChannel)) {
+                                        final channel = channels[currentChannel];
+                                        final userMode = channel?.getUserMode(widget.nick);
+                                        
+                                        if (userMode == '~' || userMode == '&') {
+                                          return Column(
+                                            children: [
+                                              const SizedBox(height: 8),
+                                              Container(
+                                                constraints: BoxConstraints(
+                                                  maxWidth: MediaQuery.of(context).size.width - 120,
+                                                ),
+                                                padding: const EdgeInsets.symmetric(
+                                                  horizontal: 12,
+                                                  vertical: 4,
+                                                ),
+                                                decoration: BoxDecoration(
+                                                  color: const Color(0xFFFF5722).withOpacity(0.25),
+                                                  borderRadius: BorderRadius.circular(14),
+                                                  border: Border.all(
+                                                    color: const Color(0xFFFF5722).withOpacity(0.8),
+                                                    width: 1.5,
+                                                  ),
+                                                  boxShadow: [
+                                                    BoxShadow(
+                                                      color: const Color(0xFFFF5722).withOpacity(0.3),
+                                                      blurRadius: 4,
+                                                      spreadRadius: 0.5,
+                                                    ),
+                                                  ],
+                                                ),
+                                                child: Row(
+                                                  mainAxisSize: MainAxisSize.min,
+                                                  children: [
+                                                    const Icon(
+                                                      Icons.admin_panel_settings,
+                                                      size: 16,
+                                                      color: Color(0xFFFF5722),
+                                                    ),
+                                                    const SizedBox(width: 6),
+                                                    Flexible(
+                                                      child: Text(
+                                                        'Dueño del canal',
+                                                        style: TextStyle(
+                                                          color: const Color(0xFFFF5722),
+                                                          fontSize: 12,
+                                                          fontWeight: FontWeight.bold,
+                                                          shadows: [
+                                                            Shadow(
+                                                              color: appTheme.background.withOpacity(0.8),
+                                                              blurRadius: 2,
+                                                              offset: const Offset(0, 0.5),
+                                                            ),
+                                                          ],
+                                                        ),
+                                                        overflow: TextOverflow.ellipsis,
+                                                        maxLines: 1,
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                              ),
+                                            ],
+                                          );
+                                        }
+                                      }
+                                      return const SizedBox.shrink();
+                                    },
+                                  ),
                                   // Indicador de staff / operador de la red
                                   if (whoisInfo.isStaff) ...[
                                     const SizedBox(height: 8),
@@ -751,11 +826,17 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
   bool _isRobotUser(WhoisInfo? whoisInfo) {
     final nick = widget.nick.toLowerCase();
     
+    // Verificar si el nick contiene indicadores MUY específicos de bot
+    // Ser MUY restrictivo: solo detectar si el nick TERMINA en "bot" o EMPIEZA con "radio"
+    // NO usar "contains" porque puede dar falsos positivos
+    final isBotByNick = nick.endsWith('bot') ||
+                        nick.startsWith('radio') ||
+                        nick == 'robot' ||
+                        nick == 'bot';
+    
     if (whoisInfo == null) {
-      // Si no hay información de whois, verificar el nick
-      return nick.contains('robot') || 
-             nick.contains('bot') ||
-             nick.endsWith('bot');
+      // Si no hay información de whois, solo verificar el nick (muy restrictivo)
+      return isBotByNick;
     }
     
     final username = whoisInfo.username?.toLowerCase() ?? '';
@@ -763,19 +844,19 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
     final realName = whoisInfo.realName?.toLowerCase() ?? '';
     final server = whoisInfo.server?.toLowerCase() ?? '';
     
-    // Verificar si el host contiene "robot.globalchat.org" o variaciones
-    final isRobotHost = host.contains('robot.globalchat.org') ||
-                        host.contains('robot.globalchat') ||
-                        host.contains('.robot.') ||
-                        host.contains('robot');
+    // Verificar host de forma MUY restrictiva (solo robots de GlobalChat)
+    // SOLO detectar si el host es EXACTAMENTE de robots de GlobalChat
+    final isBotByHost = host == 'robot.globalchat.org' ||
+                        host.endsWith('.robot.globalchat.org') ||
+                        (host.startsWith('robot.') && host.contains('globalchat.org') && !host.contains('netadmin') && !host.contains('admin'));
     
-    return nick.contains('robot') ||
-           nick.contains('bot') ||
-           nick.endsWith('bot') ||
-           username.contains('robot') ||
-           isRobotHost ||
-           realName.contains('robot') ||
-           server.contains('robot');
+    // Verificar otros campos de forma MUY restrictiva
+    // Solo si AMBOS campos contienen "robot" Y "globalchat"
+    final isBotByOther = (username.contains('robot') && username.contains('globalchat')) ||
+                         (realName.contains('robot') && realName.contains('globalchat')) ||
+                         (server.contains('robot') && server.contains('globalchat'));
+    
+    return isBotByNick || isBotByHost || isBotByOther;
   }
 }
 

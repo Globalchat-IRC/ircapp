@@ -9,6 +9,7 @@ import '../models/server_profile.dart';
 import '../models/custom_robot.dart';
 import '../services/irc_service.dart';
 import '../utils/platform_utils.dart';
+import 'history_provider.dart';
 
 final ircServiceProvider = Provider((ref) {
   return IRCService();
@@ -16,7 +17,19 @@ final ircServiceProvider = Provider((ref) {
 
 final messagesProvider = StateNotifierProvider<MessagesNotifier, List<IRCMessage>>((ref) {
   final service = ref.watch(ircServiceProvider);
-  return MessagesNotifier(service);
+  final notifier = MessagesNotifier(service, ref);
+  // Observar cambios en el historial para cargar/guardar mensajes
+  ref.listen<bool>(historyEnabledProvider, (previous, next) {
+    final wasEnabled = previous ?? false;
+    if (next && !wasEnabled) {
+      // Historial activado: cargar mensajes guardados
+      notifier.loadHistory();
+    } else if (!next && wasEnabled) {
+      // Historial desactivado: limpiar mensajes guardados (opcional)
+      // No limpiamos los mensajes actuales, solo dejamos de guardar
+    }
+  });
+  return notifier;
 });
 
 final channelsProvider = StateNotifierProvider<ChannelsNotifier, Map<String, IRCChannel>>((ref) {
@@ -216,11 +229,84 @@ final unreadMessagesProvider = StateNotifierProvider<UnreadMessagesNotifier, Map
 
 class MessagesNotifier extends StateNotifier<List<IRCMessage>> {
   final IRCService _service;
+  final Ref _ref;
   static const String _privateMessagesKey = 'private_messages_web';
+  static const String _allMessagesKey = 'all_messages_history';
 
-  MessagesNotifier(this._service) : super([]) {
+  MessagesNotifier(this._service, this._ref) : super([]) {
     _service.addMessageListener(_onMessage);
-    _loadPrivateMessages();
+    // Cargar historial si está activado
+    _loadHistoryIfEnabled();
+  }
+  
+  /// Cargar historial si está activado
+  Future<void> _loadHistoryIfEnabled() async {
+    final historyEnabled = _ref.read(historyEnabledProvider);
+    if (historyEnabled) {
+      await loadHistory();
+    } else {
+      // Si el historial no está activado, solo cargar mensajes privados (comportamiento anterior)
+      await _loadPrivateMessages();
+    }
+  }
+  
+  /// Cargar todo el historial de mensajes (canales y privados)
+  Future<void> loadHistory() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final jsonString = prefs.getString(_allMessagesKey);
+      if (jsonString != null && jsonString.isNotEmpty) {
+        final List<dynamic> jsonList = jsonDecode(jsonString);
+        final loadedMessages = jsonList
+            .map((json) => IRCMessage.fromJson(json as Map<String, dynamic>))
+            .toList();
+        
+        // Filtrar mensajes duplicados basándose en messageId o contenido único
+        final Map<String, IRCMessage> uniqueMessages = {};
+        for (var msg in loadedMessages) {
+          final key = msg.messageId ?? '${msg.channel}_${msg.nick}_${msg.message}_${msg.timestamp.millisecondsSinceEpoch}';
+          if (!uniqueMessages.containsKey(key)) {
+            uniqueMessages[key] = msg;
+          }
+        }
+        
+        // Actualizar el estado con todos los mensajes cargados (sin duplicados)
+        state = uniqueMessages.values.toList();
+        print('✅ [MessagesNotifier] Historial cargado: ${state.length} mensajes únicos');
+      }
+    } catch (e) {
+      print('⚠️ [MessagesNotifier] Error cargando historial: $e');
+    }
+  }
+  
+  /// Guardar todo el historial de mensajes (canales y privados)
+  Future<void> _saveHistory() async {
+    final historyEnabled = _ref.read(historyEnabledProvider);
+    if (!historyEnabled) return; // No guardar si el historial está desactivado
+    
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      
+      // Limitar a los últimos 10000 mensajes para evitar sobrecargar el almacenamiento
+      final messagesToSave = state.length > 10000 
+          ? state.sublist(state.length - 10000) 
+          : state;
+      
+      final jsonList = messagesToSave.map((msg) => msg.toJson()).toList();
+      final jsonString = jsonEncode(jsonList);
+      await prefs.setString(_allMessagesKey, jsonString);
+      // Guardar también en la clave antigua para compatibilidad
+      await _savePrivateMessages();
+    } catch (e) {
+      print('⚠️ [MessagesNotifier] Error guardando historial: $e');
+    }
+  }
+  
+  /// Actualizar estado y guardar historial si está activado
+  void _updateStateAndSave(List<IRCMessage> newState) {
+    state = newState;
+    // Guardar historial de forma asíncrona sin bloquear
+    Future.microtask(() => _saveHistory());
   }
 
   /// Cargar mensajes privados desde SharedPreferences (solo en web)
@@ -285,7 +371,7 @@ class MessagesNotifier extends StateNotifier<List<IRCMessage>> {
         // Actualizar el mensaje existente en lugar de añadir uno nuevo
         final updatedState = List<IRCMessage>.from(state);
         updatedState[index] = message;
-        state = updatedState;
+        _updateStateAndSave(updatedState);
         return;
       }
     }
@@ -306,17 +392,30 @@ class MessagesNotifier extends StateNotifier<List<IRCMessage>> {
         // Actualizar el mensaje existente
         final updatedState = List<IRCMessage>.from(state);
         updatedState[index] = message;
-        state = updatedState;
+        _updateStateAndSave(updatedState);
         return;
       }
     }
     
     // Si no es una actualización, añadir como nuevo mensaje
-    state = [...state, message];
+    _updateStateAndSave([...state, message]);
   }
 
   void clearMessages() {
     state = [];
+    // Limpiar historial guardado si existe
+    _clearSavedHistory();
+  }
+  
+  /// Limpiar el historial guardado
+  Future<void> _clearSavedHistory() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_allMessagesKey);
+      await prefs.remove(_privateMessagesKey);
+    } catch (e) {
+      print('⚠️ [MessagesNotifier] Error limpiando historial: $e');
+    }
   }
 
   @override
@@ -1469,39 +1568,59 @@ class CustomRobotsNotifier extends StateNotifier<List<CustomRobot>> {
     try {
       final prefs = await SharedPreferences.getInstance();
       final robotsJson = prefs.getString(_prefsKey);
+      
+      // Lista de robots por defecto
+      final defaultRobots = [
+        CustomRobot(nick: 'GlobalChat', icon: '🤖', host: 'GlobalChat.Org'),
+        CustomRobot(nick: 'orion', icon: '🤖'),
+        CustomRobot(nick: 'SeenAllBot', icon: '🤖'),
+        CustomRobot(nick: 'Stats', icon: '🤖'),
+        CustomRobot(nick: 'YoutubeBot', icon: '🤖'),
+        CustomRobot(nick: 'Chan', icon: '🤖'),
+        CustomRobot(nick: 'Nick', icon: '🤖'),
+        CustomRobot(nick: 'Memo', icon: '🤖'),
+        CustomRobot(nick: 'Ircop', icon: '🤖'),
+        CustomRobot(nick: 'Global', icon: '🤖'),
+      ];
+      
       if (robotsJson != null) {
         final List<dynamic> decoded = json.decode(robotsJson);
         final loadedRobots = decoded.map((json) => CustomRobot.fromJson(json as Map<String, dynamic>)).toList();
         
-        // Verificar si GlobalChat ya está en la lista
-        final hasGlobalChat = loadedRobots.any((r) => r.nick.toLowerCase() == 'globalchat');
-        if (!hasGlobalChat) {
-          // Agregar GlobalChat si no está presente
-          loadedRobots.add(CustomRobot(
-            nick: 'GlobalChat',
-            icon: '🤖',
-            host: 'GlobalChat.Org',
-          ));
-          state = loadedRobots;
-          await _saveToPrefs(); // Guardar con GlobalChat incluido
-        } else {
-          state = loadedRobots;
+        // Añadir robots por defecto que no estén ya en la lista
+        bool needsSave = false;
+        for (var defaultRobot in defaultRobots) {
+          final exists = loadedRobots.any((r) => r.nick.toLowerCase() == defaultRobot.nick.toLowerCase());
+          if (!exists) {
+            loadedRobots.add(defaultRobot);
+            needsSave = true;
+          }
+        }
+        
+        state = loadedRobots;
+        if (needsSave) {
+          await _saveToPrefs(); // Guardar con los robots por defecto incluidos
         }
       } else {
         // Inicializar con robots por defecto
-        // GlobalChat es un seudorobot de Anope que debe tener icono de robot
-        state = [
-          CustomRobot(
-            nick: 'GlobalChat',
-            icon: '🤖',
-            host: 'GlobalChat.Org',
-          ),
-        ];
+        state = defaultRobots;
         await _saveToPrefs(); // Guardar la lista inicial
       }
     } catch (e) {
       print('Error cargando robots personalizados: $e');
-      state = [];
+      // En caso de error, usar lista por defecto
+      state = [
+        CustomRobot(nick: 'GlobalChat', icon: '🤖', host: 'GlobalChat.Org'),
+        CustomRobot(nick: 'orion', icon: '🤖'),
+        CustomRobot(nick: 'SeenAllBot', icon: '🤖'),
+        CustomRobot(nick: 'Stats', icon: '🤖'),
+        CustomRobot(nick: 'YoutubeBot', icon: '🤖'),
+        CustomRobot(nick: 'Chan', icon: '🤖'),
+        CustomRobot(nick: 'Nick', icon: '🤖'),
+        CustomRobot(nick: 'Memo', icon: '🤖'),
+        CustomRobot(nick: 'Ircop', icon: '🤖'),
+        CustomRobot(nick: 'Global', icon: '🤖'),
+      ];
     }
   }
   
@@ -1576,5 +1695,25 @@ class CustomRobotsNotifier extends StateNotifier<List<CustomRobot>> {
     }
     
     return false;
+  }
+
+  /// Agregar múltiples robots a la vez
+  /// Útil para inicializar con una lista de bots conocidos
+  Future<void> addRobots(List<CustomRobot> robots) async {
+    final newState = List<CustomRobot>.from(state);
+    
+    for (var robot in robots) {
+      final existingIndex = newState.indexWhere((r) => r.nick.toLowerCase() == robot.nick.toLowerCase());
+      if (existingIndex != -1) {
+        // Actualizar el existente
+        newState[existingIndex] = robot;
+      } else {
+        // Añadir nuevo
+        newState.add(robot);
+      }
+    }
+    
+    state = newState;
+    await _saveToPrefs();
   }
 }
