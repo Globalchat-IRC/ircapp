@@ -16,6 +16,7 @@ class VoiceAssistantService {
   
   bool _isListening = false;
   bool _isSpeaking = false;
+  String _transcription = ''; // Guardar transcripción actual
   StreamController<String>? _transcriptionController;
   StreamController<String>? _responseController;
   
@@ -81,21 +82,29 @@ class VoiceAssistantService {
   /// Iniciar escucha de voz
   Stream<String> startListening() {
     _transcriptionController = StreamController<String>();
+    _transcription = ''; // Resetear transcripción
     
     // Configurar callbacks de error y status si no están configurados
+    // IMPORTANTE: Estos callbacks se ejecutan cuando hay errores durante listen()
     if (_onSttError == null) {
       _onSttError = (error) {
         print('❌ [VoiceAssistant] Error STT en listen: $error');
-        if (_isListening && _transcriptionController != null) {
+        if (_isListening && _transcriptionController != null && !_transcriptionController!.isClosed) {
           _isListening = false;
-          // Enviar un marcador especial de error al stream
-          _transcriptionController?.add('__ERROR__');
-          Future.delayed(const Duration(milliseconds: 50), () {
-            print('🔒 [VoiceAssistant] Cerrando stream por error STT...');
-            _transcriptionController?.close();
-            _transcriptionController = null;
-            print('✅ [VoiceAssistant] Stream cerrado después de error STT');
-          });
+          try {
+            // Enviar un marcador especial de error al stream
+            _transcriptionController?.add('__ERROR__');
+            Future.delayed(const Duration(milliseconds: 100), () {
+              if (_transcriptionController != null && !_transcriptionController!.isClosed) {
+                print('🔒 [VoiceAssistant] Cerrando stream por error STT...');
+                _transcriptionController?.close();
+                _transcriptionController = null;
+                print('✅ [VoiceAssistant] Stream cerrado después de error STT');
+              }
+            });
+          } catch (e) {
+            print('⚠️ [VoiceAssistant] Error al enviar marcador de error: $e');
+          }
         }
       };
     }
@@ -104,14 +113,25 @@ class VoiceAssistantService {
       _onSttStatus = (status) {
         print('📊 [VoiceAssistant] Status STT: $status');
         // Si el estado cambia a "done" o "notListening" sin resultado final, cerrar el stream
-        if ((status == 'done' || status == 'notListening') && _isListening && _transcriptionController != null) {
-          print('⚠️ [VoiceAssistant] Status cambió a $status pero aún estaba escuchando, cerrando stream...');
-          _isListening = false;
-          Future.delayed(const Duration(milliseconds: 100), () {
-            _transcriptionController?.close();
-            _transcriptionController = null;
-            print('✅ [VoiceAssistant] Stream cerrado por cambio de status');
-          });
+        if ((status == 'done' || status == 'notListening') && _isListening && _transcriptionController != null && !_transcriptionController!.isClosed) {
+          print('⚠️ [VoiceAssistant] Status cambió a $status pero aún estaba escuchando');
+          // Solo cerrar si no hay transcripción válida
+          if (_transcription.isEmpty || _transcription.trim().isEmpty) {
+            print('⚠️ [VoiceAssistant] No hay transcripción válida, cerrando stream...');
+            _isListening = false;
+            try {
+              _transcriptionController?.add('__ERROR__');
+            } catch (e) {
+              print('⚠️ [VoiceAssistant] Error al enviar error: $e');
+            }
+            Future.delayed(const Duration(milliseconds: 100), () {
+              if (_transcriptionController != null && !_transcriptionController!.isClosed) {
+                _transcriptionController?.close();
+                _transcriptionController = null;
+                print('✅ [VoiceAssistant] Stream cerrado por cambio de status');
+              }
+            });
+          }
         }
       };
     }
@@ -121,6 +141,9 @@ class VoiceAssistantService {
       _speech.listen(
         onResult: (result) {
           print('🎤 [VoiceAssistant] Reconocido: "${result.recognizedWords}" (final: ${result.finalResult})');
+          // Guardar transcripción actual
+          _transcription = result.recognizedWords;
+          
           if (result.finalResult) {
             final finalText = result.recognizedWords.trim();
             print('✅ [VoiceAssistant] Resultado final recibido: "$finalText"');
@@ -132,13 +155,18 @@ class VoiceAssistantService {
             _isListening = false;
             // Cerrar el stream inmediatamente después de agregar el resultado final
             Future.delayed(const Duration(milliseconds: 50), () {
-              print('🔒 [VoiceAssistant] Cerrando stream controller...');
-              _transcriptionController?.close();
-              _transcriptionController = null;
-              print('✅ [VoiceAssistant] Stream cerrado correctamente');
+              if (_transcriptionController != null && !_transcriptionController!.isClosed) {
+                print('🔒 [VoiceAssistant] Cerrando stream controller...');
+                _transcriptionController?.close();
+                _transcriptionController = null;
+                print('✅ [VoiceAssistant] Stream cerrado correctamente');
+              }
             });
           } else {
-            _transcriptionController?.add(result.recognizedWords);
+            // Enviar resultados parciales
+            if (_transcriptionController != null && !_transcriptionController!.isClosed) {
+              _transcriptionController?.add(result.recognizedWords);
+            }
           }
         },
         listenFor: const Duration(seconds: 30),

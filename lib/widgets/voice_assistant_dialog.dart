@@ -18,6 +18,7 @@ class VoiceAssistantDialog extends ConsumerStatefulWidget {
 
 class _VoiceAssistantDialogState extends ConsumerState<VoiceAssistantDialog> {
   final VoiceAssistantService _assistant = VoiceAssistantService();
+  final TextEditingController _textController = TextEditingController();
   bool _isListening = false;
   bool _isSpeaking = false;
   bool _isProcessing = false;
@@ -140,6 +141,45 @@ class _VoiceAssistantDialogState extends ConsumerState<VoiceAssistantDialog> {
     });
   }
 
+  Future<void> _sendTextQuestion() async {
+    final question = _textController.text.trim();
+    if (question.isEmpty) return;
+
+    setState(() {
+      _error = null;
+      _isProcessing = true;
+      _response = '';
+    });
+
+    try {
+      print('🔄 [VoiceDialog] Procesando pregunta escrita: "$question"');
+      final response = await _assistant.getAIResponse(question);
+      print('💬 [VoiceDialog] Respuesta recibida: "$response"');
+
+      if (mounted) {
+        setState(() {
+          _response = response;
+          _isProcessing = false;
+          _textController.clear();
+        });
+
+        // Hablar la respuesta
+        print('🗣️ [VoiceDialog] Iniciando síntesis de voz...');
+        await _assistant.speak(response);
+        print('✅ [VoiceDialog] Síntesis de voz completada');
+      }
+    } catch (e, stackTrace) {
+      print('❌ [VoiceDialog] Error: $e');
+      print('📚 [VoiceDialog] Stack trace: $stackTrace');
+      if (mounted) {
+        setState(() {
+          _error = 'Error al procesar la pregunta: $e';
+          _isProcessing = false;
+        });
+      }
+    }
+  }
+
   void _stopSpeaking() {
     _assistant.stopSpeaking();
     setState(() {
@@ -149,6 +189,7 @@ class _VoiceAssistantDialogState extends ConsumerState<VoiceAssistantDialog> {
 
   @override
   void dispose() {
+    _textController.dispose();
     _assistant.dispose();
     super.dispose();
   }
@@ -326,6 +367,68 @@ class _VoiceAssistantDialogState extends ConsumerState<VoiceAssistantDialog> {
               ),
 
             const SizedBox(height: 24),
+
+            // Campo de texto para escribir pregunta
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: widget.appTheme.surface,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: Colors.grey.withOpacity(0.3),
+                  width: 1,
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'O escribe tu pregunta:',
+                    style: TextStyle(
+                      color: widget.appTheme.textSecondary,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _textController,
+                          enabled: !_isProcessing && !_isListening,
+                          style: TextStyle(color: widget.appTheme.textPrimary),
+                          decoration: InputDecoration(
+                            hintText: 'Escribe tu pregunta aquí...',
+                            hintStyle: TextStyle(
+                              color: widget.appTheme.textSecondary?.withOpacity(0.5),
+                            ),
+                            border: InputBorder.none,
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 8,
+                            ),
+                          ),
+                          maxLines: 2,
+                          onSubmitted: (_) => _sendTextQuestion(),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      IconButton(
+                        onPressed: (!_isProcessing && !_isListening && _textController.text.trim().isNotEmpty)
+                            ? _sendTextQuestion
+                            : null,
+                        icon: const Icon(Icons.send),
+                        color: widget.appTheme.accent,
+                        tooltip: 'Enviar pregunta',
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 16),
 
             // Botones de control
             Row(
