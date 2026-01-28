@@ -54,6 +54,8 @@ class IRCService {
   Timer? _lagPingTimer; // Timer para enviar PING periódicamente y medir lag
   DateTime? _lastPingSent; // Timestamp del último PING enviado
   String? _lastPingToken; // Token del último PING enviado para identificar la respuesta
+  bool _hasAutoJoinedGlobalChat = false; // Flag para rastrear si ya se hizo autojoin inicial a #globalchat
+  final Set<String> _manuallyClosedChannels = {}; // Canales que el usuario cerró manualmente
 
   bool get isConnected => _isConnected;
   String? get currentChannel => _currentChannel;
@@ -182,6 +184,9 @@ class IRCService {
       _isConnected = false;
       _currentHost = null;
     }
+    // Resetear flags de autojoin al desconectar
+    _hasAutoJoinedGlobalChat = false;
+    _manuallyClosedChannels.clear();
   }
 
   // Normalizar nombre de canal (case-insensitive, sin espacios)
@@ -273,45 +278,6 @@ class IRCService {
       // print('🔍 [DEBUG] Channel already exists: $normalized');
     }
     
-    // Autojoin a #globalchat (canal oficial) si no es el canal que estamos uniéndonos
-    const globalChatChannel = '#globalchat';
-    if (normalized.toLowerCase() != globalChatChannel.toLowerCase()) {
-      // Verificar si realmente estamos en #globalchat
-      // El canal existe y tiene nuestro nick en la lista de usuarios
-      final globalChat = channels[globalChatChannel];
-      final isInGlobalChat = globalChat != null && 
-          _nickname != null &&
-          globalChat.users.any((user) => user.toLowerCase() == _nickname!.toLowerCase());
-      
-      print('🌐 [IRC] Verificando autojoin a #globalchat: canal=$normalized, enGlobalChat=$isInGlobalChat, globalChatExists=${globalChat != null}');
-      
-      if (!isInGlobalChat) {
-        // Esperar un poco antes de unirse a #globalchat para no saturar el servidor
-        Future.delayed(const Duration(milliseconds: 1500), () {
-          // Verificar nuevamente antes de hacer JOIN
-          final globalChatNow = channels[globalChatChannel];
-          final stillNotInGlobalChat = globalChatNow == null || 
-              (_nickname != null && 
-               !globalChatNow.users.any((user) => user.toLowerCase() == _nickname!.toLowerCase()));
-          
-          print('🌐 [IRC] Verificación retrasada: stillNotInGlobalChat=$stillNotInGlobalChat, connected=$_isConnected, hasActive=$_hasActiveConnection, nick=$_nickname');
-          
-          if (_isConnected && _hasActiveConnection && stillNotInGlobalChat && _nickname != null) {
-            print('🌐 [IRC] ✅ Auto-uniéndose al canal oficial #globalchat');
-            _sendCommand('JOIN $globalChatChannel');
-            // Crear el canal en el mapa si no existe
-            if (!channels.containsKey(globalChatChannel)) {
-              channels[globalChatChannel] = IRCChannel(name: globalChatChannel);
-            }
-          } else {
-            print('🌐 [IRC] ⚠️ No se puede unir a #globalchat: connected=$_isConnected, hasActive=$_hasActiveConnection, stillNotInGlobalChat=$stillNotInGlobalChat, nick=$_nickname');
-          }
-        });
-      } else {
-        print('🌐 [IRC] ✅ Ya estamos en #globalchat, no es necesario autojoin');
-      }
-    }
-    
     // Solicitar la lista de usuarios y el TOPIC después de unirse
     // Usar múltiples intentos para asegurar que se reciba la lista
     Future.delayed(const Duration(milliseconds: 500), () {
@@ -349,6 +315,11 @@ class IRCService {
     final currentNormalized = _getChannelKey(_currentChannel);
     if (currentNormalized == normalized) {
       _currentChannel = null;
+    }
+    // Si el usuario cierra #globalchat manualmente, marcarlo para no volver a abrirlo automáticamente
+    if (normalized.toLowerCase() == '#globalchat') {
+      _manuallyClosedChannels.add(normalized.toLowerCase());
+      print('🌐 [IRC] #globalchat cerrado manualmente, no se volverá a abrir automáticamente');
     }
   }
 
@@ -747,9 +718,14 @@ class IRCService {
   }
 
   void sendMe(String channel, String action) {
+    if (!_hasActiveConnection) {
+      print('⚠️ [IRCService] No se puede enviar /me: conexión no activa');
+      return;
+    }
     final normalized = _normalizeChannelName(channel);
-    _sendCommand('PRIVMSG $normalized :\x01ACTION $action\x01');
-    // print('🎭 [IRCService] Enviando acción /me en $normalized: $action');
+    final command = 'PRIVMSG $normalized :\x01ACTION $action\x01';
+    print('🎭 [IRCService] Enviando acción /me en $normalized: $action');
+    _sendCommand(command);
   }
 
   void sendNotice(String target, String message) {
@@ -1334,31 +1310,62 @@ class IRCService {
 
   // Cambiar el nickname
   void changeNick(String newNick) {
+    if (!_hasActiveConnection) {
+      print('⚠️ [IRCService] No se puede cambiar nick: conexión no activa');
+      return;
+    }
+    
     final trimmedNick = newNick.trim();
     if (trimmedNick.isEmpty) {
-      // print('⚠️  [IRCService] No se puede cambiar a un nick vacío');
+      print('⚠️  [IRCService] No se puede cambiar a un nick vacío');
       return;
     }
     
     if (trimmedNick == _nickname) {
-      // print('ℹ️  [IRCService] Ya estás usando ese nick');
+      print('ℹ️  [IRCService] Ya estás usando ese nick');
       return;
     }
     
-    // print('🔄 [IRCService] Cambiando nick de "$_nickname" a "$trimmedNick"');
+    print('🔄 [IRCService] Cambiando nick de "$_nickname" a "$trimmedNick"');
     _sendCommand('NICK $trimmedNick');
     // El servidor confirmará el cambio con un mensaje NICK, entonces actualizaremos _nickname
     // cuando recibamos la confirmación del servidor
   }
+  
+  // Enviar acción /me a todos los canales donde estás presente
+  void sendAme(String action) {
+    if (!_hasActiveConnection) {
+      print('⚠️ [IRCService] No se puede enviar /ame: conexión no activa');
+      return;
+    }
+    
+    if (action.trim().isEmpty) {
+      print('⚠️ [IRCService] No se puede enviar /ame: acción vacía');
+      return;
+    }
+    
+    print('🎭 [IRCService] Enviando acción /ame a todos los canales: $action');
+    
+    // Enviar a todos los canales donde estás presente
+    for (final channelEntry in channels.entries) {
+      final channelName = channelEntry.key;
+      // Solo enviar a canales (que empiezan con #), no a queries privadas
+      if (channelName.startsWith('#')) {
+        final normalized = _normalizeChannelName(channelName);
+        final command = 'PRIVMSG $normalized :\x01ACTION $action\x01';
+        _sendCommand(command);
+      }
+    }
+  }
 
   void _sendCommand(String command) {
     if (_connection != null && _connection!.isConnected) {
-      // print('🔍 [DEBUG] Sending command: $command');
+      print('🔍 [DEBUG] Sending command: $command');
       // Agregar \r\n para compatibilidad IRC
       final ircCommand = command.endsWith('\r\n') ? command : '$command\r\n';
       _connection!.send(ircCommand);
     } else {
-      // print('🔍 [DEBUG] ⚠️  Cannot send command "$command": connection is null or not connected');
+      print('🔍 [DEBUG] ⚠️  Cannot send command "$command": connection is null or not connected');
     }
   }
 
@@ -1520,6 +1527,52 @@ class IRCService {
           }
           if (!_connectionCompleter.isCompleted) {
             _connectionCompleter.complete();
+          }
+          
+          // Autojoin a #globalchat SOLO UNA VEZ al inicio, después de recibir el 001
+          // Solo si no fue cerrado manualmente y no se ha hecho antes
+          const globalChatChannel = '#globalchat';
+          final globalChatLower = globalChatChannel.toLowerCase();
+          final wasManuallyClosed = _manuallyClosedChannels.contains(globalChatLower);
+          
+          if (!_hasAutoJoinedGlobalChat && !wasManuallyClosed && _nickname != null) {
+            // Verificar si ya estamos en #globalchat
+            final globalChat = channels[globalChatChannel];
+            final isInGlobalChat = globalChat != null && 
+                globalChat.users.any((user) => user.toLowerCase() == _nickname!.toLowerCase());
+            
+            if (!isInGlobalChat) {
+              _hasAutoJoinedGlobalChat = true; // Marcar como hecho
+              // Esperar un poco antes de unirse para no saturar el servidor
+              Future.delayed(const Duration(milliseconds: 2000), () {
+                // Verificar nuevamente antes de hacer JOIN
+                final globalChatNow = channels[globalChatChannel];
+                final stillNotInGlobalChat = globalChatNow == null || 
+                    (_nickname != null && 
+                     !globalChatNow.users.any((user) => user.toLowerCase() == _nickname!.toLowerCase()));
+                
+                // Verificar que no fue cerrado manualmente mientras esperábamos
+                final stillManuallyClosed = _manuallyClosedChannels.contains(globalChatLower);
+                
+                if (_isConnected && _hasActiveConnection && stillNotInGlobalChat && _nickname != null && !stillManuallyClosed) {
+                  print('🌐 [IRC] ✅ Auto-uniéndose al canal oficial #globalchat (después de registro 001)');
+                  _sendCommand('JOIN $globalChatChannel');
+                  // Crear el canal en el mapa si no existe
+                  if (!channels.containsKey(globalChatChannel)) {
+                    channels[globalChatChannel] = IRCChannel(name: globalChatChannel);
+                  }
+                } else if (stillManuallyClosed) {
+                  print('🌐 [IRC] ⚠️ #globalchat fue cerrado manualmente, no se volverá a abrir');
+                }
+              });
+            } else {
+              _hasAutoJoinedGlobalChat = true; // Ya estamos dentro, marcar como hecho
+              print('🌐 [IRC] ✅ Ya estamos en #globalchat, no es necesario autojoin');
+            }
+          } else if (wasManuallyClosed) {
+            print('🌐 [IRC] ⚠️ #globalchat fue cerrado manualmente anteriormente, no se volverá a abrir');
+          } else if (_hasAutoJoinedGlobalChat) {
+            print('🌐 [IRC] ⚠️ Autojoin a #globalchat ya se hizo, no se repetirá');
           }
           break;
         
@@ -1787,8 +1840,11 @@ class IRCService {
                 String? userMode;
                 String cleanUser = user.trim();
                 
-                // Detectar prefijos IRC: @ (op), + (voice), % (halfop), & (founder/owner), ! (admin), h (halfop)
-                if (cleanUser.startsWith('@')) {
+                // Detectar prefijos IRC: ~ (owner), @ (op), + (voice), % (halfop), & (founder/owner), ! (admin), h (halfop)
+                if (cleanUser.startsWith('~')) {
+                  userMode = '~';
+                  cleanUser = cleanUser.substring(1).trim();
+                } else if (cleanUser.startsWith('@')) {
                   userMode = '@';
                   cleanUser = cleanUser.substring(1).trim();
                 } else if (cleanUser.startsWith('&')) {
@@ -2072,6 +2128,10 @@ class IRCService {
             var channel = args[0];
             channel = _normalizeChannelName(channel);
             
+            // Verificar si es nuestro propio PART de #globalchat
+            final isOurPart = _nickname != null && nick.toLowerCase() == _nickname!.toLowerCase();
+            final isGlobalChat = channel.toLowerCase() == '#globalchat';
+            
             if (channels.containsKey(channel)) {
               channels[channel]!.removeUser(nick);
               
@@ -2087,6 +2147,12 @@ class IRCService {
               _notifyMessageListeners(msg);
               // Notificar cambio en la lista de usuarios
               _notifyUserListListeners(channel);
+              
+              // Si es nuestro propio PART de #globalchat, marcarlo como cerrado manualmente
+              if (isOurPart && isGlobalChat) {
+                _manuallyClosedChannels.add(channel.toLowerCase());
+                print('🌐 [IRC] #globalchat cerrado manualmente (PART detectado), no se volverá a abrir automáticamente');
+              }
             }
           }
           break;

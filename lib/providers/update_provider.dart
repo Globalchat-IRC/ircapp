@@ -31,14 +31,16 @@ class UpdateState {
 }
 
 /// Notifier para gestionar actualizaciones
-class UpdateNotifier extends StateNotifier<UpdateState> {
+class UpdateNotifier extends Notifier<UpdateState> {
   final UpdateService _updateService = UpdateService();
   
-  UpdateNotifier() : super(const UpdateState()) {
+  @override
+  UpdateState build() {
     // Verificar actualizaciones al iniciar (después de 5 segundos)
     Future.delayed(const Duration(seconds: 5), () {
       checkForUpdates();
     });
+    return const UpdateState();
   }
   
   /// Verificar si hay actualizaciones disponibles
@@ -124,7 +126,7 @@ class UpdateNotifier extends StateNotifier<UpdateState> {
 }
 
 /// Provider para gestionar las actualizaciones
-final updateProvider = StateNotifierProvider<UpdateNotifier, UpdateState>((ref) {
+final updateProvider = NotifierProvider<UpdateNotifier, UpdateState>(() {
   return UpdateNotifier();
 });
 

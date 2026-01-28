@@ -4,15 +4,17 @@ import 'dart:convert';
 
 /// Provider para gestionar imágenes de fondo por canal
 final channelBackgroundProvider =
-    StateNotifierProvider<ChannelBackgroundNotifier, Map<String, String>>((ref) {
+    NotifierProvider<ChannelBackgroundNotifier, Map<String, String>>(() {
   return ChannelBackgroundNotifier();
 });
 
-class ChannelBackgroundNotifier extends StateNotifier<Map<String, String>> {
+class ChannelBackgroundNotifier extends Notifier<Map<String, String>> {
   static const _prefsKey = 'channel_background_images_v1';
 
-  ChannelBackgroundNotifier() : super({}) {
+  @override
+  Map<String, String> build() {
     _initialize();
+    return {};
   }
 
   Future<void> _initialize() async {

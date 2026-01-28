@@ -12,6 +12,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:pasteboard/pasteboard.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -53,6 +54,7 @@ import '../widgets/user_profile_dialog.dart';
 import '../widgets/email_verification_dialog.dart';
 import '../models/user_role.dart';
 import '../widgets/debug_connection_window.dart';
+import '../widgets/voice_assistant_dialog.dart';
 import '../providers/debug_log_provider.dart';
 import '../models/video_report.dart' as video_report_model;
 import '../services/video_conference_service.dart' show ConferenceType;
@@ -322,6 +324,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     {'command': 'away', 'description': 'Establecer ausencia', 'usage': '/away [mensaje]'},
     {'command': 'back', 'description': 'Volver de ausencia', 'usage': '/back'},
     {'command': 'me', 'description': 'Acción (/me)', 'usage': '/me <acción>'},
+    {'command': 'ame', 'description': 'Acción a todos los canales (/ame)', 'usage': '/ame <acción>'},
     {'command': 'notice', 'description': 'Enviar NOTICE', 'usage': '/notice <nick/canal> <mensaje>'},
     {'command': 'links', 'description': 'Lista de servidores (IRCop)', 'usage': '/links'},
     {'command': 'stats', 'description': 'Estadísticas del servidor (IRCop)', 'usage': '/stats <tipo>'},
@@ -600,8 +603,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           // Sonido de mención configurable
           switch (settings.mentionSound) {
             case MentionSound.cuack:
-              // ignore: unawaited_futures
-              SoundService().playMentionCuack();
+              // Reproducir el cuack sin bloquear
+              SoundService().playMentionCuack().catchError((e) {
+                print('⚠️ [ChatScreen] Error al reproducir cuack: $e');
+              });
               break;
             case MentionSound.systemAlert:
               SystemSound.play(SystemSoundType.alert);
@@ -1124,6 +1129,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               title: const Text('HTML (.html)'),
               onTap: () => Navigator.pop(context, 'html'),
             ),
+            ListTile(
+              leading: const Icon(Icons.lock, color: Colors.orange),
+              title: const Text('Encriptado (.enc)'),
+              subtitle: const Text('ZIP encriptado con AES-256'),
+              onTap: () => Navigator.pop(context, 'encrypted'),
+            ),
           ],
         ),
       ),
@@ -1136,11 +1147,89 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       path = await ExportService.exportToText(channelMessages, currentChannel);
     } else if (format == 'html') {
       path = await ExportService.exportToHTML(channelMessages, currentChannel);
+    } else if (format == 'encrypted') {
+      // Pedir clave de encriptación
+      final encryptionKey = await showDialog<String>(
+        context: context,
+        builder: (context) {
+          final keyController = TextEditingController();
+          return AlertDialog(
+            title: const Text('Clave de encriptación'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'Ingresa una clave para encriptar los logs.\n'
+                  'Guarda esta clave de forma segura, ya que será necesaria para desencriptar.',
+                  style: TextStyle(fontSize: 12),
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: keyController,
+                  decoration: const InputDecoration(
+                    labelText: 'Clave de encriptación',
+                    hintText: 'Mínimo 8 caracteres',
+                    border: OutlineInputBorder(),
+                  ),
+                  obscureText: true,
+                  autofocus: true,
+                  onSubmitted: (value) {
+                    if (value.length >= 8) {
+                      Navigator.pop(context, value);
+                    }
+                  },
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Cancelar'),
+              ),
+              TextButton(
+                onPressed: () {
+                  final key = keyController.text.trim();
+                  if (key.length >= 8) {
+                    Navigator.pop(context, key);
+                  } else {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('La clave debe tener al menos 8 caracteres'),
+                      ),
+                    );
+                  }
+                },
+                child: const Text('Exportar'),
+              ),
+            ],
+          );
+        },
+      );
+
+      if (encryptionKey == null || encryptionKey.isEmpty) return;
+
+      // Obtener el servidor actual (usar el host del servicio IRC)
+      final ircService = ref.read(ircServiceProvider);
+      final server = ircService.serverHost ?? 'unknown';
+      
+      path = await ExportService.exportEncryptedLogs(
+        messages: channelMessages,
+        channelName: currentChannel,
+        server: server,
+        encryptionKey: encryptionKey,
+      );
     }
 
     if (path != null && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Conversación exportada a: $path')),
+        SnackBar(
+          content: Text(
+            format == 'encrypted'
+                ? 'Logs encriptados exportados correctamente. Guarda la clave de forma segura.'
+                : 'Conversación exportada a: $path',
+          ),
+          duration: format == 'encrypted' ? const Duration(seconds: 5) : const Duration(seconds: 3),
+        ),
       );
     }
   }
@@ -2612,6 +2701,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           return;
         }
         
+        if (!_ircService.isConnected) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('No estás conectado al servidor'),
+              duration: Duration(seconds: 2),
+            ),
+          );
+          return;
+        }
+        
         _ircService.changeNick(newNick);
         // No actualizar el provider aquí, esperar a que el servidor confirme el cambio
         // El listener _onNickChanged actualizará el provider cuando el servidor confirme
@@ -3140,8 +3239,49 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           return;
         }
         
+        if (!_ircService.isConnected) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('No estás conectado al servidor'),
+              duration: Duration(seconds: 2),
+            ),
+          );
+          return;
+        }
+        
         final action = args.join(' ');
         _ircService.sendMe(currentChannel, action);
+        break;
+        
+      case 'ame':
+        if (args.isEmpty) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Uso: /ame <acción>\nEjemplo: /ame saluda a todos'),
+              duration: Duration(seconds: 3),
+            ),
+          );
+          return;
+        }
+        
+        if (!_ircService.isConnected) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('No estás conectado al servidor'),
+              duration: Duration(seconds: 2),
+            ),
+          );
+          return;
+        }
+        
+        final action = args.join(' ');
+        _ircService.sendAme(action);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Enviando acción a todos los canales: $action'),
+            duration: const Duration(seconds: 2),
+          ),
+        );
         break;
         
       case 'notice':
@@ -3981,7 +4121,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     if (PlatformUtils.isWeb) {
       // En web, usar FilePicker
       try {
-        FilePickerResult? result = await FilePicker.platform.pickFiles(
+        FilePickerResult? result = await FilePicker.pickFiles(
           type: FileType.custom,
           allowedExtensions: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'mp4', 'webm', 'mov'],
           withData: true, // Obtener bytes directamente
@@ -4190,8 +4330,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       
       // Verificar tamaño
       if (imageBytes.length > maxSize) {
-        // print('❌ Imagen demasiado grande: ${(imageBytes.length / 1024 / 1024).toStringAsFixed(2)} MB (máximo 10MB)');
-        return null;
+        print('❌ [Cloudinary] Imagen demasiado grande: ${(imageBytes.length / 1024 / 1024).toStringAsFixed(2)} MB (máximo 10MB)');
+        throw Exception('Imagen demasiado grande (máximo 10MB)');
       }
       
       final uri = Uri.parse('https://api.cloudinary.com/v1_1/$cloudName/image/upload');
@@ -4200,41 +4340,89 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       final request = http.MultipartRequest('POST', uri);
       
       // Añadir la imagen
-      final extension = mimeType.split('/')[1];
+      String extension = 'jpg'; // Default
+      if (mimeType.contains('/')) {
+        extension = mimeType.split('/')[1].split(';')[0]; // Manejar mimeType con charset
+      }
+      
+      // Validar extensiones permitidas
+      final allowedExtensions = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
+      if (!allowedExtensions.contains(extension.toLowerCase())) {
+        extension = 'jpg'; // Fallback a jpg
+      }
+      
+      // Parsear el contentType correctamente
+      MediaType? contentType;
+      try {
+        final mimeTypeClean = mimeType.contains(';') 
+            ? mimeType.split(';')[0].trim() 
+            : mimeType.trim();
+        final parts = mimeTypeClean.split('/');
+        if (parts.length == 2) {
+          contentType = MediaType(parts[0], parts[1]);
+        }
+      } catch (_) {
+        // Si falla el parseo, usar el default
+        contentType = null;
+      }
+      
       request.files.add(
         http.MultipartFile.fromBytes(
           'file',
           imageBytes,
           filename: 'image.$extension',
+          contentType: contentType,
         ),
       );
       
       // Añadir el upload preset
       request.fields['upload_preset'] = uploadPreset;
       
-      // print('📤 Subiendo imagen a Cloudinary... (${(imageBytes.length / 1024).toStringAsFixed(2)} KB)');
+      print('📤 [Cloudinary] Subiendo imagen... (${(imageBytes.length / 1024).toStringAsFixed(2)} KB, tipo: $mimeType, extensión: $extension)');
       
-      final streamedResponse = await request.send();
+      final streamedResponse = await request.send().timeout(
+        const Duration(seconds: 30),
+        onTimeout: () {
+          throw TimeoutException('Timeout al subir imagen a Cloudinary');
+        },
+      );
       final response = await http.Response.fromStream(streamedResponse);
       
+      print('📥 [Cloudinary] Respuesta: ${response.statusCode}');
+      
       if (response.statusCode == 200) {
-        final jsonResponse = jsonDecode(response.body);
-        if (jsonResponse['secure_url'] != null) {
-          final imageUrl = jsonResponse['secure_url'] as String;
-          // print('✅ Imagen subida a Cloudinary: $imageUrl');
-          return imageUrl;
-        } else {
-          // print('❌ Error en respuesta de Cloudinary: ${jsonResponse['error']}');
-          return null;
+        try {
+          final jsonResponse = jsonDecode(response.body) as Map<String, dynamic>;
+          if (jsonResponse['secure_url'] != null) {
+            final imageUrl = jsonResponse['secure_url'] as String;
+            print('✅ [Cloudinary] Imagen subida: $imageUrl');
+            return imageUrl;
+          } else {
+            final errorMsg = jsonResponse['error']?.toString() ?? 'Error desconocido';
+            print('❌ [Cloudinary] Error en respuesta: $errorMsg');
+            print('❌ [Cloudinary] Respuesta completa: ${response.body}');
+            throw Exception('Error de Cloudinary: $errorMsg');
+          }
+        } catch (e) {
+          print('❌ [Cloudinary] Error parseando respuesta JSON: $e');
+          print('❌ [Cloudinary] Respuesta: ${response.body}');
+          throw Exception('Error parseando respuesta de Cloudinary: $e');
         }
       } else {
-        // print('❌ Error HTTP al subir imagen: ${response.statusCode}');
-        // print('❌ Respuesta: ${response.body}');
-        return null;
+        String errorMsg = 'Error HTTP ${response.statusCode}';
+        try {
+          final jsonResponse = jsonDecode(response.body) as Map<String, dynamic>;
+          errorMsg = jsonResponse['error']?.toString() ?? errorMsg;
+        } catch (_) {
+          errorMsg = response.body.isNotEmpty ? response.body : errorMsg;
+        }
+        print('❌ [Cloudinary] Error HTTP: ${response.statusCode}');
+        print('❌ [Cloudinary] Mensaje: $errorMsg');
+        throw Exception('Error HTTP ${response.statusCode}: $errorMsg');
       }
     } catch (e) {
-      // print('❌ Excepción al subir imagen a Cloudinary: $e');
-      return null;
+      print('❌ [Cloudinary] Excepción al subir imagen: $e');
+      rethrow; // Re-lanzar para que el error se muestre al usuario
     }
   }
 
@@ -4247,8 +4435,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       
       // Verificar tamaño
       if (videoBytes.length > maxSize) {
-        // print('❌ Video demasiado grande: ${(videoBytes.length / 1024 / 1024).toStringAsFixed(2)} MB (máximo 100MB)');
-        return null;
+        print('❌ [Cloudinary] Video demasiado grande: ${(videoBytes.length / 1024 / 1024).toStringAsFixed(2)} MB (máximo 100MB)');
+        throw Exception('Video demasiado grande (máximo 100MB)');
       }
       
       final uri = Uri.parse('https://api.cloudinary.com/v1_1/$cloudName/video/upload');
@@ -4257,41 +4445,89 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       final request = http.MultipartRequest('POST', uri);
       
       // Añadir el video
-      final extension = mimeType.split('/')[1];
+      String extension = 'mp4'; // Default
+      if (mimeType.contains('/')) {
+        extension = mimeType.split('/')[1].split(';')[0]; // Manejar mimeType con charset
+      }
+      
+      // Validar extensiones permitidas
+      final allowedExtensions = ['mp4', 'webm', 'mov', 'avi', 'mkv'];
+      if (!allowedExtensions.contains(extension.toLowerCase())) {
+        extension = 'mp4'; // Fallback a mp4
+      }
+      
+      // Parsear el contentType correctamente
+      MediaType? contentType;
+      try {
+        final mimeTypeClean = mimeType.contains(';') 
+            ? mimeType.split(';')[0].trim() 
+            : mimeType.trim();
+        final parts = mimeTypeClean.split('/');
+        if (parts.length == 2) {
+          contentType = MediaType(parts[0], parts[1]);
+        }
+      } catch (_) {
+        // Si falla el parseo, usar el default
+        contentType = null;
+      }
+      
       request.files.add(
         http.MultipartFile.fromBytes(
           'file',
           videoBytes,
           filename: 'video.$extension',
+          contentType: contentType,
         ),
       );
       
       // Añadir el upload preset
       request.fields['upload_preset'] = uploadPreset;
       
-      // print('📤 Subiendo video a Cloudinary... (${(videoBytes.length / 1024 / 1024).toStringAsFixed(2)} MB)');
+      print('📤 [Cloudinary] Subiendo video... (${(videoBytes.length / 1024 / 1024).toStringAsFixed(2)} MB, tipo: $mimeType, extensión: $extension)');
       
-      final streamedResponse = await request.send();
+      final streamedResponse = await request.send().timeout(
+        const Duration(seconds: 120), // Más tiempo para videos
+        onTimeout: () {
+          throw TimeoutException('Timeout al subir video a Cloudinary');
+        },
+      );
       final response = await http.Response.fromStream(streamedResponse);
       
+      print('📥 [Cloudinary] Respuesta: ${response.statusCode}');
+      
       if (response.statusCode == 200) {
-        final jsonResponse = jsonDecode(response.body);
-        if (jsonResponse['secure_url'] != null) {
-          final videoUrl = jsonResponse['secure_url'] as String;
-          // print('✅ Video subido a Cloudinary: $videoUrl');
-          return videoUrl;
-        } else {
-          // print('❌ Error en respuesta de Cloudinary: ${jsonResponse['error']}');
-          return null;
+        try {
+          final jsonResponse = jsonDecode(response.body) as Map<String, dynamic>;
+          if (jsonResponse['secure_url'] != null) {
+            final videoUrl = jsonResponse['secure_url'] as String;
+            print('✅ [Cloudinary] Video subido: $videoUrl');
+            return videoUrl;
+          } else {
+            final errorMsg = jsonResponse['error']?.toString() ?? 'Error desconocido';
+            print('❌ [Cloudinary] Error en respuesta: $errorMsg');
+            print('❌ [Cloudinary] Respuesta completa: ${response.body}');
+            throw Exception('Error de Cloudinary: $errorMsg');
+          }
+        } catch (e) {
+          print('❌ [Cloudinary] Error parseando respuesta JSON: $e');
+          print('❌ [Cloudinary] Respuesta: ${response.body}');
+          throw Exception('Error parseando respuesta de Cloudinary: $e');
         }
       } else {
-        // print('❌ Error HTTP al subir video: ${response.statusCode}');
-        // print('❌ Respuesta: ${response.body}');
-        return null;
+        String errorMsg = 'Error HTTP ${response.statusCode}';
+        try {
+          final jsonResponse = jsonDecode(response.body) as Map<String, dynamic>;
+          errorMsg = jsonResponse['error']?.toString() ?? errorMsg;
+        } catch (_) {
+          errorMsg = response.body.isNotEmpty ? response.body : errorMsg;
+        }
+        print('❌ [Cloudinary] Error HTTP: ${response.statusCode}');
+        print('❌ [Cloudinary] Mensaje: $errorMsg');
+        throw Exception('Error HTTP ${response.statusCode}: $errorMsg');
       }
     } catch (e) {
-      // print('❌ Excepción al subir video a Cloudinary: $e');
-      return null;
+      print('❌ [Cloudinary] Excepción al subir video: $e');
+      rethrow; // Re-lanzar para que el error se muestre al usuario
     }
   }
 
@@ -4661,6 +4897,19 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   context: context,
                   builder: (context) => ChannelListDialog(
                     ircService: _ircService,
+                  ),
+                );
+              },
+            ),
+            // Botón de Asistente de Voz
+            IconButton(
+              icon: Icon(Icons.mic, color: appTheme.accent),
+              tooltip: 'Asistente de Voz con IA',
+              onPressed: () {
+                showDialog(
+                  context: context,
+                  builder: (context) => VoiceAssistantDialog(
+                    appTheme: appTheme,
                   ),
                 );
               },
@@ -7226,7 +7475,19 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       'icon': r.icon,
       'host': r.host,
     }).toList();
-    final isBot = channelData?.isRobot(message.nick, customRobots: customRobotsData) ?? false;
+    
+    // Para mensajes privados, channelData puede ser null, así que verificar robots de otra forma
+    bool isBot;
+    if (channelData != null) {
+      isBot = channelData.isRobot(message.nick, customRobots: customRobotsData);
+    } else {
+      // Para mensajes privados, solo verificar la lista de robots personalizados
+      final nickLower = message.nick.toLowerCase();
+      isBot = customRobotsData.any((r) => 
+        (r['nick'] as String?)?.toLowerCase() == nickLower
+      );
+    }
+    
     final userMode = channelData?.getUserMode(message.nick);
     
     // Generar color basado en el hash del nickname para consistencia
@@ -8993,7 +9254,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       if (part.startsWith(':') && part.endsWith(':')) {
         // Es un código de emoticono
         final emojiUrl = EmojiService.getEmojiUrl(part);
+        
         if (emojiUrl != null) {
+          // Usar imagen desde CDN (GIF para animados, PNG para estáticos)
           textSpans.add(
             WidgetSpan(
               alignment: PlaceholderAlignment.middle,
@@ -9001,7 +9264,19 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 emojiUrl,
                 width: 20,
                 height: 20,
+                fit: BoxFit.contain,
                 errorBuilder: (context, error, stackTrace) {
+                  // Si falla la imagen, intentar Unicode como fallback
+                  final fallbackUnicode = EmojiService.getEmojiUnicode(part);
+                  if (fallbackUnicode != null) {
+                    return Text(
+                      fallbackUnicode,
+                      style: TextStyle(
+                        fontSize: 20,
+                        color: defaultColor,
+                      ),
+                    );
+                  }
                   return Text(
                     part,
                     style: TextStyle(
@@ -9448,6 +9723,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       (r) => r.nick.toLowerCase() == nick.toLowerCase(),
                     );
                     isRobot = true;
+                    print('🤖 [PRIVADO] "$nick" detectado como robot personalizado');
                   } catch (e) {
                     // No es robot personalizado, verificar con detección automática
                     // Usar una lógica simple basada en el nick
@@ -9456,6 +9732,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                               nickLower.startsWith('radio') ||
                               nickLower == 'robot' ||
                               nickLower == 'bot';
+                    if (isRobot) {
+                      print('🤖 [PRIVADO] "$nick" detectado como robot (detección automática)');
+                    } else {
+                      print('👤 [PRIVADO] "$nick" NO es robot, debería cargar avatar personalizado');
+                    }
                   }
                   
                   // Obtener icono del usuario
@@ -9472,7 +9753,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     nick: nick,
                     size: 32,
                     fallbackIcon: userInitial,
-                    isRobot: isRobot,
+                    isRobot: isRobot, // Asegurar que isRobot se pase correctamente (false para usuarios normales)
                     gradient: isRobot
                         ? LinearGradient(
                             colors: [
@@ -9505,6 +9786,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                             width: 1.5,
                           )
                         : null,
+                    // No pasar backgroundColor cuando hay gradient para evitar conflictos
+                    backgroundColor: null,
                   );
                 },
               )
@@ -13683,6 +13966,132 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       backgroundColor: appTheme.primary,
                       duration: const Duration(seconds: 2),
                     ),
+                  );
+                },
+              ),
+              // Opción para compartir canción (solo si la radio está encendida)
+              Consumer(
+                builder: (context, ref, _) {
+                  final radioState = ref.watch(radioProvider);
+                  final isPlaying = radioState.isPlaying;
+                  final activeStation = radioState.activeStation;
+                  
+                  if (!isPlaying || activeStation == null) {
+                    return const SizedBox.shrink();
+                  }
+                  
+                  // Obtener la canción actual
+                  final currentSong = activeStation.currentArtistSong?.trim();
+                  final stationName = activeStation.name ?? 'Radio';
+                  
+                  // Obtener el canal actual donde está el usuario
+                  final currentChannel = ref.read(currentChannelProvider);
+                  
+                  // Mapear estación al canal sugerido (para mostrar en el mensaje)
+                  String? suggestedChannel;
+                  final name = stationName.toLowerCase();
+                  if (name == 'nuestrasvoces') {
+                    suggestedChannel = '#nuestrasvoces';
+                  } else if (name == 'soundmusic') {
+                    suggestedChannel = '#soundmusic';
+                  } else if (name == 'urbanflow') {
+                    suggestedChannel = '#urbanflow';
+                  }
+                  
+                  // Verificar si hay canal actual y canción
+                  final hasCurrentChannel = currentChannel != null && currentChannel.isNotEmpty;
+                  final hasSong = currentSong != null && currentSong.isNotEmpty && currentSong != 'Sin información';
+                  
+                  return ListTile(
+                    leading: Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.pink.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Icon(Icons.music_note, color: Colors.pink),
+                    ),
+                    title: const Text('Compartir Canción'),
+                    subtitle: Text(
+                      hasCurrentChannel && hasSong
+                          ? 'Enviar "$currentSong" a $currentChannel'
+                          : hasCurrentChannel
+                              ? 'Reproduciendo en $currentChannel'
+                              : hasSong
+                                  ? 'Reproduciendo: $currentSong'
+                                  : 'Radio encendida',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    onTap: () async {
+                      Navigator.pop(context);
+                      
+                      if (!hasCurrentChannel) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: const Text('Debes estar en un canal para compartir la canción'),
+                            backgroundColor: Colors.orange,
+                            duration: const Duration(seconds: 2),
+                          ),
+                        );
+                        return;
+                      }
+                      
+                      try {
+                        // Forzar actualización de la canción actual antes de compartir
+                        await ref.read(radioProvider.notifier).refreshNowPlaying();
+                        // Esperar un poco para que se actualice el estado
+                        await Future.delayed(const Duration(milliseconds: 500));
+                        
+                        // Obtener la canción actualizada
+                        final updatedRadioState = ref.read(radioProvider);
+                        final updatedStation = updatedRadioState.activeStation;
+                        final updatedSong = updatedStation?.currentArtistSong?.trim();
+                        final finalSong = (updatedSong != null && updatedSong.isNotEmpty && updatedSong != 'Sin información')
+                            ? updatedSong
+                            : (hasSong ? currentSong! : 'Sin información');
+                        
+                        // Crear mensaje moderno y atractivo
+                        final message = '🎵 🎶 ¡Escuchando ahora en $stationName! 🎶 🎵\n'
+                            '▶️ $finalSong\n'
+                            '📻 ${suggestedChannel != null ? '¡Únete a escuchar en $suggestedChannel! 🎧' : '🎧'}';
+                        
+                        // Enviar mensaje al canal actual
+                        _ircService.sendMessage(currentChannel!, message);
+                        
+                        // Mostrar confirmación
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Row(
+                              children: [
+                                const Icon(Icons.check_circle, color: Colors.white),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    'Canción enviada a $currentChannel',
+                                    style: const TextStyle(color: Colors.white),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            backgroundColor: Colors.pink,
+                            duration: const Duration(seconds: 3),
+                            behavior: SnackBarBehavior.floating,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                          ),
+                        );
+                      } catch (e) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('Error al enviar canción: $e'),
+                            backgroundColor: Colors.red,
+                            duration: const Duration(seconds: 3),
+                          ),
+                        );
+                      }
+                    },
                   );
                 },
               ),

@@ -1,5 +1,204 @@
 class EmojiService {
   static const String cdnBaseUrl = 'https://cdn.jsdelivr.net/joypixels/assets/9.0/png/unicode/64/';
+  // CDN para emoticonos animados (GIFs) - usando emoji.gg que tiene GIFs animados
+  static const String animatedCdnBaseUrl = 'https://emoji.gg/assets/';
+  
+  // Mapa de emoticonos animados (GIFs) - usando nombres de archivos comunes
+  static final Map<String, String> animatedEmojiMap = {
+    // Caras animadas
+    ':party:': '1f389',
+    ':confetti_ball:': '1f38a',
+    ':tada:': '1f389',
+    ':clap_animated:': '1f44f',
+    ':wave_animated:': '1f44b',
+    ':thumbsup_animated:': '1f44d',
+    ':fire_animated:': '1f525',
+    ':heart_animated:': '2764',
+    ':sparkles:': '2728',
+    ':star_struck:': '1f929',
+    ':dancing:': '1f57a',
+    ':dancing_woman:': '1f483',
+    ':dancing_men:': '1f46f',
+    ':celebration:': '1f389',
+    ':balloon:': '1f388',
+    ':gift:': '1f381',
+    ':trophy:': '1f3c6',
+    ':medal:': '1f3c5',
+    ':clinking_glasses:': '1f942',
+    ':beers:': '1f37b',
+    ':champagne:': '1f37e',
+    ':rocket:': '1f680',
+    ':star:': '2b50',
+    ':rainbow:': '1f308',
+    ':sunny:': '2600',
+    ':zap:': '26a1',
+    ':boom:': '1f4a5',
+    ':collision:': '1f4a5',
+    ':dizzy:': '1f4ab',
+    ':sparkling_heart_animated:': '1f496',
+    ':heart_eyes_animated:': '1f60d',
+    ':kiss_animated:': '1f48b',
+    ':love_you:': '1f91f',
+    ':muscle_animated:': '1f4aa',
+    ':ok_hand_animated:': '1f44c',
+    ':victory_animated:': '270c',
+    ':pray_animated:': '1f64f',
+    ':clap_hands:': '1f44f',
+    ':raised_hands_animated:': '1f64c',
+    ':waving_hand:': '1f44b',
+    ':thumbs_down_animated:': '1f44e',
+    ':point_right_animated:': '1f449',
+    ':point_left_animated:': '1f448',
+    ':point_up_animated:': '1f446',
+    ':point_down_animated:': '1f447',
+    ':fist_animated:': '270a',
+    ':punch_animated:': '1f44a',
+    ':fingers_crossed:': '1f91e',
+    ':call_me:': '1f919',
+    ':metal:': '1f918',
+    ':writing_hand:': '270d',
+    ':nail_care_animated:': '1f485',
+    ':selfie:': '1f933',
+    ':dancer_animated:': '1f483',
+    ':man_dancing:': '1f57a',
+    ':dancing_women:': '1f46f',
+    ':dancing_men_animated:': '1f46f',
+    ':party_popper:': '1f389',
+    ':confetti:': '1f38a',
+    ':tada_animated:': '1f389',
+    ':birthday:': '1f382',
+    ':cake:': '1f370',
+    ':cookie:': '1f36a',
+    ':ice_cream:': '1f368',
+    ':pizza:': '1f355',
+    ':hamburger:': '1f354',
+    ':taco:': '1f32e',
+    ':burrito:': '1f32f',
+    ':beer_animated:': '1f37a',
+    ':cocktail:': '1f378',
+    ':wine_glass:': '1f377',
+    ':champagne_animated:': '1f37e',
+    ':clinking_glasses_animated:': '1f942',
+    ':tropical_drink:': '1f379',
+    ':beer_mug:': '1f37a',
+    ':beers_animated:': '1f37b',
+    ':popcorn:': '1f37f',
+    ':movie_camera:': '1f3a5',
+    ':camera_flash:': '1f4f8',
+    ':video_camera:': '1f4f9',
+    ':tv:': '1f4fa',
+    ':radio:': '1f4fb',
+    ':musical_note:': '1f3b5',
+    ':musical_notes:': '1f3b6',
+    ':headphones:': '1f3a7',
+    ':microphone:': '1f3a4',
+    ':guitar:': '1f3b8',
+    ':saxophone:': '1f3b7',
+    ':trumpet:': '1f3ba',
+    ':violin:': '1f3bb',
+    ':drum:': '1f941',
+    ':musical_keyboard:': '1f3b9',
+    ':game_die:': '1f3b2',
+    ':video_game:': '1f3ae',
+    ':joystick:': '1f579',
+    ':slot_machine:': '1f3b0',
+    ':game_controller:': '1f3ae',
+    ':8ball:': '1f3b1',
+    ':basketball:': '1f3c0',
+    ':soccer:': '26bd',
+    ':baseball:': '26be',
+    ':tennis:': '1f3be',
+    ':volleyball:': '1f3d0',
+    ':rugby_football:': '1f3c9',
+    ':football:': '1f3c8',
+    ':swimmer:': '1f3ca',
+    ':surfer:': '1f3c4',
+    ':rowboat:': '1f6a3',
+    ':bicyclist:': '1f6b4',
+    ':mountain_bicyclist:': '1f6b5',
+    ':racehorse:': '1f40e',
+    ':racing_car:': '1f3ce',
+    ':motorcycle:': '1f3cd',
+    ':airplane:': '2708',
+    ':helicopter:': '1f681',
+    ':rocket_animated:': '1f680',
+    ':flying_saucer:': '1f6f8',
+    ':satellite:': '1f6f0',
+    ':artificial_satellite:': '1f6f0',
+    ':star2:': '1f31f',
+    ':dizzy_star:': '1f4ab',
+    ':sparkles_animated:': '2728',
+    ':comet:': '2604',
+    ':sun_with_face:': '1f31e',
+    ':full_moon_with_face:': '1f31d',
+    ':new_moon_with_face:': '1f31a',
+    ':crescent_moon:': '1f319',
+    ':first_quarter_moon:': '1f313',
+    ':last_quarter_moon:': '1f317',
+    ':waxing_gibbous_moon:': '1f314',
+    ':waning_gibbous_moon:': '1f316',
+    ':waxing_crescent_moon:': '1f312',
+    ':waning_crescent_moon:': '1f318',
+    ':earth_americas:': '1f30e',
+    ':earth_africa:': '1f30d',
+    ':earth_asia:': '1f30f',
+    ':globe_with_meridians:': '1f310',
+    ':new_moon:': '1f311',
+    ':waxing_crescent_moon2:': '1f312',
+    ':first_quarter_moon2:': '1f313',
+    ':waxing_gibbous_moon2:': '1f314',
+    ':full_moon:': '1f315',
+    ':waning_gibbous_moon2:': '1f316',
+    ':last_quarter_moon2:': '1f317',
+    ':waning_crescent_moon2:': '1f318',
+    ':crescent_moon2:': '1f319',
+    ':new_moon_with_face2:': '1f31a',
+    ':first_quarter_moon_with_face:': '1f31b',
+    ':last_quarter_moon_with_face:': '1f31c',
+    ':full_moon_with_face2:': '1f31d',
+    ':sun_with_face2:': '1f31e',
+    ':star2_animated:': '1f31f',
+    ':milky_way:': '1f30c',
+    ':cloud:': '2601',
+    ':sun_behind_cloud:': '26c5',
+    ':cloud_with_rain:': '1f327',
+    ':cloud_with_lightning:': '1f329',
+    ':cloud_with_lightning_and_rain:': '1f32a',
+    ':cloud_with_snow:': '1f328',
+    ':snowflake:': '2744',
+    ':snowman:': '26c4',
+    ':snowman_without_snow:': '26c4',
+    ':wind_face:': '1f32c',
+    ':tornado:': '1f32a',
+    ':fog:': '1f32b',
+    ':umbrella:': '2602',
+    ':umbrella_with_rain_drops:': '2614',
+    ':droplet2:': '1f4a7',
+    ':sweat_drops:': '1f4a6',
+    ':ocean:': '1f30a',
+    ':water_wave:': '1f30a',
+    ':volcano:': '1f30b',
+    ':fire_animated2:': '1f525',
+    ':sparkles_animated2:': '2728',
+    ':dizzy_animated:': '1f4ab',
+    ':boom_animated:': '1f4a5',
+    ':collision_animated:': '1f4a5',
+    ':zap_animated:': '26a1',
+    ':sunny_animated:': '2600',
+    ':rainbow_animated:': '1f308',
+    ':star_animated:': '2b50',
+    ':rocket_animated2:': '1f680',
+    ':trophy_animated:': '1f3c6',
+    ':medal_animated:': '1f3c5',
+    ':gift_animated:': '1f381',
+    ':balloon_animated:': '1f388',
+    ':celebration_animated:': '1f389',
+    ':party_popper_animated:': '1f389',
+    ':confetti_animated:': '1f38a',
+    ':tada_animated2:': '1f389',
+    ':birthday_animated:': '1f382',
+    ':cake_animated:': '1f370',
+  };
   
   // Mapa de códigos de emoticonos comunes a sus códigos Unicode
   static final Map<String, String> emojiMap = {
@@ -203,9 +402,68 @@ class EmojiService {
   
   // Obtener la URL de la imagen del emoticono
   static String? getEmojiUrl(String emojiCode) {
-    final unicode = emojiMap[emojiCode.toLowerCase()];
+    final code = emojiCode.toLowerCase();
+    
+    // Verificar si es un emoticono animado
+    if (animatedEmojiMap.containsKey(code)) {
+      // Para emoticonos animados, usar GIFs animados reales
+      final unicode = animatedEmojiMap[code];
+      if (unicode != null) {
+        // Usar emoji-api.com que tiene GIFs animados
+        // Formato: https://emoji-api.com/emojis/{unicode}.gif
+        return 'https://emoji-api.com/emojis/$unicode.gif';
+      }
+    }
+    
+    // Emoticonos estáticos normales
+    final unicode = emojiMap[code];
     if (unicode == null) return null;
     return '$cdnBaseUrl$unicode.png';
+  }
+  
+  // Obtener el emoji Unicode directamente para renderizado nativo (mejor para animados)
+  static String? getEmojiUnicode(String emojiCode) {
+    final code = emojiCode.toLowerCase();
+    
+    // Verificar si es un emoticono animado
+    if (animatedEmojiMap.containsKey(code)) {
+      final unicode = animatedEmojiMap[code];
+      if (unicode != null) {
+        // Convertir código hexadecimal a emoji Unicode
+        try {
+          final codePoints = unicode.split('-');
+          final chars = codePoints.map((cp) {
+            final intValue = int.parse(cp, radix: 16);
+            return String.fromCharCode(intValue);
+          }).join();
+          return chars;
+        } catch (e) {
+          return null;
+        }
+      }
+    }
+    
+    // Para emoticonos estáticos, también podemos devolver Unicode
+    final unicode = emojiMap[code];
+    if (unicode != null) {
+      try {
+        final codePoints = unicode.split('-');
+        final chars = codePoints.map((cp) {
+          final intValue = int.parse(cp, radix: 16);
+          return String.fromCharCode(intValue);
+        }).join();
+        return chars;
+      } catch (e) {
+        return null;
+      }
+    }
+    
+    return null;
+  }
+  
+  // Verificar si un emoticono es animado
+  static bool isAnimated(String emojiCode) {
+    return animatedEmojiMap.containsKey(emojiCode.toLowerCase());
   }
   
   // Convertir texto con códigos de emoticonos a widgets
@@ -246,6 +504,19 @@ class EmojiService {
   // Lista completa de emoticonos organizados por categorías
   static Map<String, List<String>> getEmojisByCategory() {
     return {
+      'Animados': [
+        ':party:', ':confetti_ball:', ':tada:', ':clap_animated:', ':wave_animated:',
+        ':thumbsup_animated:', ':fire_animated:', ':heart_animated:', ':sparkles:',
+        ':star_struck:', ':dancing:', ':celebration:', ':balloon:', ':gift:',
+        ':trophy:', ':rocket:', ':rainbow:', ':zap:', ':boom:', ':sparkling_heart_animated:',
+        ':heart_eyes_animated:', ':kiss_animated:', ':muscle_animated:', ':ok_hand_animated:',
+        ':victory_animated:', ':pray_animated:', ':clap_hands:', ':raised_hands_animated:',
+        ':dancer_animated:', ':party_popper:', ':confetti:', ':tada_animated:',
+        ':birthday:', ':cake:', ':beer_animated:', ':champagne_animated:',
+        ':rocket_animated:', ':trophy_animated:', ':medal_animated:', ':gift_animated:',
+        ':balloon_animated:', ':celebration_animated:', ':fire_animated2:', ':sparkles_animated:',
+        ':rainbow_animated:', ':star_animated:', ':zap_animated:', ':boom_animated:',
+      ],
       'Caras': [
         ':smile:', ':grinning:', ':joy:', ':laughing:', ':wink:', ':blush:',
         ':smiley:', ':relaxed:', ':smirk:', ':heart_eyes:', ':kissing_heart:',

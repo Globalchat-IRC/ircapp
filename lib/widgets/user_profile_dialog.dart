@@ -2,8 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import '../models/user_role.dart';
+import '../models/radio_station.dart';
 import '../services/video_database_service.dart';
 import '../providers/video_provider.dart';
+import '../providers/irc_provider.dart';
+import '../providers/radio_provider.dart';
+import '../services/irc_service.dart';
 import 'reputation_badge.dart';
 import 'email_verification_dialog.dart';
 
@@ -348,9 +352,298 @@ class _UserProfileDialogState extends ConsumerState<UserProfileDialog> with Sing
                 ? '✅ Puede usar audio'
                 : '❌ ${_profile!.videoRestrictionReason ?? "Restricciones activas"}',
           ),
+          // Botón para compartir canción (solo si es el propio perfil y la radio está encendida)
+          Consumer(
+            builder: (context, ref, _) {
+              final currentNick = ref.watch(currentNicknameProvider);
+              final isOwnProfile = currentNick != null && 
+                  currentNick.toLowerCase() == widget.nick.toLowerCase();
+              
+              // Debug logs
+              print('🎵 [DIALOGO] isOwnProfile: $isOwnProfile, currentNick: $currentNick, widget.nick: ${widget.nick}');
+              
+              if (!isOwnProfile) {
+                return const SizedBox.shrink();
+              }
+              
+              final radioState = ref.watch(radioProvider);
+              final isPlaying = radioState.isPlaying;
+              final activeStation = radioState.activeStation;
+              
+              // Debug logs
+              print('🎵 [DIALOGO] Radio state - isPlaying: $isPlaying, activeStation: ${activeStation?.name ?? "null"}');
+              
+              // Mostrar siempre la sección de radio, pero con diferentes contenidos según el estado
+              return Column(
+                children: [
+                  const Divider(height: 32),
+                  if (!isPlaying || activeStation == null)
+                    _buildRadioOffCard()
+                  else
+                    _buildShareSongCard(ref, activeStation),
+                ],
+              );
+            },
+          ),
         ],
       ),
     );
+  }
+  
+  // Mensaje cuando la radio está apagada
+  Widget _buildRadioOffCard() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.grey.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: Colors.grey.withOpacity(0.2),
+          width: 1,
+        ),
+      ),
+      child: Row(
+        children: [
+          const Icon(
+            Icons.radio,
+            color: Colors.grey,
+            size: 24,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Radio apagada',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  'Enciende la radio para compartir la canción que estás escuchando',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Mapear estación de radio al canal correspondiente
+  String? _getChannelForStation(String stationName) {
+    final name = stationName.toLowerCase();
+    if (name == 'nuestrasvoces') {
+      return '#nuestrasvoces';
+    } else if (name == 'soundmusic') {
+      return '#soundmusic';
+    } else if (name == 'urbanflow') {
+      return '#urbanflow';
+    }
+    return null;
+  }
+  
+  // Construir tarjeta para compartir canción
+  Widget _buildShareSongCard(WidgetRef ref, RadioStation activeStation) {
+    final currentSong = activeStation.currentArtistSong ?? 'Sin información';
+    final stationName = activeStation.name ?? 'Radio';
+    final channelName = _getChannelForStation(stationName);
+    
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            Colors.purple.withOpacity(0.1),
+            Colors.blue.withOpacity(0.1),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: Colors.purple.withOpacity(0.3),
+          width: 1.5,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(
+                Icons.music_note,
+                color: Colors.purple,
+                size: 24,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Reproduciendo',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      currentSong,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'En $stationName',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          if (channelName != null) ...[
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () => _sendSongToChannel(context, ref, channelName, stationName, currentSong),
+                icon: const Icon(Icons.send, size: 18),
+                label: const Text('Enviar canción al canal'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.purple,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  elevation: 2,
+                ),
+              ),
+            ),
+          ] else ...[
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.grey.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Row(
+                children: [
+                  Icon(
+                    Icons.info_outline,
+                    color: Colors.grey,
+                    size: 18,
+                  ),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Esta estación no tiene canal asociado',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+  
+  // Enviar canción al canal correspondiente
+  Future<void> _sendSongToChannel(
+    BuildContext context,
+    WidgetRef ref,
+    String channelName,
+    String stationName,
+    String currentSong,
+  ) async {
+    try {
+      final ircService = ref.read(ircServiceProvider);
+      final channels = ref.read(channelsProvider);
+      
+      // Verificar si el usuario está en el canal
+      final normalizedChannel = channelName.toLowerCase();
+      final isInChannel = channels.containsKey(normalizedChannel);
+      
+      // Si no está en el canal, unirse primero
+      if (!isInChannel) {
+        ircService.joinChannel(channelName);
+        // Esperar un poco para que el servidor procese el JOIN
+        await Future.delayed(const Duration(milliseconds: 500));
+      }
+      
+      // Crear mensaje moderno y atractivo
+      final message = '🎵 🎶 ¡Escuchando ahora en $stationName! 🎶 🎵\n'
+          '▶️ **$currentSong**\n'
+          '📻 ¡Únete a escuchar en $channelName! 🎧';
+      
+      // Enviar mensaje al canal
+      ircService.sendMessage(channelName, message);
+      
+      // Mostrar confirmación
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.check_circle, color: Colors.white),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Canción enviada a $channelName',
+                    style: const TextStyle(color: Colors.white),
+                  ),
+                ),
+              ],
+            ),
+            backgroundColor: Colors.purple,
+            duration: const Duration(seconds: 3),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(8),
+            ),
+          ),
+        );
+      }
+      
+      // Cerrar el diálogo después de enviar
+      if (context.mounted) {
+        Navigator.of(context).pop();
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error al enviar canción: $e'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    }
   }
   
   Widget _buildReputationTab() {

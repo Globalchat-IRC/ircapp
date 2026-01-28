@@ -28,9 +28,11 @@ class TagsState {
   }
 }
 
-class TagsNotifier extends StateNotifier<TagsState> {
-  TagsNotifier() : super(const TagsState()) {
+class TagsNotifier extends Notifier<TagsState> {
+  @override
+  TagsState build() {
     _loadTags();
+    return const TagsState();
   }
 
   Future<void> _loadTags() async {
@@ -168,7 +170,7 @@ class TagsNotifier extends StateNotifier<TagsState> {
   }
 }
 
-final tagsProvider = StateNotifierProvider<TagsNotifier, TagsState>((ref) {
+final tagsProvider = NotifierProvider<TagsNotifier, TagsState>(() {
   return TagsNotifier();
 });
 

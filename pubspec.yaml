@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 3.0.41+1
+version: 3.0.73+1
 
 environment:
   sdk: ^3.10.3
@@ -34,14 +34,14 @@ dependencies:
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
-  flutter_riverpod: ^2.6.1
+  flutter_riverpod: ^3.2.0
   intl: ^0.20.2
 
   # === Dependencias restauradas porque el código las usa ===
   http: ^1.2.2
   shared_preferences: ^2.3.2
   image_picker: ^1.1.2
-  file_picker: ^10.3.8
+  file_picker: ^10.3.9
   url_launcher: ^6.3.0
   crypto: ^3.0.6
   pasteboard: ^0.4.0
@@ -52,7 +52,7 @@ dependencies:
   hive: ^2.2.3  # Para base de datos en web (IndexedDB)
   hive_flutter: ^1.1.0
   path_provider: ^2.1.4
-  web_socket_channel: ^2.4.0  # Para conexiones IRC en web
+  web_socket_channel: ^3.0.3  # Para conexiones IRC en web
   package_info_plus: ^9.0.0  # Para sistema de actualizaciones (compatible con pasteboard)
   jitsi_meet_flutter_sdk: ^11.6.0  # Para videoconferencias seguras
   permission_handler: ^12.0.1  # Para permisos de cámara/micrófono
@@ -63,9 +63,13 @@ dependencies:
   equatable: ^2.0.5  # Para comparación de objetos
   flutter_markdown: ^0.7.7+1  # Para renderizado de Markdown
   cached_network_image: ^3.3.1  # Para cache de imágenes
-  photo_view: ^0.14.0  # Para preview de imágenes
+  photo_view: ^0.15.0  # Para preview de imágenes
   video_player: ^2.8.2  # Para preview de videos
   flutter_highlight: ^0.7.0  # Para syntax highlighting en código
+  archive: ^3.4.10  # Para crear archivos ZIP
+  pointycastle: ^3.9.1  # Para encriptación AES
+  speech_to_text: ^7.0.0  # Para reconocimiento de voz
+  flutter_tts: ^4.0.2  # Para síntesis de voz (text-to-speech)
 
 dev_dependencies:
   flutter_test:
@@ -90,9 +94,8 @@ flutter:
   uses-material-design: true
 
   # To add assets to your application, add an assets section, like this:
-  # assets:
-  #   - images/a_dot_burr.jpeg
-  #   - images/a_dot_ham.jpeg
+  assets:
+    - cuac_ircap.mp3
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

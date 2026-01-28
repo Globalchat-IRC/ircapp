@@ -1,4 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:riverpod/legacy.dart' show StateProvider;
 import '../services/video_conference_service.dart';
 import '../services/moderation_server.dart';
 import '../services/video_database_service.dart';
@@ -14,9 +15,7 @@ final videoConferenceServiceProvider = Provider<VideoConferenceService>((ref) {
 });
 
 /// Provider del perfil de usuario actual
-final currentUserProfileProvider = StateProvider<UserProfile?>((ref) {
-  return null;
-});
+final currentUserProfileProvider = StateProvider<UserProfile?>((ref) => null);
 
 /// Provider de conferencias activas
 final activeConferencesProvider = StreamProvider<List<ConferenceInfo>>((ref) {

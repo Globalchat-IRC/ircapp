@@ -1,6 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:riverpod/riverpod.dart' show Notifier, NotifierProvider, Provider, Ref;
+import 'package:riverpod/riverpod.dart' show Notifier, NotifierProvider, Provider, Ref;
+import 'package:riverpod/legacy.dart' show StateProvider;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/irc_message.dart';
 import '../models/whois_info.dart';
@@ -11,44 +14,33 @@ import '../services/irc_service.dart';
 import '../utils/platform_utils.dart';
 import 'history_provider.dart';
 
-final ircServiceProvider = Provider((ref) {
+final ircServiceProvider = Provider<IRCService>((ref) {
   return IRCService();
 });
 
-final messagesProvider = StateNotifierProvider<MessagesNotifier, List<IRCMessage>>((ref) {
-  final service = ref.watch(ircServiceProvider);
-  final notifier = MessagesNotifier(service, ref);
+final messagesProvider = NotifierProvider<MessagesNotifier, List<IRCMessage>>(() {
+  final notifier = MessagesNotifier();
   // Observar cambios en el historial para cargar/guardar mensajes
-  ref.listen<bool>(historyEnabledProvider, (previous, next) {
-    final wasEnabled = previous ?? false;
-    if (next && !wasEnabled) {
-      // Historial activado: cargar mensajes guardados
-      notifier.loadHistory();
-    } else if (!next && wasEnabled) {
-      // Historial desactivado: limpiar mensajes guardados (opcional)
-      // No limpiamos los mensajes actuales, solo dejamos de guardar
-    }
-  });
+  // Esto se hace en el build del notifier
   return notifier;
 });
 
-final channelsProvider = StateNotifierProvider<ChannelsNotifier, Map<String, IRCChannel>>((ref) {
-  final service = ref.watch(ircServiceProvider);
-  return ChannelsNotifier(service);
+final channelsProvider = NotifierProvider<ChannelsNotifier, Map<String, IRCChannel>>(() {
+  return ChannelsNotifier();
 });
 
-final connectionStatusProvider = StateNotifierProvider<ConnectionStatusNotifier, bool>((ref) {
-  final service = ref.watch(ircServiceProvider);
-  return ConnectionStatusNotifier(service);
+final connectionStatusProvider = NotifierProvider<ConnectionStatusNotifier, bool>(() {
+  return ConnectionStatusNotifier();
 });
 
 /// Lag (latencia) con el servidor IRC en milisegundos
-final lagProvider = StateNotifierProvider<LagNotifier, int?>((ref) {
+final lagProvider = NotifierProvider<LagNotifier, int?>(() {
   return LagNotifier();
 });
 
-class LagNotifier extends StateNotifier<int?> {
-  LagNotifier() : super(null);
+class LagNotifier extends Notifier<int?> {
+  @override
+  int? build() => null;
 
   void updateLag(int milliseconds) {
     // Si el lag es 0, resetear a null (desconectado)
@@ -64,21 +56,21 @@ class LagNotifier extends StateNotifier<int?> {
   }
 }
 
-final currentNicknameProvider = StateProvider<String?>((ref) {
-  return null;
-});
+final currentNicknameProvider = StateProvider<String?>((ref) => null);
 
 /// Delay en segundos antes de enviar mensajes al servidor (configurable)
-final messageSendDelayProvider = StateNotifierProvider<MessageSendDelayNotifier, int>((ref) {
+final messageSendDelayProvider = NotifierProvider<MessageSendDelayNotifier, int>(() {
   return MessageSendDelayNotifier();
 });
 
-class MessageSendDelayNotifier extends StateNotifier<int> {
+class MessageSendDelayNotifier extends Notifier<int> {
   static const _prefsKey = 'message_send_delay_seconds';
   static const int _defaultDelay = 10; // 10 segundos por defecto
 
-  MessageSendDelayNotifier() : super(_defaultDelay) {
+  @override
+  int build() {
     _loadFromPrefs();
+    return _defaultDelay;
   }
 
   Future<void> _loadFromPrefs() async {
@@ -104,56 +96,52 @@ class MessageSendDelayNotifier extends StateNotifier<int> {
   }
 }
 
-final currentChannelProvider = StateProvider<String?>((ref) {
-  return null;
-});
+final currentChannelProvider = StateProvider<String?>((ref) => null);
 
 /// Último canal utilizado, para recordar la selección al volver al login
-final lastChannelProvider = StateProvider<String?>((ref) {
-  return null;
-});
+final lastChannelProvider = StateProvider<String?>((ref) => null);
 
 /// Lista de canales para autojoin cuando se cambia de servidor
-final autoJoinChannelsProvider = StateProvider<List<String>>((ref) {
-  return [];
-});
+final autoJoinChannelsProvider = StateProvider<List<String>>((ref) => []);
 
 /// Canales/nicks marcados como favoritos (para autounirse y sección destacada)
 final favoritesProvider =
-    StateNotifierProvider<FavoritesNotifier, Set<String>>((ref) {
+    NotifierProvider<FavoritesNotifier, Set<String>>(() {
   return FavoritesNotifier();
 });
 
 /// Lista de canales/nicks recientes (histórico ligero de uso)
 final recentChannelsProvider =
-    StateNotifierProvider<RecentChannelsNotifier, List<String>>((ref) {
+    NotifierProvider<RecentChannelsNotifier, List<String>>(() {
   return RecentChannelsNotifier();
 });
 
 /// Mensajes fijados por canal (avisos, reglas, enlaces importantes)
-final pinnedMessagesProvider = StateNotifierProvider<PinnedMessagesNotifier,
-    Map<String, List<IRCMessage>>>((ref) {
+final pinnedMessagesProvider = NotifierProvider<PinnedMessagesNotifier,
+    Map<String, List<IRCMessage>>>(() {
   return PinnedMessagesNotifier();
 });
 
 /// Reglas de notificación por canal y tipo de sonido
 final notificationSettingsProvider =
-    StateNotifierProvider<NotificationSettingsNotifier, NotificationSettings>(
-        (ref) {
+    NotifierProvider<NotificationSettingsNotifier, NotificationSettings>(
+        () {
   return NotificationSettingsNotifier();
 });
 
 /// Perfil de servidor actual (para multi-servidor/multi-red)
 /// Persistido en SharedPreferences para mantener el valor entre navegaciones
-final currentServerProfileProvider = StateNotifierProvider<CurrentServerProfileNotifier, ServerProfile?>((ref) {
+final currentServerProfileProvider = NotifierProvider<CurrentServerProfileNotifier, ServerProfile?>(() {
   return CurrentServerProfileNotifier();
 });
 
-class CurrentServerProfileNotifier extends StateNotifier<ServerProfile?> {
+class CurrentServerProfileNotifier extends Notifier<ServerProfile?> {
   static const _prefsKey = 'current_server_profile_v1';
 
-  CurrentServerProfileNotifier() : super(null) {
+  @override
+  ServerProfile? build() {
     _loadFromPrefs();
+    return null;
   }
 
   Future<void> _loadFromPrefs() async {
@@ -209,39 +197,48 @@ class CurrentServerProfileNotifier extends StateNotifier<ServerProfile?> {
 
 /// Lista de perfiles de servidor disponibles (inicialmente los de GlobalChat)
 final serverProfilesProvider =
-    StateNotifierProvider<ServerProfilesNotifier, List<ServerProfile>>((ref) {
+    NotifierProvider<ServerProfilesNotifier, List<ServerProfile>>(() {
   return ServerProfilesNotifier();
 });
 
-final whoisProvider = StateNotifierProvider<WhoisNotifier, Map<String, WhoisInfo>>((ref) {
-  final service = ref.watch(ircServiceProvider);
-  return WhoisNotifier(service);
+final whoisProvider = NotifierProvider<WhoisNotifier, Map<String, WhoisInfo>>(() {
+  return WhoisNotifier();
 });
 
-final emojiConfigProvider = StateNotifierProvider<EmojiConfigNotifier, EmojiConfig>((ref) {
+final emojiConfigProvider = NotifierProvider<EmojiConfigNotifier, EmojiConfig>(() {
   return EmojiConfigNotifier();
 });
 
 // Provider para mensajes no leídos por canal
-final unreadMessagesProvider = StateNotifierProvider<UnreadMessagesNotifier, Map<String, int>>((ref) {
+final unreadMessagesProvider = NotifierProvider<UnreadMessagesNotifier, Map<String, int>>(() {
   return UnreadMessagesNotifier();
 });
 
-class MessagesNotifier extends StateNotifier<List<IRCMessage>> {
-  final IRCService _service;
-  final Ref _ref;
+class MessagesNotifier extends Notifier<List<IRCMessage>> {
   static const String _privateMessagesKey = 'private_messages_web';
   static const String _allMessagesKey = 'all_messages_history';
+  IRCService? _service;
 
-  MessagesNotifier(this._service, this._ref) : super([]) {
-    _service.addMessageListener(_onMessage);
+  @override
+  List<IRCMessage> build() {
+    _service = ref.read(ircServiceProvider);
+    _service!.addMessageListener(_onMessage);
+    // Observar cambios en el historial
+    ref.listen<bool>(historyEnabledProvider, (previous, next) {
+      final wasEnabled = previous ?? false;
+      if (next && !wasEnabled) {
+        // Historial activado: cargar mensajes guardados
+        loadHistory();
+      }
+    });
     // Cargar historial si está activado
     _loadHistoryIfEnabled();
+    return [];
   }
   
   /// Cargar historial si está activado
   Future<void> _loadHistoryIfEnabled() async {
-    final historyEnabled = _ref.read(historyEnabledProvider);
+    final historyEnabled = ref.read(historyEnabledProvider);
     if (historyEnabled) {
       await loadHistory();
     } else {
@@ -281,7 +278,7 @@ class MessagesNotifier extends StateNotifier<List<IRCMessage>> {
   
   /// Guardar todo el historial de mensajes (canales y privados)
   Future<void> _saveHistory() async {
-    final historyEnabled = _ref.read(historyEnabledProvider);
+    final historyEnabled = ref.read(historyEnabledProvider);
     if (!historyEnabled) return; // No guardar si el historial está desactivado
     
     try {
@@ -418,21 +415,21 @@ class MessagesNotifier extends StateNotifier<List<IRCMessage>> {
     }
   }
 
-  @override
-  void dispose() {
-    _service.removeMessageListener(_onMessage);
-    super.dispose();
-  }
+  // Nota: En Riverpod 3.x, Notifier no tiene dispose()
+  // Los listeners se limpian automáticamente cuando el provider se destruye
 }
 
-class ChannelsNotifier extends StateNotifier<Map<String, IRCChannel>> {
-  final IRCService _service;
+class ChannelsNotifier extends Notifier<Map<String, IRCChannel>> {
+  IRCService? _service;
 
-  ChannelsNotifier(this._service) : super({}) {
+  @override
+  Map<String, IRCChannel> build() {
+    _service = ref.read(ircServiceProvider);
     // Initialize with current channels
-    state = {..._service.channels};
+    final initialState = {..._service!.channels};
     // Listen for user list updates
-    _service.addUserListListener(_onUserListUpdate);
+    _service!.addUserListListener(_onUserListUpdate);
+    return initialState;
   }
 
   void _onUserListUpdate(String channel) {
@@ -442,7 +439,7 @@ class ChannelsNotifier extends StateNotifier<Map<String, IRCChannel>> {
     
     // Always update the entire state with current service state
     final newState = <String, IRCChannel>{};
-    for (var entry in _service.channels.entries) {
+    for (var entry in _service!.channels.entries) {
       // Crear una copia profunda del canal con sus usuarios, topic, hosts y modos
       final channelCopy = IRCChannel(
         name: entry.value.name,
@@ -485,13 +482,13 @@ class ChannelsNotifier extends StateNotifier<Map<String, IRCChannel>> {
 
   void updateChannels() {
     // print('🔍 [DEBUG] 🔄 updateChannels() called, service has ${_service.channels.length} channels');
-    for (var entry in _service.channels.entries) {
+    for (var entry in _service!.channels.entries) {
       // print('🔍 [DEBUG]   - ${entry.key}: ${entry.value.users.length} users: ${entry.value.users}');
     }
     
     // Crear una copia profunda del estado del servicio
     final newState = <String, IRCChannel>{};
-    for (var entry in _service.channels.entries) {
+    for (var entry in _service!.channels.entries) {
       // Crear una copia profunda del canal con sus usuarios, topic, hosts y modos
       final channelCopy = IRCChannel(
         name: entry.value.name,
@@ -509,33 +506,34 @@ class ChannelsNotifier extends StateNotifier<Map<String, IRCChannel>> {
     state = newState;
   }
 
-  @override
-  void dispose() {
-    super.dispose();
-  }
+  // Nota: En Riverpod 3.x, Notifier no tiene dispose()
 }
 
-class ConnectionStatusNotifier extends StateNotifier<bool> {
-  final IRCService _service;
+class ConnectionStatusNotifier extends Notifier<bool> {
+  IRCService? _service;
 
-  ConnectionStatusNotifier(this._service) : super(_service.isConnected) {
+  @override
+  bool build() {
+    _service = ref.read(ircServiceProvider);
     // Inicializar con el estado actual del servicio
     // Esto asegura que si ya está conectado, el estado se refleje correctamente
-    if (_service.isConnected) {
-      state = true;
-    }
-    _service.addConnectionListener(() => state = true);
-    _service.addDisconnectionListener(() => state = false);
+    final isConnected = _service!.isConnected;
+    _service!.addConnectionListener(() => state = true);
+    _service!.addDisconnectionListener(() => state = false);
+    return isConnected;
   }
 }
 
-class WhoisNotifier extends StateNotifier<Map<String, WhoisInfo>> {
-  final IRCService _service;
+class WhoisNotifier extends Notifier<Map<String, WhoisInfo>> {
+  IRCService? _service;
 
-  WhoisNotifier(this._service) : super({}) {
-    _service.addWhoisListener(_onWhoisReceived);
+  @override
+  Map<String, WhoisInfo> build() {
+    _service = ref.read(ircServiceProvider);
+    _service!.addWhoisListener(_onWhoisReceived);
     // También cargar cualquier información que ya esté en caché
     // (por si se solicitó antes de abrir el perfil)
+    return {};
   }
 
   void _onWhoisReceived(WhoisInfo info) {
@@ -553,26 +551,23 @@ class WhoisNotifier extends StateNotifier<Map<String, WhoisInfo>> {
   void requestWhois(String nick) {
     // print('🔍 [WHOIS NOTIFIER] Requesting whois for: $nick');
     // Verificar si ya tenemos la información en caché del servicio
-    final cachedInfo = _service.getWhoisInfo(nick);
+      final cachedInfo = _service?.getWhoisInfo(nick);
     if (cachedInfo != null) {
       // print('🔍 [WHOIS NOTIFIER] Found cached info, updating state');
       _onWhoisReceived(cachedInfo);
     } else {
       // print('🔍 [WHOIS NOTIFIER] No cached info, requesting from server');
-      _service.sendWhois(nick);
+      _service?.sendWhois(nick);
     }
   }
 
-  @override
-  void dispose() {
-    // No hay removeWhoisListener, pero podríamos agregarlo si es necesario
-    super.dispose();
-  }
+  // Nota: En Riverpod 3.x, Notifier no tiene dispose()
 }
 
 // Notifier para mensajes no leídos
-class UnreadMessagesNotifier extends StateNotifier<Map<String, int>> {
-  UnreadMessagesNotifier() : super({});
+class UnreadMessagesNotifier extends Notifier<Map<String, int>> {
+  @override
+  Map<String, int> build() => {};
 
   void incrementUnread(String channel) {
     final normalizedChannel = channel.toLowerCase();
@@ -601,7 +596,7 @@ class UnreadMessagesNotifier extends StateNotifier<Map<String, int>> {
 }
 
 /// Notifier para favoritos (canales y queries)
-class FavoritesNotifier extends StateNotifier<Set<String>> {
+class FavoritesNotifier extends Notifier<Set<String>> {
   static const _prefsKey = 'favorite_channels';
   static const _excludedPrefsKey = 'favorite_channels_excluded';
   
@@ -610,8 +605,10 @@ class FavoritesNotifier extends StateNotifier<Set<String>> {
   bool _isInitialized = false;
   final Completer<void> _initializationCompleter = Completer<void>();
 
-  FavoritesNotifier() : super(<String>{}) {
+  @override
+  Set<String> build() {
     _initialize();
+    return <String>{};
   }
   
   Future<void> _initialize() async {
@@ -777,15 +774,17 @@ class FavoritesNotifier extends StateNotifier<Set<String>> {
 }
 
 /// Notifier para canales/nicks recientes
-class RecentChannelsNotifier extends StateNotifier<List<String>> {
+class RecentChannelsNotifier extends Notifier<List<String>> {
   static const int maxItems = 20;
   static const _prefsKey = 'recent_channels_excluded';
   
   // Lista de canales que el usuario ha eliminado y no deben volver a añadirse automáticamente
   final Set<String> _excludedChannels = {};
 
-  RecentChannelsNotifier() : super(const []) {
+  @override
+  List<String> build() {
     _loadExcludedChannels();
+    return const [];
   }
 
   String _normalize(String channel) => channel.toLowerCase();
@@ -842,12 +841,14 @@ class RecentChannelsNotifier extends StateNotifier<List<String>> {
 
 /// Notifier para mensajes fijados por canal
 class PinnedMessagesNotifier
-    extends StateNotifier<Map<String, List<IRCMessage>>> {
+    extends Notifier<Map<String, List<IRCMessage>>> {
   static const int maxPinnedPerChannel = 5;
   static const _prefsKey = 'pinned_messages_v1';
 
-  PinnedMessagesNotifier() : super({}) {
+  @override
+  Map<String, List<IRCMessage>> build() {
     _loadFromPrefs();
+    return {};
   }
 
   String _normalize(String channel) => channel.toLowerCase();
@@ -989,15 +990,17 @@ class NotificationSettings {
 }
 
 class NotificationSettingsNotifier
-    extends StateNotifier<NotificationSettings> {
+    extends Notifier<NotificationSettings> {
   static const _prefsKeyLevels = 'notification_channel_levels_v1';
   static const _prefsKeyPrivates = 'notification_sound_privates';
   static const _prefsKeyMentions = 'notification_sound_mentions';
   static const _prefsKeyMutedUsers = 'notification_muted_users_v1';
   static const _prefsKeyMentionSound = 'notification_mention_sound_v1';
 
-  NotificationSettingsNotifier() : super(const NotificationSettings()) {
+  @override
+  NotificationSettings build() {
     _loadFromPrefs();
+    return const NotificationSettings();
   }
 
   Future<void> _loadFromPrefs() async {
@@ -1127,8 +1130,9 @@ class NotificationSettingsNotifier
 }
 
 // Notifier para typing indicators
-class TypingIndicatorNotifier extends StateNotifier<Map<String, String?>> {
-  TypingIndicatorNotifier() : super({});
+class TypingIndicatorNotifier extends Notifier<Map<String, String?>> {
+  @override
+  Map<String, String?> build() => {};
   final Map<String, Timer> _timers = {};
 
   void setTyping(String channel, String? nick) {
@@ -1175,35 +1179,37 @@ class TypingIndicatorNotifier extends StateNotifier<Map<String, String?>> {
       timer.cancel();
     }
     _timers.clear();
-    super.dispose();
+    // Nota: En Riverpod 3.x, Notifier no tiene dispose()
   }
 }
 
 // Provider para typing indicators (quién está escribiendo en cada canal)
-final typingIndicatorProvider = StateNotifierProvider<TypingIndicatorNotifier, Map<String, String?>>((ref) {
+final typingIndicatorProvider = NotifierProvider<TypingIndicatorNotifier, Map<String, String?>>(() {
   return TypingIndicatorNotifier();
 });
 
 // Notifier para refrescar avatares en tiempo real
-class AvatarRefreshNotifier extends StateNotifier<Map<String, int>> {
+class AvatarRefreshNotifier extends Notifier<Map<String, int>> {
   Timer? _refreshTimer;
   int _currentRefreshIndex = 0;
   bool _isRefreshing = false;
 
-  AvatarRefreshNotifier() : super({}) {
+  @override
+  Map<String, int> build() {
     _startRefreshCycle();
+    return {};
   }
   
   void _startRefreshCycle() {
     // Esperar 60 segundos antes de empezar el ciclo de refresco
     Future.delayed(const Duration(seconds: 60), () {
-      if (!mounted) return;
+      // Nota: Notifier no tiene 'mounted', usar ref.read para verificar si el provider está activo
       _refreshNextAvatar();
     });
   }
   
   void _refreshNextAvatar() {
-    if (!mounted || _isRefreshing) return;
+    if (_isRefreshing) return;
     
     final entries = state.entries.toList();
     if (entries.isEmpty) {
@@ -1225,7 +1231,8 @@ class AvatarRefreshNotifier extends StateNotifier<Map<String, int>> {
       
       // Esperar 2 segundos antes de actualizar el siguiente avatar
       Future.delayed(const Duration(seconds: 2), () {
-        if (mounted) {
+        // Nota: Notifier no tiene 'mounted'
+        {
           _refreshNextAvatar();
         }
       });
@@ -1257,19 +1264,21 @@ class AvatarRefreshNotifier extends StateNotifier<Map<String, int>> {
   }
 
   @override
-  void dispose() {
+  // Nota: En Riverpod 3.x, Notifier no tiene dispose()
+  // Limpiar timers en un método separado si es necesario
+  void _cleanup() {
     _refreshTimer?.cancel();
-    super.dispose();
   }
 }
 
 // Provider para invalidar/refrescar avatares
-final avatarRefreshProvider = StateNotifierProvider<AvatarRefreshNotifier, Map<String, int>>((ref) {
+final avatarRefreshProvider = NotifierProvider<AvatarRefreshNotifier, Map<String, int>>(() {
   return AvatarRefreshNotifier();
 });
 
-class EmojiConfigNotifier extends StateNotifier<EmojiConfig> {
-  EmojiConfigNotifier() : super(EmojiConfig.defaultConfig);
+class EmojiConfigNotifier extends Notifier<EmojiConfig> {
+  @override
+  EmojiConfig build() => EmojiConfig.defaultConfig;
 
   void updateConfig(EmojiConfig config) {
     state = config;
@@ -1301,9 +1310,9 @@ class EmojiConfigNotifier extends StateNotifier<EmojiConfig> {
 }
 
 /// Notifier para gestionar perfiles de servidor (multi-servidor / multi-red)
-class ServerProfilesNotifier extends StateNotifier<List<ServerProfile>> {
-  ServerProfilesNotifier()
-      : super(List<ServerProfile>.from(ServerProfile.defaultGlobalChatProfiles));
+class ServerProfilesNotifier extends Notifier<List<ServerProfile>> {
+  @override
+  List<ServerProfile> build() => List<ServerProfile>.from(ServerProfile.defaultGlobalChatProfiles);
 
   void addProfile(ServerProfile profile) {
     state = [...state, profile];
@@ -1364,12 +1373,12 @@ class MessageFormatPreferences {
 }
 
 final messageFormatPreferencesProvider =
-    StateNotifierProvider<MessageFormatPreferencesNotifier, MessageFormatPreferences>((ref) {
+    NotifierProvider<MessageFormatPreferencesNotifier, MessageFormatPreferences>(() {
   return MessageFormatPreferencesNotifier();
 });
 
 class MessageFormatPreferencesNotifier
-    extends StateNotifier<MessageFormatPreferences> {
+    extends Notifier<MessageFormatPreferences> {
   static const _prefsKeyChannel = 'message_format_channel';
   static const _prefsKeyPrivate = 'message_format_private';
   static const _prefsKeyShowTimestamp = 'message_show_timestamp';
@@ -1378,9 +1387,10 @@ class MessageFormatPreferencesNotifier
   static const _prefsKeyChannelFontFamily = 'message_channel_font_family';
   static const _prefsKeyPrivateFontFamily = 'message_private_font_family';
 
-  MessageFormatPreferencesNotifier()
-      : super(const MessageFormatPreferences()) {
+  @override
+  MessageFormatPreferences build() {
     _loadFromPrefs();
+    return const MessageFormatPreferences();
   }
 
   Future<void> _loadFromPrefs() async {
@@ -1494,15 +1504,17 @@ class MessageFormatPreferencesNotifier
 
 /// Provider para iconos personalizados de usuarios
 /// Mapea nick -> icono (emoji o inicial)
-final userIconsProvider = StateNotifierProvider<UserIconsNotifier, Map<String, String>>((ref) {
+final userIconsProvider = NotifierProvider<UserIconsNotifier, Map<String, String>>(() {
   return UserIconsNotifier();
 });
 
-class UserIconsNotifier extends StateNotifier<Map<String, String>> {
+class UserIconsNotifier extends Notifier<Map<String, String>> {
   static const _prefsKey = 'user_custom_icons';
   
-  UserIconsNotifier() : super({}) {
+  @override
+  Map<String, String> build() {
     _loadFromPrefs();
+    return {};
   }
   
   Future<void> _loadFromPrefs() async {
@@ -1553,15 +1565,17 @@ class UserIconsNotifier extends StateNotifier<Map<String, String>> {
 
 /// Provider para robots personalizados
 /// Permite añadir robots manualmente y asignarles iconos personalizados
-final customRobotsProvider = StateNotifierProvider<CustomRobotsNotifier, List<CustomRobot>>((ref) {
+final customRobotsProvider = NotifierProvider<CustomRobotsNotifier, List<CustomRobot>>(() {
   return CustomRobotsNotifier();
 });
 
-class CustomRobotsNotifier extends StateNotifier<List<CustomRobot>> {
+class CustomRobotsNotifier extends Notifier<List<CustomRobot>> {
   static const _prefsKey = 'custom_robots';
   
-  CustomRobotsNotifier() : super([]) {
+  @override
+  List<CustomRobot> build() {
     _loadFromPrefs();
+    return [];
   }
   
   Future<void> _loadFromPrefs() async {

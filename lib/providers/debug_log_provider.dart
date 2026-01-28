@@ -1,7 +1,8 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-class DebugLogNotifier extends StateNotifier<List<String>> {
-  DebugLogNotifier() : super([]);
+class DebugLogNotifier extends Notifier<List<String>> {
+  @override
+  List<String> build() => [];
 
   void addLog(String message) {
     final timestamp = DateTime.now().toIso8601String().substring(11, 19);
@@ -18,8 +19,6 @@ class DebugLogNotifier extends StateNotifier<List<String>> {
   }
 }
 
-final debugLogProvider = StateNotifierProvider<DebugLogNotifier, List<String>>((ref) {
+final debugLogProvider = NotifierProvider<DebugLogNotifier, List<String>>(() {
   return DebugLogNotifier();
 });
-
-

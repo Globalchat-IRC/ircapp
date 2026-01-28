@@ -12,7 +12,8 @@ echo "📦 Creando DMG..."
 
 APP_NAME="irc_app"
 APP_PATH="build/macos/Build/Products/Release/${APP_NAME}.app"
-VERSION="3.0.4"
+# Leer la versión desde pubspec.yaml
+VERSION=$(grep 'version:' pubspec.yaml | awk '{print $2}' | sed 's/+.*//')
 DMG_NAME="${APP_NAME}_macos_v${VERSION}"
 DMG_PATH="${DMG_NAME}.dmg"
 VOLUME_NAME="${APP_NAME}"

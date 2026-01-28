@@ -121,19 +121,30 @@ class RadioService {
         print('📻 [RadioService Web] Log: $log');
       });
       
-      // En web, intentar primero con proxy si es listen2myradio.com, luego URL directa
+      // En web, intentar primero con proxy si es necesario (listen2myradio.com o mixcloud HLS)
       String finalUrl = sourceUrl;
-      bool useProxy = sourceUrl.contains('listen2myradio.com');
+      bool useProxy = sourceUrl.contains('listen2myradio.com') || 
+                      (sourceUrl.contains('mixcloud.com') && sourceUrl.contains('.m3u8'));
       
       if (useProxy) {
         try {
           final uri = Uri.parse(sourceUrl);
-          final proxyPath = '/radio-proxy/${uri.host}${uri.path}${uri.hasQuery ? '?${uri.query}' : ''}';
-          final baseHref = html.window.location.href;
-          if (baseHref != null && baseHref.isNotEmpty) {
-            final baseUri = Uri.parse(baseHref);
-            finalUrl = '${baseUri.scheme}://${baseUri.host}${baseUri.hasPort ? ':${baseUri.port}' : ''}$proxyPath';
-            print('📻 [RadioService Web] Intentando con proxy: $finalUrl');
+          // Para Mixcloud HLS, usar un proxy diferente o intentar convertir a formato compatible
+          if (sourceUrl.contains('mixcloud.com') && sourceUrl.contains('.m3u8')) {
+            // Los streams HLS no son compatibles directamente con audioplayers en web
+            // Intentar usar la URL directa primero, si falla mostrar error
+            print('⚠️ [RadioService Web] Stream HLS detectado - puede no funcionar en web debido a CORS');
+            // Por ahora, intentar directo pero probablemente fallará
+            finalUrl = sourceUrl;
+          } else {
+            // Proxy para otros servicios
+            final proxyPath = '/radio-proxy/${uri.host}${uri.path}${uri.hasQuery ? '?${uri.query}' : ''}';
+            final baseHref = html.window.location.href;
+            if (baseHref != null && baseHref.isNotEmpty) {
+              final baseUri = Uri.parse(baseHref);
+              finalUrl = '${baseUri.scheme}://${baseUri.host}${baseUri.hasPort ? ':${baseUri.port}' : ''}$proxyPath';
+              print('📻 [RadioService Web] Intentando con proxy: $finalUrl');
+            }
           }
         } catch (e) {
           print('⚠️ [RadioService Web] Error construyendo proxy, usando URL directa: $e');

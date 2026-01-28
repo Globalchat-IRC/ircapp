@@ -51,13 +51,15 @@ class RadioState {
   }
 }
 
-class RadioNotifier extends StateNotifier<RadioState> {
+class RadioNotifier extends Notifier<RadioState> {
   Timer? _nowPlayingTimer;
 
-  RadioNotifier() : super(RadioState(stations: [])) {
+  @override
+  RadioState build() {
     // print('📻 RadioNotifier inicializado');
     _loadSettings();
     _startNowPlayingRefresh();
+    return RadioState(stations: []);
   }
 
   Future<void> _loadSettings() async {
@@ -95,11 +97,12 @@ class RadioNotifier extends StateNotifier<RadioState> {
     _nowPlayingTimer?.cancel();
     _nowPlayingTimer = Timer.periodic(
       const Duration(seconds: 30),
-      (_) => _refreshNowPlaying(),
+      (_) => refreshNowPlaying(),
     );
   }
 
-  Future<void> _refreshNowPlaying() async {
+  // Método público para forzar actualización de la canción actual
+  Future<void> refreshNowPlaying() async {
     if (state.stations.isEmpty) return;
 
     try {
@@ -109,7 +112,10 @@ class RadioNotifier extends StateNotifier<RadioState> {
           .get(Uri.parse(url))
           .timeout(const Duration(seconds: 8));
 
-      if (response.statusCode != 200) return;
+      if (response.statusCode != 200) {
+        print('⚠️ [RadioProvider] Error al obtener JSON: ${response.statusCode}');
+        return;
+      }
 
       final List<dynamic> jsonList = jsonDecode(response.body);
       final allStations =
@@ -120,9 +126,18 @@ class RadioNotifier extends StateNotifier<RadioState> {
         for (final s in allStations) s.name: s
       };
 
+      print('🎵 [RadioProvider] Estaciones en JSON: ${byName.keys.toList()}');
+      print('🎵 [RadioProvider] Estación activa buscada: ${state.activeStation?.name}');
+
       final updatedStations = state.stations.map((old) {
         final fresh = byName[old.name];
-        if (fresh == null) return old;
+        if (fresh == null) {
+          print('⚠️ [RadioProvider] Estación "${old.name}" no encontrada en JSON');
+          return old;
+        }
+        // Priorizar el valor nuevo si existe, incluso si es una cadena vacía
+        final newSong = fresh.currentArtistSong;
+        print('🎵 [RadioProvider] Estación "${old.name}": canción anterior="${old.currentArtistSong}", nueva="${newSong}"');
         return RadioStation(
           id: old.id,
           name: old.name,
@@ -132,7 +147,8 @@ class RadioNotifier extends StateNotifier<RadioState> {
           salon: old.salon,
           genre: fresh.genre ?? old.genre,
           bitrate: fresh.bitrate ?? old.bitrate,
-          currentArtistSong: fresh.currentArtistSong ?? old.currentArtistSong,
+          // Usar el nuevo valor si existe (incluso si es null), solo usar el anterior si el nuevo es null
+          currentArtistSong: newSong ?? old.currentArtistSong,
         );
       }).toList();
 
@@ -142,13 +158,16 @@ class RadioNotifier extends StateNotifier<RadioState> {
           (s) => s.name == state.activeStation!.name,
           orElse: () => state.activeStation!,
         );
+        print('🎵 [RadioProvider] Canción actualizada para "${updatedActive.name}": "${updatedActive.currentArtistSong}"');
       }
 
       state = state.copyWith(
         stations: updatedStations,
         activeStation: updatedActive,
       );
-    } catch (_) {
+    } catch (e, stackTrace) {
+      print('❌ [RadioProvider] Error al actualizar canción: $e');
+      print('❌ [RadioProvider] Stack: $stackTrace');
       // Silencioso: si falla, mantenemos el último título conocido
     }
   }
@@ -189,6 +208,8 @@ class RadioNotifier extends StateNotifier<RadioState> {
         id: 'urban1',
         name: 'UrbanFlow',
         description: 'UrbanFlow - Canal #urbanflow en IRC GlobalChat',
+        // Nota: Los streams HLS (m3u8) no funcionan en web debido a CORS y limitaciones del reproductor
+        // Usando URL anterior que funcionaba. Si necesitas usar Mixcloud, se requiere un proxy en el servidor.
         source: 'https://radios.blumhost.es/8168/stream',
         namesite: 'https://globalchat.org/',
         salon: '#urbanflow',
@@ -271,14 +292,14 @@ class RadioNotifier extends StateNotifier<RadioState> {
     state = state.copyWith(hasError: hasError);
   }
 
-  @override
-  void dispose() {
+  // Nota: En Riverpod 3.x, Notifier no tiene dispose()
+  // Limpiar timers en un método separado si es necesario
+  void _cleanup() {
     _nowPlayingTimer?.cancel();
-    super.dispose();
   }
 }
 
-final radioProvider = StateNotifierProvider<RadioNotifier, RadioState>((ref) {
+final radioProvider = NotifierProvider<RadioNotifier, RadioState>(() {
   return RadioNotifier();
 });
 

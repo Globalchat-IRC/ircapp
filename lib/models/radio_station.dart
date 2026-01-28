@@ -31,7 +31,8 @@ class RadioStation {
       salon: json['salon'] as String?,
       genre: json['genre'] as String?,
       bitrate: json['bitrate']?.toString(),
-      currentArtistSong: json['currentArtistSong'] as String?,
+      // El JSON usa 'current_song' (con guión bajo), no 'currentArtistSong'
+      currentArtistSong: (json['current_song'] ?? json['currentArtistSong']) as String?,
     );
   }
 }

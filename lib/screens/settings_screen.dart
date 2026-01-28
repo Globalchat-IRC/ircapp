@@ -648,7 +648,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
   
   Future<void> _restoreBackup(BuildContext context) async {
-    final result = await FilePicker.platform.pickFiles(
+    final result = await FilePicker.pickFiles(
       type: FileType.custom,
       allowedExtensions: ['json'],
     );

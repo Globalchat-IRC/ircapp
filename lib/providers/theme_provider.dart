@@ -5,15 +5,17 @@ import '../utils/platform_utils.dart';
 // Conditional import for web
 import '../utils/html_stub.dart' as html;
 
-final themeProvider = StateNotifierProvider<ThemeNotifier, AppTheme>((ref) {
+final themeProvider = NotifierProvider<ThemeNotifier, AppTheme>(() {
   return ThemeNotifier();
 });
 
-class ThemeNotifier extends StateNotifier<AppTheme> {
+class ThemeNotifier extends Notifier<AppTheme> {
   bool _themeLoaded = false;
   
-  ThemeNotifier() : super(AppTheme.themes[0]) { // Default to GlobalChat theme
+  @override
+  AppTheme build() {
     _initializeTheme();
+    return AppTheme.themes[0]; // Default to GlobalChat theme
   }
 
   Future<void> _initializeTheme() async {

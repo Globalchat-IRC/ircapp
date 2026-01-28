@@ -27,9 +27,11 @@ class ContactsState {
   }
 }
 
-class ContactsNotifier extends StateNotifier<ContactsState> {
-  ContactsNotifier() : super(const ContactsState()) {
+class ContactsNotifier extends Notifier<ContactsState> {
+  @override
+  ContactsState build() {
     _loadContacts();
+    return const ContactsState();
   }
 
   Future<void> _loadContacts() async {
@@ -157,12 +159,6 @@ class ContactsNotifier extends StateNotifier<ContactsState> {
   }
 }
 
-final contactsProvider = StateNotifierProvider<ContactsNotifier, ContactsState>((ref) {
+final contactsProvider = NotifierProvider<ContactsNotifier, ContactsState>(() {
   return ContactsNotifier();
 });
-
-
-
-
-
-

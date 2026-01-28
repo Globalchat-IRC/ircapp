@@ -97,8 +97,12 @@ class EmojiPicker extends StatelessWidget {
                       spacing: 4,
                       runSpacing: 4,
                       children: entry.value.map((emojiCode) {
+                        final isAnimated = EmojiService.isAnimated(emojiCode);
                         final emojiUrl = EmojiService.getEmojiUrl(emojiCode);
-                        if (emojiUrl == null) return const SizedBox.shrink();
+                        
+                        if (emojiUrl == null) {
+                          return const SizedBox.shrink();
+                        }
                         
                         return InkWell(
                           onTap: () => onEmojiSelected(emojiCode),
@@ -107,18 +111,81 @@ class EmojiPicker extends StatelessWidget {
                             width: 40,
                             height: 40,
                             padding: const EdgeInsets.all(4),
-                            child: Image.network(
-                              emojiUrl,
-                              width: 32,
-                              height: 32,
-                              errorBuilder: (context, error, stackTrace) {
-                                return Center(
-                                  child: Text(
-                                    emojiCode,
-                                    style: const TextStyle(fontSize: 20),
+                            decoration: isAnimated
+                                ? BoxDecoration(
+                                    border: Border.all(
+                                      color: appTheme.accent.withOpacity(0.3),
+                                      width: 1,
+                                    ),
+                                    borderRadius: BorderRadius.circular(8),
+                                  )
+                                : null,
+                            child: Stack(
+                              children: [
+                                // Mostrar imagen (GIF para animados, PNG para estáticos)
+                                Image.network(
+                                  emojiUrl,
+                                  width: 32,
+                                  height: 32,
+                                  fit: BoxFit.contain,
+                                  frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
+                                    if (wasSynchronouslyLoaded || frame != null) {
+                                      return child;
+                                    }
+                                    return Container(
+                                      width: 32,
+                                      height: 32,
+                                      color: appTheme.surface.withOpacity(0.3),
+                                      child: const Center(
+                                        child: SizedBox(
+                                          width: 16,
+                                          height: 16,
+                                          child: CircularProgressIndicator(strokeWidth: 2),
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                  errorBuilder: (context, error, stackTrace) {
+                                    // Si falla la imagen, intentar mostrar Unicode como fallback
+                                    final fallbackUnicode = EmojiService.getEmojiUnicode(emojiCode);
+                                    if (fallbackUnicode != null) {
+                                      return Center(
+                                        child: Text(
+                                          fallbackUnicode,
+                                          style: const TextStyle(fontSize: 24),
+                                        ),
+                                      );
+                                    }
+                                    return Center(
+                                      child: Text(
+                                        emojiCode,
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: appTheme.textSecondary,
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                ),
+                                // Indicador de animado
+                                if (isAnimated)
+                                  Positioned(
+                                    top: 0,
+                                    right: 0,
+                                    child: Container(
+                                      width: 8,
+                                      height: 8,
+                                      decoration: BoxDecoration(
+                                        color: appTheme.accent,
+                                        shape: BoxShape.circle,
+                                        border: Border.all(
+                                          color: appTheme.surface,
+                                          width: 1,
+                                        ),
+                                      ),
+                                    ),
                                   ),
-                                );
-                              },
+                              ],
                             ),
                           ),
                         );

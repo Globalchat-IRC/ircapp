@@ -1,9 +1,13 @@
 #!/bin/bash
 set -e
 
+# Obtener la versión del pubspec.yaml
+VERSION=$(grep "^version:" pubspec.yaml | sed 's/version: //' | tr -d ' ')
+
 echo "=========================================="
 echo "🚀 DESPLIEGUE COMPLETO A CERES"
 echo "=========================================="
+echo "📌 Versión: $VERSION"
 echo ""
 
 # 1. Limpiar y compilar
@@ -49,6 +53,7 @@ echo "=========================================="
 echo "✅ DESPLIEGUE COMPLETADO"
 echo "=========================================="
 echo ""
+echo "📌 Versión desplegada: $VERSION"
 echo "🌐 URL: https://mobilev1.globalchat.org"
 echo ""
 echo "💡 Recarga la página con Ctrl+Shift+R para ver los cambios"

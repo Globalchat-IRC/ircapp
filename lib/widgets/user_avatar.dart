@@ -37,10 +37,13 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
   String? _avatarUrl;
   bool _avatarLoaded = false;
   int? _lastRefreshTimestamp;
+  bool _lastIsRobot = false;
 
   @override
   void initState() {
     super.initState();
+    _lastIsRobot = widget.isRobot;
+    print('🔵 [UserAvatar] initState para "${widget.nick}", isRobot: ${widget.isRobot}');
     _loadAvatar();
     // Registrar el avatar para refresco automático
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -53,6 +56,7 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
   @override
   void didUpdateWidget(UserAvatar oldWidget) {
     super.didUpdateWidget(oldWidget);
+    // Si cambió el nick, recargar avatar
     if (oldWidget.nick != widget.nick) {
       _avatarLoaded = false;
       _avatarUrl = null;
@@ -61,6 +65,23 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
       // Registrar el nuevo nick para refresco fuera del ciclo de build
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
+          ref
+              .read(avatarRefreshProvider.notifier)
+              .refreshAvatar(widget.nick);
+        }
+      });
+    }
+    // Si cambió isRobot, recargar avatar (importante: puede cambiar la detección)
+    if (oldWidget.isRobot != widget.isRobot) {
+      print('🔄 [UserAvatar] isRobot cambió para "${widget.nick}": ${oldWidget.isRobot} → ${widget.isRobot}');
+      _lastIsRobot = widget.isRobot; // Actualizar inmediatamente
+      _avatarLoaded = false;
+      _avatarUrl = null;
+      // No resetear _lastRefreshTimestamp para mantener el timestamp actual
+      // Forzar refresh del avatar cuando cambia isRobot
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _loadAvatar();
           ref
               .read(avatarRefreshProvider.notifier)
               .refreshAvatar(widget.nick);
@@ -77,7 +98,26 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
     // Si el timestamp cambió, recargar el avatar
     if (refreshTimestamp != null && refreshTimestamp != _lastRefreshTimestamp) {
       _lastRefreshTimestamp = refreshTimestamp;
-      _loadAvatar();
+      // Usar post-frame callback para evitar llamar setState durante build
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _loadAvatar();
+        }
+      });
+    }
+    
+    // Si cambió isRobot, recargar el avatar inmediatamente
+    if (_lastIsRobot != widget.isRobot) {
+      _lastIsRobot = widget.isRobot;
+      // Limpiar inmediatamente para forzar el cambio visual
+      _avatarLoaded = false;
+      _avatarUrl = null;
+      // Usar post-frame callback para evitar llamar setState durante build
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _loadAvatar();
+        }
+      });
     }
     
     return _buildAvatarWidget();
@@ -112,16 +152,20 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
       return;
     }
     
-    // print('🔍 [AVATAR WIDGET] Loading avatar for: "$cleanNick" (original: "${widget.nick}")');
+    // Usuario normal: intentar cargar avatar personalizado
+    print('👤 [UserAvatar] Usuario normal "${widget.nick}" (isRobot: ${widget.isRobot}), cargando avatar personalizado...');
     
     // Obtener la URL correcta del avatar (intenta ambas variantes)
+    // Agregar timestamp para forzar recarga cuando cambia isRobot
     final url = await AvatarService.getCorrectAvatarUrl(cleanNick);
+    
+    print('👤 [UserAvatar] URL del avatar para "${widget.nick}": ${url ?? "null"}');
     
     if (mounted) {
       setState(() {
         _avatarUrl = url;
         _avatarLoaded = true;
-        // print('🔍 [AVATAR WIDGET] Avatar URL set for "$cleanNick": ${url ?? "not found"}');
+        print('👤 [UserAvatar] Avatar cargado para "${widget.nick}": _avatarUrl=${_avatarUrl != null ? "set" : "null"}, _avatarLoaded=$_avatarLoaded');
       });
     }
   }
@@ -139,12 +183,19 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
     // Debug para robots
     if (widget.isRobot) {
       print('🤖 [UserAvatar] Construyendo avatar para robot "${widget.nick}", fallback: "$fallback", _avatarUrl: $_avatarUrl, _avatarLoaded: $_avatarLoaded');
+    } else {
+      // Debug para usuarios normales
+      print('👤 [UserAvatar] Construyendo avatar para usuario normal "${widget.nick}", fallback: "$fallback", _avatarUrl: $_avatarUrl, _avatarLoaded: $_avatarLoaded, isRobot: ${widget.isRobot}');
     }
     
     // Detectar si el fallbackIcon es una URL (emoticono de JoyPixels)
     final isFallbackUrl = widget.fallbackIcon != null && 
         (widget.fallbackIcon!.startsWith('http://') || 
          widget.fallbackIcon!.startsWith('https://'));
+    
+    // Para usuarios normales, siempre intentar cargar el avatar si tenemos una URL
+    // Incluso si _avatarLoaded es false, intentar cargar para que el errorBuilder maneje el fallback
+    final shouldTryLoadAvatar = !widget.isRobot && _avatarUrl != null;
     
     return Container(
       width: widget.size,
@@ -165,10 +216,10 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
               child: child,
             );
           },
-          child: _avatarUrl != null && _avatarLoaded
+          child: shouldTryLoadAvatar
               ? Image.network(
                   _avatarUrl!,
-                  key: ValueKey('${widget.nick}_${_avatarUrl}_${_lastRefreshTimestamp ?? 0}'), // Clave única para que AnimatedSwitcher detecte el cambio
+                  key: ValueKey('${widget.nick}_avatar_${widget.isRobot}_${_lastRefreshTimestamp ?? 0}'), // Incluir isRobot en la clave para forzar recarga cuando cambia
                   width: widget.size,
                   height: widget.size,
                   fit: BoxFit.contain,
@@ -183,21 +234,25 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
                   // pero el fallback visual funcionará correctamente
                   loadingBuilder: (context, child, loadingProgress) {
                     if (loadingProgress == null) {
+                      print('✅ [UserAvatar] Avatar cargado exitosamente para "${widget.nick}"');
                       return child;
                     }
                     // Mientras carga, mostrar el fallback con opacidad reducida
+                    print('⏳ [UserAvatar] Cargando avatar para "${widget.nick}": ${loadingProgress.cumulativeBytesLoaded}/${loadingProgress.expectedTotalBytes ?? 0} bytes');
                     return Opacity(
                       opacity: 0.5,
-                      child: _buildFallback(fallback, isFallbackUrl),
+                      child: _buildFallback(fallback, isFallbackUrl, key: ValueKey('${widget.nick}_loading_${widget.isRobot}')),
                     );
                   },
                   errorBuilder: (context, error, stackTrace) {
                     // Si falla la carga, mostrar fallback
                     // En web, los errores de CORS pueden causar que las imágenes no se carguen
-                    return _buildFallback(fallback, isFallbackUrl);
+                    print('⚠️ [UserAvatar] Error cargando avatar para "${widget.nick}": $error');
+                    print('⚠️ [UserAvatar] Stack trace: $stackTrace');
+                    return _buildFallback(fallback, isFallbackUrl, key: ValueKey('${widget.nick}_error_${widget.isRobot}'));
                   },
                 )
-              : _buildFallback(fallback, isFallbackUrl, key: ValueKey('${widget.nick}_fallback')),
+              : _buildFallback(fallback, isFallbackUrl, key: ValueKey('${widget.nick}_fallback_${widget.isRobot}_${_lastRefreshTimestamp ?? 0}')), // Incluir isRobot y timestamp en la clave del fallback
         ),
       ),
     );

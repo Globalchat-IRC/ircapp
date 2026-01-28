@@ -57,7 +57,16 @@ class AvatarService {
   // que no tienen las mismas restricciones CORS estrictas.
   
   // Verificar si un avatar existe (usando nick exacto case-sensitive)
+  // En web, http.head puede fallar por CORS, así que siempre asumimos que puede existir
+  // y dejamos que el widget Image.network maneje el error si no existe
   static Future<bool> avatarExists(String nick) async {
+    if (PlatformUtils.isWeb) {
+      // En web, no podemos verificar con http.head debido a CORS
+      // Asumimos que el avatar puede existir y dejamos que Image.network lo maneje
+      // Esto permite que los avatares personalizados se carguen correctamente
+      return true; // Siempre intentar cargar el avatar personalizado primero
+    }
+    
     try {
       final url = getAvatarUrl(nick);
       // print('🔍 [AVATAR] Checking if avatar exists for "$nick": $url');
@@ -69,13 +78,15 @@ class AvatarService {
       return exists;
     } catch (e) {
       // print('🔍 [AVATAR] Error checking avatar for "$nick": $e');
-      return false;
+      // En caso de error, asumir que puede existir para intentar cargarlo
+      return true;
     }
   }
   
   // Obtener la URL correcta del avatar (siguiendo la lógica del plugin)
   // 1. Intenta con el avatar personalizado usando hash MD5 del nick exacto
   // 2. Si no existe, usa el generador de avatares por defecto
+  // En web, siempre intenta primero el avatar personalizado debido a restricciones CORS
   static Future<String?> getCorrectAvatarUrl(String nick) async {
     if (nick.isEmpty) {
       return null;
@@ -85,8 +96,16 @@ class AvatarService {
     final cleanNick = nick.trim();
     
     try {
-      // Siempre intentar primero el avatar personalizado (configurado por el usuario)
-      // Esto permite que los usuarios con avatares configurados los vean correctamente
+      // En web, siempre intentar primero el avatar personalizado
+      // porque http.head puede fallar por CORS pero el avatar puede existir
+      // El widget Image.network manejará el error si no existe
+      if (PlatformUtils.isWeb) {
+        // En web, siempre intentar el avatar personalizado primero
+        // Si no existe, Image.network mostrará el errorBuilder con el fallback
+        return getAvatarUrl(cleanNick);
+      }
+      
+      // En otras plataformas, verificar primero si existe
       final customAvatarExists = await avatarExists(cleanNick);
       
       if (customAvatarExists) {
