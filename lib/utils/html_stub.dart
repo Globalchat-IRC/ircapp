@@ -50,3 +50,24 @@ final document = Document();
 void exit(int code) {
   // No hacer nada en web, solo en nativo
 }
+
+// Stub para Blob (usado en export_service.dart)
+class Blob {
+  Blob(List<dynamic> data, {String? type}) {
+    // Constructor vacío
+  }
+}
+
+// Stub para Url (usado en export_service.dart)
+class Url {
+  static String createObjectUrlFromBlob(Blob blob) => '';
+  static void revokeObjectUrl(String url) {}
+}
+
+// Stub para AnchorElement (usado en export_service.dart)
+class AnchorElement {
+  String? href;
+  AnchorElement({this.href});
+  void setAttribute(String name, String value) {}
+  void click() {}
+}
