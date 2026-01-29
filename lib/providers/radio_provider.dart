@@ -5,6 +5,7 @@ import 'dart:async';
 import 'dart:convert';
 import '../models/radio_station.dart';
 import '../services/radio_service.dart';
+import '../services/mixcloud_live_service.dart';
 import '../utils/platform_utils.dart';
 
 class RadioState {
@@ -53,12 +54,14 @@ class RadioState {
 
 class RadioNotifier extends Notifier<RadioState> {
   Timer? _nowPlayingTimer;
+  Timer? _liveStreamCheckTimer;
 
   @override
   RadioState build() {
     // print('📻 RadioNotifier inicializado');
     _loadSettings();
     _startNowPlayingRefresh();
+    _startLiveStreamCheck();
     return RadioState(stations: []);
   }
 
@@ -99,6 +102,101 @@ class RadioNotifier extends Notifier<RadioState> {
       const Duration(seconds: 30),
       (_) => refreshNowPlaying(),
     );
+  }
+
+  void _startLiveStreamCheck() {
+    // Verificar si hay stream en vivo cada 2 minutos
+    _liveStreamCheckTimer?.cancel();
+    _liveStreamCheckTimer = Timer.periodic(
+      const Duration(minutes: 2),
+      (_) => _checkLiveStreams(),
+    );
+    // Verificar inmediatamente al iniciar
+    Future.delayed(const Duration(seconds: 5), () => _checkLiveStreams());
+  }
+
+  Future<void> _checkLiveStreams() async {
+    try {
+      // Verificar si UrbanFlow está en vivo
+      final mixcloudService = MixcloudLiveService();
+      final liveStream = await mixcloudService.getUrbanFlowLiveStream();
+      
+      if (liveStream != null && liveStream.isLive) {
+        print('🔴 [RadioProvider] UrbanFlow está EN VIVO');
+        print('🎵 [RadioProvider] URL del stream: ${liveStream.streamUrl}');
+        
+        // Actualizar la estación UrbanFlow con la URL del stream en vivo
+        final updatedStations = state.stations.map((station) {
+          if (station.name == 'UrbanFlow') {
+            // IMPORTANTE: Actualizar la URL source con el stream en vivo
+            return RadioStation(
+              id: station.id,
+              name: station.name,
+              description: station.description.contains('🔴') 
+                  ? station.description 
+                  : 'UrbanFlow - Canal #urbanflow en IRC GlobalChat 🔴 EN VIVO',
+              source: liveStream.streamUrl, // ← URL del stream HLS en vivo
+              namesite: station.namesite,
+              salon: station.salon,
+              genre: station.genre,
+              bitrate: liveStream.info?['bitrate'] ?? station.bitrate,
+              currentArtistSong: 'Emisión en directo',
+            );
+          }
+          return station;
+        }).toList();
+        
+        // Actualizar también la estación activa si es UrbanFlow
+        RadioStation? updatedActive = state.activeStation;
+        if (state.activeStation?.name == 'UrbanFlow') {
+          updatedActive = updatedStations.firstWhere(
+            (s) => s.name == 'UrbanFlow',
+            orElse: () => state.activeStation!,
+          );
+        }
+        
+        state = state.copyWith(
+          stations: updatedStations,
+          activeStation: updatedActive,
+        );
+      } else {
+        print('ℹ️ [RadioProvider] UrbanFlow NO está en vivo, usando URL por defecto');
+        
+        // Restaurar la URL por defecto de Mixcloud
+        final updatedStations = state.stations.map((station) {
+          if (station.name == 'UrbanFlow') {
+            return RadioStation(
+              id: station.id,
+              name: station.name,
+              description: 'UrbanFlow - Canal #urbanflow en IRC GlobalChat',
+              source: 'https://www.mixcloud.com/djsonic_vlc/', // URL por defecto
+              namesite: station.namesite,
+              salon: station.salon,
+              genre: 'VARIEDAD',
+              bitrate: '128',
+              currentArtistSong: station.currentArtistSong,
+            );
+          }
+          return station;
+        }).toList();
+        
+        // Actualizar también la estación activa si es UrbanFlow
+        RadioStation? updatedActive = state.activeStation;
+        if (state.activeStation?.name == 'UrbanFlow') {
+          updatedActive = updatedStations.firstWhere(
+            (s) => s.name == 'UrbanFlow',
+            orElse: () => state.activeStation!,
+          );
+        }
+        
+        state = state.copyWith(
+          stations: updatedStations,
+          activeStation: updatedActive,
+        );
+      }
+    } catch (e) {
+      print('⚠️ [RadioProvider] Error verificando streams en vivo: $e');
+    }
   }
 
   // Método público para forzar actualización de la canción actual
@@ -208,9 +306,7 @@ class RadioNotifier extends Notifier<RadioState> {
         id: 'urban1',
         name: 'UrbanFlow',
         description: 'UrbanFlow - Canal #urbanflow en IRC GlobalChat',
-        // Nota: Los streams HLS (m3u8) no funcionan en web debido a CORS y limitaciones del reproductor
-        // Usando URL anterior que funcionaba. Si necesitas usar Mixcloud, se requiere un proxy en el servidor.
-        source: 'https://radios.blumhost.es/8168/stream',
+        source: 'https://www.mixcloud.com/djsonic_vlc/',
         namesite: 'https://globalchat.org/',
         salon: '#urbanflow',
         genre: 'VARIEDAD',
@@ -296,6 +392,7 @@ class RadioNotifier extends Notifier<RadioState> {
   // Limpiar timers en un método separado si es necesario
   void _cleanup() {
     _nowPlayingTimer?.cancel();
+    _liveStreamCheckTimer?.cancel();
   }
 }
 

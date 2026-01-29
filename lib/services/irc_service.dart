@@ -26,6 +26,8 @@ class IRCService {
   final List<Function()> _ircopListeners = []; // Listeners para cuando se identifica como IRCop
   final List<Function(int)> _lagListeners = []; // Listeners para actualizaciones de lag
   final List<Function(String)> _debugLogListeners = []; // Listeners para logs de debug
+  final List<Function(String)> _helpChannelJoinListeners = []; // Listeners para cuando entramos a canales de ayuda (#ayuda, #cau)
+  final List<Function(String)> _werewolfChannelJoinListeners = []; // Listeners para cuando entramos a #werewolf
   Map<String, WhoisInfo> _whoisCache = {};
   Map<String, WhoisInfo> _pendingWhois = {}; // Para acumular información de whois
   DateTime? _lastPingTime; // Timestamp del último PING recibido
@@ -55,6 +57,7 @@ class IRCService {
   DateTime? _lastPingSent; // Timestamp del último PING enviado
   String? _lastPingToken; // Token del último PING enviado para identificar la respuesta
   bool _hasAutoJoinedGlobalChat = false; // Flag para rastrear si ya se hizo autojoin inicial a #globalchat
+  bool _autoJoinOfficialGlobalChat = true; // Controla si se hace autojoin al canal oficial #globalchat
   final Set<String> _manuallyClosedChannels = {}; // Canales que el usuario cerró manualmente
 
   bool get isConnected => _isConnected;
@@ -64,6 +67,17 @@ class IRCService {
   bool get isIRCOp => _isIRCOp;
   
   bool get _hasActiveConnection => _connection != null && _connection!.isConnected;
+
+  /// Indica si el cliente debe auto-unirse al canal oficial #globalchat
+  bool get autoJoinOfficialGlobalChat => _autoJoinOfficialGlobalChat;
+
+  /// Permite activar/desactivar el autojoin al canal oficial #globalchat.
+  /// Usado, por ejemplo, desde la versión web leyendo el parámetro
+  /// de la URL `joinchanneloficial=false`.
+  void setAutoJoinOfficialGlobalChat(bool value) {
+    _autoJoinOfficialGlobalChat = value;
+    print('🌐 [IRC] Configuración autoJoinOfficialGlobalChat = $value');
+  }
 
   /// Obtiene el host del servidor conectado
   String? get serverHost => _currentHost;
@@ -1388,6 +1402,44 @@ class IRCService {
     }
   }
 
+  // Métodos para listeners de canales de ayuda
+  void addHelpChannelJoinListener(Function(String) listener) {
+    _helpChannelJoinListeners.add(listener);
+  }
+
+  void removeHelpChannelJoinListener(Function(String) listener) {
+    _helpChannelJoinListeners.remove(listener);
+  }
+
+  void _notifyHelpChannelJoinListeners(String channel) {
+    for (var listener in _helpChannelJoinListeners) {
+      try {
+        listener(channel);
+      } catch (e) {
+        print('❌ [IRC] Error en listener de canal de ayuda: $e');
+      }
+    }
+  }
+
+  // Métodos para listeners de canal #werewolf
+  void addWerewolfChannelJoinListener(Function(String) listener) {
+    _werewolfChannelJoinListeners.add(listener);
+  }
+
+  void removeWerewolfChannelJoinListener(Function(String) listener) {
+    _werewolfChannelJoinListeners.remove(listener);
+  }
+
+  void _notifyWerewolfChannelJoinListeners(String channel) {
+    for (var listener in _werewolfChannelJoinListeners) {
+      try {
+        listener(channel);
+      } catch (e) {
+        print('❌ [IRC] Error en listener de canal #werewolf: $e');
+      }
+    }
+  }
+
   void _handleData(String rawData) {
     // Notificar a los listeners de debug
     _notifyDebugLog(rawData);
@@ -1534,6 +1586,12 @@ class IRCService {
           const globalChatChannel = '#globalchat';
           final globalChatLower = globalChatChannel.toLowerCase();
           final wasManuallyClosed = _manuallyClosedChannels.contains(globalChatLower);
+          
+          // Permitir desactivar el autojoin al canal oficial mediante configuración
+          if (!_autoJoinOfficialGlobalChat) {
+            print('🌐 [IRC] Autojoin a #globalchat desactivado por configuración (joinchanneloficial=false)');
+            break;
+          }
           
           if (!_hasAutoJoinedGlobalChat && !wasManuallyClosed && _nickname != null) {
             // Verificar si ya estamos en #globalchat
@@ -2087,6 +2145,21 @@ class IRCService {
               // Solicitar el TOPIC del canal
               // print('🔍 [DEBUG] Requesting TOPIC for $channel (immediate)');
               _sendCommand('TOPIC $channel');
+              
+              // Detectar si es un canal especial de ayuda (#ayuda, #cau) o juego (#werewolf)
+              final channelLower = channel.toLowerCase();
+              if (channelLower == '#ayuda' || channelLower == '#cau') {
+                print('🤖 [IRC] Detectado canal de ayuda: $channel');
+                // Notificar a los listeners después de un pequeño delay para asegurar que el canal está listo
+                Future.delayed(const Duration(milliseconds: 500), () {
+                  _notifyHelpChannelJoinListeners(channel);
+                });
+              } else if (channelLower == '#werewolf') {
+                print('🐺 [IRC] Detectado canal de juego Werewolf: $channel');
+                Future.delayed(const Duration(milliseconds: 500), () {
+                  _notifyWerewolfChannelJoinListeners(channel);
+                });
+              }
               
               // También solicitar después de delays
               Future.delayed(const Duration(milliseconds: 500), () {

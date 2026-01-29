@@ -27,6 +27,12 @@ class _Console {
 class Document {
   bool get hidden => false;
   Stream<dynamic> get onVisibilityChange => const Stream.empty();
+  Element? getElementById(String id) => null;
+}
+
+class Element {
+  List<Element> children = [];
+  void append(Element element) {}
 }
 
 class Notification {
@@ -70,4 +76,17 @@ class AnchorElement {
   AnchorElement({this.href});
   void setAttribute(String name, String value) {}
   void click() {}
+}
+
+// Stub para IFrameElement (usado en voice_assistant_dialog.dart)
+class IFrameElement {
+  String src = '';
+  dynamic style = _Style();
+  String allow = '';
+}
+
+class _Style {
+  String border = '';
+  String width = '';
+  String height = '';
 }

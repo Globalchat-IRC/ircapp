@@ -1340,15 +1340,17 @@ class MessageFormatPreferences {
   final double privateFontSize;
   final String channelFontFamily;
   final String privateFontFamily;
+  final double emojiSize;
 
   const MessageFormatPreferences({
-    this.channelFormat = MessageFormat.bubble,
-    this.privateFormat = MessageFormat.bubble,
+    this.channelFormat = MessageFormat.plain,
+    this.privateFormat = MessageFormat.plain,
     this.showTimestamp = true,
     this.channelFontSize = 15.0,
     this.privateFontSize = 15.0,
     this.channelFontFamily = 'Roboto',
     this.privateFontFamily = 'Roboto',
+    this.emojiSize = 40.0,
   });
 
   MessageFormatPreferences copyWith({
@@ -1359,6 +1361,7 @@ class MessageFormatPreferences {
     double? privateFontSize,
     String? channelFontFamily,
     String? privateFontFamily,
+    double? emojiSize,
   }) {
     return MessageFormatPreferences(
       channelFormat: channelFormat ?? this.channelFormat,
@@ -1368,6 +1371,7 @@ class MessageFormatPreferences {
       privateFontSize: privateFontSize ?? this.privateFontSize,
       channelFontFamily: channelFontFamily ?? this.channelFontFamily,
       privateFontFamily: privateFontFamily ?? this.privateFontFamily,
+      emojiSize: emojiSize ?? this.emojiSize,
     );
   }
 }
@@ -1386,6 +1390,7 @@ class MessageFormatPreferencesNotifier
   static const _prefsKeyPrivateFontSize = 'message_private_font_size';
   static const _prefsKeyChannelFontFamily = 'message_channel_font_family';
   static const _prefsKeyPrivateFontFamily = 'message_private_font_family';
+   static const _prefsKeyEmojiSize = 'message_emoji_size';
 
   @override
   MessageFormatPreferences build() {
@@ -1396,13 +1401,14 @@ class MessageFormatPreferencesNotifier
   Future<void> _loadFromPrefs() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final channelRaw = prefs.getString(_prefsKeyChannel) ?? 'bubble';
-      final privateRaw = prefs.getString(_prefsKeyPrivate) ?? 'bubble';
+      final channelRaw = prefs.getString(_prefsKeyChannel) ?? 'plain';
+      final privateRaw = prefs.getString(_prefsKeyPrivate) ?? 'plain';
       final showTimestamp = prefs.getBool(_prefsKeyShowTimestamp) ?? true;
       final channelFontSize = prefs.getDouble(_prefsKeyChannelFontSize) ?? 15.0;
       final privateFontSize = prefs.getDouble(_prefsKeyPrivateFontSize) ?? 15.0;
       final channelFontFamily = prefs.getString(_prefsKeyChannelFontFamily) ?? 'Roboto';
       final privateFontFamily = prefs.getString(_prefsKeyPrivateFontFamily) ?? 'Roboto';
+      final emojiSize = prefs.getDouble(_prefsKeyEmojiSize) ?? 40.0;
 
       final channelFormat = channelRaw == 'plain'
           ? MessageFormat.plain
@@ -1419,6 +1425,7 @@ class MessageFormatPreferencesNotifier
         privateFontSize: privateFontSize,
         channelFontFamily: channelFontFamily,
         privateFontFamily: privateFontFamily,
+        emojiSize: emojiSize,
       );
     } catch (_) {
       // Ignorar errores de carga
@@ -1476,6 +1483,18 @@ class MessageFormatPreferencesNotifier
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setDouble(_prefsKeyPrivateFontSize, size);
+    } catch (_) {
+      // Ignorar errores de guardado
+    }
+  }
+
+  Future<void> setEmojiSize(double size) async {
+    if (size < 16.0) size = 16.0;
+    if (size > 80.0) size = 80.0;
+    state = state.copyWith(emojiSize: size);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setDouble(_prefsKeyEmojiSize, size);
     } catch (_) {
       // Ignorar errores de guardado
     }

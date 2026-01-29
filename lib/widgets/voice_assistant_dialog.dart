@@ -1,15 +1,21 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'dart:html' if (dart.library.io) '../utils/html_stub.dart' as html;
+import 'dart:ui_web' if (dart.library.io) 'dart:ui' as ui;
 import '../services/voice_assistant_service.dart';
 import '../models/app_theme.dart';
+import '../utils/platform_utils.dart';
 
 /// Diálogo del asistente de voz
 class VoiceAssistantDialog extends ConsumerStatefulWidget {
   final AppTheme appTheme;
+  final String? helpChannel; // Canal de ayuda desde el cual se abrió automáticamente (#ayuda o #cau)
 
   const VoiceAssistantDialog({
     Key? key,
     required this.appTheme,
+    this.helpChannel,
   }) : super(key: key);
 
   @override
@@ -37,7 +43,7 @@ class _VoiceAssistantDialogState extends ConsumerState<VoiceAssistantDialog> {
     final available = await _assistant.isAvailable();
     if (!available && mounted) {
       setState(() {
-        _error = 'El reconocimiento de voz no está disponible en este dispositivo';
+        _error = 'El reconocimiento de voz no está disponible en este navegador o dispositivo. Por favor, verifica que tu navegador soporte reconocimiento de voz y que el micro tiene permisos.';
       });
     }
   }
@@ -196,6 +202,123 @@ class _VoiceAssistantDialogState extends ConsumerState<VoiceAssistantDialog> {
 
   @override
   Widget build(BuildContext context) {
+    // En web, mostrar iframe embebido con ai.globalchat.org
+    if (PlatformUtils.isWeb && kIsWeb) {
+      return Dialog(
+        backgroundColor: widget.appTheme.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Container(
+          width: 800,
+          height: 600,
+          padding: const EdgeInsets.all(0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Barra superior con título y cerrar
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                decoration: BoxDecoration(
+                  color: widget.appTheme.surface,
+                  borderRadius: const BorderRadius.only(
+                    topLeft: Radius.circular(20),
+                    topRight: Radius.circular(20),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.mic,
+                      color: widget.appTheme.accent,
+                      size: 24,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        widget.helpChannel != null 
+                          ? 'Asistente AI - ${widget.helpChannel}'
+                          : 'Asistente de Voz AI',
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          color: widget.appTheme.textPrimary,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close),
+                      onPressed: () => Navigator.of(context).pop(),
+                      color: widget.appTheme.textSecondary,
+                      tooltip: 'Cerrar',
+                    ),
+                  ],
+                ),
+              ),
+              // Banner de bienvenida si se abrió desde un canal de ayuda
+              if (widget.helpChannel != null)
+                Container(
+                  width: double.infinity,
+                  margin: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: widget.appTheme.accent.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: widget.appTheme.accent.withOpacity(0.3),
+                      width: 1,
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.info_outline,
+                            color: widget.appTheme.accent,
+                            size: 20,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Bienvenido a ${widget.helpChannel}',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: widget.appTheme.textPrimary,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Puedo ayudarte con:\n'
+                        '• Comandos de GlobalChat y Anope (NickServ, ChanServ, MemoServ, etc.)\n'
+                        '• Información sobre bots (RadioBot_GC, Ayudante, Idle, SeenAllBot, Stats, YoutubeBot)\n'
+                        '• Conexión a servidores IRC\n'
+                        '• Roles y permisos en canales\n'
+                        '• Netiqueta y buenas prácticas\n\n'
+                        'Escribe tu pregunta en el formulario o usa el micrófono para hablar.',
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: widget.appTheme.textSecondary,
+                          height: 1.4,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              // Iframe con ai.globalchat.org
+              Expanded(
+                child: _WebViewWidget(url: 'https://ai.globalchat.org'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    // Versión nativa (sin cambios)
     return Dialog(
       backgroundColor: widget.appTheme.surface,
       shape: RoundedRectangleBorder(
@@ -233,6 +356,60 @@ class _VoiceAssistantDialogState extends ConsumerState<VoiceAssistantDialog> {
                 ),
               ],
             ),
+            // Banner de bienvenida si se abrió desde un canal de ayuda
+            if (widget.helpChannel != null) ...[
+              const SizedBox(height: 16),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: widget.appTheme.accent.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: widget.appTheme.accent.withOpacity(0.3),
+                    width: 1,
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.info_outline,
+                          color: widget.appTheme.accent,
+                          size: 20,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Bienvenido a ${widget.helpChannel}',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: widget.appTheme.textPrimary,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Puedo ayudarte con:\n'
+                      '• Comandos de GlobalChat y Anope (NickServ, ChanServ, MemoServ, etc.)\n'
+                      '• Información sobre bots (RadioBot_GC, Ayudante, Idle, SeenAllBot, Stats, YoutubeBot)\n'
+                      '• Conexión a servidores IRC\n'
+                      '• Roles y permisos en canales\n'
+                      '• Netiqueta y buenas prácticas\n\n'
+                      'Escribe tu pregunta en el formulario o usa el micrófono para hablar.',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: widget.appTheme.textSecondary,
+                        height: 1.4,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
             const SizedBox(height: 24),
 
             // Estado de escucha
@@ -401,7 +578,7 @@ class _VoiceAssistantDialogState extends ConsumerState<VoiceAssistantDialog> {
                           decoration: InputDecoration(
                             hintText: 'Escribe tu pregunta aquí...',
                             hintStyle: TextStyle(
-                              color: widget.appTheme.textSecondary?.withOpacity(0.5),
+                              color: (widget.appTheme.textSecondary ?? Colors.grey).withOpacity(0.5),
                             ),
                             border: InputBorder.none,
                             contentPadding: const EdgeInsets.symmetric(
@@ -505,5 +682,57 @@ class _VoiceAssistantDialogState extends ConsumerState<VoiceAssistantDialog> {
         ),
       ),
     );
+  }
+}
+
+/// Widget para mostrar una página web embebida usando iframe (solo web)
+class _WebViewWidget extends StatefulWidget {
+  final String url;
+
+  const _WebViewWidget({required this.url});
+
+  @override
+  State<_WebViewWidget> createState() => _WebViewWidgetState();
+}
+
+class _WebViewWidgetState extends State<_WebViewWidget> {
+  static int _iframeCounter = 0;
+  late String _viewType;
+
+  @override
+  void initState() {
+    super.initState();
+    _viewType = 'ai-globalchat-iframe-${_iframeCounter++}';
+    if (kIsWeb) {
+      _registerIframe();
+    }
+  }
+
+  void _registerIframe() {
+    if (!kIsWeb) return;
+    
+    // Registrar el factory para crear el iframe
+    ui.platformViewRegistry.registerViewFactory(
+      _viewType,
+      (int viewId) {
+        final iframe = html.IFrameElement()
+          ..src = widget.url
+          ..style.border = 'none'
+          ..style.width = '100%'
+          ..style.height = '100%'
+          ..allow = 'microphone';
+        return iframe;
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!kIsWeb) {
+      return const Center(child: Text('Solo disponible en web'));
+    }
+
+    // Usar HtmlElementView con el viewType registrado
+    return HtmlElementView(viewType: _viewType);
   }
 }

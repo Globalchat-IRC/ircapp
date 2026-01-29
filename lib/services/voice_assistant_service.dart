@@ -4,6 +4,8 @@ import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import '../utils/platform_utils.dart';
+import 'web_speech_stub.dart'
+    if (dart.library.html) 'web_speech.dart' as web_stt;
 
 /// Servicio de asistente de voz con IA para ayudar con dudas sobre GlobalChat y Anope
 class VoiceAssistantService {
@@ -17,6 +19,7 @@ class VoiceAssistantService {
   bool _isListening = false;
   bool _isSpeaking = false;
   String _transcription = ''; // Guardar transcripción actual
+  String? _localeId; // Locale detectado para STT
   StreamController<String>? _transcriptionController;
   StreamController<String>? _responseController;
   
@@ -44,7 +47,7 @@ class VoiceAssistantService {
     print('🔧 [VoiceAssistant] Inicializado con modelo: $_model');
     print('🔧 [VoiceAssistant] API URL: $_apiBaseUrl');
     
-    // Configurar TTS
+    // Configurar TTS (por defecto español)
     await _tts.setLanguage('es-ES');
     await _tts.setSpeechRate(0.5);
     await _tts.setVolume(1.0);
@@ -61,10 +64,22 @@ class VoiceAssistantService {
     });
     
     // Inicializar STT con los callbacks configurados
-    await _speech.initialize(
+    final hasSpeech = await _speech.initialize(
       onError: _onSttError,
       onStatus: _onSttStatus,
     );
+
+    print('🔧 [VoiceAssistant] STT inicializado: hasSpeech=$hasSpeech');
+
+    // Detectar locale del sistema para usarlo en listen()
+    try {
+      final systemLocale = await _speech.systemLocale();
+      _localeId = systemLocale?.localeId;
+      print('🌍 [VoiceAssistant] Locale STT del sistema: $_localeId');
+    } catch (e) {
+      print('⚠️ [VoiceAssistant] No se pudo obtener systemLocale: $e');
+      _localeId ??= 'es-ES';
+    }
   }
   
   /// Configurar API key de OpenAI
@@ -74,8 +89,11 @@ class VoiceAssistantService {
   
   /// Verificar si el reconocimiento de voz está disponible
   Future<bool> isAvailable() async {
-    // Los callbacks ya están configurados en initialize()
-    // Solo verificar si STT está disponible
+    if (PlatformUtils.isWeb) {
+      // En web usar la API nativa del navegador
+      return await web_stt.isWebSpeechAvailable();
+    }
+    // En nativo, usar el estado real del permiso
     return _speech.hasPermission;
   }
   
@@ -83,6 +101,13 @@ class VoiceAssistantService {
   Stream<String> startListening() {
     _transcriptionController = StreamController<String>();
     _transcription = ''; // Resetear transcripción
+    
+    // En web, usar la Web Speech API nativa
+    if (PlatformUtils.isWeb) {
+      final localeToUse = _localeId ?? 'es-ES';
+      print('🎤 [VoiceAssistant] (Web) Escuchando con locale: $localeToUse');
+      return web_stt.startWebSpeech(localeToUse);
+    }
     
     // Configurar callbacks de error y status si no están configurados
     // IMPORTANTE: Estos callbacks se ejecutan cuando hay errores durante listen()
@@ -138,6 +163,9 @@ class VoiceAssistantService {
     
     if (!_isListening) {
       _isListening = true;
+      // Usar el locale detectado, con fallback a español
+      final localeToUse = _localeId ?? 'es-ES';
+      print('🎤 [VoiceAssistant] Escuchando con locale: $localeToUse');
       _speech.listen(
         onResult: (result) {
           print('🎤 [VoiceAssistant] Reconocido: "${result.recognizedWords}" (final: ${result.finalResult})');
@@ -171,7 +199,7 @@ class VoiceAssistantService {
         },
         listenFor: const Duration(seconds: 30),
         pauseFor: const Duration(seconds: 3),
-        localeId: 'es_ES',
+        localeId: localeToUse,
         cancelOnError: true,
         partialResults: true,
         onSoundLevelChange: (level) {
@@ -234,8 +262,9 @@ class VoiceAssistantService {
               'content': question,
             },
           ],
-          'temperature': 1,
-          'max_completion_tokens': 8192,
+          // Preferimos respuestas más cortas y controladas (evita “manuales” largos)
+          'temperature': 0.3,
+          'max_completion_tokens': 600,
           'top_p': 1,
           'reasoning_effort': 'medium',
           'stream': false,
@@ -269,19 +298,30 @@ class VoiceAssistantService {
   
   /// Obtener prompt del sistema con información sobre GlobalChat y Anope
   String _getSystemPrompt() {
-    return '''Eres un asistente experto en IRC. Respondes preguntas sobre nicks, canales (chans), redes IRC, servicios como Anope, UnrealIRCd y otros ircd. Conoces comandos, configuraciones, buenas prácticas, solución de errores comunes y explicas de forma clara y técnica, adaptándote al nivel del usuario.
+    return '''Eres un asistente experto en IRC y en la red GlobalChat.
+
+REGLAS DE RESPUESTA (muy importante):
+- Responde SIEMPRE en español.
+- Sé breve por defecto (3-6 líneas). Solo escribe una guía larga si el usuario pide “detallado/paso a paso”.
+- NO inventes nombres de bots, canales o URLs. Si no estás seguro, dilo y sugiere preguntar en #globalchat.
+- Para “tickets/soporte”, usa EXCLUSIVAMENTE la información de la sección TICKETS/CAU.
 
 Sobre GlobalChat:
 
-GLOBALCHAT:
-- GlobalChat es una red IRC (Internet Relay Chat) con múltiples canales
-- Los canales principales incluyen #globalchat, #nuestrasvoces, #soundmusic, #urbanflow
-- Los usuarios pueden chatear, compartir archivos, hacer videollamadas y escuchar radio
-- Hay diferentes niveles de usuarios: operadores (@), halfops (%), voice (+), y usuarios normales
+CONEXIÓN:
+- Servidores distribuidos con alta disponibilidad
+- Puedes conectarte con cualquier cliente IRC (mIRC, HexChat, irssi, etc.)
+- Host: irc.globalchat.net
+- Puerto: 6667 (texto) o 6697 (SSL)
 
-BOTS ANOPE:
-- Anope es el sistema de servicios de IRC que gestiona la autenticación y servicios
-- Comandos principales de Anope:
+SERVICIOS ANOPE:
+- NickServ: Registro y gestión de nicks
+- ChanServ: Control de canales
+- MemoServ: Mensajería interna
+- BotServ: Bots de ayuda
+- HostServ: Vhosts personalizados
+
+Comandos principales de Anope:
   * /msg NickServ REGISTER <contraseña> <email> - Registrar una cuenta
   * /msg NickServ IDENTIFY <contraseña> - Identificarse
   * /msg NickServ SET PASSWORD <nueva_contraseña> - Cambiar contraseña
@@ -293,13 +333,45 @@ BOTS ANOPE:
   * /msg HostServ SET <host> - Cambiar hostname
   * /msg BotServ ASSIGN <#canal> <bot> - Asignar bot a canal
 
-FUNCIONALIDADES:
-- Radio: Los usuarios pueden escuchar estaciones de radio (NuestrasVoces, SoundMusic, UrbanFlow)
-- Videollamadas: Disponible para usuarios verificados
+BOTS DE GLOBALCHAT:
+- RadioBot_GC: Radio y peticiones de música
+- Ayudante: Bot de ayuda general
+- Idle: Bot de gestión de inactividad
+- SeenAllBot: Bot de información de usuarios
+- Stats: Bot de estadísticas
+- YoutubeBot: Bot para compartir videos de YouTube
+
+CANALES TEMÁTICOS:
+- Canales principales: #globalchat, #nuestrasvoces, #soundmusic, #urbanflow
+- Cientos de canales de ocio, tecnología, idiomas, videojuegos, etc.
+
+TICKETS / CAU (SOPORTE):
+- Canales de ayuda: #ayuda y #cau
+- Crear ticket por web: http://soporte.globalchat.org/index.php?a=add
+- Si preguntan “cómo abrir un ticket”, responde con esos datos y una frase corta de qué información incluir (nick, problema, capturas/logs).
+
+RADIOS:
+- Transmisión de música en canales dedicados
+- Los usuarios pueden solicitar canciones mediante RadioBot_GC
+- Estaciones disponibles: NuestrasVoces, SoundMusic, UrbanFlow
+- Se puede escuchar la stream a través del propio IRC o mediante URLs externas
+
+ROLES Y PERMISOS:
+- Operadores (@): Administradores de canal
+- Halfops (%): Operadores con permisos limitados
+- Voice (+): Usuarios con voz en canal
+- Usuarios normales: Sin permisos especiales
+- Flags de canal que permiten gestionar usuarios, modos, bans, etc.
+
+NETIQUETA:
+- Normas de conducta y buenas prácticas para mantener un ambiente respetuoso y agradable
+
+FUNCIONALIDADES ADICIONALES:
+- Videollamadas: Disponible para usuarios verificados o con más de 7 días registrados
 - Compartir archivos: Se pueden subir imágenes y videos
 - Emojis: Soporte completo de emojis y emoticonos animados
 
-Responde de forma clara, concisa y en español. Si no sabes algo, admítelo y sugiere consultar la documentación oficial.''';
+Responde de forma clara, concisa y en español. Si no sabes algo, admítelo y sugiere consultar la documentación oficial o preguntar en el canal #globalchat.''';
   }
   
   /// Respuestas predefinidas cuando no hay API key de OpenAI

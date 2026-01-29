@@ -342,6 +342,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   final MacOSNotificationService _notificationService = MacOSNotificationService();
   final WebNotificationService _webNotificationService = WebNotificationService();
   int _unreadCount = 0;
+  
+  // Listener para canales de ayuda
+  Function(String)? _helpChannelJoinListener;
+  // Listener para canal de juego Werewolf
+  Function(String)? _werewolfChannelJoinListener;
 
   @override
   void initState() {
@@ -393,6 +398,29 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     _ircService.addDebugLogListener((message) {
       debugLogs.addLog(message);
     });
+    
+    // Listener para cuando entramos a canales de ayuda (#ayuda o #cau)
+    _helpChannelJoinListener = (channel) {
+      print('🤖 [ChatScreen] Detectado canal de ayuda: $channel');
+      // Mostrar automáticamente el diálogo del asistente después de un pequeño delay
+      Future.delayed(const Duration(milliseconds: 1000), () {
+        if (mounted) {
+          _showHelpChannelAssistantDialog(channel);
+        }
+      });
+    };
+    _ircService.addHelpChannelJoinListener(_helpChannelJoinListener!);
+    
+    // Listener para cuando entramos a #werewolf (mostrar intro del juego)
+    _werewolfChannelJoinListener = (channel) {
+      print('🐺 [ChatScreen] Detectado canal de juego Werewolf: $channel');
+      Future.delayed(const Duration(milliseconds: 800), () {
+        if (mounted) {
+          _showWerewolfIntroDialog();
+        }
+      });
+    };
+    _ircService.addWerewolfChannelJoinListener(_werewolfChannelJoinListener!);
     
     // Listener para autocompletado de comandos
     _messageController.addListener(_onMessageTextChanged);
@@ -2059,6 +2087,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       debugLogs.addLog(message);
     });
     
+    // Remover listener de canales de ayuda
+    if (_helpChannelJoinListener != null) {
+      _ircService.removeHelpChannelJoinListener(_helpChannelJoinListener!);
+    }
+    // Remover listener de canal werewolf
+    if (_werewolfChannelJoinListener != null) {
+      _ircService.removeWerewolfChannelJoinListener(_werewolfChannelJoinListener!);
+    }
+    
     _ircService.removeUserListListener(_onUserListChanged);
     _ircService.removeTopicListener(_onTopicChanged);
     _ircService.removeMessageListener(_onMessageReceived);
@@ -3391,6 +3428,79 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   // Ventana para mostrar resultados de /whois
   void _showWhoisResultsWindow(String nick) {
     print('🔍 [WHOIS] Solicitando información de: $nick');
+
+    // Mostrar un modal de "cargando" inmediatamente (así el usuario ve que está funcionando)
+    bool loadingDialogOpen = true;
+    showDialog(
+      context: context,
+      barrierDismissible: true,
+      barrierColor: Colors.black54,
+      builder: (dialogContext) {
+        final appTheme = ref.read(themeProvider);
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          child: Container(
+            width: 360,
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: appTheme.surface,
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.3),
+                  blurRadius: 20,
+                  spreadRadius: 4,
+                ),
+              ],
+            ),
+            child: Row(
+              children: [
+                SizedBox(
+                  width: 22,
+                  height: 22,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 3,
+                    valueColor: AlwaysStoppedAnimation<Color>(appTheme.accent),
+                  ),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Text(
+                    'Consultando WHOIS de $nick...',
+                    style: TextStyle(
+                      color: appTheme.textPrimary,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    ).whenComplete(() {
+      // Si el usuario lo cierra manualmente, evitamos intentar cerrarlo de nuevo
+      loadingDialogOpen = false;
+    });
+
+    // Timeout: si no llega WHOIS, cerrar el loader y avisar
+    Timer? timeoutTimer;
+    timeoutTimer = Timer(const Duration(seconds: 8), () {
+      if (!mounted) return;
+      if (loadingDialogOpen) {
+        try {
+          Navigator.of(context, rootNavigator: true).pop();
+        } catch (_) {}
+      }
+      loadingDialogOpen = false;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('No se recibió respuesta WHOIS para $nick. Intenta de nuevo.'),
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    });
+
     // Esperar a que llegue la información de whois
     Function(WhoisInfo)? listener;
     listener = (info) {
@@ -3399,6 +3509,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         print('🔍 [WHOIS] Coincidencia encontrada, mostrando diálogo...');
         if (listener != null) {
           _ircService.removeWhoisListener(listener);
+        }
+        timeoutTimer?.cancel();
+
+        // Cerrar el loader si sigue abierto
+        if (loadingDialogOpen) {
+          try {
+            Navigator.of(context, rootNavigator: true).pop();
+          } catch (_) {}
+          loadingDialogOpen = false;
         }
         // Usar un pequeño delay para asegurar que el contexto esté disponible
         Future.delayed(const Duration(milliseconds: 100), () {
@@ -3414,6 +3533,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final cachedInfo = _ircService.getWhoisInfo(nick);
     if (cachedInfo != null) {
       print('🔍 [WHOIS] Información encontrada en caché, mostrando diálogo...');
+      timeoutTimer?.cancel();
+      if (listener != null) {
+        _ircService.removeWhoisListener(listener);
+      }
+      if (loadingDialogOpen) {
+        try {
+          Navigator.of(context, rootNavigator: true).pop();
+        } catch (_) {}
+        loadingDialogOpen = false;
+      }
       Future.delayed(const Duration(milliseconds: 100), () {
         if (mounted) {
           _displayWhoisResults(cachedInfo);
@@ -5203,6 +5332,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         emoji: '💬',
                         label: 'CAU',
                         onPressed: () {
+                          // Entrar automáticamente a los canales de ayuda
+                          _joinChannel('#ayuda');
+                          _joinChannel('#cau');
+                          // Mostrar además el centro de ayuda
                           _showSupportDialog(context);
                         },
                       ),
@@ -5240,6 +5373,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         onSelected: (value) {
                           switch (value) {
                             case 'cau':
+                              // Entrar automáticamente a los canales de ayuda
+                              _joinChannel('#ayuda');
+                              _joinChannel('#cau');
+                              // Mostrar además el centro de ayuda
                               _showSupportDialog(context);
                               break;
                             case 'nick':
@@ -5943,6 +6080,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                               setState(() {
                                 _showEmojiPicker = !_showEmojiPicker;
                               });
+                              // Mantener el foco en el campo de texto al abrir/cerrar el selector
+                              if (_showEmojiPicker) {
+                                // Pequeño delay para que el widget se construya antes de pedir el foco
+                                Future.delayed(const Duration(milliseconds: 100), () {
+                                  _messageFocusNode.requestFocus();
+                                });
+                              }
                             },
                           ),
                           PopupMenuButton<String>(
@@ -6102,6 +6246,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                           TextField(
                                             controller: _messageController,
                                             focusNode: _messageFocusNode,
+                                            maxLength: 256,
                                             decoration: InputDecoration(
                                               hintText: 'Mensaje...',
                                               border: OutlineInputBorder(
@@ -6113,6 +6258,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                               ),
                                               fillColor: appTheme.surface,
                                               filled: true,
+                                              counterText: '', // Ocultar contador por defecto
                                             ),
                                             onSubmitted: (_) {
                                               if (_selectedSuggestionIndex >= 0 && _showCommandSuggestions) {
@@ -6325,6 +6471,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                           _messageController.selection = TextSelection.collapsed(
                             offset: cursorPosition + emojiCode.length,
                           );
+                          // Mantener el foco en el campo de texto después de seleccionar un emoji
+                          _messageFocusNode.requestFocus();
                         },
                       ),
                     ],
@@ -9160,6 +9308,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     bool isBot = false,
   }) {
     final appTheme = ref.read(themeProvider);
+  final formatPrefs = ref.watch(messageFormatPreferencesProvider);
+  final emojiSize = formatPrefs.emojiSize;
     
     // Detectar URLs en el texto
     final urlRegex = RegExp(
@@ -9253,39 +9403,158 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     for (final part in parts) {
       if (part.startsWith(':') && part.endsWith(':')) {
         // Es un código de emoticono
+        final isAnimated = EmojiService.isAnimated(part);
         final emojiUrl = EmojiService.getEmojiUrl(part);
+        final unicode = EmojiService.getEmojiUnicode(part);
         
-        if (emojiUrl != null) {
-          // Usar imagen desde CDN (GIF para animados, PNG para estáticos)
+        if (isAnimated && emojiUrl != null) {
+          // Emoticonos animados: assets locales (preferido) + fallback Noto (Google) en red
           textSpans.add(
             WidgetSpan(
               alignment: PlaceholderAlignment.middle,
-              child: Image.network(
-                emojiUrl,
-                width: 20,
-                height: 20,
-                fit: BoxFit.contain,
-                errorBuilder: (context, error, stackTrace) {
-                  // Si falla la imagen, intentar Unicode como fallback
-                  final fallbackUnicode = EmojiService.getEmojiUnicode(part);
-                  if (fallbackUnicode != null) {
-                    return Text(
-                      fallbackUnicode,
-                      style: TextStyle(
-                        fontSize: 20,
-                        color: defaultColor,
-                      ),
-                    );
-                  }
-                  return Text(
-                    part,
-                    style: TextStyle(
-                      color: defaultColor,
-                      fontSize: 15,
-                    ),
-                  );
-                },
-              ),
+              child: (EmojiService.isAssetPath(emojiUrl)
+                      ? Image.asset(
+                          emojiUrl,
+                          width: emojiSize + 2,
+                          height: emojiSize + 2,
+                          fit: BoxFit.contain,
+                          errorBuilder: (context, error, stackTrace) {
+                            final fallbackUrl =
+                                EmojiService.getAnimatedFallbackNetworkUrl(part);
+                            if (fallbackUrl != null) {
+                              return Image.network(
+                                fallbackUrl,
+                                width: emojiSize + 2,
+                                height: emojiSize + 2,
+                                fit: BoxFit.contain,
+                                errorBuilder: (context, error, stackTrace) {
+                                  if (unicode != null) {
+                                    return Text(
+                                      unicode,
+                                      style: TextStyle(
+                                        fontSize: emojiSize,
+                                        color: defaultColor,
+                                      ),
+                                    );
+                                  }
+                                  return Text(
+                                    part,
+                                    style: TextStyle(
+                                      color: defaultColor,
+                                      fontSize: 15,
+                                    ),
+                                  );
+                                },
+                              );
+                            }
+                            if (unicode != null) {
+                              return Text(
+                                unicode,
+                                style: TextStyle(
+                                  fontSize: emojiSize,
+                                  color: defaultColor,
+                                ),
+                              );
+                            }
+                            return Text(
+                              part,
+                              style: TextStyle(
+                                color: defaultColor,
+                                fontSize: 15,
+                              ),
+                            );
+                          },
+                        )
+                      : Image.network(
+                          emojiUrl,
+                          width: emojiSize + 2,
+                          height: emojiSize + 2,
+                          fit: BoxFit.contain,
+                          errorBuilder: (context, error, stackTrace) {
+                            // Fallback a Unicode si el GIF falla
+                            if (unicode != null) {
+                              return Text(
+                                unicode,
+                                style: TextStyle(
+                                  fontSize: emojiSize,
+                                  color: defaultColor,
+                                ),
+                              );
+                            }
+                            return Text(
+                              part,
+                              style: TextStyle(
+                                color: defaultColor,
+                                fontSize: 15,
+                              ),
+                            );
+                          },
+                        )),
+            ),
+          );
+        } else if (emojiUrl != null) {
+          // Emoticonos normales: intentar primero Noto 512.gif y si falla, PNG desde CDN
+          final notoGifUrl = EmojiService.getNotoGifUrlForEmojiCode(part);
+          textSpans.add(
+            WidgetSpan(
+              alignment: PlaceholderAlignment.middle,
+              child: (notoGifUrl != null
+                  ? Image.network(
+                      notoGifUrl,
+                      width: emojiSize,
+                      height: emojiSize,
+                      fit: BoxFit.contain,
+                      errorBuilder: (context, error, stackTrace) {
+                        return Image.network(
+                          emojiUrl,
+                          width: emojiSize,
+                          height: emojiSize,
+                          fit: BoxFit.contain,
+                          errorBuilder: (context, error, stackTrace) {
+                            if (unicode != null) {
+                              return Text(
+                                unicode,
+                                style: TextStyle(
+                                  fontSize: emojiSize,
+                                  color: defaultColor,
+                                ),
+                              );
+                            }
+                            return Text(
+                              part,
+                              style: TextStyle(
+                                color: defaultColor,
+                                fontSize: 15,
+                              ),
+                            );
+                          },
+                        );
+                      },
+                    )
+                  : Image.network(
+                      emojiUrl,
+                      width: emojiSize,
+                      height: emojiSize,
+                      fit: BoxFit.contain,
+                      errorBuilder: (context, error, stackTrace) {
+                        if (unicode != null) {
+                          return Text(
+                            unicode,
+                            style: TextStyle(
+                              fontSize: emojiSize,
+                              color: defaultColor,
+                            ),
+                          );
+                        }
+                        return Text(
+                          part,
+                          style: TextStyle(
+                            color: defaultColor,
+                            fontSize: 15,
+                          ),
+                        );
+                      },
+                    )),
             ),
           );
         } else {
@@ -9396,7 +9665,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       }
     }
     
-    // Verificar si hay WidgetSpan (emojis como imágenes)
+    // Verificar si hay WidgetSpan (emojis como imágenes / widgets animados)
     final hasWidgetSpans = textSpans.any((span) => span is WidgetSpan);
     
     if (hasWidgetSpans) {
@@ -10177,6 +10446,18 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           ),
         ),
       ],
+    );
+  }
+
+  /// Mostrar el diálogo del asistente cuando entramos a un canal de ayuda
+  void _showHelpChannelAssistantDialog(String channel) {
+    final appTheme = ref.read(themeProvider);
+    showDialog(
+      context: context,
+      builder: (context) => VoiceAssistantDialog(
+        appTheme: appTheme,
+        helpChannel: channel,
+      ),
     );
   }
 
@@ -13890,6 +14171,60 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   );
                 },
               ),
+              // Menú de comandos para el juego Werewolf (solo visible en #werewolf)
+              Consumer(
+                builder: (context, ref, _) {
+                  final currentChannel = ref.watch(currentChannelProvider);
+                  final isWerewolf = currentChannel != null &&
+                      currentChannel.toLowerCase() == '#werewolf';
+                  
+                  if (!isWerewolf) {
+                    return const SizedBox.shrink();
+                  }
+                  
+                  return ListTile(
+                    leading: Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.green.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Icon(Icons.pets, color: Colors.green),
+                    ),
+                    title: const Text('Comandos Werewolf'),
+                    subtitle: const Text('Abrir menú de juego para #werewolf'),
+                    onTap: () {
+                      Navigator.pop(context);
+                      _showWerewolfMenu(context);
+                    },
+                  );
+                },
+              ),
+              // Acción divertida para #globalchat: matar patos (.bang)
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.red.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Text('🦆', style: TextStyle(fontSize: 20)),
+                ),
+                title: const Text('Matar patos'),
+                subtitle: const Text('Enviar comando .bang al canal #globalchat'),
+                onTap: () {
+                  Navigator.pop(context);
+                  const channel = '#globalchat';
+                  const message = '.bang';
+                  _ircService.sendMessage(channel, message);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Comando .bang enviado a #globalchat'),
+                      duration: Duration(seconds: 2),
+                    ),
+                  );
+                },
+              ),
               ListTile(
                 leading: Container(
                   padding: const EdgeInsets.all(8),
@@ -15987,6 +16322,480 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     );
   }
 
+  /// Menú de comandos del juego Werewolf (solo canal #werewolf)
+  void _showWerewolfMenu(BuildContext context) {
+    final appTheme = ref.read(themeProvider);
+    const werewolfChannel = '#werewolf';
+    
+    void sendCommand(String cmd) {
+      // Prefijo para los comandos de Werewolf (. o @). Usamos '.' por defecto.
+      final fullCmd = '.$cmd';
+      _ircService.sendMessage(werewolfChannel, fullCmd);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Comando "$fullCmd" enviado a $werewolfChannel'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    }
+    
+    void sendVotekillCommand() {
+      // Diálogo para ingresar el nick a votar
+      final nickController = TextEditingController();
+      
+      showDialog(
+        context: context,
+        builder: (dialogContext) {
+          return AlertDialog(
+            backgroundColor: appTheme.surface,
+            title: Text(
+              'Votar para matar',
+              style: TextStyle(
+                color: appTheme.textPrimary,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            content: TextField(
+              controller: nickController,
+              autofocus: true,
+              style: TextStyle(color: appTheme.textPrimary),
+              decoration: InputDecoration(
+                labelText: 'Nick del jugador',
+                labelStyle: TextStyle(color: appTheme.textSecondary),
+                hintText: 'Ej: Usuario123',
+                hintStyle: TextStyle(color: appTheme.textSecondary.withOpacity(0.5)),
+                enabledBorder: UnderlineInputBorder(
+                  borderSide: BorderSide(color: appTheme.textSecondary.withOpacity(0.3)),
+                ),
+                focusedBorder: UnderlineInputBorder(
+                  borderSide: BorderSide(color: appTheme.primary),
+                ),
+              ),
+              onSubmitted: (nick) {
+                if (nick.trim().isNotEmpty) {
+                  final fullCmd = '.votekill ${nick.trim()}';
+                  _ircService.sendMessage(werewolfChannel, fullCmd);
+                  Navigator.pop(dialogContext);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Comando "$fullCmd" enviado a $werewolfChannel'),
+                      duration: const Duration(seconds: 2),
+                    ),
+                  );
+                }
+              },
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: Text(
+                  'Cancelar',
+                  style: TextStyle(color: appTheme.textSecondary),
+                ),
+              ),
+              TextButton(
+                onPressed: () {
+                  final nick = nickController.text.trim();
+                  if (nick.isNotEmpty) {
+                    final fullCmd = '.votekill $nick';
+                    _ircService.sendMessage(werewolfChannel, fullCmd);
+                    Navigator.pop(dialogContext);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Comando "$fullCmd" enviado a $werewolfChannel'),
+                        duration: const Duration(seconds: 2),
+                      ),
+                    );
+                  }
+                },
+                child: Text(
+                  'Votar',
+                  style: TextStyle(color: appTheme.primary, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          );
+        },
+      );
+    }
+    
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (context) {
+        return Container(
+          margin: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: appTheme.surface,
+            borderRadius: BorderRadius.circular(24),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.35),
+                blurRadius: 24,
+                offset: const Offset(0, 12),
+              ),
+            ],
+          ),
+          child: SafeArea(
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: Colors.green.withOpacity(0.15),
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: const Icon(Icons.pets, color: Colors.green, size: 22),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Werewolf en $werewolfChannel',
+                              style: TextStyle(
+                                color: appTheme.textPrimary,
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Comandos básicos para jugar al hombre lobo. '
+                              'Consulta las reglas completas en rentry.co/werewolf-irc-es.',
+                              style: TextStyle(
+                                color: appTheme.textSecondary.withOpacity(0.9),
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        icon: Icon(Icons.close,
+                            color: appTheme.textSecondary.withOpacity(0.8)),
+                        onPressed: () => Navigator.pop(context),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  
+                  // Grupo: Gestión de partida
+                  Text(
+                    'Gestión de partida',
+                    style: TextStyle(
+                      color: appTheme.textSecondary,
+                      fontSize: 13,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      _buildWerewolfChip('begingame', 'Crear partida', appTheme, () => sendCommand('begingame')),
+                      _buildWerewolfChip('startgame', 'Empezar', appTheme, () => sendCommand('startgame')),
+                      _buildWerewolfChip('leavegame', 'Salir', appTheme, () => sendCommand('leavegame')),
+                      _buildWerewolfChip('tellrules', 'Reglas', appTheme, () => sendCommand('tellrules')),
+                    ],
+                  ),
+                  
+                  const SizedBox(height: 16),
+                  
+                  // Grupo: Jugador
+                  Text(
+                    'Jugador',
+                    style: TextStyle(
+                      color: appTheme.textSecondary,
+                      fontSize: 13,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      _buildWerewolfChip('joingame', 'Unirse', appTheme, () => sendCommand('joingame')),
+                      _buildWerewolfChip('protect', 'Proteger', appTheme, () => sendCommand('protect')),
+                      _buildWerewolfChip('votekill', 'Votar matar', appTheme, () => sendVotekillCommand()),
+                      _buildWerewolfChip('votes', 'Ver votos', appTheme, () => sendCommand('votes')),
+                      _buildWerewolfChip('whatami', 'Mi rol', appTheme, () => sendCommand('whatami')),
+                    ],
+                  ),
+                  
+                  const SizedBox(height: 16),
+                  
+                  // Grupo: Información y puntuación
+                  Text(
+                    'Información y puntuación',
+                    style: TextStyle(
+                      color: appTheme.textSecondary,
+                      fontSize: 13,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      _buildWerewolfChip('listplayers', 'Jugadores', appTheme, () => sendCommand('listplayers')),
+                      _buildWerewolfChip('listscores', 'Puntuaciones', appTheme, () => sendCommand('listscores')),
+                      _buildWerewolfChip('myscore', 'Mi puntuación', appTheme, () => sendCommand('myscore')),
+                    ],
+                  ),
+                  
+                  const SizedBox(height: 16),
+                  
+                  // Grupo: Opciones avanzadas
+                  Text(
+                    'Opciones avanzadas',
+                    style: TextStyle(
+                      color: appTheme.textSecondary,
+                      fontSize: 13,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      _buildWerewolfChip('setkey', 'Setkey', appTheme, () => sendCommand('setkey')),
+                      _buildWerewolfChip('setoption', 'Setoption', appTheme, () => sendCommand('setoption')),
+                      _buildWerewolfChip('showoptions', 'Ver opciones', appTheme, () => sendCommand('showoptions')),
+                    ],
+                  ),
+                  
+                  const SizedBox(height: 12),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton(
+                      onPressed: () async {
+                        const url = 'https://rentry.co/werewolf-irc-es';
+                        try {
+                          final uri = Uri.parse(url);
+                          if (await canLaunchUrl(uri)) {
+                            await launchUrl(uri, mode: LaunchMode.externalApplication);
+                          }
+                        } catch (_) {}
+                      },
+                      child: const Text('Ver guía completa en rentry.co/werewolf-irc-es'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  /// Ventana modal de introducción al juego Werewolf al entrar en #werewolf
+  void _showWerewolfIntroDialog() {
+    final appTheme = ref.read(themeProvider);
+    
+    showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (context) {
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          child: Container(
+            width: 480,
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: appTheme.surface,
+              borderRadius: BorderRadius.circular(20),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.4),
+                  blurRadius: 30,
+                  offset: const Offset(0, 14),
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: Colors.green.withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: const Icon(Icons.pets, color: Colors.green, size: 24),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Bienvenido a #werewolf',
+                            style: TextStyle(
+                              color: appTheme.textPrimary,
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Aquí se juega al clásico juego de “Hombre Lobo” directamente en IRC.',
+                            style: TextStyle(
+                              color: appTheme.textSecondary.withOpacity(0.9),
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      icon: Icon(Icons.close,
+                          color: appTheme.textSecondary.withOpacity(0.8)),
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'Resumen rápido del juego',
+                  style: TextStyle(
+                    color: appTheme.textSecondary,
+                    fontSize: 13,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  '• El bot reparte roles secretos (aldeanos, hombres lobo, vidente, protectores...).\n'
+                  '• El juego alterna entre noche y día: por la noche los lobos matan, por el día el pueblo vota a quién linchar.\n'
+                  '• Ganas si tu equipo (pueblo o lobos) consigue eliminar al otro.',
+                  style: TextStyle(
+                    color: appTheme.textSecondary,
+                    fontSize: 12,
+                    height: 1.4,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'Comandos básicos:',
+                  style: TextStyle(
+                    color: appTheme.textSecondary,
+                    fontSize: 13,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  '• begingame / joingame / leavegame\n'
+                  '• startgame para comenzar la partida\n'
+                  '• votekill NICK para votar a quién linchar\n'
+                  '• whatami para recordar tu rol\n'
+                  '• listplayers / listscores / myscore para ver jugadores y puntuaciones',
+                  style: TextStyle(
+                    color: appTheme.textSecondary,
+                    fontSize: 12,
+                    height: 1.4,
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    TextButton(
+                      onPressed: () async {
+                        const url = 'https://rentry.co/werewolf-irc-es';
+                        try {
+                          final uri = Uri.parse(url);
+                          if (await canLaunchUrl(uri)) {
+                            await launchUrl(uri, mode: LaunchMode.externalApplication);
+                          }
+                        } catch (_) {}
+                      },
+                      child: const Text('Ver guía completa'),
+                    ),
+                    ElevatedButton.icon(
+                      onPressed: () {
+                        Navigator.pop(context);
+                        _showWerewolfMenu(context);
+                      },
+                      icon: const Icon(Icons.play_arrow, size: 18),
+                      label: const Text('Ver comandos del juego'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: appTheme.accent,
+                        foregroundColor: appTheme.textPrimary,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  // Botón tipo chip para comandos de werewolf
+  Widget _buildWerewolfChip(
+    String command,
+    String label,
+    AppTheme appTheme,
+    VoidCallback onTap,
+  ) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(999),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: appTheme.primary.withOpacity(0.12),
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(
+            color: appTheme.primary.withOpacity(0.4),
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              command,
+              style: TextStyle(
+                fontSize: 11,
+                color: appTheme.textSecondary.withOpacity(0.9),
+                fontFeatures: const [FontFeature.tabularFigures()],
+              ),
+            ),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 11,
+                color: appTheme.textPrimary,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   // Widget para mostrar el indicador de typing
   Widget _buildTypingIndicator(String channel, AppTheme appTheme, String typingNick) {
     return Container(
@@ -16487,3 +17296,55 @@ class _AsciiBackgroundPainter extends CustomPainter {
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
+/// Emoji animado inline (bounce suave) para mensajes en el chat
+class _BouncingEmojiInline extends StatefulWidget {
+  final String text;
+  final double size;
+  final Color color;
+  
+  const _BouncingEmojiInline({
+    Key? key,
+    required this.text,
+    required this.size,
+    required this.color,
+  }) : super(key: key);
+  
+  @override
+  State<_BouncingEmojiInline> createState() => _BouncingEmojiInlineState();
+}
+
+class _BouncingEmojiInlineState extends State<_BouncingEmojiInline> {
+  bool _shrink = false;
+  
+  @override
+  Widget build(BuildContext context) {
+    return TweenAnimationBuilder<double>(
+      tween: Tween<double>(
+        begin: 1.0,
+        end: _shrink ? 0.9 : 1.15,
+      ),
+      duration: const Duration(milliseconds: 650),
+      curve: Curves.easeInOut,
+      onEnd: () {
+        if (mounted) {
+          setState(() {
+            _shrink = !_shrink;
+          });
+        }
+      },
+      builder: (context, scale, child) {
+        return Transform.scale(
+          scale: scale,
+          child: child,
+        );
+      },
+      child: Text(
+        widget.text,
+        style: TextStyle(
+          fontSize: widget.size,
+          color: widget.color,
+        ),
+      ),
+    );
+  }
+}

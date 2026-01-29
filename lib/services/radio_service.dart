@@ -65,6 +65,11 @@ class RadioService {
       await Future.delayed(const Duration(milliseconds: 200));
     }
     
+    // La URL ya viene actualizada desde el RadioProvider
+    // No necesitamos verificar nada aquí, solo reproducir
+    print('🎵 [RadioService] Reproduciendo: ${station.name}');
+    print('🎵 [RadioService] URL: ${station.source}');
+    
     if (PlatformUtils.isWeb) {
       await _playStationWeb(station);
       return;
@@ -121,30 +126,27 @@ class RadioService {
         print('📻 [RadioService Web] Log: $log');
       });
       
-      // En web, intentar primero con proxy si es necesario (listen2myradio.com o mixcloud HLS)
+      // En web, intentar primero con proxy si es necesario (listen2myradio.com)
+      // Los streams HLS (.m3u8) de Mixcloud se reproducen directamente
       String finalUrl = sourceUrl;
-      bool useProxy = sourceUrl.contains('listen2myradio.com') || 
-                      (sourceUrl.contains('mixcloud.com') && sourceUrl.contains('.m3u8'));
+      bool useProxy = sourceUrl.contains('listen2myradio.com');
+      bool isHLS = sourceUrl.contains('.m3u8');
       
-      if (useProxy) {
+      if (isHLS) {
+        // Los streams HLS (Mixcloud Live) se reproducen directamente
+        print('🎵 [RadioService Web] Stream HLS detectado, reproduciendo directamente: $sourceUrl');
+        finalUrl = sourceUrl;
+        useProxy = false; // No usar proxy para HLS
+      } else if (useProxy) {
         try {
           final uri = Uri.parse(sourceUrl);
-          // Para Mixcloud HLS, usar un proxy diferente o intentar convertir a formato compatible
-          if (sourceUrl.contains('mixcloud.com') && sourceUrl.contains('.m3u8')) {
-            // Los streams HLS no son compatibles directamente con audioplayers en web
-            // Intentar usar la URL directa primero, si falla mostrar error
-            print('⚠️ [RadioService Web] Stream HLS detectado - puede no funcionar en web debido a CORS');
-            // Por ahora, intentar directo pero probablemente fallará
-            finalUrl = sourceUrl;
-          } else {
-            // Proxy para otros servicios
-            final proxyPath = '/radio-proxy/${uri.host}${uri.path}${uri.hasQuery ? '?${uri.query}' : ''}';
-            final baseHref = html.window.location.href;
-            if (baseHref != null && baseHref.isNotEmpty) {
-              final baseUri = Uri.parse(baseHref);
-              finalUrl = '${baseUri.scheme}://${baseUri.host}${baseUri.hasPort ? ':${baseUri.port}' : ''}$proxyPath';
-              print('📻 [RadioService Web] Intentando con proxy: $finalUrl');
-            }
+          // Proxy para otros servicios
+          final proxyPath = '/radio-proxy/${uri.host}${uri.path}${uri.hasQuery ? '?${uri.query}' : ''}';
+          final baseHref = html.window.location.href;
+          if (baseHref != null && baseHref.isNotEmpty) {
+            final baseUri = Uri.parse(baseHref);
+            finalUrl = '${baseUri.scheme}://${baseUri.host}${baseUri.hasPort ? ':${baseUri.port}' : ''}$proxyPath';
+            print('📻 [RadioService Web] Intentando con proxy: $finalUrl');
           }
         } catch (e) {
           print('⚠️ [RadioService Web] Error construyendo proxy, usando URL directa: $e');

@@ -38,6 +38,7 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
   bool _avatarLoaded = false;
   int? _lastRefreshTimestamp;
   bool _lastIsRobot = false;
+  bool _triedDefaultAvatar = false;
 
   @override
   void initState() {
@@ -165,6 +166,7 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
       setState(() {
         _avatarUrl = url;
         _avatarLoaded = true;
+        _triedDefaultAvatar = false; // reset al recargar
         print('👤 [UserAvatar] Avatar cargado para "${widget.nick}": _avatarUrl=${_avatarUrl != null ? "set" : "null"}, _avatarLoaded=$_avatarLoaded');
       });
     }
@@ -245,11 +247,30 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
                     );
                   },
                   errorBuilder: (context, error, stackTrace) {
-                    // Si falla la carga, mostrar fallback
-                    // En web, los errores de CORS pueden causar que las imágenes no se carguen
+                    // Si falla la carga del avatar personalizado, intentar una vez
+                    // el avatar generado por defecto del panel. Si también falla,
+                    // mostrar el fallback (emoji / inicial).
                     print('⚠️ [UserAvatar] Error cargando avatar para "${widget.nick}": $error');
                     print('⚠️ [UserAvatar] Stack trace: $stackTrace');
-                    return _buildFallback(fallback, isFallbackUrl, key: ValueKey('${widget.nick}_error_${widget.isRobot}'));
+
+                    if (!_triedDefaultAvatar) {
+                      _triedDefaultAvatar = true;
+                      final cleanNick = widget.nick.trim();
+                      final defaultUrl = AvatarService.getDefaultAvatarUrl(cleanNick);
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        if (mounted) {
+                          setState(() {
+                            _avatarUrl = defaultUrl;
+                          });
+                        }
+                      });
+                    }
+
+                    return _buildFallback(
+                      fallback,
+                      isFallbackUrl,
+                      key: ValueKey('${widget.nick}_error_${widget.isRobot}_${_triedDefaultAvatar ? "default" : "custom"}'),
+                    );
                   },
                 )
               : _buildFallback(fallback, isFallbackUrl, key: ValueKey('${widget.nick}_fallback_${widget.isRobot}_${_lastRefreshTimestamp ?? 0}')), // Incluir isRobot y timestamp en la clave del fallback

@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import '../services/emoji_service.dart';
 import '../models/app_theme.dart';
 
-class EmojiPicker extends StatelessWidget {
+class EmojiPicker extends StatefulWidget {
   final Function(String) onEmojiSelected;
   final AppTheme appTheme;
 
@@ -13,8 +13,32 @@ class EmojiPicker extends StatelessWidget {
   }) : super(key: key);
 
   @override
+  State<EmojiPicker> createState() => _EmojiPickerState();
+}
+
+class _EmojiPickerState extends State<EmojiPicker> {
+  final ScrollController _scrollController = ScrollController();
+  String? _selectedCategory;
+
+  @override
+  void initState() {
+    super.initState();
+    final emojisByCategory = EmojiService.getEmojisByCategory();
+    if (emojisByCategory.keys.isNotEmpty) {
+      _selectedCategory = emojisByCategory.keys.first;
+    }
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final emojisByCategory = EmojiService.getEmojisByCategory();
+    final appTheme = widget.appTheme;
     
     return Container(
       height: 300,
@@ -51,7 +75,9 @@ class EmojiPicker extends StatelessWidget {
                   padding: const EdgeInsets.symmetric(horizontal: 4),
                   child: TextButton(
                     onPressed: () {
-                      // Scroll a la categoría (implementación simple)
+                      setState(() {
+                        _selectedCategory = category;
+                      });
                     },
                     style: TextButton.styleFrom(
                       padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -61,9 +87,13 @@ class EmojiPicker extends StatelessWidget {
                     child: Text(
                       category,
                       style: TextStyle(
-                        color: appTheme.primary,
+                        color: _selectedCategory == null || _selectedCategory == category
+                            ? appTheme.primary
+                            : appTheme.textSecondary,
                         fontSize: 12,
-                        fontWeight: FontWeight.w500,
+                        fontWeight: _selectedCategory == null || _selectedCategory == category
+                            ? FontWeight.bold
+                            : FontWeight.w500,
                       ),
                     ),
                   ),
@@ -75,7 +105,10 @@ class EmojiPicker extends StatelessWidget {
           Expanded(
             child: ListView(
               padding: const EdgeInsets.all(8),
-              children: emojisByCategory.entries.map((entry) {
+              children: emojisByCategory.entries
+                  .where((entry) =>
+                      _selectedCategory == null || entry.key == _selectedCategory)
+                  .map((entry) {
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -99,92 +132,222 @@ class EmojiPicker extends StatelessWidget {
                       children: entry.value.map((emojiCode) {
                         final isAnimated = EmojiService.isAnimated(emojiCode);
                         final emojiUrl = EmojiService.getEmojiUrl(emojiCode);
+                        final unicode = EmojiService.getEmojiUnicode(emojiCode);
                         
+                        if (!isAnimated) {
+                          // Emoticonos normales: intentar primero Noto 512.gif (más "moderno"), y si falla, PNG/Unicode.
+                          final notoGifUrl = EmojiService.getNotoGifUrlForEmojiCode(emojiCode);
+                          if (emojiUrl == null && notoGifUrl == null) {
+                            return const SizedBox.shrink();
+                          }
+                          return InkWell(
+                            onTap: () => widget.onEmojiSelected(emojiCode),
+                            borderRadius: BorderRadius.circular(8),
+                            child: Container(
+                              width: 40,
+                              height: 40,
+                              padding: const EdgeInsets.all(4),
+                              child: (notoGifUrl != null
+                                  ? Image.network(
+                                      notoGifUrl,
+                                      width: 32,
+                                      height: 32,
+                                      fit: BoxFit.contain,
+                                      errorBuilder: (context, error, stackTrace) {
+                                        if (emojiUrl != null) {
+                                          return Image.network(
+                                            emojiUrl,
+                                            width: 32,
+                                            height: 32,
+                                            fit: BoxFit.contain,
+                                            errorBuilder: (context, error, stackTrace) {
+                                              if (unicode != null) {
+                                                return Center(
+                                                  child: Text(
+                                                    unicode,
+                                                    style: const TextStyle(fontSize: 24),
+                                                  ),
+                                                );
+                                              }
+                                              return Center(
+                                                child: Text(
+                                                  emojiCode,
+                                                  style: TextStyle(
+                                                    fontSize: 12,
+                                                    color: appTheme.textSecondary,
+                                                  ),
+                                                ),
+                                              );
+                                            },
+                                          );
+                                        }
+                                        if (unicode != null) {
+                                          return Center(
+                                            child: Text(
+                                              unicode,
+                                              style: const TextStyle(fontSize: 24),
+                                            ),
+                                          );
+                                        }
+                                        return Center(
+                                          child: Text(
+                                            emojiCode,
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              color: appTheme.textSecondary,
+                                            ),
+                                          ),
+                                        );
+                                      },
+                                    )
+                                  : Image.network(
+                                      emojiUrl!,
+                                      width: 32,
+                                      height: 32,
+                                      fit: BoxFit.contain,
+                                      errorBuilder: (context, error, stackTrace) {
+                                        if (unicode != null) {
+                                          return Center(
+                                            child: Text(
+                                              unicode,
+                                              style: const TextStyle(fontSize: 24),
+                                            ),
+                                          );
+                                        }
+                                        return Center(
+                                          child: Text(
+                                            emojiCode,
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              color: appTheme.textSecondary,
+                                            ),
+                                          ),
+                                        );
+                                      },
+                                    )),
+                            ),
+                          );
+                        }
+                        
+                        // Emoticonos animados: GIFs animados desde emoji-api.com
                         if (emojiUrl == null) {
                           return const SizedBox.shrink();
                         }
                         
                         return InkWell(
-                          onTap: () => onEmojiSelected(emojiCode),
+                          onTap: () => widget.onEmojiSelected(emojiCode),
                           borderRadius: BorderRadius.circular(8),
                           child: Container(
                             width: 40,
                             height: 40,
                             padding: const EdgeInsets.all(4),
-                            decoration: isAnimated
-                                ? BoxDecoration(
-                                    border: Border.all(
-                                      color: appTheme.accent.withOpacity(0.3),
-                                      width: 1,
-                                    ),
-                                    borderRadius: BorderRadius.circular(8),
-                                  )
-                                : null,
+                            decoration: BoxDecoration(
+                              border: Border.all(
+                                color: appTheme.accent.withOpacity(0.3),
+                                width: 1,
+                              ),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
                             child: Stack(
                               children: [
-                                // Mostrar imagen (GIF para animados, PNG para estáticos)
-                                Image.network(
-                                  emojiUrl,
-                                  width: 32,
-                                  height: 32,
-                                  fit: BoxFit.contain,
-                                  frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
-                                    if (wasSynchronouslyLoaded || frame != null) {
-                                      return child;
-                                    }
-                                    return Container(
-                                      width: 32,
-                                      height: 32,
-                                      color: appTheme.surface.withOpacity(0.3),
-                                      child: const Center(
-                                        child: SizedBox(
-                                          width: 16,
-                                          height: 16,
-                                          child: CircularProgressIndicator(strokeWidth: 2),
-                                        ),
-                                      ),
-                                    );
-                                  },
-                                  errorBuilder: (context, error, stackTrace) {
-                                    // Si falla la imagen, intentar mostrar Unicode como fallback
-                                    final fallbackUnicode = EmojiService.getEmojiUnicode(emojiCode);
-                                    if (fallbackUnicode != null) {
-                                      return Center(
-                                        child: Text(
-                                          fallbackUnicode,
-                                          style: const TextStyle(fontSize: 24),
-                                        ),
-                                      );
-                                    }
-                                    return Center(
-                                      child: Text(
-                                        emojiCode,
-                                        style: TextStyle(
-                                          fontSize: 12,
-                                          color: appTheme.textSecondary,
-                                        ),
-                                      ),
-                                    );
-                                  },
+                                Center(
+                                  child: (EmojiService.isAssetPath(emojiUrl)
+                                          ? Image.asset(
+                                              emojiUrl,
+                                              width: 32,
+                                              height: 32,
+                                              fit: BoxFit.contain,
+                                              errorBuilder: (context, error, stackTrace) {
+                                                final fallbackUrl =
+                                                    EmojiService.getAnimatedFallbackNetworkUrl(emojiCode);
+                                                if (fallbackUrl != null) {
+                                                  return Image.network(
+                                                    fallbackUrl,
+                                                    width: 32,
+                                                    height: 32,
+                                                    fit: BoxFit.contain,
+                                                    errorBuilder: (context, error, stackTrace) {
+                                                      if (unicode != null) {
+                                                        return Center(
+                                                          child: Text(
+                                                            unicode,
+                                                            style: const TextStyle(fontSize: 24),
+                                                          ),
+                                                        );
+                                                      }
+                                                      return Center(
+                                                        child: Text(
+                                                          emojiCode,
+                                                          style: TextStyle(
+                                                            fontSize: 12,
+                                                            color: appTheme.textSecondary,
+                                                          ),
+                                                        ),
+                                                      );
+                                                    },
+                                                  );
+                                                }
+                                                if (unicode != null) {
+                                                  return Center(
+                                                    child: Text(
+                                                      unicode,
+                                                      style: const TextStyle(fontSize: 24),
+                                                    ),
+                                                  );
+                                                }
+                                                return Center(
+                                                  child: Text(
+                                                    emojiCode,
+                                                    style: TextStyle(
+                                                      fontSize: 12,
+                                                      color: appTheme.textSecondary,
+                                                    ),
+                                                  ),
+                                                );
+                                              },
+                                            )
+                                          : Image.network(
+                                              emojiUrl,
+                                              width: 32,
+                                              height: 32,
+                                              fit: BoxFit.contain,
+                                              errorBuilder: (context, error, stackTrace) {
+                                                if (unicode != null) {
+                                                  return Center(
+                                                    child: Text(
+                                                      unicode,
+                                                      style: const TextStyle(fontSize: 24),
+                                                    ),
+                                                  );
+                                                }
+                                                return Center(
+                                                  child: Text(
+                                                    emojiCode,
+                                                    style: TextStyle(
+                                                      fontSize: 12,
+                                                      color: appTheme.textSecondary,
+                                                    ),
+                                                  ),
+                                                );
+                                              },
+                                            )),
                                 ),
-                                // Indicador de animado
-                                if (isAnimated)
-                                  Positioned(
-                                    top: 0,
-                                    right: 0,
-                                    child: Container(
-                                      width: 8,
-                                      height: 8,
-                                      decoration: BoxDecoration(
-                                        color: appTheme.accent,
-                                        shape: BoxShape.circle,
-                                        border: Border.all(
-                                          color: appTheme.surface,
-                                          width: 1,
-                                        ),
+                                Positioned(
+                                  top: 0,
+                                  right: 0,
+                                  child: Container(
+                                    width: 8,
+                                    height: 8,
+                                    decoration: BoxDecoration(
+                                      color: appTheme.accent,
+                                      shape: BoxShape.circle,
+                                      border: Border.all(
+                                        color: appTheme.surface,
+                                        width: 1,
                                       ),
                                     ),
                                   ),
+                                ),
                               ],
                             ),
                           ),
@@ -198,6 +361,59 @@ class EmojiPicker extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Emoji que “late” / hace bounce suavemente para simular animación
+class _BouncingEmoji extends StatefulWidget {
+  final String text;
+  final double size;
+  final Color color;
+  
+  const _BouncingEmoji({
+    Key? key,
+    required this.text,
+    required this.size,
+    required this.color,
+  }) : super(key: key);
+  
+  @override
+  State<_BouncingEmoji> createState() => _BouncingEmojiState();
+}
+
+class _BouncingEmojiState extends State<_BouncingEmoji> {
+  bool _shrink = false;
+  
+  @override
+  Widget build(BuildContext context) {
+    return TweenAnimationBuilder<double>(
+      tween: Tween<double>(
+        begin: 1.0,
+        end: _shrink ? 0.9 : 1.15,
+      ),
+      duration: const Duration(milliseconds: 650),
+      curve: Curves.easeInOut,
+      onEnd: () {
+        if (mounted) {
+          setState(() {
+            _shrink = !_shrink;
+          });
+        }
+      },
+      builder: (context, scale, child) {
+        return Transform.scale(
+          scale: scale,
+          child: child,
+        );
+      },
+      child: Text(
+        widget.text,
+        style: TextStyle(
+          fontSize: widget.size,
+          color: widget.color,
+        ),
       ),
     );
   }

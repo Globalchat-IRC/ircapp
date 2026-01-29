@@ -70,6 +70,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     String? urlNick;
     String? urlChannel;
     bool autoJoin = false;
+    // Controlar si se hace autojoin al canal oficial #globalchat (solo web)
+    // Por defecto TRUE para mantener el comportamiento actual
+    bool? joinChannelOficialFromUrl;
     
     if (PlatformUtils.isWeb) {
       print('🔍 [INIT] PlatformUtils.isWeb = true, leyendo parámetros de URL');
@@ -91,6 +94,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           final nickParam = fullUri.queryParameters['nick'];
           final channelParam = fullUri.queryParameters['channel'];
           final autoJoinParam = fullUri.queryParameters['autojoin'];
+          // Nuevo parámetro: permite controlar el autojoin al canal oficial #globalchat
+          // Ejemplo: ?joinchanneloficial=false  -> NO autojinear a #globalchat
+          //          ?joinchanneloficial=true   -> autojinear (por defecto)
+          final joinOficialParam = fullUri.queryParameters['joinchanneloficial'];
           
           if (nickParam != null && nickParam.trim().isNotEmpty) {
             // Limpiar el nick: eliminar espacios y guiones al final
@@ -123,6 +130,17 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                        autoJoinValue == 'yes';
             print('🔍 [URL] ✅ autoJoin leído: "$autoJoinParam" -> autoJoin=$autoJoin');
           }
+
+          // Leer parámetro joinchanneloficial (controla autojoin a #globalchat)
+          if (joinOficialParam != null) {
+            final value = joinOficialParam.toLowerCase().trim();
+            if (value == 'false' || value == '0' || value == 'no') {
+              joinChannelOficialFromUrl = false;
+            } else if (value == 'true' || value == '1' || value == 'yes') {
+              joinChannelOficialFromUrl = true;
+            }
+            print('🔍 [URL] ✅ joinchanneloficial leído: "$joinOficialParam" -> $joinChannelOficialFromUrl');
+          }
         } else {
           // Fallback a Uri.base si location.href está vacío
           final uri = Uri.base;
@@ -132,6 +150,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           final nickParam = uri.queryParameters['nick'];
           final channelParam = uri.queryParameters['channel'];
           final autoJoinParam = uri.queryParameters['autojoin'];
+          final joinOficialParam = uri.queryParameters['joinchanneloficial'];
           
           if (nickParam != null && nickParam.trim().isNotEmpty) {
             // Limpiar el nick: eliminar espacios y guiones al final
@@ -158,10 +177,20 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                        autoJoinValue == 'yes';
             print('🔍 [URL] ✅ autoJoin leído de Uri.base: "$autoJoinParam" -> autoJoin=$autoJoin');
           }
+
+          if (joinOficialParam != null) {
+            final value = joinOficialParam.toLowerCase().trim();
+            if (value == 'false' || value == '0' || value == 'no') {
+              joinChannelOficialFromUrl = false;
+            } else if (value == 'true' || value == '1' || value == 'yes') {
+              joinChannelOficialFromUrl = true;
+            }
+            print('🔍 [URL] ✅ joinchanneloficial leído de Uri.base: "$joinOficialParam" -> $joinChannelOficialFromUrl');
+          }
         }
         
         // Debug: verificar que se leyeron los parámetros
-        print('🔍 [URL] Parámetros finales - nick: $urlNick, channel: $urlChannel, autojoin: $autoJoin');
+        print('🔍 [URL] Parámetros finales - nick: $urlNick, channel: $urlChannel, autojoin: $autoJoin, joinchanneloficial: $joinChannelOficialFromUrl');
       } catch (e) {
         print('🔍 [URL] Error leyendo URL: $e');
       }
@@ -177,6 +206,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     _nickController = TextEditingController(text: defaultNick);
     print('🔍 [LOGIN] NickController inicializado con: "$defaultNick"');
     
+    // Aplicar configuración de auto-join al canal oficial #globalchat si viene en la URL
+    // Solo tiene efecto en web
+    if (PlatformUtils.isWeb && joinChannelOficialFromUrl != null) {
+      final ircService = ref.read(ircServiceProvider);
+      ircService.setAutoJoinOfficialGlobalChat(joinChannelOficialFromUrl);
+      print('🌐 [LOGIN] joinchanneloficial aplicado al IRCService: $joinChannelOficialFromUrl');
+    }
+
     // Pre-llenar el canal si viene en la URL
     if (urlChannel != null && urlChannel.trim().isNotEmpty) {
       String channel = urlChannel.trim();
