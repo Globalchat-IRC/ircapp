@@ -17,7 +17,7 @@ echo -e "${BLUE}║   Test de Integración Automática Mixcloud Live            
 echo -e "${BLUE}╚════════════════════════════════════════════════════════════╝${NC}\n"
 
 # URL del backend
-BACKEND_URL="https://webchat.globalchat.org/gateway/mixcloud_stream_extractor.php?username=djsonic_vlc"
+BACKEND_URL="https://ceres.globalchat.org/api/mixcloud_stream_extractor.php?username=djsonic_vlc"
 
 echo -e "${YELLOW}[1/3] Verificando backend PHP...${NC}"
 
