@@ -359,8 +359,20 @@ class RadioNotifier extends Notifier<RadioState> {
     }
   }
 
-  void setActiveStation(RadioStation station) {
-    state = state.copyWith(activeStation: station, hasError: false);
+  Future<void> setActiveStation(RadioStation station) async {
+    // Si es UrbanFlow, verificar primero si hay stream en vivo
+    if (station.name == 'UrbanFlow') {
+      print('🎵 [RadioProvider] Usuario seleccionó UrbanFlow, verificando stream en vivo...');
+      await _checkLiveStreams();
+      // Después de verificar, obtener la estación actualizada
+      final updatedStation = state.stations.firstWhere(
+        (s) => s.name == 'UrbanFlow',
+        orElse: () => station,
+      );
+      state = state.copyWith(activeStation: updatedStation, hasError: false);
+    } else {
+      state = state.copyWith(activeStation: station, hasError: false);
+    }
     _saveSettings();
   }
 
