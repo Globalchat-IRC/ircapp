@@ -57,23 +57,30 @@ class _RadioControlsState extends ConsumerState<RadioControls> {
       if (radioState.stations.isNotEmpty) {
         final firstStation = radioState.stations.first;
         // print('📻 Seleccionando primera estación: ${firstStation.name}');
-        ref.read(radioProvider.notifier).setActiveStation(firstStation);
-        try {
-          await radioService.playStation(firstStation);
-          // print('📻 Reproducción iniciada exitosamente');
-          ref.read(radioProvider.notifier).setPlaying(true);
-          ref.read(radioProvider.notifier).setError(false);
-        } catch (e) {
-          // print('❌ Error al reproducir: $e');
-          ref.read(radioProvider.notifier).setError(true);
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('Error al reproducir la radio: $e'),
-                backgroundColor: Colors.red,
-                duration: const Duration(seconds: 3),
-              ),
-            );
+        await ref.read(radioProvider.notifier).setActiveStation(firstStation);
+        
+        // Obtener la estación actualizada del estado
+        final updatedState = ref.read(radioProvider);
+        final updatedStation = updatedState.activeStation;
+        
+        if (updatedStation != null) {
+          try {
+            await radioService.playStation(updatedStation);
+            // print('📻 Reproducción iniciada exitosamente');
+            ref.read(radioProvider.notifier).setPlaying(true);
+            ref.read(radioProvider.notifier).setError(false);
+          } catch (e) {
+            // print('❌ Error al reproducir: $e');
+            ref.read(radioProvider.notifier).setError(true);
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Error al reproducir la radio: $e'),
+                  backgroundColor: Colors.red,
+                  duration: const Duration(seconds: 3),
+                ),
+              );
+            }
           }
         }
       } else {
@@ -93,43 +100,49 @@ class _RadioControlsState extends ConsumerState<RadioControls> {
     }
 
     // print('📻 Reproduciendo: ${stationToPlay.name}');
-    ref.read(radioProvider.notifier).setActiveStation(stationToPlay);
+    await ref.read(radioProvider.notifier).setActiveStation(stationToPlay);
     ref.read(radioProvider.notifier).setError(false);
     
-    try {
-      await radioService.playStation(stationToPlay);
-      ref.read(radioProvider.notifier).setPlaying(true);
-      ref.read(radioProvider.notifier).setError(false);
-    } catch (e) {
-      ref.read(radioProvider.notifier).setError(true);
-      ref.read(radioProvider.notifier).setPlaying(false);
-      
-      // Mostrar mensaje al usuario con información útil
-      if (mounted) {
-        String errorMessage = 'No se pudo reproducir ${stationToPlay.name}';
-        if (e.toString().contains('CORS') || e.toString().contains('Failed to load')) {
-          errorMessage += '\n\nEl servidor de radio puede tener restricciones de CORS.\nIntenta con otra estación.';
-        } else {
-          errorMessage += '\n\nError: ${e.toString().split(':').last.trim()}\nIntenta con otra estación.';
-        }
+    // Obtener la estación actualizada del estado
+    final updatedState = ref.read(radioProvider);
+    final updatedStation = updatedState.activeStation;
+    
+    if (updatedStation != null) {
+      try {
+        await radioService.playStation(updatedStation);
+        ref.read(radioProvider.notifier).setPlaying(true);
+        ref.read(radioProvider.notifier).setError(false);
+      } catch (e) {
+        ref.read(radioProvider.notifier).setError(true);
+        ref.read(radioProvider.notifier).setPlaying(false);
         
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              errorMessage,
-              style: const TextStyle(color: Colors.white),
+        // Mostrar mensaje al usuario con información útil
+        if (mounted) {
+          String errorMessage = 'No se pudo reproducir ${updatedStation.name}';
+          if (e.toString().contains('CORS') || e.toString().contains('Failed to load')) {
+            errorMessage += '\n\nEl servidor de radio puede tener restricciones de CORS.\nIntenta con otra estación.';
+          } else {
+            errorMessage += '\n\nError: ${e.toString().split(':').last.trim()}\nIntenta con otra estación.';
+          }
+          
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                errorMessage,
+                style: const TextStyle(color: Colors.white),
+              ),
+              backgroundColor: Colors.orange,
+              duration: const Duration(seconds: 6),
+              action: SnackBarAction(
+                label: 'Cerrar',
+                textColor: Colors.white,
+                onPressed: () {
+                  ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                },
+              ),
             ),
-            backgroundColor: Colors.orange,
-            duration: const Duration(seconds: 6),
-            action: SnackBarAction(
-              label: 'Cerrar',
-              textColor: Colors.white,
-              onPressed: () {
-                ScaffoldMessenger.of(context).hideCurrentSnackBar();
-              },
-            ),
-          ),
-        );
+          );
+        }
       }
     }
   }

@@ -147,24 +147,35 @@ class _RadioStationsListState extends ConsumerState<RadioStationsList> {
                                       Icons.play_arrow,
                                       color: appTheme.primary,
                                     ),
-                                    onPressed: () {
+                                    onPressed: () async {
                                       Navigator.of(context).pop();
                                       final radioService =
                                           ref.read(radioServiceProvider);
-                                      ref
+                                      
+                                      // Primero, establecer la estación activa
+                                      // (esto verifica el stream en vivo si es UrbanFlow)
+                                      await ref
                                           .read(radioProvider.notifier)
                                           .setActiveStation(station);
-                                      radioService
-                                          .playStation(station)
-                                          .then((_) {
-                                        ref
-                                            .read(radioProvider.notifier)
-                                            .setPlaying(true);
-                                      }).catchError((e) {
-                                        ref
-                                            .read(radioProvider.notifier)
-                                            .setError(true);
-                                      });
+                                      
+                                      // Luego, obtener la estación actualizada del estado
+                                      final radioState = ref.read(radioProvider);
+                                      final updatedStation = radioState.activeStation;
+                                      
+                                      if (updatedStation != null) {
+                                        // Reproducir con la URL actualizada
+                                        radioService
+                                            .playStation(updatedStation)
+                                            .then((_) {
+                                          ref
+                                              .read(radioProvider.notifier)
+                                              .setPlaying(true);
+                                        }).catchError((e) {
+                                          ref
+                                              .read(radioProvider.notifier)
+                                              .setError(true);
+                                        });
+                                      }
                                     },
                                     tooltip: 'Reproducir',
                                   ),
