@@ -40,7 +40,7 @@ class MixcloudLiveStream {
 
 /// Servicio para obtener streams en vivo de Mixcloud
 class MixcloudLiveService {
-  static const String _baseUrl = 'https://webchat.globalchat.org/static/plugins';
+  static const String _baseUrl = 'https://ceres.globalchat.org/api';
   
   // Cache del último stream obtenido
   MixcloudLiveStream? _cachedStream;
