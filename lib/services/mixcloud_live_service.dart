@@ -41,6 +41,7 @@ class MixcloudLiveStream {
 /// Servicio para obtener streams en vivo de Mixcloud
 class MixcloudLiveService {
   static const String _baseUrl = 'https://mobilev1.globalchat.org/api';
+  static const String _proxyUrl = 'https://mobilev1.globalchat.org/api/mixcloud_stream_proxy.php';
   
   // Cache del último stream obtenido
   MixcloudLiveStream? _cachedStream;
@@ -49,6 +50,12 @@ class MixcloudLiveService {
   static final MixcloudLiveService _instance = MixcloudLiveService._internal();
   factory MixcloudLiveService() => _instance;
   MixcloudLiveService._internal();
+  
+  /// Convertir URL de Mixcloud a URL del proxy
+  String _getProxyUrl(String mixcloudUrl) {
+    final encodedUrl = Uri.encodeComponent(mixcloudUrl);
+    return '$_proxyUrl?url=$encodedUrl';
+  }
 
   /// Obtener el stream en vivo de un usuario de Mixcloud
   Future<MixcloudLiveStream?> getLiveStream(String username) async {
@@ -82,13 +89,22 @@ class MixcloudLiveService {
       final json = jsonDecode(response.body);
       
       if (json['success'] == true && json['is_live'] == true) {
-        final stream = MixcloudLiveStream.fromJson(json);
+        // Crear el stream con la URL del proxy en lugar de la URL directa
+        final originalUrl = json['stream_url'] ?? '';
+        final proxyUrl = _getProxyUrl(originalUrl);
+        
+        // Modificar el JSON para usar la URL del proxy
+        final modifiedJson = Map<String, dynamic>.from(json);
+        modifiedJson['stream_url'] = proxyUrl;
+        
+        final stream = MixcloudLiveStream.fromJson(modifiedJson);
         
         // Guardar en cache
         _cachedStream = stream;
         _lastCheck = DateTime.now();
         
-        print('✅ [MixcloudLive] Stream en vivo encontrado: ${stream.streamUrl}');
+        print('✅ [MixcloudLive] Stream en vivo encontrado (original): $originalUrl');
+        print('🎵 [MixcloudLive] Stream proxy URL: $proxyUrl');
         print('🎵 [MixcloudLive] Info: ${stream.info}');
         
         return stream;
