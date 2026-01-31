@@ -158,9 +158,15 @@ class _RadioStationsListState extends ConsumerState<RadioStationsList> {
                                           .read(radioProvider.notifier)
                                           .setActiveStation(station);
                                       
+                                      // IMPORTANTE: Esperar un frame para que el estado se propague
+                                      await Future.delayed(const Duration(milliseconds: 100));
+                                      
                                       // Luego, obtener la estación actualizada del estado
                                       final radioState = ref.read(radioProvider);
                                       final updatedStation = radioState.activeStation;
+                                      
+                                      print('🎵 [RadioStationsList] Estación actualizada: ${updatedStation?.name}');
+                                      print('🎵 [RadioStationsList] URL a reproducir: ${updatedStation?.source}');
                                       
                                       if (updatedStation != null) {
                                         // Reproducir con la URL actualizada

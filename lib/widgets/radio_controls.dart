@@ -59,9 +59,15 @@ class _RadioControlsState extends ConsumerState<RadioControls> {
         // print('📻 Seleccionando primera estación: ${firstStation.name}');
         await ref.read(radioProvider.notifier).setActiveStation(firstStation);
         
+        // IMPORTANTE: Esperar un frame para que el estado se propague
+        await Future.delayed(const Duration(milliseconds: 100));
+        
         // Obtener la estación actualizada del estado
         final updatedState = ref.read(radioProvider);
         final updatedStation = updatedState.activeStation;
+        
+        print('🎵 [RadioControls] Estación actualizada (primera): ${updatedStation?.name}');
+        print('🎵 [RadioControls] URL a reproducir: ${updatedStation?.source}');
         
         if (updatedStation != null) {
           try {
@@ -103,9 +109,15 @@ class _RadioControlsState extends ConsumerState<RadioControls> {
     await ref.read(radioProvider.notifier).setActiveStation(stationToPlay);
     ref.read(radioProvider.notifier).setError(false);
     
+    // IMPORTANTE: Esperar un frame para que el estado se propague
+    await Future.delayed(const Duration(milliseconds: 100));
+    
     // Obtener la estación actualizada del estado
     final updatedState = ref.read(radioProvider);
     final updatedStation = updatedState.activeStation;
+    
+    print('🎵 [RadioControls] Estación actualizada: ${updatedStation?.name}');
+    print('🎵 [RadioControls] URL a reproducir: ${updatedStation?.source}');
     
     if (updatedStation != null) {
       try {
