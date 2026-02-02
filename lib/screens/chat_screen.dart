@@ -2705,6 +2705,17 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           return;
         }
         
+        // Verificar si es un bot antes de hacer WHOIS
+        if (_isBotNick(nick)) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Los bots no responden a WHOIS. No se realizará la consulta para $nick.'),
+              duration: const Duration(seconds: 3),
+            ),
+          );
+          return;
+        }
+        
         _ircService.sendWhois(nick);
         // Mostrar ventana de resultados cuando llegue la información
         _showWhoisResultsWindow(nick);
@@ -4064,6 +4075,56 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         ],
       ),
     );
+  }
+
+  // Detectar si un nick es un bot antes de hacer WHOIS
+  bool _isBotNick(String nick) {
+    final nickLower = nick.toLowerCase().trim();
+    
+    // Obtener información del canal actual para detectar bots
+    final currentChannel = ref.read(currentChannelProvider);
+    final channels = ref.read(channelsProvider);
+    final channelKey = currentChannel?.toLowerCase();
+    final customRobots = ref.read(customRobotsProvider);
+    
+    // Verificar robots personalizados primero
+    if (customRobots.isNotEmpty) {
+      for (var robot in customRobots) {
+        if (robot.nick.toLowerCase() == nickLower) {
+          return true;
+        }
+      }
+    }
+    
+    if (channelKey != null && channels.containsKey(channelKey)) {
+      final channelData = channels[channelKey];
+      
+      // Verificar modo +b (bot mode) si está disponible
+      final userMode = channelData?.userModes[nickLower];
+      if (userMode == '+b' && nickLower.endsWith('bot')) {
+        return true;
+      }
+      
+      // Verificar host
+      final host = channelData?.userHosts[nickLower]?.toLowerCase() ?? '';
+      if (host.isNotEmpty) {
+        final isBotByHost = host == 'robot.globalchat.org' ||
+                            host.endsWith('.robot.globalchat.org') ||
+                            (host.startsWith('robot.') && host.contains('globalchat.org') && !host.contains('netadmin') && !host.contains('admin'));
+        if (isBotByHost) {
+          return true;
+        }
+      }
+    }
+    
+    // Verificación básica por nick (sin necesidad de información del canal)
+    final isBotByNick = nickLower.endsWith('bot') ||
+                        nickLower.startsWith('radio') ||
+                        nickLower == 'robot' ||
+                        nickLower == 'bot' ||
+                        nickLower == 'globalchat';
+    
+    return isBotByNick;
   }
 
   // Detectar si un usuario es un robot basándose en su información de whois
@@ -6472,7 +6533,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                             offset: cursorPosition + emojiCode.length,
                           );
                           // Mantener el foco en el campo de texto después de seleccionar un emoji
-                          _messageFocusNode.requestFocus();
+                          // Usar addPostFrameCallback para asegurar que el foco se solicite después del rebuild
+                          WidgetsBinding.instance.addPostFrameCallback((_) {
+                            Future.delayed(const Duration(milliseconds: 50), () {
+                              if (mounted && _messageFocusNode.canRequestFocus) {
+                                _messageFocusNode.requestFocus();
+                              }
+                            });
+                          });
                         },
                       ),
                     ],
@@ -9968,12 +10036,41 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   )
                 : null),
       ),
-      child: ListTile(
-        selected: isSelected,
-        selectedTileColor: Colors.transparent,
-        dense: true,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        leading: isQuery
+      child: InkWell(
+        onTap: () {
+          // Asegurarse de que el canal/query existe en el servicio
+          // Si es un canal reciente cerrado, volver a hacer JOIN antes de seleccionarlo
+          if (!isQuery && channel.startsWith('#')) {
+            final channelsMap = ref.read(channelsProvider);
+            final normalizedChannelLower = channel.toLowerCase();
+            final isAlreadyOpen = channelsMap.keys.any(
+              (key) => key.toLowerCase() == normalizedChannelLower,
+            );
+            if (!isAlreadyOpen) {
+              _ircService.joinChannel(channel);
+            }
+          }
+
+          // Cambiar al canal, marcar como leído y añadir a recientes
+          ref.read(currentChannelProvider.notifier).state = channel;
+          ref.read(lastChannelProvider.notifier).state = channel;
+          ref.read(recentChannelsProvider.notifier).addRecent(channel);
+          ref.read(unreadMessagesProvider.notifier).markAsRead(channel);
+          
+          // Activar radio automáticamente si corresponde (v2.1.0)
+          // DESHABILITADO: El usuario prefiere activar la radio manualmente
+          // _activateRadioForChannel(channel);
+        },
+        onLongPress: () {
+          _showChannelNotificationMenu(context, channel);
+        },
+        borderRadius: BorderRadius.circular(10),
+        child: ListTile(
+          selected: isSelected,
+          selectedTileColor: Colors.transparent,
+          dense: true,
+          contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          leading: isQuery
             ? Builder(
                 builder: (context) {
                   // Para mensajes privados, mostrar el avatar del usuario
@@ -10075,7 +10172,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   size: 18,
                 ),
               ),
-        title: Row(
+          title: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             Flexible(
@@ -10146,33 +10243,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             ],
           ],
         ),
-        onTap: () {
-          // Asegurarse de que el canal/query existe en el servicio
-          // Si es un canal reciente cerrado, volver a hacer JOIN antes de seleccionarlo
-          if (!isQuery && channel.startsWith('#')) {
-            final channelsMap = ref.read(channelsProvider);
-            final normalizedChannelLower = channel.toLowerCase();
-            final isAlreadyOpen = channelsMap.keys.any(
-              (key) => key.toLowerCase() == normalizedChannelLower,
-            );
-            if (!isAlreadyOpen) {
-              _ircService.joinChannel(channel);
-            }
-          }
-
-          // Cambiar al canal, marcar como leído y añadir a recientes
-          ref.read(currentChannelProvider.notifier).state = channel;
-          ref.read(lastChannelProvider.notifier).state = channel;
-          ref.read(recentChannelsProvider.notifier).addRecent(channel);
-          ref.read(unreadMessagesProvider.notifier).markAsRead(channel);
-          
-          // Activar radio automáticamente si corresponde (v2.1.0)
-          // DESHABILITADO: El usuario prefiere activar la radio manualmente
-          // _activateRadioForChannel(channel);
-        },
-        onLongPress: () {
-          _showChannelNotificationMenu(context, channel);
-        },
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -10251,6 +10321,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           ],
         ),
       ),
+        ),
     );
   }
 
@@ -11378,6 +11449,18 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 subtitle: const Text('Solicitar información del usuario'),
                 onTap: () {
                   Navigator.pop(context);
+                  
+                  // Verificar si es un bot antes de hacer WHOIS
+                  if (_isBotNick(nick)) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Los bots no responden a WHOIS. No se realizará la consulta para $nick.'),
+                        duration: const Duration(seconds: 3),
+                      ),
+                    );
+                    return;
+                  }
+                  
                   _ircService.sendWhois(nick);
                   // Mostrar ventana modal con los resultados cuando lleguen
                   _showWhoisResultsWindow(nick);
@@ -14480,6 +14563,18 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 subtitle: const Text('Ver información de mi cuenta'),
                 onTap: () {
                   Navigator.pop(context);
+                  
+                  // Verificar si es un bot antes de hacer WHOIS
+                  if (_isBotNick(nick)) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Los bots no responden a WHOIS. No se realizará la consulta para $nick.'),
+                        duration: const Duration(seconds: 3),
+                      ),
+                    );
+                    return;
+                  }
+                  
                   _ircService.sendWhois(nick);
                   // Mostrar ventana modal con los resultados cuando lleguen
                   _showWhoisResultsWindow(nick);

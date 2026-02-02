@@ -42,6 +42,47 @@ class ModeratorMenu extends ConsumerWidget {
     return userMode == '&' || userMode == '!';
   }
 
+  // Detectar si un nick es un bot antes de hacer WHOIS
+  bool _isBotNick(WidgetRef ref, String nick) {
+    final nickLower = nick.toLowerCase().trim();
+    
+    // Verificación básica por nick
+    final isBotByNick = nickLower.endsWith('bot') ||
+                        nickLower.startsWith('radio') ||
+                        nickLower == 'robot' ||
+                        nickLower == 'bot' ||
+                        nickLower == 'globalchat';
+    
+    if (isBotByNick) {
+      return true;
+    }
+    
+    // Verificar usando información del canal si está disponible
+    final ircService = ref.read(ircServiceProvider);
+    final channelData = ircService.allChannels[channel];
+    
+    if (channelData != null) {
+      // Verificar modo +b (bot mode)
+      final userMode = channelData.userModes[nickLower];
+      if (userMode == '+b' && nickLower.endsWith('bot')) {
+        return true;
+      }
+      
+      // Verificar host
+      final host = channelData.userHosts[nickLower]?.toLowerCase() ?? '';
+      if (host.isNotEmpty) {
+        final isBotByHost = host == 'robot.globalchat.org' ||
+                            host.endsWith('.robot.globalchat.org') ||
+                            (host.startsWith('robot.') && host.contains('globalchat.org') && !host.contains('netadmin') && !host.contains('admin'));
+        if (isBotByHost) {
+          return true;
+        }
+      }
+    }
+    
+    return false;
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final appTheme = ref.watch(themeProvider);
@@ -255,8 +296,13 @@ class ModeratorMenu extends ConsumerWidget {
         _showChanServDialog(ref, context, 'TOPIC');
         break;
       case 'whois':
-        ircService.sendWhois(targetNick);
-        _showSnackBar(context, 'WHOIS enviado para: $targetNick');
+        // Verificar si es un bot antes de hacer WHOIS
+        if (_isBotNick(ref, targetNick)) {
+          _showSnackBar(context, 'Los bots no responden a WHOIS. No se realizará la consulta para $targetNick.');
+        } else {
+          ircService.sendWhois(targetNick);
+          _showSnackBar(context, 'WHOIS enviado para: $targetNick');
+        }
         break;
       case 'ignore':
         ircService.sendIgnore(targetNick);

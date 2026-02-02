@@ -78,6 +78,8 @@ class _EmojiPickerState extends State<EmojiPicker> {
                       setState(() {
                         _selectedCategory = category;
                       });
+                      // Mantener el foco en el campo de texto al cambiar de categoría
+                      // Esto se maneja desde el callback del padre
                     },
                     style: TextButton.styleFrom(
                       padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -129,7 +131,7 @@ class _EmojiPickerState extends State<EmojiPicker> {
                     Wrap(
                       spacing: 4,
                       runSpacing: 4,
-                      children: entry.value.map((emojiCode) {
+                      children: entry.value.map<Widget>((emojiCode) {
                         final isAnimated = EmojiService.isAnimated(emojiCode);
                         final emojiUrl = EmojiService.getEmojiUrl(emojiCode);
                         final unicode = EmojiService.getEmojiUnicode(emojiCode);
@@ -141,7 +143,10 @@ class _EmojiPickerState extends State<EmojiPicker> {
                             return const SizedBox.shrink();
                           }
                           return InkWell(
-                            onTap: () => widget.onEmojiSelected(emojiCode),
+                            onTap: () {
+                              widget.onEmojiSelected(emojiCode);
+                              // El foco se manejará desde el callback del padre
+                            },
                             borderRadius: BorderRadius.circular(8),
                             child: Container(
                               width: 40,
@@ -235,7 +240,10 @@ class _EmojiPickerState extends State<EmojiPicker> {
                         }
                         
                         return InkWell(
-                          onTap: () => widget.onEmojiSelected(emojiCode),
+                          onTap: () {
+                            widget.onEmojiSelected(emojiCode);
+                            // El foco se manejará desde el callback del padre
+                          },
                           borderRadius: BorderRadius.circular(8),
                           child: Container(
                             width: 40,
