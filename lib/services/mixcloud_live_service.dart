@@ -30,11 +30,12 @@ class MixcloudLiveStream {
     );
   }
 
-  /// Verificar si el stream está expirado (más de 5 minutos)
+  /// Verificar si el stream está expirado (más de 30 segundos)
+  /// Las URLs de Mixcloud cambian frecuentemente en cada sesión
   bool get isExpired {
     final now = DateTime.now();
     final diff = now.difference(timestamp);
-    return diff.inMinutes > 5;
+    return diff.inSeconds > 30;
   }
 }
 
@@ -61,12 +62,13 @@ class MixcloudLiveService {
   Future<MixcloudLiveStream?> getLiveStream(String username) async {
     try {
       // Si tenemos un stream en cache y no ha expirado, devolverlo
+      // NOTA: Reducido a 30 segundos porque las URLs cambian en cada sesión
       if (_cachedStream != null && 
           _cachedStream!.username == username && 
           !_cachedStream!.isExpired &&
           _lastCheck != null &&
-          DateTime.now().difference(_lastCheck!).inMinutes < 2) {
-        print('🎵 [MixcloudLive] Usando stream en cache para $username');
+          DateTime.now().difference(_lastCheck!).inSeconds < 30) {
+        print('🎵 [MixcloudLive] Usando stream en cache para $username (menos de 30 segundos)');
         return _cachedStream;
       }
 
@@ -75,41 +77,73 @@ class MixcloudLiveService {
       final url = Uri.parse('$_baseUrl/mixcloud_stream_extractor.php?username=$username');
       
       final response = await http.get(url).timeout(
-        const Duration(seconds: 10),
+        const Duration(seconds: 120), // Aumentado a 120 segundos para dar tiempo a Playwright
         onTimeout: () {
-          throw TimeoutException('Timeout al obtener stream de Mixcloud');
+          throw TimeoutException('Timeout al obtener stream de Mixcloud (120s)');
         },
       );
 
       if (response.statusCode != 200) {
         print('⚠️ [MixcloudLive] Error HTTP ${response.statusCode}');
+        print('⚠️ [MixcloudLive] Response body: ${response.body}');
         return null;
       }
 
-      final json = jsonDecode(response.body);
+      print('🎵 [MixcloudLive] Response recibida (${response.body.length} bytes): ${response.body.substring(0, response.body.length > 500 ? 500 : response.body.length)}');
       
-      if (json['success'] == true && json['is_live'] == true) {
-        // Crear el stream con la URL del proxy en lugar de la URL directa
-        final originalUrl = json['stream_url'] ?? '';
-        final proxyUrl = _getProxyUrl(originalUrl);
+      Map<String, dynamic> json;
+      try {
+        json = jsonDecode(response.body) as Map<String, dynamic>;
+      } catch (e) {
+        print('❌ [MixcloudLive] Error parseando JSON: $e');
+        print('❌ [MixcloudLive] Response body completo: ${response.body}');
+        return null;
+      }
+      
+      print('🎵 [MixcloudLive] JSON parseado - success: ${json['success']}, is_live: ${json['is_live']}, stream_url: ${json['stream_url'] ?? 'N/A'}, error: ${json['error'] ?? 'N/A'}');
+      
+      // Aceptar tanto streams en vivo como sesiones grabadas (el proxy maneja el fallback)
+      if (json['success'] == true && json['stream_url'] != null && (json['stream_url'] as String).isNotEmpty) {
+        // Usar la URL directa del stream (los streams HLS se reproducen directamente sin proxy)
+        String originalUrl = json['stream_url'] ?? '';
         
-        // Modificar el JSON para usar la URL del proxy
-        final modifiedJson = Map<String, dynamic>.from(json);
-        modifiedJson['stream_url'] = proxyUrl;
+        // Asegurar que la URL termine en .m3u8 (no .m3u)
+        // Mixcloud siempre usa .m3u8, pero por si acaso viene .m3u, lo convertimos
+        if (originalUrl.isNotEmpty && originalUrl.endsWith('.m3u') && !originalUrl.endsWith('.m3u8')) {
+          originalUrl = originalUrl.replaceAll(RegExp(r'\.m3u$'), '.m3u8');
+          print('🎵 [MixcloudLive] URL convertida de .m3u a .m3u8: $originalUrl');
+          // Actualizar el JSON con la URL corregida
+          json['stream_url'] = originalUrl;
+        }
         
-        final stream = MixcloudLiveStream.fromJson(modifiedJson);
+        // Crear el stream con la URL directa (no usar proxy para HLS)
+        final stream = MixcloudLiveStream.fromJson(json);
         
         // Guardar en cache
         _cachedStream = stream;
         _lastCheck = DateTime.now();
         
-        print('✅ [MixcloudLive] Stream en vivo encontrado (original): $originalUrl');
-        print('🎵 [MixcloudLive] Stream proxy URL: $proxyUrl');
+        if (stream.isLive) {
+          print('✅ [MixcloudLive] Stream en vivo encontrado: $originalUrl');
+        } else {
+          print('✅ [MixcloudLive] Sesión grabada encontrada: $originalUrl');
+          if (json['cloudcast'] != null) {
+            final cloudcast = json['cloudcast'] as Map<String, dynamic>;
+            print('🎵 [MixcloudLive] Nombre: ${cloudcast['name'] ?? 'N/A'}');
+          }
+        }
         print('🎵 [MixcloudLive] Info: ${stream.info}');
         
         return stream;
       } else {
-        print('ℹ️ [MixcloudLive] No hay emisión en directo para $username');
+        print('ℹ️ [MixcloudLive] No hay stream disponible (ni en vivo ni grabado) para $username');
+        print('ℹ️ [MixcloudLive] Razón: success=${json['success']}, is_live=${json['is_live']}, stream_url=${json['stream_url'] ?? 'N/A'}');
+        if (json['error'] != null) {
+          print('⚠️ [MixcloudLive] Error del backend: ${json['error']}');
+        }
+        if (json['message'] != null) {
+          print('ℹ️ [MixcloudLive] Mensaje del backend: ${json['message']}');
+        }
         _cachedStream = null;
         _lastCheck = DateTime.now();
         return null;
@@ -137,5 +171,13 @@ class MixcloudLiveService {
   /// Obtener stream en vivo de UrbanFlow (djsonic_vlc)
   Future<MixcloudLiveStream?> getUrbanFlowLiveStream() async {
     return await getLiveStream('djsonic_vlc');
+  }
+
+  /// Obtener stream (en vivo o grabado) de UrbanFlow
+  /// El proxy se encarga de intentar primero el stream en vivo y luego la sesión grabada como fallback
+  Future<MixcloudLiveStream?> getUrbanFlowStream() async {
+    // El proxy (mixcloud_stream_extractor.php) se encarga del fallback automáticamente
+    // Solo necesitamos llamar a getLiveStream y el proxy devolverá en vivo o grabado
+    return await getUrbanFlowLiveStream();
   }
 }

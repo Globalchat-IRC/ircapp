@@ -31,8 +31,192 @@
 
   <title>irc_app</title>
   <link rel="manifest" href="manifest.json">
+  
+  <!-- hls.js para soporte de streams HLS -->
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 </head>
 <body>
   <script src="flutter_bootstrap.js" async></script>
+  
+  <!-- Script para manejar reproducción HLS -->
+  <script>
+    // Función global para reproducir streams HLS usando hls.js
+    window.playHLSStream = function(url, audioElementId) {
+      console.log('🎵 [HLS.js] Iniciando reproducción de:', url);
+      return new Promise(function(resolve, reject) {
+        try {
+          // Verificar que hls.js esté cargado
+          if (typeof Hls === 'undefined') {
+            console.error('❌ [HLS.js] hls.js no está cargado');
+            reject(new Error('hls.js no está cargado. Verifica que el script esté incluido en index.html'));
+            return;
+          }
+          
+          // Crear o obtener elemento de audio
+          let audioElement = document.getElementById(audioElementId);
+          if (!audioElement) {
+            console.log('🎵 [HLS.js] Creando nuevo elemento de audio:', audioElementId);
+            audioElement = document.createElement('audio');
+            audioElement.id = audioElementId;
+            audioElement.controls = false;
+            audioElement.style.display = 'none';
+            audioElement.preload = 'auto';
+            audioElement.volume = 0.7; // Volumen inicial (aumentado para mejor audibilidad)
+            document.body.appendChild(audioElement);
+          } else {
+            console.log('🎵 [HLS.js] Usando elemento de audio existente:', audioElementId);
+            // Asegurar que el volumen esté configurado
+            if (audioElement.volume === 0 || audioElement.volume < 0.1) {
+              audioElement.volume = 0.7;
+              console.log('🔊 [HLS.js] Volumen ajustado a:', audioElement.volume);
+            }
+          }
+          
+          // Limpiar instancia HLS anterior si existe
+          if (window.hlsInstance) {
+            console.log('🎵 [HLS.js] Destruyendo instancia HLS anterior');
+            window.hlsInstance.destroy();
+            window.hlsInstance = null;
+          }
+          
+          // Verificar si el navegador soporta HLS nativamente
+          if (audioElement.canPlayType('application/vnd.apple.mpegurl')) {
+            console.log('🎵 [HLS.js] Usando soporte nativo de HLS (Safari)');
+            // Safari y otros navegadores con soporte nativo
+            audioElement.src = url;
+            audioElement.addEventListener('loadedmetadata', function() {
+              console.log('🎵 [HLS.js] Metadata cargada, iniciando reproducción');
+              console.log('🎵 [HLS.js] Volumen del elemento:', audioElement.volume);
+              console.log('🎵 [HLS.js] Duración:', audioElement.duration);
+              
+              audioElement.play().then(function() {
+                console.log('✅ [HLS.js] Reproducción iniciada correctamente (nativo)');
+                console.log('✅ [HLS.js] Estado después de play (paused):', audioElement.paused);
+                console.log('✅ [HLS.js] Volumen final:', audioElement.volume);
+                
+                // Verificar que realmente se está reproduciendo
+                setTimeout(function() {
+                  if (audioElement.paused) {
+                    console.warn('⚠️ [HLS.js] El elemento está pausado después de play()');
+                  } else {
+                    console.log('✅ [HLS.js] Confirmado: el elemento está reproduciendo');
+                  }
+                }, 1000);
+                
+                resolve();
+              }).catch(function(error) {
+                console.error('❌ [HLS.js] Error al reproducir (nativo):', error);
+                console.error('❌ [HLS.js] Tipo de error:', error.name);
+                console.error('❌ [HLS.js] Mensaje:', error.message);
+                reject(error);
+              });
+            });
+            audioElement.addEventListener('error', function(e) {
+              console.error('❌ [HLS.js] Error en elemento de audio:', e);
+              reject(new Error('Error al cargar el stream: ' + (e.message || 'Error desconocido')));
+            });
+          } else if (Hls.isSupported()) {
+            console.log('🎵 [HLS.js] Usando hls.js para reproducir');
+            // Usar hls.js para navegadores que no soportan HLS nativamente
+            window.hlsInstance = new Hls({
+              enableWorker: true,
+              lowLatencyMode: true,
+              backBufferLength: 90,
+              debug: true // Habilitar debug para ver más información
+            });
+            
+            window.hlsInstance.loadSource(url);
+            window.hlsInstance.attachMedia(audioElement);
+            
+            window.hlsInstance.on(Hls.Events.MANIFEST_PARSED, function() {
+              console.log('🎵 [HLS.js] Manifest parseado, iniciando reproducción');
+              console.log('🎵 [HLS.js] Volumen del elemento:', audioElement.volume);
+              console.log('🎵 [HLS.js] Estado del elemento (paused):', audioElement.paused);
+              
+              audioElement.play().then(function() {
+                console.log('✅ [HLS.js] Reproducción iniciada correctamente (hls.js)');
+                console.log('✅ [HLS.js] Estado después de play (paused):', audioElement.paused);
+                console.log('✅ [HLS.js] Volumen final:', audioElement.volume);
+                
+                // Verificar que realmente se está reproduciendo
+                setTimeout(function() {
+                  if (audioElement.paused) {
+                    console.warn('⚠️ [HLS.js] El elemento está pausado después de play()');
+                  } else {
+                    console.log('✅ [HLS.js] Confirmado: el elemento está reproduciendo');
+                  }
+                }, 1000);
+                
+                resolve();
+              }).catch(function(error) {
+                console.error('❌ [HLS.js] Error al reproducir (hls.js):', error);
+                console.error('❌ [HLS.js] Tipo de error:', error.name);
+                console.error('❌ [HLS.js] Mensaje:', error.message);
+                reject(error);
+              });
+            });
+            
+            window.hlsInstance.on(Hls.Events.ERROR, function(event, data) {
+              console.error('❌ [HLS.js] Error HLS:', data);
+              if (data.fatal) {
+                switch(data.type) {
+                  case Hls.ErrorTypes.NETWORK_ERROR:
+                    console.error('❌ [HLS.js] Error de red');
+                    reject(new Error('Error de red al cargar el stream'));
+                    break;
+                  case Hls.ErrorTypes.MEDIA_ERROR:
+                    console.error('❌ [HLS.js] Error de media');
+                    reject(new Error('Error de media al reproducir el stream'));
+                    break;
+                  default:
+                    console.error('❌ [HLS.js] Error desconocido:', data.type);
+                    reject(new Error('Error desconocido: ' + data.type));
+                    break;
+                }
+              }
+            });
+          } else {
+            console.error('❌ [HLS.js] El navegador no soporta HLS');
+            reject(new Error('Tu navegador no soporta reproducción de streams HLS'));
+          }
+        } catch (error) {
+          console.error('❌ [HLS.js] Error en playHLSStream:', error);
+          reject(error);
+        }
+      });
+    };
+    
+    // Función para detener la reproducción HLS
+    window.stopHLSStream = function(audioElementId) {
+      console.log('🛑 [HLS.js] Deteniendo reproducción HLS');
+      let audioElement = document.getElementById(audioElementId);
+      if (audioElement) {
+        audioElement.pause();
+        audioElement.src = '';
+        audioElement.load(); // Forzar recarga
+      }
+      if (window.hlsInstance) {
+        window.hlsInstance.destroy();
+        window.hlsInstance = null;
+      }
+    };
+    
+    // Función para establecer el volumen del elemento HLS
+    window.setHLSVolume = function(audioElementId, volume) {
+      let audioElement = document.getElementById(audioElementId);
+      if (audioElement) {
+        audioElement.volume = Math.max(0, Math.min(1, volume));
+        console.log('🔊 [HLS.js] Volumen establecido a:', audioElement.volume);
+      }
+    };
+    
+    // Función para obtener el estado de reproducción
+    window.getHLSState = function(audioElementId) {
+      let audioElement = document.getElementById(audioElementId);
+      if (!audioElement) return 'stopped';
+      if (audioElement.paused) return 'stopped';
+      return 'playing';
+    };
+  </script>
 </body>
 </html>
