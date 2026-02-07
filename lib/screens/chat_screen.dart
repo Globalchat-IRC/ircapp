@@ -4818,11 +4818,19 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
            text.startsWith('data:video/');
   }
 
-  void _disconnect() {
+  void _disconnect() async {
     // Antes de limpiar, recordar el último canal para el login
     final currentChannel = ref.read(currentChannelProvider);
     if (currentChannel != null && currentChannel.isNotEmpty) {
       ref.read(lastChannelProvider.notifier).state = currentChannel;
+    }
+
+    // Limpiar historial del privado de "nick" antes de desconectar
+    try {
+      await ref.read(messagesProvider.notifier).clearPrivateHistory('nick');
+      print('✅ [ChatScreen] Historial del privado "nick" eliminado al desconectar');
+    } catch (e) {
+      print('⚠️ [ChatScreen] Error al limpiar historial de "nick": $e');
     }
 
     _ircService.disconnect();
@@ -11650,6 +11658,23 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   );
                 },
               ),
+              // Opción para borrar historial del privado (más visible, después de ver perfil)
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.delete_sweep, color: Colors.orange),
+                ),
+                title: const Text('Borrar Historial del Privado'),
+                subtitle: const Text('Eliminar todos los mensajes guardados de esta conversación'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _showClearPrivateHistoryDialog(context, nick);
+                },
+              ),
               ListTile(
                 leading: Container(
                   padding: const EdgeInsets.all(8),
@@ -11728,24 +11753,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       duration: const Duration(seconds: 2),
                     ),
                   );
-                },
-              ),
-              const Divider(),
-              // Opción para borrar historial del privado
-              ListTile(
-                leading: Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: Colors.red.withOpacity(0.2),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Icon(Icons.delete_sweep, color: Colors.red),
-                ),
-                title: const Text('Borrar Historial del Privado'),
-                subtitle: const Text('Eliminar todos los mensajes guardados de esta conversación'),
-                onTap: () {
-                  Navigator.pop(context);
-                  _showClearPrivateHistoryDialog(context, nick);
                 },
               ),
               // Separador y opciones de moderación (solo si el usuario es moderador)

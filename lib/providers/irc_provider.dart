@@ -371,7 +371,7 @@ class MessagesNotifier extends Notifier<List<IRCMessage>> {
     
     // Borrar del historial guardado en base de datos
     try {
-      final server = ref.read(ircServiceProvider).server;
+      final server = ref.read(ircServiceProvider).serverHost;
       if (server != null) {
         await ChatHistoryService().deleteChannelHistory(
           server: server,
@@ -398,7 +398,7 @@ class MessagesNotifier extends Notifier<List<IRCMessage>> {
     
     // Borrar del historial guardado en base de datos
     try {
-      final server = ref.read(ircServiceProvider).server;
+      final server = ref.read(ircServiceProvider).serverHost;
       if (server != null) {
         await ChatHistoryService().deletePrivateHistory(
           server: server,

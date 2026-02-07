@@ -14,6 +14,8 @@ class IRCService {
   IRCConnection? _connection;
   String? _currentHost; // Guardar host para serverHost getter
   String? _nickname;
+  String? _originalNickname; // Guardar el nick original para buscar alternativas
+  int _nickAttempts = 0; // Contador de intentos de nick alternativos
   String? _currentChannel;
   Map<String, IRCChannel> channels = {};
   final List<Function(IRCMessage)> _messageListeners = [];
@@ -99,6 +101,8 @@ class IRCService {
       print('📡 [IRCService.connect] Platform: ${PlatformUtils.isWeb ? "Web" : "Native"}');
       print('📡 [IRCService.connect] Nick original: "$nickname" -> Limpio: "$cleanNick"');
       _nickname = cleanNick;
+      _originalNickname = cleanNick; // Guardar el nick original
+      _nickAttempts = 0; // Resetear contador de intentos
       _isRegistered = false; // Reset registration status
       _connectionCompleter = Completer<void>(); // Reinicializar el completer
       
@@ -201,6 +205,10 @@ class IRCService {
     // Resetear flags de autojoin al desconectar
     _hasAutoJoinedGlobalChat = false;
     _manuallyClosedChannels.clear();
+    // Resetear nick
+    _nickname = null;
+    _originalNickname = null;
+    _nickAttempts = 0;
   }
 
   // Normalizar nombre de canal (case-insensitive, sin espacios)
@@ -1845,31 +1853,50 @@ class IRCService {
         case '433': // Nickname in use - try alternative
           print('⚠️ [IRCService] Error 433 recibido - Nickname in use: $_nickname');
           print('⚠️ [IRCService] Línea completa: $line');
-          // Solo añadir guion si realmente el nick no termina en guion
-          // y si el mensaje realmente indica que el nick está en uso
-          if (_nickname != null && !_nickname!.endsWith('_')) {
-            // Verificar que el mensaje realmente dice que el nick está en uso
-            final lineLower = line.toLowerCase();
-            if (lineLower.contains('nickname is already in use') || 
-                lineLower.contains('nick already in use') ||
-                lineLower.contains('nickname already in use')) {
-              print('⚠️ [IRCService] Nick realmente en uso, añadiendo guion: $_nickname -> ${_nickname}_');
-              final newNick = '${_nickname}_';
-              _nickname = newNick;
-              _sendCommand('NICK $newNick');
-              // Notificar a los listeners del cambio de nick
-              for (var listener in _nickChangeListeners) {
-                try {
-                  listener(newNick);
-                } catch (e) {
-                  // Ignorar errores en listeners
-                }
-              }
-            } else {
-              print('⚠️ [IRCService] Error 433 recibido pero el mensaje no indica que el nick esté en uso. Ignorando.');
-            }
+          
+          // Verificar que el mensaje realmente dice que el nick está en uso
+          final lineLower = line.toLowerCase();
+          final isNickInUse = lineLower.contains('nickname is already in use') || 
+                             lineLower.contains('nick already in use') ||
+                             lineLower.contains('nickname already in use');
+          
+          if (!isNickInUse) {
+            print('⚠️ [IRCService] Error 433 recibido pero el mensaje no indica que el nick esté en uso. Ignorando.');
+            break;
+          }
+          
+          if (_nickname == null) {
+            print('⚠️ [IRCService] Nick es null, no se puede buscar alternativa.');
+            break;
+          }
+          
+          // Buscar un nick alternativo
+          String newNick;
+          if (_originalNickname != null && _nickAttempts < 10) {
+            // Intentar con números: nick1, nick2, nick3, etc.
+            _nickAttempts++;
+            newNick = '$_originalNickname$_nickAttempts';
+            print('⚠️ [IRCService] Nick en uso, intentando alternativa $_nickAttempts: $_nickname -> $newNick');
+          } else if (!_nickname.endsWith('_')) {
+            // Si ya probamos números o no hay nick original, usar guion
+            newNick = '${_nickname}_';
+            print('⚠️ [IRCService] Nick en uso, añadiendo guion: $_nickname -> $newNick');
           } else {
-            print('⚠️ [IRCService] Nick ya termina en guion o es null, no se añade otro guion.');
+            // Si ya termina en guion, añadir otro
+            newNick = '${_nickname}_';
+            print('⚠️ [IRCService] Nick en uso, añadiendo otro guion: $_nickname -> $newNick');
+          }
+          
+          _nickname = newNick;
+          _sendCommand('NICK $newNick');
+          
+          // Notificar a los listeners del cambio de nick
+          for (var listener in _nickChangeListeners) {
+            try {
+              listener(newNick);
+            } catch (e) {
+              // Ignorar errores en listeners
+            }
           }
           break;
         

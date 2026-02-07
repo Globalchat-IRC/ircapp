@@ -7,6 +7,7 @@ import '../providers/history_provider.dart';
 import '../models/app_theme.dart';
 import '../services/backup_service.dart';
 import '../services/cache_service.dart';
+import '../services/chat_history_service.dart';
 import 'privacy_settings_screen.dart';
 import 'robots_settings_screen.dart';
 import 'package:file_picker/file_picker.dart';
@@ -566,6 +567,32 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     },
                     activeColor: appTheme.primary,
                   ),
+                  const SizedBox(height: 16),
+                  const Divider(),
+                  const SizedBox(height: 16),
+                  // Botón para borrar todo el historial de privados
+                  OutlinedButton.icon(
+                    onPressed: () => _showClearAllPrivateHistoryDialog(context, ref, appTheme),
+                    icon: const Icon(Icons.delete_sweep, color: Colors.red),
+                    label: const Text(
+                      'Borrar Todo el Historial de Privados',
+                      style: TextStyle(color: Colors.red),
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      side: const BorderSide(color: Colors.red),
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Elimina todos los mensajes privados guardados de todas las conversaciones',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: appTheme.textSecondary,
+                      fontStyle: FontStyle.italic,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
                 ],
               ),
             ),
@@ -1007,6 +1034,88 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               }
             },
             child: const Text('Guardar'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showClearAllPrivateHistoryDialog(
+    BuildContext context,
+    WidgetRef ref,
+    AppTheme appTheme,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: appTheme.surface,
+        title: Row(
+          children: [
+            const Icon(Icons.warning, color: Colors.orange),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'Borrar todo el historial de privados',
+                style: TextStyle(color: appTheme.textPrimary),
+              ),
+            ),
+          ],
+        ),
+        content: Text(
+          '¿Estás seguro de que quieres eliminar todos los mensajes privados guardados? Esta acción eliminará el historial de todas las conversaciones privadas y no se puede deshacer.',
+          style: TextStyle(color: appTheme.textSecondary),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(
+              'Cancelar',
+              style: TextStyle(color: appTheme.textSecondary),
+            ),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(context, true);
+              
+              try {
+                // Borrar de memoria
+                ref.read(messagesProvider.notifier).clearPrivateMessages();
+                
+                // Borrar de base de datos
+                final ircService = ref.read(ircServiceProvider);
+                final server = ircService.serverHost;
+                if (server != null) {
+                  await ChatHistoryService().deletePrivateMessages(server: server);
+                }
+                
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('✅ Todo el historial de privados ha sido eliminado correctamente'),
+                      duration: Duration(seconds: 3),
+                      backgroundColor: Colors.green,
+                    ),
+                  );
+                }
+              } catch (e) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('❌ Error al borrar historial: $e'),
+                      duration: const Duration(seconds: 3),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
+              }
+            },
+            child: const Text(
+              'Borrar Todo',
+              style: TextStyle(
+                color: Colors.red,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
           ),
         ],
       ),
