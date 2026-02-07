@@ -747,6 +747,82 @@ class IRCService {
     // print('📢 [IRCService] Enviando NOTICE a $target: $message');
   }
 
+  void sendPrivateNotice(String nick, String message, {int delaySeconds = 0}) {
+    final normalizedNick = nick.trim();
+    if (normalizedNick.isEmpty) return;
+    
+    // Crear un canal privado si no existe (los queries usan el nick como "canal")
+    final queryChannel = normalizedNick.toLowerCase();
+    if (!channels.containsKey(queryChannel)) {
+      channels[queryChannel] = IRCChannel(name: queryChannel);
+      // print('📤 [IRCService] Creado canal privado para: $queryChannel');
+    }
+    
+    // Generar un ID único para este mensaje pendiente
+    final pendingId = '${DateTime.now().millisecondsSinceEpoch}_${message.hashCode}';
+    
+    // Agregar el mensaje al canal privado local como PENDIENTE
+    final msg = IRCMessage(
+      nick: _nickname ?? 'You',
+      channel: queryChannel,
+      message: message,
+      timestamp: DateTime.now(),
+      isPending: true,
+      pendingId: pendingId,
+      delaySeconds: delaySeconds > 0 ? delaySeconds : null,
+      messageId: IRCMessage.generateMessageId(),
+    );
+    channels[queryChannel]!.addMessage(msg);
+    _notifyMessageListeners(msg);
+    
+    // Programar el envío después del delay
+    if (delaySeconds > 0) {
+      final timer = Timer(Duration(seconds: delaySeconds), () {
+        // Enviar el mensaje como NOTICE
+        final lines = message.split('\n');
+        for (var line in lines) {
+          line = line.trim();
+          if (line.isNotEmpty) {
+            _sendCommand('NOTICE $normalizedNick :$line');
+          }
+        }
+        _pendingMessageTimers.remove(pendingId);
+        
+        // Auto-confirmar después de 500ms si el servidor no hace eco
+        Timer(const Duration(milliseconds: 500), () {
+          final channelObj = channels[queryChannel];
+          if (channelObj != null) {
+            final currentPendingMessages = channelObj.messages.where((m) => m.isPending && m.pendingId == pendingId).toList();
+            if (currentPendingMessages.isNotEmpty) {
+              confirmPendingMessage(queryChannel, message, DateTime.now());
+            }
+          }
+        });
+      });
+      _pendingMessageTimers[pendingId] = timer;
+    } else {
+      // Sin delay, enviar inmediatamente como NOTICE
+      final lines = message.split('\n');
+      for (var line in lines) {
+        line = line.trim();
+        if (line.isNotEmpty) {
+          _sendCommand('NOTICE $normalizedNick :$line');
+        }
+      }
+      
+      // Auto-confirmar después de 500ms si el servidor no hace eco
+      Timer(const Duration(milliseconds: 500), () {
+        final channelObj = channels[queryChannel];
+        if (channelObj != null) {
+          final currentPendingMessages = channelObj.messages.where((m) => m.isPending && m.pendingId == pendingId).toList();
+          if (currentPendingMessages.isNotEmpty) {
+            confirmPendingMessage(queryChannel, message, DateTime.now());
+          }
+        }
+      });
+    }
+  }
+
   // Comandos de moderación
   void kickUser(String channel, String nick, [String? reason]) {
     final normalized = _normalizeChannelName(channel);
@@ -1219,6 +1295,36 @@ class IRCService {
   
   bool isUserIgnored(String nick) {
     return _ignoredUsers.contains(nick.toLowerCase());
+  }
+
+  // Detectar si un nick es un bot basándose en el host y el nick
+  bool _isBotByHostOrNick(String nick, String? host) {
+    final nickLower = nick.toLowerCase().trim();
+    
+    // Verificar por host
+    if (host != null) {
+      final hostLower = host.toLowerCase();
+      if (hostLower == 'robot.globalchat.org' ||
+          hostLower.endsWith('.robot.globalchat.org') ||
+          (hostLower.startsWith('robot.') && hostLower.contains('globalchat.org') && 
+           !hostLower.contains('netadmin') && !hostLower.contains('admin'))) {
+        return true;
+      }
+    }
+    
+    // Verificar por nick
+    final isBotByNick = nickLower.endsWith('bot') ||
+                        nickLower.startsWith('radio') ||
+                        nickLower == 'robot' ||
+                        nickLower == 'bot' ||
+                        nickLower == 'globalchat' ||
+                        nickLower == 'nickserv' ||
+                        nickLower == 'chanserv' ||
+                        nickLower == 'memoserv' ||
+                        nickLower == 'botserv' ||
+                        nickLower == 'hostserv';
+    
+    return isBotByNick;
   }
 
   // Enviar comando a ChanServ (Anope)
@@ -2675,6 +2781,15 @@ class IRCService {
                 final senderNick = nick.toLowerCase();
                 if (_ignoredUsers.contains(senderNick)) {
                   // print('🚫 [IRCService] Mensaje privado ignorado de usuario: $nick (en lista de ignorados: $_ignoredUsers)');
+                  
+                  // Verificar si NO es un robot antes de enviar respuesta automática
+                  final isBot = _isBotByHostOrNick(nick, host);
+                  if (!isBot) {
+                    // Enviar mensaje profesional al usuario ignorado como NOTICE
+                    final responseMessage = 'Este usuario tiene protegido por el modo +P. No recibe mensajes privados. Para hablar con él, mándale un memo o un notice.';
+                    sendPrivateNotice(nick, responseMessage, delaySeconds: 0);
+                  }
+                  
                   break; // Ignorar el mensaje completamente
                 }
                 // print('✅ [IRCService] Mensaje privado de "$nick" NO está en lista de ignorados. Lista actual: $_ignoredUsers');
@@ -3001,10 +3116,25 @@ class IRCService {
                   }
                 }
 
-                // 3) Si es un NOTICE del bot "nick" dirigido a nosotros,
-                // mostrarlo en el query privado "nick"
+                // 3) Verificar si es un NOTICE privado de un usuario ignorado
                 final cleanTarget = target.trim();
                 final cleanNickname = _nickname?.trim();
+                final isPrivateNoticeToUs = cleanNickname != null &&
+                    !target.startsWith('#') &&
+                    cleanTarget.toLowerCase() == cleanNickname.toLowerCase();
+                
+                if (isPrivateNoticeToUs) {
+                  // Es un NOTICE privado dirigido a nosotros
+                  final senderNick = nick.toLowerCase();
+                  if (_ignoredUsers.contains(senderNick)) {
+                    // Usuario ignorado: bloquear el NOTICE
+                    // No enviar respuesta automática para NOTICE (solo para PRIVMSG)
+                    break; // Ignorar el NOTICE completamente
+                  }
+                }
+
+                // 4) Si es un NOTICE del bot "nick" dirigido a nosotros,
+                // mostrarlo en el query privado "nick"
                 if (nick.toLowerCase() == 'nick' &&
                     cleanNickname != null &&
                     cleanTarget.toLowerCase() == cleanNickname.toLowerCase()) {
@@ -3021,6 +3151,60 @@ class IRCService {
                   channels[channelKey]!.addMessage(msg);
                   _notifyMessageListeners(msg);
                   // print('📥 [IRCService] NOTICE del bot "nick" añadido al query: "$messageContent"');
+                } else {
+                  // 5) Procesar NOTICE de otros usuarios (similar a PRIVMSG)
+                  
+                  // Filtrar mensajes del sistema del servidor (hostname con puntos)
+                  final isServerMessage = nick.contains('.') && 
+                      (nick.split('.').length > 2 || // Múltiples puntos (ej: ceres.globalchat.org)
+                       RegExp(r'\.(org|com|net|edu|gov|io|co|uk|de|fr|es|it|nl|be|ch|at|se|no|dk|fi|pl|cz|sk|hu|ro|bg|gr|pt|ie|lu|mt|cy|ee|lv|lt|si|hr|rs|ba|mk|al|me|is|li|ad|mc|sm|va|by|ua|md|ge|am|az|kz|uz|tm|tj|kg|mn|cn|jp|kr|in|au|nz|za|br|mx|ar|cl|co|pe|ve|ec|uy|py|bo|cr|pa|do|gt|hn|ni|sv|bz|jm|tt|bb|gd|lc|vc|ag|bs|dm|kn|sr|gy|fk|ai|vg|ky|bm|tc|ms|pw|fm|mh|nr|ki|tv|to|ws|sb|vu|nc|pf|as|gu|mp|pr|vi|um|us|ca)$', caseSensitive: false).hasMatch(nick));
+                  
+                  // Filtrar mensajes del sistema que empiezan con ***
+                  final isSystemMessage = messageContent.trim().startsWith('***');
+                  
+                  // No mostrar NOTICE del servidor o mensajes del sistema
+                  if (isServerMessage || isSystemMessage) {
+                    // print('🚫 [IRCService] NOTICE del sistema ignorado: $nick -> $messageContent');
+                    break;
+                  }
+                  
+                  // Determinar si es un canal (#) o un mensaje privado (nick)
+                  bool isChannel = target.startsWith('#');
+                  String channelKey;
+                  bool isPrivateNoticeToUs = false;
+                  
+                  if (isChannel) {
+                    // Es un NOTICE a un canal
+                    channelKey = _normalizeChannelName(target);
+                  } else {
+                    // Es un NOTICE privado
+                    final cleanNickname = _nickname?.trim();
+                    if (cleanNickname != null && cleanTarget.toLowerCase() == cleanNickname.toLowerCase()) {
+                      // NOTICE privado que nos envían, usar el nick del remitente
+                      isPrivateNoticeToUs = true;
+                      channelKey = nick.toLowerCase();
+                    } else {
+                      // NOTICE privado que enviamos, usar el target
+                      channelKey = cleanTarget.toLowerCase();
+                    }
+                  }
+                  
+                  // Crear el canal/query si no existe
+                  if (!channels.containsKey(channelKey)) {
+                    channels[channelKey] = IRCChannel(name: channelKey);
+                  }
+                  
+                  // Crear el mensaje NOTICE
+                  final msg = IRCMessage(
+                    nick: nick,
+                    channel: channelKey,
+                    message: messageContent,
+                    timestamp: DateTime.now(),
+                  );
+                  
+                  channels[channelKey]!.addMessage(msg);
+                  _notifyMessageListeners(msg);
+                  // print('📢 [IRCService] NOTICE añadido: $nick -> $channelKey: $messageContent');
                 }
               }
             }

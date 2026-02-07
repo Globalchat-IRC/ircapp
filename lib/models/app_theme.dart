@@ -390,5 +390,16 @@ class AppTheme {
       textSecondary: const Color(0xFFCBD5E1), // Gris azulado claro (texto secundario)
       error: const Color(0xFFEF4444), // Rojo moderno para errores
     ),
+    AppTheme(
+      name: 'mIRC',
+      primary: const Color(0xFFC0C0C0), // Gris claro para barras de herramientas (estilo mIRC clásico)
+      secondary: const Color(0xFF808080), // Gris medio para elementos secundarios
+      accent: const Color(0xFF0000FF), // Azul IRC clásico para links y acentos
+      background: const Color(0xFFFFFFFF), // Fondo blanco (estilo mIRC clásico)
+      surface: const Color(0xFFF0F0F0), // Gris muy claro para superficies (paneles)
+      textPrimary: const Color(0xFF000000), // Texto negro (estilo mIRC clásico)
+      textSecondary: const Color(0xFF404040), // Gris oscuro para texto secundario
+      error: const Color(0xFFFF0000), // Rojo clásico para errores
+    ),
   ];
 }

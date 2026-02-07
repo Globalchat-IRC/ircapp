@@ -6,6 +6,9 @@ import '../services/radio_service.dart';
 import '../models/app_theme.dart';
 import '../providers/theme_provider.dart';
 import 'radio_stations_list.dart';
+import '../utils/platform_utils.dart';
+// ignore: avoid_web_libraries_in_flutter
+import 'dart:html' as html;
 
 class RadioControls extends ConsumerStatefulWidget {
   const RadioControls({Key? key}) : super(key: key);
@@ -72,20 +75,20 @@ class _RadioControlsState extends ConsumerState<RadioControls> {
         if (updatedStation != null) {
           try {
             await radioService.playStation(updatedStation);
-            // print('📻 Reproducción iniciada exitosamente');
-            ref.read(radioProvider.notifier).setPlaying(true);
-            ref.read(radioProvider.notifier).setError(false);
-          } catch (e) {
-            // print('❌ Error al reproducir: $e');
-            ref.read(radioProvider.notifier).setError(true);
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('Error al reproducir la radio: $e'),
-                  backgroundColor: Colors.red,
-                  duration: const Duration(seconds: 3),
-                ),
-              );
+          // print('📻 Reproducción iniciada exitosamente');
+          ref.read(radioProvider.notifier).setPlaying(true);
+          ref.read(radioProvider.notifier).setError(false);
+        } catch (e) {
+          // print('❌ Error al reproducir: $e');
+          ref.read(radioProvider.notifier).setError(true);
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Error al reproducir la radio: $e'),
+                backgroundColor: Colors.red,
+                duration: const Duration(seconds: 3),
+              ),
+            );
             }
           }
         }
@@ -119,41 +122,52 @@ class _RadioControlsState extends ConsumerState<RadioControls> {
     print('🎵 [RadioControls] Estación actualizada: ${updatedStation?.name}');
     print('🎵 [RadioControls] URL a reproducir: ${updatedStation?.source}');
     
+    // Log también en la consola del navegador directamente
+    if (PlatformUtils.isWeb) {
+      // ignore: avoid_web_libraries_in_flutter
+      html.window.console.log('🎵 [RadioControls] Estación: ${updatedStation?.name}');
+      // ignore: avoid_web_libraries_in_flutter
+      html.window.console.log('🎵 [RadioControls] URL: ${updatedStation?.source}');
+    }
+    
     if (updatedStation != null) {
       try {
+        print('🎵 [RadioControls] Llamando a radioService.playStation...');
+        // ignore: avoid_web_libraries_in_flutter
+        if (PlatformUtils.isWeb) html.window.console.log('🎵 [RadioControls] Llamando playStation...');
         await radioService.playStation(updatedStation);
-        ref.read(radioProvider.notifier).setPlaying(true);
-        ref.read(radioProvider.notifier).setError(false);
-      } catch (e) {
-        ref.read(radioProvider.notifier).setError(true);
-        ref.read(radioProvider.notifier).setPlaying(false);
-        
-        // Mostrar mensaje al usuario con información útil
-        if (mounted) {
+      ref.read(radioProvider.notifier).setPlaying(true);
+      ref.read(radioProvider.notifier).setError(false);
+    } catch (e) {
+      ref.read(radioProvider.notifier).setError(true);
+      ref.read(radioProvider.notifier).setPlaying(false);
+      
+      // Mostrar mensaje al usuario con información útil
+      if (mounted) {
           String errorMessage = 'No se pudo reproducir ${updatedStation.name}';
-          if (e.toString().contains('CORS') || e.toString().contains('Failed to load')) {
-            errorMessage += '\n\nEl servidor de radio puede tener restricciones de CORS.\nIntenta con otra estación.';
-          } else {
-            errorMessage += '\n\nError: ${e.toString().split(':').last.trim()}\nIntenta con otra estación.';
-          }
-          
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                errorMessage,
-                style: const TextStyle(color: Colors.white),
-              ),
-              backgroundColor: Colors.orange,
-              duration: const Duration(seconds: 6),
-              action: SnackBarAction(
-                label: 'Cerrar',
-                textColor: Colors.white,
-                onPressed: () {
-                  ScaffoldMessenger.of(context).hideCurrentSnackBar();
-                },
-              ),
+        if (e.toString().contains('CORS') || e.toString().contains('Failed to load')) {
+          errorMessage += '\n\nEl servidor de radio puede tener restricciones de CORS.\nIntenta con otra estación.';
+        } else {
+          errorMessage += '\n\nError: ${e.toString().split(':').last.trim()}\nIntenta con otra estación.';
+        }
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              errorMessage,
+              style: const TextStyle(color: Colors.white),
             ),
-          );
+            backgroundColor: Colors.orange,
+            duration: const Duration(seconds: 6),
+            action: SnackBarAction(
+              label: 'Cerrar',
+              textColor: Colors.white,
+              onPressed: () {
+                ScaffoldMessenger.of(context).hideCurrentSnackBar();
+              },
+            ),
+          ),
+        );
         }
       }
     }

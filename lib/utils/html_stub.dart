@@ -5,6 +5,13 @@ class Window {
   Location get location => Location();
   dynamic get navigator => _Navigator();
   dynamic get console => _Console();
+  dynamic get context => _Context();
+  void eval(String code) {} // Stub para eval
+}
+
+class _Context {
+  dynamic operator [](String key) => null;
+  void operator []=(String key, dynamic value) {}
 }
 
 class Location {
@@ -89,4 +96,19 @@ class _Style {
   String border = '';
   String width = '';
   String height = '';
+}
+
+// Stub para allowInterop (usado en radio_service.dart)
+T allowInterop<T extends Function>(T f) => f;
+
+// Stub para AudioElement (usado en radio_service.dart)
+class AudioElement {
+  String? id;
+  String src = '';
+  bool paused = true;
+  double volume = 1.0;
+  Future<void> play() async {}
+  void pause() {}
+  Stream<dynamic> get onLoadedMetadata => const Stream.empty();
+  Stream<dynamic> get onError => const Stream.empty();
 }

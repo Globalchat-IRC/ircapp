@@ -226,14 +226,29 @@ class RadioNotifier extends Notifier<RadioState> {
     if (state.stations.isEmpty) return;
 
     try {
-      final url =
-          'https://webchat.globalchat.org/static/plugins/stations.json';
-      final response = await http
-          .get(Uri.parse(url))
-          .timeout(const Duration(seconds: 8));
+      // Intentar cargar desde mobilev1 primero, luego fallback a webchat
+      final urls = [
+        'https://mobilev1.globalchat.org/static/plugins/stations.json',
+        'https://webchat.globalchat.org/static/plugins/stations.json',
+      ];
+      
+      http.Response? response;
+      for (final url in urls) {
+        try {
+          response = await http
+              .get(Uri.parse(url))
+              .timeout(const Duration(seconds: 5));
+          if (response.statusCode == 200) {
+            break; // Éxito, salir del bucle
+          }
+        } catch (e) {
+          // Continuar con la siguiente URL
+          continue;
+        }
+      }
 
-      if (response.statusCode != 200) {
-        print('⚠️ [RadioProvider] Error al obtener JSON: ${response.statusCode}');
+      if (response == null || response.statusCode != 200) {
+        // Silencioso: el archivo JSON es opcional, las estaciones ya están hardcodeadas
         return;
       }
 

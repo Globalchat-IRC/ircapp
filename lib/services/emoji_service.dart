@@ -574,6 +574,10 @@ class EmojiService {
     ':bacteria2:': 'bacteria_52843',
     // Emojis de Pumuckl de Slackmojis
     ':pumuckl:': 'pumuckl_5661',
+    // Pato animado (personalizado - similar a antipatos)
+    ':pato:': 'pato_antipatos',
+    ':antipatos:': 'pato_antipatos',
+    ':duck:': 'pato_antipatos',
     // Emojis de Banderas de Slackmojis
     ':spain:': 'spain_37163',
     ':es:': 'spain_37163',
@@ -794,7 +798,8 @@ class EmojiService {
         // Si es un codepoint hexadecimal de Noto (ej: "1f389"), lo usamos directamente
         final isCustomAsset = !RegExp(r'^[0-9a-f_]+$').hasMatch(codepoint);
         if (isCustomAsset) {
-          // Asset personalizado: usar el nombre completo con extensión
+          // Asset personalizado: intentar primero GIF, luego PNG
+          // El código que carga la imagen verificará si existe
           return '${animatedAssetBasePath}${codepoint}.gif';
         } else {
           // Codepoint de Noto: usar formato estándar
@@ -814,6 +819,15 @@ class EmojiService {
   static bool isAssetPath(String? url) {
     if (url == null) return false;
     return url.startsWith('assets/');
+  }
+
+  /// Obtener URL alternativa (PNG) si el GIF no existe para assets personalizados
+  static String? getAlternativeAssetUrl(String? emojiUrl) {
+    if (emojiUrl == null || !emojiUrl.startsWith('assets/')) return null;
+    if (emojiUrl.endsWith('.gif')) {
+      return emojiUrl.replaceAll('.gif', '.png');
+    }
+    return null;
   }
 
   /// Fallback por si el asset local no existe (o falla al cargar).
@@ -1052,6 +1066,7 @@ class EmojiService {
       ':gorilla:', ':orangutan:', ':chipmunk:', ':otter:', ':bat:', ':bird:',
       ':black_bird:', ':rooster:', ':hatching_chick:', ':baby_chick:', ':hatched_chick:',
       ':eagle:', ':owl:', ':dove:', ':goose:', ':peacock:', ':phoenix:',
+      ':pato:', ':antipatos:', ':duck:', // Pato animado
       ':seal:', ':shark:', ':dolphin:', ':whale:', ':fish:', ':blowfish:',
       ':lobster:', ':crab:', ':octopus:', ':jellyfish:', ':scorpion:', ':spider:',
       ':snail:', ':ant:', ':mosquito:', ':cockroach:', ':fly:', ':bee:',

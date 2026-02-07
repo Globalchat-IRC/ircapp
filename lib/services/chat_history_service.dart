@@ -99,6 +99,46 @@ class ChatHistoryService {
     }
   }
 
+  /// Eliminar historial de un canal específico
+  Future<void> deleteChannelHistory({
+    required String server,
+    required String channel,
+  }) async {
+    try {
+      final db = await _openDb();
+      if (db == null) return; // No disponible en web
+      
+      await db.delete(
+        'messages',
+        where: 'server = ? AND channel = ?',
+        whereArgs: [server, channel],
+      );
+    } catch (e) {
+      // ignore: avoid_print
+      // print('⚠️ [ChatHistoryService] Error eliminando historial del canal: $e');
+    }
+  }
+
+  /// Eliminar historial de un privado específico
+  Future<void> deletePrivateHistory({
+    required String server,
+    required String nick,
+  }) async {
+    try {
+      final db = await _openDb();
+      if (db == null) return; // No disponible en web
+      
+      await db.delete(
+        'messages',
+        where: 'server = ? AND channel = ?',
+        whereArgs: [server, nick],
+      );
+    } catch (e) {
+      // ignore: avoid_print
+      // print('⚠️ [ChatHistoryService] Error eliminando historial privado: $e');
+    }
+  }
+
   Future<List<IRCMessage>> loadRecentMessages({
     required String server,
     required String channel,

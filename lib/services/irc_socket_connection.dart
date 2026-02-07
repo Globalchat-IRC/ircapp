@@ -99,7 +99,8 @@ class IRCSocketConnection implements IRCConnection {
       throw StateError('No conectado al servidor');
     }
     
-    final bytes = data.codeUnits;
+    // Codificar como UTF-8 para soportar caracteres especiales (ñ, acentos, etc.)
+    final bytes = utf8.encode(data);
     if (_secureSocket != null) {
       _secureSocket!.add(bytes);
     } else if (_socket != null) {

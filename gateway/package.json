@@ -1,33 +1,15 @@
 {
-  "name": "irc-websocket-gateway",
+  "name": "mixcloud-stream-extractor",
   "version": "1.0.0",
-  "description": "WebSocket Gateway para enrutar conexiones IRC en GlobalChat",
-  "main": "websocket-gateway.js",
+  "description": "Extractor de streams de Mixcloud Live usando Puppeteer",
+  "main": "mixcloud_stream_extractor.js",
   "scripts": {
-    "start": "node websocket-gateway.js",
-    "dev": "nodemon websocket-gateway.js"
+    "test": "node mixcloud_stream_extractor.js djsonic_vlc"
   },
-  "keywords": [
-    "irc",
-    "websocket",
-    "gateway",
-    "proxy"
-  ],
-  "author": "GlobalChat",
-  "license": "MIT",
   "dependencies": {
-    "ws": "^8.14.2"
-  },
-  "devDependencies": {
-    "nodemon": "^3.0.1"
+    "puppeteer": "^21.0.0"
   },
   "engines": {
     "node": ">=14.0.0"
   }
 }
-
-
-
-
-
-

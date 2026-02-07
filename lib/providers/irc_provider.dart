@@ -11,6 +11,7 @@ import '../models/emoji_config.dart';
 import '../models/server_profile.dart';
 import '../models/custom_robot.dart';
 import '../services/irc_service.dart';
+import '../services/chat_history_service.dart';
 import '../utils/platform_utils.dart';
 import 'history_provider.dart';
 
@@ -358,6 +359,57 @@ class MessagesNotifier extends Notifier<List<IRCMessage>> {
       // Eliminar todos los mensajes privados, especialmente de "nick" y "nickserv"
       return false;
     }).toList();
+    _saveHistory();
+  }
+
+  /// Borrar historial de un canal específico
+  Future<void> clearChannelHistory(String channel) async {
+    final normalizedChannel = channel.toLowerCase();
+    state = state.where((message) {
+      return message.channel.toLowerCase() != normalizedChannel;
+    }).toList();
+    
+    // Borrar del historial guardado en base de datos
+    try {
+      final server = ref.read(ircServiceProvider).server;
+      if (server != null) {
+        await ChatHistoryService().deleteChannelHistory(
+          server: server,
+          channel: channel,
+        );
+      }
+    } catch (e) {
+      print('⚠️ [MessagesNotifier] Error borrando historial del canal: $e');
+    }
+    
+    _saveHistory();
+  }
+
+  /// Borrar historial de un privado específico
+  Future<void> clearPrivateHistory(String nick) async {
+    final normalizedNick = nick.toLowerCase();
+    state = state.where((message) {
+      // Eliminar mensajes privados con este nick (canal == nick)
+      if (!message.channel.startsWith('#')) {
+        return message.channel.toLowerCase() != normalizedNick;
+      }
+      return true; // Mantener mensajes de canales
+    }).toList();
+    
+    // Borrar del historial guardado en base de datos
+    try {
+      final server = ref.read(ircServiceProvider).server;
+      if (server != null) {
+        await ChatHistoryService().deletePrivateHistory(
+          server: server,
+          nick: nick,
+        );
+      }
+    } catch (e) {
+      print('⚠️ [MessagesNotifier] Error borrando historial privado: $e');
+    }
+    
+    _saveHistory();
   }
 
   void _onMessage(IRCMessage message) {

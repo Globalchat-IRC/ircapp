@@ -55,6 +55,7 @@ import '../widgets/email_verification_dialog.dart';
 import '../models/user_role.dart';
 import '../widgets/debug_connection_window.dart';
 import '../widgets/voice_assistant_dialog.dart';
+import '../widgets/rustdesk_support_dialog.dart';
 import '../providers/debug_log_provider.dart';
 import '../models/video_report.dart' as video_report_model;
 import '../services/video_conference_service.dart' show ConferenceType;
@@ -276,6 +277,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   List<IRCMessage> _searchResults = [];
   bool _showUserList = true; // Control de visibilidad de la lista de usuarios
   bool _showChannelsSidebar = true; // Control de visibilidad del sidebar de canales
+  bool _useNoticeForPrivate = false; // Control para usar NOTICE en lugar de PRIVMSG en mensajes privados
   
   // Autocompletado de comandos
   List<Map<String, String>> _commandSuggestions = [];
@@ -2581,8 +2583,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     if (normalizedChannel.startsWith('#')) {
       _ircService.sendMessage(normalizedChannel, message, delaySeconds: delaySeconds);
     } else {
-      // Es un query, enviar mensaje privado
-      _ircService.sendPrivateMessage(normalizedChannel, message, delaySeconds: delaySeconds);
+      // Es un query, enviar mensaje privado o NOTICE según la configuración
+      if (_useNoticeForPrivate) {
+        _ircService.sendPrivateNotice(normalizedChannel, message, delaySeconds: delaySeconds);
+      } else {
+        _ircService.sendPrivateMessage(normalizedChannel, message, delaySeconds: delaySeconds);
+      }
     }
     
     // Añadir a recientes también al enviar mensaje
@@ -4578,7 +4584,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       );
       final response = await http.Response.fromStream(streamedResponse);
       
-      print('📥 [Cloudinary] Respuesta: ${response.statusCode}');
+        print('📥 [Cloudinary] Respuesta: ${response.statusCode}');
       
       if (response.statusCode == 200) {
         try {
@@ -4608,6 +4614,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         }
         print('❌ [Cloudinary] Error HTTP: ${response.statusCode}');
         print('❌ [Cloudinary] Mensaje: $errorMsg');
+        print('❌ [Cloudinary] Upload Preset usado: $uploadPreset');
+        print('❌ [Cloudinary] Cloud Name: $cloudName');
+        
+        // Mensaje más específico para error 401
+        if (response.statusCode == 401) {
+          throw Exception('Error de autenticación (401): El upload preset "$uploadPreset" no existe o no está configurado correctamente en Cloudinary. Verifica que el preset exista y esté habilitado en tu cuenta de Cloudinary.');
+        }
+        
         throw Exception('Error HTTP ${response.statusCode}: $errorMsg');
       }
     } catch (e) {
@@ -4683,7 +4697,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       );
       final response = await http.Response.fromStream(streamedResponse);
       
-      print('📥 [Cloudinary] Respuesta: ${response.statusCode}');
+        print('📥 [Cloudinary] Respuesta: ${response.statusCode}');
       
       if (response.statusCode == 200) {
         try {
@@ -4713,6 +4727,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         }
         print('❌ [Cloudinary] Error HTTP: ${response.statusCode}');
         print('❌ [Cloudinary] Mensaje: $errorMsg');
+        print('❌ [Cloudinary] Upload Preset usado: $uploadPreset');
+        print('❌ [Cloudinary] Cloud Name: $cloudName');
+        
+        // Mensaje más específico para error 401
+        if (response.statusCode == 401) {
+          throw Exception('Error de autenticación (401): El upload preset "$uploadPreset" no existe o no está configurado correctamente en Cloudinary. Verifica que el preset exista y esté habilitado en tu cuenta de Cloudinary.');
+        }
+        
         throw Exception('Error HTTP ${response.statusCode}: $errorMsg');
       }
     } catch (e) {
@@ -4880,6 +4902,21 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final channels = ref.watch(channelsProvider);
     final isConnected = ref.watch(connectionStatusProvider);
     final appTheme = ref.watch(themeProvider);
+    
+    // Listener para establecer el foco en el campo de texto cuando cambia el canal
+    ref.listen<String?>(currentChannelProvider, (previous, next) {
+      // Cuando cambia el canal, establecer el foco en el campo de texto
+      if (next != null && next != previous) {
+        // Usar un pequeño delay para asegurar que el widget esté completamente construido
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          Future.delayed(const Duration(milliseconds: 100), () {
+            if (mounted && _messageFocusNode.canRequestFocus) {
+              _messageFocusNode.requestFocus();
+            }
+          });
+        });
+      }
+    });
     
     // Verificar también el estado del servicio directamente como respaldo
     final serviceConnected = _ircService.isConnected;
@@ -5393,10 +5430,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         emoji: '💬',
                         label: 'CAU',
                         onPressed: () {
-                          // Entrar automáticamente a los canales de ayuda
-                          _joinChannel('#ayuda');
-                          _joinChannel('#cau');
-                          // Mostrar además el centro de ayuda
+                          // Solo mostrar el diálogo de soporte, sin unirse automáticamente a los canales
+                          // para evitar que se abra el asistente AI
                           _showSupportDialog(context);
                         },
                       ),
@@ -5434,10 +5469,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         onSelected: (value) {
                           switch (value) {
                             case 'cau':
-                              // Entrar automáticamente a los canales de ayuda
-                              _joinChannel('#ayuda');
-                              _joinChannel('#cau');
-                              // Mostrar además el centro de ayuda
+                              // Solo mostrar el diálogo de soporte, sin unirse automáticamente a los canales
+                              // para evitar que se abra el asistente AI
                               _showSupportDialog(context);
                               break;
                             case 'nick':
@@ -6495,6 +6528,31 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                             ), // Shortcuts
                           ), // Expanded
                           const SizedBox(width: 8),
+                          // Toggle para NOTICE/PRIVMSG (solo en mensajes privados)
+                          if (currentChannel != null && !currentChannel.startsWith('#'))
+                            Tooltip(
+                              message: _useNoticeForPrivate ? 'Cambiar a PRIVMSG' : 'Cambiar a NOTICE',
+                              child: IconButton(
+                                onPressed: () {
+                                  setState(() {
+                                    _useNoticeForPrivate = !_useNoticeForPrivate;
+                                  });
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(_useNoticeForPrivate 
+                                          ? 'Modo NOTICE activado' 
+                                          : 'Modo PRIVMSG activado'),
+                                      duration: const Duration(seconds: 1),
+                                    ),
+                                  );
+                                },
+                                icon: Icon(
+                                  _useNoticeForPrivate ? Icons.notifications_active : Icons.chat,
+                                  color: _useNoticeForPrivate ? appTheme.accent : appTheme.textSecondary,
+                                ),
+                                tooltip: _useNoticeForPrivate ? 'Cambiar a PRIVMSG' : 'Cambiar a NOTICE',
+                              ),
+                            ),
                           // Botón para enviar con delay normal
                           FloatingActionButton(
                             onPressed: _sendMessage,
@@ -9447,12 +9505,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       
       // Usar SelectableText.rich para permitir selección de texto en web
       // Asegurar que el color esté en el estilo base para que se herede correctamente
+      // Asegurar que el texto se renderice correctamente con UTF-8
       return SelectableText.rich(
         TextSpan(
           children: spans,
           style: TextStyle(
             color: isOwnMessage ? Colors.white : appTheme.textPrimary,
             fontSize: isBot ? 16 : 15,
+            fontFeatures: const [FontFeature.enable('liga')],
           ),
         ),
       );
@@ -9487,6 +9547,62 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                           height: emojiSize + 2,
                           fit: BoxFit.contain,
                           errorBuilder: (context, error, stackTrace) {
+                            // Intentar PNG si GIF no existe
+                            final alternativeUrl = EmojiService.getAlternativeAssetUrl(emojiUrl);
+                            if (alternativeUrl != null) {
+                              return Image.asset(
+                                alternativeUrl,
+                                width: emojiSize + 2,
+                                height: emojiSize + 2,
+                                fit: BoxFit.contain,
+                                errorBuilder: (context, error, stackTrace) {
+                                  final fallbackUrl =
+                                      EmojiService.getAnimatedFallbackNetworkUrl(part);
+                                  if (fallbackUrl != null) {
+                                    return Image.network(
+                                      fallbackUrl,
+                                      width: emojiSize + 2,
+                                      height: emojiSize + 2,
+                                      fit: BoxFit.contain,
+                                      errorBuilder: (context, error, stackTrace) {
+                                        if (unicode != null) {
+                                          return Text(
+                                            unicode,
+                                            style: TextStyle(
+                                              fontSize: emojiSize,
+                                              color: defaultColor,
+                                            ),
+                                          );
+                                        }
+                                        return Text(
+                                          part,
+                                          style: TextStyle(
+                                            color: defaultColor,
+                                            fontSize: 15,
+                                          ),
+                                        );
+                                      },
+                                    );
+                                  }
+                                  if (unicode != null) {
+                                    return Text(
+                                      unicode,
+                                      style: TextStyle(
+                                        fontSize: emojiSize,
+                                        color: defaultColor,
+                                      ),
+                                    );
+                                  }
+                                  return Text(
+                                    part,
+                                    style: TextStyle(
+                                      color: defaultColor,
+                                      fontSize: 15,
+                                    ),
+                                  );
+                                },
+                              );
+                            }
                             final fallbackUrl =
                                 EmojiService.getAnimatedFallbackNetworkUrl(part);
                             if (fallbackUrl != null) {
@@ -9900,6 +10016,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     if (isQuery && (topic == null || topic.isEmpty)) {
       // El nick es el nombre del canal (query)
       final nick = channel;
+      final isIgnored = _ircService.isUserIgnored(nick);
+      
       return Container(
         height: 40,
         decoration: BoxDecoration(
@@ -9910,34 +10028,70 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             ],
           ),
         ),
-        child: Center(
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                Icons.person,
-                size: 16,
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.person,
+              size: 16,
+              color: appTheme.accent,
+            ),
+            const SizedBox(width: 6),
+            Text(
+              'Mensaje Privado con ',
+              style: TextStyle(
+                color: appTheme.textSecondary,
+                fontSize: 12,
+                fontStyle: FontStyle.italic,
+              ),
+            ),
+            Text(
+              nick,
+              style: TextStyle(
                 color: appTheme.accent,
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
               ),
-              const SizedBox(width: 6),
-          Text(
-                'Mensaje Privado con ',
-                style: TextStyle(
-                  color: appTheme.textSecondary,
-                  fontSize: 12,
-                  fontStyle: FontStyle.italic,
-                ),
+            ),
+            // Botón de Ignorar/Designorar para todos los mensajes privados
+            const SizedBox(width: 12),
+            IconButton(
+              icon: Icon(
+                isIgnored ? Icons.check_circle : Icons.block,
+                color: isIgnored ? Colors.green : Colors.red,
+                size: 20,
               ),
-              Text(
-                nick,
-                style: TextStyle(
-                  color: appTheme.accent,
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                ),
+              tooltip: isIgnored ? 'Designorar usuario' : 'Ignorar usuario',
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(
+                minWidth: 32,
+                minHeight: 32,
               ),
-            ],
-          ),
+              onPressed: () {
+                if (isIgnored) {
+                  _ircService.sendUnignore(nick);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Dejando de ignorar mensajes de $nick...'),
+                      duration: const Duration(seconds: 2),
+                    ),
+                  );
+                } else {
+                  _ircService.sendIgnore(nick);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Ignorando mensajes de $nick...'),
+                      duration: const Duration(seconds: 2),
+                    ),
+                  );
+                }
+                // Actualizar el estado del botón automáticamente
+                if (mounted) {
+                  setState(() {});
+                }
+              },
+            ),
+          ],
         ),
       );
     }
@@ -10561,10 +10715,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             ],
           ),
           child: SafeArea(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
                 Row(
                   children: [
                     Container(
@@ -10659,6 +10814,64 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 Row(
                   children: [
                     Expanded(
+                      child: ElevatedButton(
+                        onPressed: () {
+                          final navigatorContext = Navigator.of(context);
+                          navigatorContext.pop();
+                          // Usar un pequeño delay para asegurar que el bottom sheet se cierre primero
+                          Future.delayed(const Duration(milliseconds: 100), () {
+                            showDialog(
+                              context: context,
+                              builder: (dialogContext) => RustDeskSupportDialog(
+                                appTheme: appTheme,
+                                onJoinHelpChannel: () {
+                                  // No unirse automáticamente para evitar que se abra el asistente AI
+                                  // El usuario puede unirse manualmente si lo desea
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text('Puedes unirte manualmente a #Ayuda o #cau desde la lista de canales'),
+                                      duration: Duration(seconds: 3),
+                                    ),
+                                  );
+                                },
+                              ),
+                            );
+                          });
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: appTheme.secondary,
+                          foregroundColor: appTheme.textPrimary,
+                          padding: const EdgeInsets.symmetric(
+                              vertical: 14, horizontal: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          textStyle: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: const [
+                            Text('🖥️', style: TextStyle(fontSize: 18)),
+                            SizedBox(width: 8),
+                            Flexible(
+                              child: Text(
+                                'Soporte Remoto (RustDesk)',
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
                       child: OutlinedButton(
                         onPressed: () async {
                           const url =
@@ -10718,6 +10931,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   ),
                 ),
               ],
+            ),
             ),
           ),
         );
@@ -11516,6 +11730,24 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   );
                 },
               ),
+              const Divider(),
+              // Opción para borrar historial del privado
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.red.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.delete_sweep, color: Colors.red),
+                ),
+                title: const Text('Borrar Historial del Privado'),
+                subtitle: const Text('Eliminar todos los mensajes guardados de esta conversación'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _showClearPrivateHistoryDialog(context, nick);
+                },
+              ),
               // Separador y opciones de moderación (solo si el usuario es moderador)
               Builder(
                 builder: (context) {
@@ -12107,6 +12339,24 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     },
                   ),
                 ],
+                const Divider(),
+                // Opción para borrar historial del canal
+                ListTile(
+                  leading: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.red.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Icon(Icons.delete_sweep, color: Colors.red),
+                  ),
+                  title: const Text('Borrar Historial del Canal'),
+                  subtitle: const Text('Eliminar todos los mensajes guardados de este canal'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _showClearChannelHistoryDialog(context, channel);
+                  },
+                ),
                 const SizedBox(height: 8),
               ],
             ),
@@ -14632,6 +14882,151 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  void _showClearChannelHistoryDialog(BuildContext context, String channel) {
+    final appTheme = ref.read(themeProvider);
+    
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: appTheme.surface,
+        title: Row(
+          children: [
+            const Icon(Icons.warning, color: Colors.orange),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'Borrar historial del canal',
+                style: TextStyle(color: appTheme.textPrimary),
+              ),
+            ),
+          ],
+        ),
+        content: Text(
+          '¿Estás seguro de que quieres eliminar todos los mensajes guardados del canal $channel? Esta acción no se puede deshacer.',
+          style: TextStyle(color: appTheme.textSecondary),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(
+              'Cancelar',
+              style: TextStyle(color: appTheme.textSecondary),
+            ),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              try {
+                await ref.read(messagesProvider.notifier).clearChannelHistory(channel);
+                // Limpiar también del historial cargado en memoria
+                final normalized = channel.toLowerCase();
+                _loadedHistoryByChannel.remove(normalized);
+                
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('✅ Historial del canal $channel eliminado correctamente'),
+                      duration: const Duration(seconds: 3),
+                      backgroundColor: Colors.green,
+                    ),
+                  );
+                }
+              } catch (e) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('❌ Error al borrar historial: $e'),
+                      duration: const Duration(seconds: 3),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
+              }
+            },
+            child: Text(
+              'Borrar',
+              style: TextStyle(
+                color: Colors.red,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showClearPrivateHistoryDialog(BuildContext context, String nick) {
+    final appTheme = ref.read(themeProvider);
+    
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: appTheme.surface,
+        title: Row(
+          children: [
+            const Icon(Icons.warning, color: Colors.orange),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'Borrar historial del privado',
+                style: TextStyle(color: appTheme.textPrimary),
+              ),
+            ),
+          ],
+        ),
+        content: Text(
+          '¿Estás seguro de que quieres eliminar todos los mensajes guardados de la conversación con $nick? Esta acción no se puede deshacer.',
+          style: TextStyle(color: appTheme.textSecondary),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(
+              'Cancelar',
+              style: TextStyle(color: appTheme.textSecondary),
+            ),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              try {
+                await ref.read(messagesProvider.notifier).clearPrivateHistory(nick);
+                
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('✅ Historial de la conversación con $nick eliminado correctamente'),
+                      duration: const Duration(seconds: 3),
+                      backgroundColor: Colors.green,
+                    ),
+                  );
+                }
+              } catch (e) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('❌ Error al borrar historial: $e'),
+                      duration: const Duration(seconds: 3),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
+              }
+            },
+            child: Text(
+              'Borrar',
+              style: TextStyle(
+                color: Colors.red,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
