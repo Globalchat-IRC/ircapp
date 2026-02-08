@@ -29,7 +29,7 @@ class VideoDatabaseService {
     
     return await openDatabase(
       path,
-      version: 1,
+      version: 2, // Incrementar versión para añadir nuevos campos
       onCreate: _createTables,
       onUpgrade: _upgradeTables,
     );
@@ -59,6 +59,9 @@ class VideoDatabaseService {
         is_banned INTEGER NOT NULL DEFAULT 0,
         ban_reason TEXT,
         ban_expires_at TEXT,
+        gender TEXT,
+        age INTEGER,
+        interests TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       )
@@ -158,7 +161,18 @@ class VideoDatabaseService {
   /// Actualizar tablas (para futuras versiones)
   Future<void> _upgradeTables(Database db, int oldVersion, int newVersion) async {
     // print('🔄 [VIDEO-DB] Actualizando base de datos de v$oldVersion a v$newVersion');
-    // Aquí se agregarían migraciones futuras
+    
+    if (oldVersion < 2) {
+      // Añadir campos de perfil personal (sexo, edad, intereses)
+      try {
+        await db.execute('ALTER TABLE user_profiles ADD COLUMN gender TEXT');
+        await db.execute('ALTER TABLE user_profiles ADD COLUMN age INTEGER');
+        await db.execute('ALTER TABLE user_profiles ADD COLUMN interests TEXT');
+        // print('✅ [VIDEO-DB] Campos gender, age, interests añadidos');
+      } catch (e) {
+        // print('⚠️ [VIDEO-DB] Error al añadir columnas (puede que ya existan): $e');
+      }
+    }
   }
   
   // ==================== PERFILES DE USUARIO ====================
@@ -179,6 +193,9 @@ class VideoDatabaseService {
         'phone_verified': profile.phoneVerified ? 1 : 0,
         'id_verified': profile.idVerified ? 1 : 0,
         'registration_date': profile.registrationDate?.toIso8601String() ?? now,
+        'gender': profile.gender,
+        'age': profile.age,
+        'interests': profile.interests.join('|'),
         'last_seen': now,
         'created_at': now,
         'updated_at': now,
@@ -215,6 +232,9 @@ class VideoDatabaseService {
       registrationDate: map['registration_date'] != null
           ? DateTime.parse(map['registration_date'] as String)
           : null,
+      gender: map['gender'] as String?,
+      age: map['age'] != null ? (map['age'] is int ? map['age'] as int? : int.tryParse(map['age'].toString())) : null,
+      interests: (map['interests'] as String?)?.split('|').where((i) => i.isNotEmpty).toList() ?? [],
     );
   }
   

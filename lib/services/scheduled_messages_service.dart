@@ -232,7 +232,9 @@ class ScheduledMessagesService {
     final timer = _messageTimers.remove(id);
     timer?.cancel();
 
-    final removed = _scheduledMessages.removeWhere((msg) => msg.id == id);
+    final initialLength = _scheduledMessages.length;
+    _scheduledMessages.removeWhere((msg) => msg.id == id);
+    final removed = initialLength - _scheduledMessages.length;
     if (removed > 0) {
       await _saveMessages();
       return true;

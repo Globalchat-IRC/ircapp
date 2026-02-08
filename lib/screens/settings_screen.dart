@@ -210,6 +210,166 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     ],
                   ),
                   const SizedBox(height: 24),
+                  // Opción para activar/desactivar hilos en canales
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.reply,
+                            color: appTheme.primary,
+                            size: 20,
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Hilos de conversación en canales',
+                                  style: TextStyle(
+                                    color: appTheme.textPrimary,
+                                    fontSize: 16,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  'Permite responder a mensajes y crear hilos de conversación',
+                                  style: TextStyle(
+                                    color: appTheme.textSecondary,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      Switch(
+                        value: formatPrefs.enableThreadsInChannels,
+                        onChanged: (value) {
+                          ref
+                              .read(messageFormatPreferencesProvider.notifier)
+                              .setEnableThreadsInChannels(value);
+                        },
+                        activeColor: appTheme.primary,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 24),
+                  // Opción para activar/desactivar reacciones
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.add_reaction,
+                            color: appTheme.primary,
+                            size: 20,
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Reacciones en mensajes',
+                                  style: TextStyle(
+                                    color: appTheme.textPrimary,
+                                    fontSize: 16,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  'Permite reaccionar a mensajes con emojis',
+                                  style: TextStyle(
+                                    color: appTheme.textSecondary,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      Switch(
+                        value: formatPrefs.enableReactions,
+                        onChanged: (value) {
+                          ref
+                              .read(messageFormatPreferencesProvider.notifier)
+                              .setEnableReactions(value);
+                        },
+                        activeColor: appTheme.primary,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 24),
+                  // Mensaje de away por defecto
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.airplanemode_active,
+                        color: appTheme.primary,
+                        size: 20,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Mensaje de Ausencia por Defecto',
+                              style: TextStyle(
+                                color: appTheme.textPrimary,
+                                fontSize: 16,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Mensaje que se usará cuando actives away sin especificar uno',
+                              style: TextStyle(
+                                color: appTheme.textSecondary,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Consumer(
+                    builder: (context, ref, _) {
+                      final defaultMessage = ref.watch(defaultAwayMessageProvider) ?? '';
+                      final messageController = TextEditingController(text: defaultMessage);
+                      
+                      return TextField(
+                        controller: messageController,
+                        maxLines: 2,
+                        style: TextStyle(color: appTheme.textPrimary),
+                        decoration: InputDecoration(
+                          hintText: 'Ej: Estoy ocupado, volveré pronto',
+                          hintStyle: TextStyle(color: appTheme.textSecondary),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                            borderSide: BorderSide(color: appTheme.primary),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                            borderSide: BorderSide(color: appTheme.primary, width: 2),
+                          ),
+                          filled: true,
+                          fillColor: appTheme.background,
+                        ),
+                        onChanged: (value) {
+                          ref.read(defaultAwayMessageProvider.notifier).setMessage(value.trim().isEmpty ? null : value.trim());
+                        },
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 24),
                   // Opción para mostrar/ocultar hora
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,

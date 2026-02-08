@@ -6,6 +6,7 @@ import 'package:flutter/painting.dart' show WebHtmlElementStrategy;
 import '../services/avatar_service.dart';
 import '../providers/irc_provider.dart';
 import '../utils/platform_utils.dart';
+import '../models/whois_info.dart';
 
 class UserAvatar extends ConsumerStatefulWidget {
   final String nick;
@@ -199,18 +200,26 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
     // Incluso si _avatarLoaded es false, intentar cargar para que el errorBuilder maneje el fallback
     final shouldTryLoadAvatar = !widget.isRobot && _avatarUrl != null;
     
-    return Container(
-      width: widget.size,
-      height: widget.size,
-      decoration: BoxDecoration(
-        gradient: widget.gradient,
-        color: widget.gradient == null ? widget.backgroundColor : null,
-        shape: BoxShape.circle,
-        border: widget.border,
-        boxShadow: widget.boxShadow,
-      ),
-      child: ClipOval(
-        child: AnimatedSwitcher(
+    // Verificar si el usuario está en away
+    final whoisMap = ref.watch(whoisProvider);
+    final whoisInfo = whoisMap[widget.nick.toLowerCase()];
+    final isAway = whoisInfo?.isAway ?? false;
+    
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Container(
+          width: widget.size,
+          height: widget.size,
+          decoration: BoxDecoration(
+            gradient: widget.gradient,
+            color: widget.gradient == null ? widget.backgroundColor : null,
+            shape: BoxShape.circle,
+            border: widget.border,
+            boxShadow: widget.boxShadow,
+          ),
+          child: ClipOval(
+            child: AnimatedSwitcher(
           duration: const Duration(milliseconds: 300),
           transitionBuilder: (child, animation) {
             return FadeTransition(
@@ -274,8 +283,33 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
                   },
                 )
               : _buildFallback(fallback, isFallbackUrl, key: ValueKey('${widget.nick}_fallback_${widget.isRobot}_${_lastRefreshTimestamp ?? 0}')), // Incluir isRobot y timestamp en la clave del fallback
+            ),
+          ),
         ),
-      ),
+        // Indicador de away
+        if (isAway)
+          Positioned(
+            bottom: 0,
+            right: 0,
+            child: Container(
+              width: widget.size * 0.3,
+              height: widget.size * 0.3,
+              decoration: BoxDecoration(
+                color: Colors.orange,
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: Colors.white,
+                  width: 2,
+                ),
+              ),
+              child: const Icon(
+                Icons.airplanemode_active,
+                size: 12,
+                color: Colors.white,
+              ),
+            ),
+          ),
+      ],
     );
   }
   

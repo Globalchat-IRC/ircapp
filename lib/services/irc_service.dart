@@ -30,6 +30,7 @@ class IRCService {
   final List<Function(String)> _debugLogListeners = []; // Listeners para logs de debug
   final List<Function(String)> _helpChannelJoinListeners = []; // Listeners para cuando entramos a canales de ayuda (#ayuda, #cau)
   final List<Function(String)> _werewolfChannelJoinListeners = []; // Listeners para cuando entramos a #werewolf
+  final List<Function(bool, String?)> _awayStatusListeners = []; // Listeners para cambios de estado de away (isAway, awayMessage)
   Map<String, WhoisInfo> _whoisCache = {};
   Map<String, WhoisInfo> _pendingWhois = {}; // Para acumular información de whois
   DateTime? _lastPingTime; // Timestamp del último PING recibido
@@ -381,9 +382,14 @@ class IRCService {
           // print('⏱️  [IRCService] Timer ejecutado, enviando mensaje $pendingId');
     // Dividir el mensaje en líneas y enviar cada línea como un PRIVMSG separado
     final lines = message.split('\n');
-    for (var line in lines) {
-      line = line.trim();
+    for (int i = 0; i < lines.length; i++) {
+      var line = lines[i].trim();
       if (line.isNotEmpty) {
+        // Si es la primera línea y hay replyToMessageId, añadirlo al final del mensaje
+        // Formato: mensaje [reply:messageId]
+        if (i == 0 && replyToMessageId != null) {
+          line = '$line [reply:$replyToMessageId]';
+        }
               // print('📤 [IRCService] Enviando línea: $line');
         _sendCommand('PRIVMSG $normalized :$line');
       }
@@ -409,9 +415,14 @@ class IRCService {
         // Sin delay, enviar inmediatamente
         // print('📤 [IRCService] Enviando mensaje sin delay inmediatamente: $pendingId');
         final lines = message.split('\n');
-        for (var line in lines) {
-          line = line.trim();
+        for (int i = 0; i < lines.length; i++) {
+          var line = lines[i].trim();
           if (line.isNotEmpty) {
+            // Si es la primera línea y hay replyToMessageId, añadirlo al final del mensaje
+            // Formato: mensaje [reply:messageId]
+            if (i == 0 && replyToMessageId != null) {
+              line = '$line [reply:$replyToMessageId]';
+            }
             // print('📤 [IRCService] Enviando línea sin delay: $line');
             _sendCommand('PRIVMSG $normalized :$line');
           }
@@ -729,10 +740,21 @@ class IRCService {
   }
 
   // Comandos de gestión
+  String? _defaultAwayMessage; // Mensaje de away por defecto
+  
+  void setDefaultAwayMessage(String? message) {
+    _defaultAwayMessage = message;
+  }
+  
+  String? getDefaultAwayMessage() {
+    return _defaultAwayMessage;
+  }
+  
   void sendAway([String? message]) {
-    if (message != null && message.isNotEmpty) {
-      _sendCommand('AWAY :$message');
-      // print('🚶 [IRCService] Estableciendo mensaje de ausencia: $message');
+    final messageToSend = message ?? _defaultAwayMessage;
+    if (messageToSend != null && messageToSend.isNotEmpty) {
+      _sendCommand('AWAY :$messageToSend');
+      // print('🚶 [IRCService] Estableciendo mensaje de ausencia: $messageToSend');
     } else {
       _sendCommand('AWAY');
       // print('🚶 [IRCService] Estableciendo mensaje de ausencia (sin mensaje)');
@@ -742,6 +764,26 @@ class IRCService {
   void sendBack() {
     _sendCommand('AWAY');
     // print('✅ [IRCService] Volviendo de ausencia');
+  }
+  
+  // Obtener mensaje de away por defecto (se implementará con SharedPreferences)
+  String? _getDefaultAwayMessage() {
+    return _defaultAwayMessage;
+  }
+
+  // Listeners para cambios de estado de away
+  void addAwayStatusListener(Function(bool, String?) listener) {
+    _awayStatusListeners.add(listener);
+  }
+
+  void removeAwayStatusListener(Function(bool, String?) listener) {
+    _awayStatusListeners.remove(listener);
+  }
+
+  void _notifyAwayStatusListeners(bool isAway, String? awayMessage) {
+    for (var listener in _awayStatusListeners) {
+      listener(isAway, awayMessage);
+    }
   }
 
   void sendMe(String channel, String action) {
@@ -962,7 +1004,7 @@ class IRCService {
   // SAPART: Forzar a un usuario a salir de un canal
   void sapartUser(String nick, String channel) {
     final normalized = _normalizeChannelName(channel);
-    _sendCommand('SAPART $nick $normalized');
+    sendPrivateMessage('ircop', 'SAPART $nick $normalized');
     // print('⬅️ [IRCService] SAPART: Forzando a $nick a salir de $normalized');
   }
 
@@ -970,22 +1012,22 @@ class IRCService {
   void samodeChannel(String channel, String modes, [String? target]) {
     final normalized = _normalizeChannelName(channel);
     if (target != null && target.isNotEmpty) {
-      _sendCommand('SAMODE $normalized $modes $target');
+      sendPrivateMessage('ircop', 'SAMODE $normalized $modes $target');
     } else {
-      _sendCommand('SAMODE $normalized $modes');
+      sendPrivateMessage('ircop', 'SAMODE $normalized $modes');
     }
     // print('⚙️ [IRCService] SAMODE: Cambiando modo de $normalized: $modes${target != null ? " $target" : ""}');
   }
 
-  // SANICK: Cambiar el nick de un usuario
-  void sanickUser(String nick, String newNick) {
-    _sendCommand('SANICK $nick $newNick');
-    // print('👤 [IRCService] SANICK: Cambiando nick de $nick a $newNick');
+  // SVSNICK: Cambiar el nick de un usuario
+  void svsnickUser(String nick, String newNick) {
+    sendPrivateMessage('ircop', 'SVSNICK $nick $newNick');
+    // print('👤 [IRCService] SVSNICK: Cambiando nick de $nick a $newNick');
   }
 
   // SAPRIVMSG: Enviar mensaje privado como servicio
   void saprivmsgUser(String nick, String message) {
-    _sendCommand('SAPRIVMSG $nick :$message');
+    sendPrivateMessage('ircop', 'SAPRIVMSG $nick :$message');
     // print('📨 [IRCService] SAPRIVMSG: Enviando mensaje a $nick: $message');
   }
 
@@ -1258,25 +1300,25 @@ class IRCService {
 
   // WALLOPS: Mensaje a todos los operadores
   void wallops(String message) {
-    _sendCommand('WALLOPS :$message');
+    sendPrivateMessage('ircop', 'WALLOPS :$message');
     // print('📢 [IRCService] WALLOPS: $message');
   }
 
   // GLOBOPS: Mensaje global a todos los operadores
   void globops(String message) {
-    _sendCommand('GLOBOPS :$message');
+    sendPrivateMessage('ircop', 'GLOBOPS :$message');
     // print('🌍 [IRCService] GLOBOPS: $message');
   }
 
   // ADMIND: Mensaje a administradores
   void admind(String message) {
-    _sendCommand('ADMIND :$message');
+    sendPrivateMessage('ircop', 'ADMIND :$message');
     // print('👨‍💼 [IRCService] ADMIND: $message');
   }
 
   // LOCOPS: Mensaje a operadores locales
   void locops(String message) {
-    _sendCommand('LOCOPS :$message');
+    sendPrivateMessage('ircop', 'LOCOPS :$message');
     // print('🏠 [IRCService] LOCOPS: $message');
   }
 
@@ -2765,6 +2807,18 @@ class IRCService {
           }
           break;
         
+        case '305': // RPL_UNAWAY: Usuario ya no está en away
+          // print('✅ [IRCService] Ya no estás en away');
+          _notifyAwayStatusListeners(false, null);
+          break;
+        
+        case '306': // RPL_NOWAWAY: Usuario ahora está en away
+          // El mensaje de away puede venir en args[1] o no
+          final awayMessage = args.length > 1 ? args.sublist(1).join(' ').replaceFirst(':', '').trim() : null;
+          // print('🚶 [IRCService] Ahora estás en away${awayMessage != null ? ": $awayMessage" : ""}');
+          _notifyAwayStatusListeners(true, awayMessage);
+          break;
+        
         case 'PRIVMSG':
           if (args.isNotEmpty) {
             // print('🔍🔍🔍 [DEBUG PRIVMSG] 📨 PRIVMSG recibido - Raw line: $line');
@@ -2893,6 +2947,15 @@ class IRCService {
                 // El mensaje es todo lo que viene después del ':'
                 var messageContent = line.substring(colonIndex + 1).trim();
                 
+                // Detectar si el mensaje contiene información de respuesta (formato: mensaje [reply:messageId])
+                String? extractedReplyToMessageId;
+                final replyMatch = RegExp(r'\[reply:([^\]]+)\]$').firstMatch(messageContent);
+                if (replyMatch != null) {
+                  extractedReplyToMessageId = replyMatch.group(1)!;
+                  // Remover el [reply:messageId] del contenido del mensaje
+                  messageContent = messageContent.replaceFirst(RegExp(r'\s*\[reply:[^\]]+\]$'), '').trim();
+                }
+                
                 // Detectar y procesar mensajes ACTION (/me)
                 bool isAction = false;
                 String? actionText;
@@ -2900,6 +2963,23 @@ class IRCService {
                   isAction = true;
                   // Extraer el texto de la acción (sin \x01ACTION y sin el \x01 final)
                   actionText = messageContent.substring(8, messageContent.length - 1).trim();
+                  
+                  // Detectar si es una reacción sincronizada (formato: +emoji [messageId])
+                  final reactionMatch = RegExp(r'^\+(\S+)\s+\[([^\]]+)\]$').firstMatch(actionText);
+                  if (reactionMatch != null) {
+                    final emoji = reactionMatch.group(1)!;
+                    final reactionMessageId = reactionMatch.group(2)!;
+                    
+                    // Solo aplicar si no es nuestro propio mensaje (evitar duplicar reacciones propias)
+                    if (_nickname == null || nick.toLowerCase() != _nickname!.toLowerCase()) {
+                      // Aplicar la reacción al mensaje correspondiente
+                      _applyReactionFromServer(channelKey, reactionMessageId, emoji, nick);
+                    }
+                    
+                    // No mostrar este mensaje ACTION como mensaje normal
+                    return;
+                  }
+                  
                   messageContent = actionText; // Usar el texto de la acción como mensaje
                   // print('🎭 [IRCService] Mensaje ACTION detectado: "$actionText"');
                 }
@@ -3042,6 +3122,7 @@ class IRCService {
               timestamp: DateTime.now(),
               isAction: isAction,
               messageId: IRCMessage.generateMessageId(),
+              replyToMessageId: extractedReplyToMessageId,
             );
                 
                 // print('🔍 [DEBUG] ✅ Añadiendo mensaje al canal/query: $channelKey');
@@ -3648,9 +3729,25 @@ class IRCService {
     if (!channels.containsKey(normalized)) return false;
     
     final channelObj = channels[normalized]!;
-    final messageIndex = channelObj.messages.indexWhere(
+    int messageIndex = channelObj.messages.indexWhere(
       (msg) => msg.messageId == messageId,
     );
+    
+    // Si no se encuentra por messageId, buscar el último mensaje sin messageId
+    // Esto es para mensajes antiguos que no tienen messageId
+    if (messageIndex == -1) {
+      // Buscar desde el final hacia atrás el primer mensaje sin messageId
+      for (int i = channelObj.messages.length - 1; i >= 0; i--) {
+        final msg = channelObj.messages[i];
+        if (msg.messageId == null) {
+          // Asignar el messageId al mensaje encontrado
+          final updatedMsg = msg.copyWith(messageId: messageId);
+          channelObj.messages[i] = updatedMsg;
+          messageIndex = i;
+          break;
+        }
+      }
+    }
     
     if (messageIndex == -1) return false;
     
@@ -3664,12 +3761,75 @@ class IRCService {
       currentReactions[emoji] = 1;
     }
     
-    final updatedMessage = oldMessage.copyWith(reactions: currentReactions);
+    // Asegurar que el mensaje tenga el messageId correcto
+    final finalMessageId = oldMessage.messageId ?? messageId;
+    
+    final updatedMessage = oldMessage.copyWith(
+      reactions: currentReactions,
+      messageId: finalMessageId,
+    );
     channelObj.messages[messageIndex] = updatedMessage;
     _notifyMessageListeners(updatedMessage);
     
+    // Enviar la reacción al servidor para sincronización entre usuarios
+    // Formato: /me +emoji [messageId]
+    if (_hasActiveConnection && _nickname != null) {
+      final reactionCommand = '+$emoji [$finalMessageId]';
+      _sendCommand('PRIVMSG $normalized :\x01ACTION $reactionCommand\x01');
+    }
+    
     // print('👍 [IRCService] Reacción añadida: $emoji a mensaje $messageId');
     return true;
+  }
+  
+  // Aplicar una reacción recibida del servidor (de otro usuario)
+  void _applyReactionFromServer(String channel, String messageId, String emoji, String reactorNick) {
+    final normalized = _normalizeChannelName(channel);
+    if (!channels.containsKey(normalized)) return;
+    
+    final channelObj = channels[normalized]!;
+    int messageIndex = channelObj.messages.indexWhere(
+      (msg) => msg.messageId == messageId,
+    );
+    
+    // Si no se encuentra por messageId, buscar mensajes sin messageId (para compatibilidad)
+    if (messageIndex == -1) {
+      // Buscar desde el final hacia atrás el primer mensaje sin messageId
+      for (int i = channelObj.messages.length - 1; i >= 0; i--) {
+        final msg = channelObj.messages[i];
+        if (msg.messageId == null) {
+          // Asignar el messageId al mensaje encontrado
+          final updatedMsg = msg.copyWith(messageId: messageId);
+          channelObj.messages[i] = updatedMsg;
+          messageIndex = i;
+          break;
+        }
+      }
+    }
+    
+    if (messageIndex == -1) return;
+    
+    final oldMessage = channelObj.messages[messageIndex];
+    final currentReactions = Map<String, int>.from(oldMessage.reactions);
+    
+    // Incrementar la reacción (o añadir con 1 si no existe)
+    if (currentReactions.containsKey(emoji)) {
+      currentReactions[emoji] = (currentReactions[emoji] ?? 0) + 1;
+    } else {
+      currentReactions[emoji] = 1;
+    }
+    
+    // Asegurar que el mensaje tenga el messageId correcto
+    final finalMessageId = oldMessage.messageId ?? messageId;
+    
+    final updatedMessage = oldMessage.copyWith(
+      reactions: currentReactions,
+      messageId: finalMessageId,
+    );
+    channelObj.messages[messageIndex] = updatedMessage;
+    _notifyMessageListeners(updatedMessage);
+    
+    // print('👍 [IRCService] Reacción recibida de $reactorNick: $emoji a mensaje $messageId');
   }
   
   // Responder a un mensaje específico
@@ -3696,6 +3856,26 @@ class IRCService {
     }
   }
   
+  // Contar cuántas respuestas tiene un mensaje
+  int getReplyCount(String channel, String messageId) {
+    final normalized = _normalizeChannelName(channel);
+    if (!channels.containsKey(normalized)) return 0;
+    
+    return channels[normalized]!.messages.where(
+      (msg) => msg.replyToMessageId == messageId,
+    ).length;
+  }
+  
+  // Obtener todas las respuestas a un mensaje
+  List<IRCMessage> getReplies(String channel, String messageId) {
+    final normalized = _normalizeChannelName(channel);
+    if (!channels.containsKey(normalized)) return [];
+    
+    return channels[normalized]!.messages.where(
+      (msg) => msg.replyToMessageId == messageId,
+    ).toList();
+  }
+  
   // Fijar un mensaje en un canal
   bool pinMessage(String channel, String messageId) {
     final normalized = _normalizeChannelName(channel);
@@ -3703,9 +3883,25 @@ class IRCService {
     if (_nickname == null) return false;
     
     final channelObj = channels[normalized]!;
-    final messageIndex = channelObj.messages.indexWhere(
+    int messageIndex = channelObj.messages.indexWhere(
       (msg) => msg.messageId == messageId,
     );
+    
+    // Si no se encuentra por messageId, buscar el último mensaje sin messageId
+    // Esto es para mensajes antiguos que no tienen messageId
+    if (messageIndex == -1) {
+      // Buscar desde el final hacia atrás el primer mensaje sin messageId
+      for (int i = channelObj.messages.length - 1; i >= 0; i--) {
+        final msg = channelObj.messages[i];
+        if (msg.messageId == null) {
+          // Asignar el messageId al mensaje encontrado
+          final updatedMsg = msg.copyWith(messageId: messageId);
+          channelObj.messages[i] = updatedMsg;
+          messageIndex = i;
+          break;
+        }
+      }
+    }
     
     if (messageIndex == -1) return false;
     
@@ -3714,17 +3910,21 @@ class IRCService {
     // Si ya está fijado, no hacer nada
     if (message.isPinned) return true;
     
+    // Asegurar que el mensaje tenga el messageId correcto
+    final finalMessageId = message.messageId ?? messageId;
+    
     // Actualizar el mensaje
     final updatedMessage = message.copyWith(
       isPinned: true,
       pinnedAt: DateTime.now(),
       pinnedBy: _nickname,
+      messageId: finalMessageId,
     );
     channelObj.messages[messageIndex] = updatedMessage;
     
     // Añadir a la lista de mensajes fijados del canal
-    if (!channelObj.pinnedMessageIds.contains(messageId)) {
-      channelObj.pinnedMessageIds.add(messageId);
+    if (!channelObj.pinnedMessageIds.contains(finalMessageId)) {
+      channelObj.pinnedMessageIds.add(finalMessageId);
     }
     
     _notifyMessageListeners(updatedMessage);

@@ -11,6 +11,8 @@ import '../services/irc_service.dart';
 import '../models/channel_info.dart';
 import '../models/irc_message.dart';
 import '../models/whois_info.dart';
+import '../models/user_role.dart';
+import '../providers/video_provider.dart';
 
 class UserProfileScreen extends ConsumerStatefulWidget {
   final String nick;
@@ -656,6 +658,27 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
                         ],
                       ),
                       const SizedBox(height: 16),
+                      // Perfil personal (solo si es el propio usuario)
+                      Consumer(
+                        builder: (context, ref, _) {
+                          final currentNick = ref.watch(currentNicknameProvider);
+                          final isOwnProfile = currentNick != null && 
+                              currentNick.toLowerCase() == widget.nick.toLowerCase();
+                          
+                          if (!isOwnProfile) {
+                            return const SizedBox.shrink();
+                          }
+                          
+                          return Column(
+                            children: [
+                              _buildPersonalProfileSection(context, appTheme, ref),
+                              const SizedBox(height: 16),
+                              _buildAwaySection(context, appTheme, ref),
+                              const SizedBox(height: 16),
+                            ],
+                          );
+                        },
+                      ),
                       // Preferencias de notificación para este usuario
                       _buildSection(
                         appTheme,
@@ -827,6 +850,133 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
                   ),
                 ),
       ),
+    );
+  }
+
+  Widget _buildAwaySection(BuildContext context, AppTheme appTheme, WidgetRef ref) {
+    final awayStatus = ref.watch(userAwayStatusProvider);
+    final ircService = ref.read(ircServiceProvider);
+    
+    return _buildSection(
+      appTheme,
+      'Estado de Ausencia',
+      [
+        SwitchListTile(
+          title: const Text('Estoy ausente'),
+          subtitle: Text(
+            awayStatus.isAway 
+                ? 'Mensaje: ${awayStatus.awayMessage ?? "Sin mensaje"}'
+                : 'Activa para indicar que estás ausente',
+          ),
+          value: awayStatus.isAway,
+          activeColor: appTheme.primary,
+          onChanged: (value) {
+            if (value) {
+              // Activar away con mensaje actual o por defecto
+              final currentMessage = awayStatus.awayMessage;
+              final defaultMessage = ircService.getDefaultAwayMessage();
+              final messageToUse = currentMessage ?? defaultMessage;
+              ircService.sendAway(messageToUse);
+            } else {
+              // Desactivar away
+              ircService.sendBack();
+            }
+          },
+        ),
+        if (awayStatus.isAway) ...[
+          const SizedBox(height: 8),
+          ListTile(
+            leading: Icon(Icons.edit, color: appTheme.primary),
+            title: const Text('Cambiar mensaje de away'),
+            subtitle: Text(
+              awayStatus.awayMessage ?? 'Sin mensaje',
+              style: TextStyle(color: appTheme.textSecondary),
+            ),
+            trailing: Icon(Icons.chevron_right, color: appTheme.textSecondary),
+            onTap: () => _showAwayMessageDialog(context, appTheme, ref, awayStatus.awayMessage),
+          ),
+        ],
+      ],
+    );
+  }
+
+  void _showAwayMessageDialog(BuildContext context, AppTheme appTheme, WidgetRef ref, String? currentMessage) {
+    final messageController = TextEditingController(text: currentMessage ?? '');
+    final ircService = ref.read(ircServiceProvider);
+    
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: appTheme.surface,
+        title: Text('Mensaje de Ausencia', style: TextStyle(color: appTheme.textPrimary)),
+        content: TextField(
+          controller: messageController,
+          autofocus: true,
+          maxLines: 3,
+          style: TextStyle(color: appTheme.textPrimary),
+          decoration: InputDecoration(
+            hintText: 'Ej: Estoy ocupado, volveré pronto',
+            hintStyle: TextStyle(color: appTheme.textSecondary),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide(color: appTheme.primary),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide(color: appTheme.primary, width: 2),
+            ),
+            filled: true,
+            fillColor: appTheme.background,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text('Cancelar', style: TextStyle(color: appTheme.textSecondary)),
+          ),
+          TextButton(
+            onPressed: () {
+              final message = messageController.text.trim();
+              ircService.sendAway(message.isEmpty ? null : message);
+              Navigator.pop(context);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text(message.isEmpty ? 'Away activado sin mensaje' : 'Mensaje de away actualizado')),
+              );
+            },
+            child: Text('Guardar', style: TextStyle(color: appTheme.primary, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPersonalProfileSection(BuildContext context, AppTheme appTheme, WidgetRef ref) {
+    return FutureBuilder<UserProfile?>(
+      future: ref.read(videoDatabaseProvider).getUserProfile(widget.nick),
+      builder: (context, snapshot) {
+        if (!snapshot.hasData) {
+          return const SizedBox.shrink();
+        }
+        
+        final profile = snapshot.data!;
+        return _buildSection(
+          appTheme,
+          'Perfil Personal',
+          [
+            _PersonalProfileEditor(
+              appTheme: appTheme,
+              profile: profile,
+              onProfileUpdated: (updatedProfile) async {
+                final db = ref.read(videoDatabaseProvider);
+                await db.saveUserProfile(updatedProfile);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Perfil actualizado')),
+                );
+              },
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -1218,6 +1368,218 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
                          (server.contains('robot') && server.contains('globalchat'));
     
     return isBotByNick || isBotByHost || isBotByOther;
+  }
+}
+
+// Widget para editar perfil personal
+class _PersonalProfileEditor extends StatefulWidget {
+  final AppTheme appTheme;
+  final UserProfile profile;
+  final Function(UserProfile) onProfileUpdated;
+
+  const _PersonalProfileEditor({
+    required this.appTheme,
+    required this.profile,
+    required this.onProfileUpdated,
+  });
+
+  @override
+  State<_PersonalProfileEditor> createState() => _PersonalProfileEditorState();
+}
+
+class _PersonalProfileEditorState extends State<_PersonalProfileEditor> {
+  late String? _selectedGender;
+  late TextEditingController _ageController;
+  late TextEditingController _interestsController;
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedGender = widget.profile.gender;
+    _ageController = TextEditingController(
+      text: widget.profile.age?.toString() ?? '',
+    );
+    _interestsController = TextEditingController(
+      text: widget.profile.interests.join(', '),
+    );
+  }
+
+  @override
+  void dispose() {
+    _ageController.dispose();
+    _interestsController.dispose();
+    super.dispose();
+  }
+
+  void _saveProfile() {
+    final age = _ageController.text.trim().isEmpty 
+        ? null 
+        : int.tryParse(_ageController.text.trim());
+    
+    final interests = _interestsController.text
+        .split(',')
+        .map((i) => i.trim())
+        .where((i) => i.isNotEmpty)
+        .toList();
+    
+    final updatedProfile = widget.profile.copyWith(
+      gender: _selectedGender,
+      age: age,
+      interests: interests,
+    );
+    
+    widget.onProfileUpdated(updatedProfile);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Sexo
+        Text(
+          'Sexo',
+          style: TextStyle(
+            color: widget.appTheme.textPrimary,
+            fontWeight: FontWeight.bold,
+            fontSize: 14,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          children: [
+            _GenderChip(
+              label: 'Masculino',
+              value: 'M',
+              selected: _selectedGender == 'M',
+              onSelected: (selected) {
+                setState(() {
+                  _selectedGender = selected ? 'M' : null;
+                });
+                _saveProfile();
+              },
+              appTheme: widget.appTheme,
+            ),
+            _GenderChip(
+              label: 'Femenino',
+              value: 'F',
+              selected: _selectedGender == 'F',
+              onSelected: (selected) {
+                setState(() {
+                  _selectedGender = selected ? 'F' : null;
+                });
+                _saveProfile();
+              },
+              appTheme: widget.appTheme,
+            ),
+            _GenderChip(
+              label: 'Otro',
+              value: 'O',
+              selected: _selectedGender == 'O',
+              onSelected: (selected) {
+                setState(() {
+                  _selectedGender = selected ? 'O' : null;
+                });
+                _saveProfile();
+              },
+              appTheme: widget.appTheme,
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        // Edad
+        Text(
+          'Edad',
+          style: TextStyle(
+            color: widget.appTheme.textPrimary,
+            fontWeight: FontWeight.bold,
+            fontSize: 14,
+          ),
+        ),
+        const SizedBox(height: 8),
+        TextField(
+          controller: _ageController,
+          keyboardType: TextInputType.number,
+          decoration: InputDecoration(
+            hintText: 'Ej: 25',
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide(color: widget.appTheme.primary),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide(color: widget.appTheme.primary, width: 2),
+            ),
+            filled: true,
+            fillColor: widget.appTheme.background,
+          ),
+          style: TextStyle(color: widget.appTheme.textPrimary),
+          onChanged: (_) => _saveProfile(),
+        ),
+        const SizedBox(height: 16),
+        // Intereses
+        Text(
+          'Intereses',
+          style: TextStyle(
+            color: widget.appTheme.textPrimary,
+            fontWeight: FontWeight.bold,
+            fontSize: 14,
+          ),
+        ),
+        const SizedBox(height: 8),
+        TextField(
+          controller: _interestsController,
+          maxLines: 3,
+          decoration: InputDecoration(
+            hintText: 'Ej: Música, Deportes, Tecnología (separados por comas)',
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide(color: widget.appTheme.primary),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide(color: widget.appTheme.primary, width: 2),
+            ),
+            filled: true,
+            fillColor: widget.appTheme.background,
+          ),
+          style: TextStyle(color: widget.appTheme.textPrimary),
+          onChanged: (_) => _saveProfile(),
+        ),
+      ],
+    );
+  }
+}
+
+// Widget para chips de género
+class _GenderChip extends StatelessWidget {
+  final String label;
+  final String value;
+  final bool selected;
+  final Function(bool) onSelected;
+  final AppTheme appTheme;
+
+  const _GenderChip({
+    required this.label,
+    required this.value,
+    required this.selected,
+    required this.onSelected,
+    required this.appTheme,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ChoiceChip(
+      label: Text(label),
+      selected: selected,
+      onSelected: onSelected,
+      selectedColor: appTheme.primary.withOpacity(0.3),
+      labelStyle: TextStyle(
+        color: selected ? appTheme.primary : appTheme.textPrimary,
+        fontWeight: selected ? FontWeight.bold : FontWeight.normal,
+      ),
+    );
   }
 }
 

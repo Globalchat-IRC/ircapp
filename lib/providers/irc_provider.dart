@@ -99,6 +99,95 @@ class MessageSendDelayNotifier extends Notifier<int> {
 
 final currentChannelProvider = StateProvider<String?>((ref) => null);
 
+/// Estado de away del usuario actual
+final userAwayStatusProvider = NotifierProvider<UserAwayStatusNotifier, UserAwayStatus>(() {
+  return UserAwayStatusNotifier();
+});
+
+class UserAwayStatus {
+  final bool isAway;
+  final String? awayMessage;
+
+  UserAwayStatus({
+    this.isAway = false,
+    this.awayMessage,
+  });
+
+  UserAwayStatus copyWith({
+    bool? isAway,
+    String? awayMessage,
+  }) {
+    return UserAwayStatus(
+      isAway: isAway ?? this.isAway,
+      awayMessage: awayMessage ?? this.awayMessage,
+    );
+  }
+}
+
+class UserAwayStatusNotifier extends Notifier<UserAwayStatus> {
+  @override
+  UserAwayStatus build() => UserAwayStatus();
+
+  void setAway(String? message) {
+    state = state.copyWith(isAway: true, awayMessage: message);
+  }
+
+  void setBack() {
+    state = state.copyWith(isAway: false, awayMessage: null);
+  }
+
+  void updateAwayMessage(String? message) {
+    if (state.isAway) {
+      state = state.copyWith(awayMessage: message);
+    }
+  }
+}
+
+/// Mensaje de away por defecto
+final defaultAwayMessageProvider = NotifierProvider<DefaultAwayMessageNotifier, String?>(() {
+  return DefaultAwayMessageNotifier();
+});
+
+class DefaultAwayMessageNotifier extends Notifier<String?> {
+  static const _prefsKey = 'default_away_message';
+
+  @override
+  String? build() {
+    _loadFromPrefs();
+    return null;
+  }
+
+  Future<void> _loadFromPrefs() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final message = prefs.getString(_prefsKey);
+      state = message;
+      // Actualizar IRCService con el mensaje cargado
+      final ircService = ref.read(ircServiceProvider);
+      ircService.setDefaultAwayMessage(message);
+    } catch (_) {
+      // Ignorar errores de carga
+    }
+  }
+
+  Future<void> setMessage(String? message) async {
+    state = message;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (message != null && message.isNotEmpty) {
+        await prefs.setString(_prefsKey, message);
+      } else {
+        await prefs.remove(_prefsKey);
+      }
+      // Actualizar IRCService
+      final ircService = ref.read(ircServiceProvider);
+      ircService.setDefaultAwayMessage(message);
+    } catch (_) {
+      // Ignorar errores de guardado
+    }
+  }
+}
+
 /// Último canal utilizado, para recordar la selección al volver al login
 final lastChannelProvider = StateProvider<String?>((ref) => null);
 
@@ -1395,6 +1484,8 @@ class MessageFormatPreferences {
   final String channelFontFamily;
   final String privateFontFamily;
   final double emojiSize;
+  final bool enableThreadsInChannels;
+  final bool enableReactions;
 
   const MessageFormatPreferences({
     this.channelFormat = MessageFormat.plain,
@@ -1405,6 +1496,8 @@ class MessageFormatPreferences {
     this.channelFontFamily = 'Roboto',
     this.privateFontFamily = 'Roboto',
     this.emojiSize = 40.0,
+    this.enableThreadsInChannels = true,
+    this.enableReactions = true,
   });
 
   MessageFormatPreferences copyWith({
@@ -1416,6 +1509,8 @@ class MessageFormatPreferences {
     String? channelFontFamily,
     String? privateFontFamily,
     double? emojiSize,
+    bool? enableThreadsInChannels,
+    bool? enableReactions,
   }) {
     return MessageFormatPreferences(
       channelFormat: channelFormat ?? this.channelFormat,
@@ -1426,6 +1521,8 @@ class MessageFormatPreferences {
       channelFontFamily: channelFontFamily ?? this.channelFontFamily,
       privateFontFamily: privateFontFamily ?? this.privateFontFamily,
       emojiSize: emojiSize ?? this.emojiSize,
+      enableThreadsInChannels: enableThreadsInChannels ?? this.enableThreadsInChannels,
+      enableReactions: enableReactions ?? this.enableReactions,
     );
   }
 }
@@ -1445,6 +1542,8 @@ class MessageFormatPreferencesNotifier
   static const _prefsKeyChannelFontFamily = 'message_channel_font_family';
   static const _prefsKeyPrivateFontFamily = 'message_private_font_family';
    static const _prefsKeyEmojiSize = 'message_emoji_size';
+  static const _prefsKeyEnableThreadsInChannels = 'enable_threads_in_channels';
+  static const _prefsKeyEnableReactions = 'enable_reactions';
 
   @override
   MessageFormatPreferences build() {
@@ -1463,6 +1562,8 @@ class MessageFormatPreferencesNotifier
       final channelFontFamily = prefs.getString(_prefsKeyChannelFontFamily) ?? 'Roboto';
       final privateFontFamily = prefs.getString(_prefsKeyPrivateFontFamily) ?? 'Roboto';
       final emojiSize = prefs.getDouble(_prefsKeyEmojiSize) ?? 40.0;
+      final enableThreadsInChannels = prefs.getBool(_prefsKeyEnableThreadsInChannels) ?? true;
+      final enableReactions = prefs.getBool(_prefsKeyEnableReactions) ?? true;
 
       final channelFormat = channelRaw == 'plain'
           ? MessageFormat.plain
@@ -1480,6 +1581,8 @@ class MessageFormatPreferencesNotifier
         channelFontFamily: channelFontFamily,
         privateFontFamily: privateFontFamily,
         emojiSize: emojiSize,
+        enableThreadsInChannels: enableThreadsInChannels,
+        enableReactions: enableReactions,
       );
     } catch (_) {
       // Ignorar errores de carga
@@ -1569,6 +1672,26 @@ class MessageFormatPreferencesNotifier
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_prefsKeyPrivateFontFamily, family);
+    } catch (_) {
+      // Ignorar errores de guardado
+    }
+  }
+
+  Future<void> setEnableThreadsInChannels(bool enable) async {
+    state = state.copyWith(enableThreadsInChannels: enable);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_prefsKeyEnableThreadsInChannels, enable);
+    } catch (_) {
+      // Ignorar errores de guardado
+    }
+  }
+
+  Future<void> setEnableReactions(bool enable) async {
+    state = state.copyWith(enableReactions: enable);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_prefsKeyEnableReactions, enable);
     } catch (_) {
       // Ignorar errores de guardado
     }

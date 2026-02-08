@@ -110,6 +110,9 @@ class UserProfile {
   final bool hasAcceptedVideoTerms;
   final int videoReportsCount;
   final List<String> videoWarnings;
+  final String? gender; // Sexo: 'M', 'F', 'O' (Otro), null
+  final int? age; // Edad
+  final List<String> interests; // Intereses
   
   UserProfile({
     required this.nick,
@@ -122,6 +125,9 @@ class UserProfile {
     this.hasAcceptedVideoTerms = false,
     this.videoReportsCount = 0,
     this.videoWarnings = const [],
+    this.gender,
+    this.age,
+    this.interests = const [],
   }) : registrationDate = registrationDate ?? DateTime.now();
   
   /// Días desde el registro
@@ -204,6 +210,9 @@ class UserProfile {
     bool? hasAcceptedVideoTerms,
     int? videoReportsCount,
     List<String>? videoWarnings,
+    String? gender,
+    int? age,
+    List<String>? interests,
   }) {
     return UserProfile(
       nick: nick ?? this.nick,
@@ -216,6 +225,9 @@ class UserProfile {
       hasAcceptedVideoTerms: hasAcceptedVideoTerms ?? this.hasAcceptedVideoTerms,
       videoReportsCount: videoReportsCount ?? this.videoReportsCount,
       videoWarnings: videoWarnings ?? this.videoWarnings,
+      gender: gender ?? this.gender,
+      age: age ?? this.age,
+      interests: interests ?? this.interests,
     );
   }
   
@@ -232,6 +244,9 @@ class UserProfile {
       'hasAcceptedVideoTerms': hasAcceptedVideoTerms ? 1 : 0,
       'videoReportsCount': videoReportsCount,
       'videoWarnings': videoWarnings.join('|'),
+      'gender': gender,
+      'age': age,
+      'interests': interests.join('|'),
     };
   }
   
@@ -253,6 +268,9 @@ class UserProfile {
       hasAcceptedVideoTerms: map['hasAcceptedVideoTerms'] == 1,
       videoReportsCount: map['videoReportsCount'] ?? 0,
       videoWarnings: (map['videoWarnings'] as String?)?.split('|') ?? [],
+      gender: map['gender'] as String?,
+      age: map['age'] != null ? (map['age'] is int ? map['age'] : int.tryParse(map['age'].toString())) : null,
+      interests: (map['interests'] as String?)?.split('|').where((i) => i.isNotEmpty).toList() ?? [],
     );
   }
 }

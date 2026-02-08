@@ -71,7 +71,6 @@ import '../widgets/link_preview.dart';
 import '../widgets/message_reactions.dart';
 import '../widgets/contacts_list.dart';
 import '../services/encryption_service.dart';
-import '../services/scheduled_messages_service.dart';
 import '../services/privacy_service.dart';
 import '../services/cache_service.dart';
 import '../services/backup_service.dart';
@@ -344,7 +343,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   // Servicios para v2.0.0
   final MacOSNotificationService _notificationService = MacOSNotificationService();
   final WebNotificationService _webNotificationService = WebNotificationService();
-  late final ScheduledMessagesService _scheduledMessagesService;
   int _unreadCount = 0;
   
   // Listener para canales de ayuda
@@ -373,22 +371,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     // Inicializar el servicio de radio solo cuando se entra al chat
     RadioService().initialize();
     
-    // Inicializar servicio de mensajes programados
-    _scheduledMessagesService = ScheduledMessagesService();
-    _scheduledMessagesService.onSendMessage = (channel, message) {
-      // Conectar con IRCService para enviar mensajes programados
-      if (channel.startsWith('#')) {
-        _ircService.sendMessage(channel, message);
-      } else {
-        // Para mensajes privados, usar sendPrivateMessage
-        _ircService.sendPrivateMessage(channel, message);
-      }
-    };
-    
-    // Cargar mensaje de away por defecto
-    final defaultAwayMessage = ref.read(defaultAwayMessageProvider);
-    _ircService.setDefaultAwayMessage(defaultAwayMessage);
-    
     // Cargar información de versión
     _loadAppVersion();
     
@@ -412,13 +394,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     
     // Listen for lag updates
     _ircService.addLagListener(_onLagUpdated);
-    
-    // Listen for away status changes
-    _ircService.addAwayStatusListener((isAway, awayMessage) {
-      ref.read(userAwayStatusProvider.notifier).state = isAway
-          ? UserAwayStatus(isAway: true, awayMessage: awayMessage)
-          : UserAwayStatus(isAway: false);
-    });
     
     // Registrar listener de debug logs
     final debugLogs = ref.read(debugLogProvider.notifier);
@@ -2108,9 +2083,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     // Detener la radio cuando se sale del chat
     RadioService().stop();
     
-    // Limpiar servicio de mensajes programados
-    _scheduledMessagesService.dispose();
-    
     // Remover listener de debug logs
     final debugLogs = ref.read(debugLogProvider.notifier);
     _ircService.removeDebugLogListener((message) {
@@ -2650,26 +2622,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     }
   }
 
-  // Función auxiliar para parsear comandos que tienen un mensaje al final
-  // Ejemplo: /msg nick mensaje con espacios -> nick = 'nick', message = 'mensaje con espacios'
-  Map<String, String>? _parseCommandWithMessage(String command, int requiredArgs) {
-    final parts = command.substring(1).split(' '); // Remover el / inicial
-    if (parts.isEmpty) return null;
-    
-    if (parts.length <= requiredArgs) return null;
-    
-    // Para comandos con mensaje, tomar todo después de los argumentos requeridos
-    final args = parts.sublist(1, requiredArgs + 1);
-    final message = parts.sublist(requiredArgs + 1).join(' ');
-    
-    if (requiredArgs == 1) {
-      return {'arg1': args[0], 'message': message};
-    } else if (requiredArgs == 0) {
-      return {'message': message};
-    }
-    return null;
-  }
-  
   void _handleCommand(String command) {
     final parts = command.substring(1).split(' '); // Remover el / inicial
     if (parts.isEmpty) return;
@@ -2732,81 +2684,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Abriendo mensaje privado con $nick...'),
-            duration: const Duration(seconds: 2),
-          ),
-        );
-        break;
-        
-      case 'msg':
-        // Parsear correctamente: /msg nick mensaje con espacios
-        final msgParsed = _parseCommandWithMessage(command, 1);
-        if (msgParsed == null || msgParsed['arg1'] == null || msgParsed['message'] == null) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Uso: /msg <nick> <mensaje>'),
-              duration: Duration(seconds: 2),
-            ),
-          );
-          return;
-        }
-        
-        final nick = msgParsed['arg1']!.trim();
-        if (nick.isEmpty) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Por favor ingresa un nick válido'),
-              duration: Duration(seconds: 2),
-            ),
-          );
-          return;
-        }
-        
-        final message = msgParsed['message']!;
-        if (message.isEmpty) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Por favor ingresa un mensaje'),
-              duration: Duration(seconds: 2),
-            ),
-          );
-          return;
-        }
-        
-        if (!_ircService.isConnected) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('No estás conectado al servidor'),
-              duration: Duration(seconds: 2),
-            ),
-          );
-          return;
-        }
-        
-        // Crear query si no existe
-        final queryNick = nick.toLowerCase();
-        if (!_ircService.allChannels.containsKey(queryNick)) {
-          _ircService.allChannels[queryNick] = IRCChannel(name: queryNick);
-        }
-        
-        // Cambiar al query
-        ref.read(currentChannelProvider.notifier).state = queryNick;
-        ref.read(lastChannelProvider.notifier).state = queryNick;
-        ref.read(recentChannelsProvider.notifier).addRecent(queryNick);
-        
-        // Enviar mensaje privado
-        _ircService.sendPrivateMessage(nick, message);
-        
-        // Forzar actualización de la UI
-        Future.delayed(const Duration(milliseconds: 100), () {
-          if (mounted) {
-            ref.read(channelsProvider.notifier).updateChannels();
-            setState(() {});
-          }
-        });
-        
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Enviando mensaje privado a $nick...'),
             duration: const Duration(seconds: 2),
           ),
         );
@@ -3395,9 +3272,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         break;
         
       case 'me':
-        // Parsear correctamente: /me acción con espacios
-        final meParsed = _parseCommandWithMessage(command, 0);
-        if (meParsed == null || meParsed['message'] == null || meParsed['message']!.isEmpty) {
+        if (args.isEmpty) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               content: Text('Uso: /me <acción>\nEjemplo: /me saluda a todos'),
@@ -3428,14 +3303,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           return;
         }
         
-        final action = meParsed['message']!;
+        final action = args.join(' ');
         _ircService.sendMe(currentChannel, action);
         break;
         
       case 'ame':
-        // Parsear correctamente: /ame acción con espacios
-        final ameParsed = _parseCommandWithMessage(command, 0);
-        if (ameParsed == null || ameParsed['message'] == null || ameParsed['message']!.isEmpty) {
+        if (args.isEmpty) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               content: Text('Uso: /ame <acción>\nEjemplo: /ame saluda a todos'),
@@ -3455,7 +3328,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           return;
         }
         
-        final action = ameParsed['message']!;
+        final action = args.join(' ');
         _ircService.sendAme(action);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -6318,69 +6191,26 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                               }
                             },
                           ),
-                          Builder(
-                            builder: (context) {
-                              final count = _scheduledMessagesService.getScheduledMessagesForChannel(currentChannel ?? '').length;
-                              return PopupMenuButton<String>(
-                                icon: Icon(Icons.image, color: appTheme.primary),
-                                tooltip: 'Adjuntar imagen',
-                                onSelected: (value) {
-                                  if (value == 'pick') {
-                                    _pickAndSendImage();
-                                  } else if (value == 'schedule') {
-                                    _showScheduledMessageDialog(context);
-                                  } else if (value == 'view_scheduled') {
-                                    _showScheduledMessagesListDialog(context);
-                                  }
-                                },
-                                itemBuilder: (context) => [
-                                  const PopupMenuItem(
-                                    value: 'pick',
-                                    child: Row(
-                                      children: [
-                                        Icon(Icons.folder, size: 20),
-                                        SizedBox(width: 8),
-                                        Text('Seleccionar imagen o video'),
-                                      ],
-                                    ),
-                                  ),
-                                  const PopupMenuItem(
-                                    value: 'schedule',
-                                    child: Row(
-                                      children: [
-                                        Icon(Icons.schedule, size: 20),
-                                        SizedBox(width: 8),
-                                        Text('Programar mensaje'),
-                                      ],
-                                    ),
-                                  ),
-                                  PopupMenuItem(
-                                    value: 'view_scheduled',
-                                    child: Row(
-                                      children: [
-                                        const Icon(Icons.list, size: 20),
-                                        const SizedBox(width: 8),
-                                        const Text('Ver mensajes programados'),
-                                        if (count > 0) ...[
-                                          const SizedBox(width: 8),
-                                          Container(
-                                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                            decoration: BoxDecoration(
-                                              color: appTheme.primary,
-                                              borderRadius: BorderRadius.circular(10),
-                                            ),
-                                            child: Text(
-                                              '$count',
-                                              style: const TextStyle(color: Colors.white, fontSize: 12),
-                                            ),
-                                          ),
-                                        ],
-                                      ],
-                                    ),
-                                  ),
-                                ],
-                              );
+                          PopupMenuButton<String>(
+                            icon: Icon(Icons.image, color: appTheme.primary),
+                            tooltip: 'Adjuntar imagen',
+                            onSelected: (value) {
+                              if (value == 'pick') {
+                                _pickAndSendImage();
+                              }
                             },
+                            itemBuilder: (context) => [
+                              const PopupMenuItem(
+                                value: 'pick',
+                                child: Row(
+                                  children: [
+                                    Icon(Icons.folder, size: 20),
+                                    SizedBox(width: 8),
+                                    Text('Seleccionar imagen o video'),
+                                  ],
+                                ),
+                              ),
+                            ],
                           ),
                           // Botón de videoconferencia
                           if (currentChannel != null)
@@ -7773,22 +7603,83 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               Builder(
                 builder: (context) {
                   final formatPrefs = ref.read(messageFormatPreferencesProvider);
-                  final isChannel = message.channel.startsWith('#');
-                  if (isChannel && formatPrefs.enableThreadsInChannels || !isChannel) {
+                  final isChannel = message.channel.startsWith("#");
+                  if ((isChannel && formatPrefs.enableThreadsInChannels) || !isChannel) {
+                    return _buildReplyPreview(context, message, appTheme);
+                  }
+                  return const SizedBox.shrink();
+                },
+              ),
+            if (message.replyToMessageId != null)
+              Builder(
+                builder: (context) {
+                  final formatPrefs = ref.read(messageFormatPreferencesProvider);
+                  final isChannel = message.channel.startsWith("#");
+                  if ((isChannel && formatPrefs.enableThreadsInChannels) || !isChannel) {
+                    return _buildReplyPreview(context, message, appTheme);
+                  }
+                  return const SizedBox.shrink();
+                },
+              ),
+            if (message.replyToMessageId != null)
+              Builder(
+                builder: (context) {
+                  final formatPrefs = ref.read(messageFormatPreferencesProvider);
+                  final isChannel = message.channel.startsWith("#");
+                  if ((isChannel && formatPrefs.enableThreadsInChannels) || !isChannel) {
+                    return _buildReplyPreview(context, message, appTheme);
+                  }
+                  return const SizedBox.shrink();
+                },
+              ),
+            if (message.replyToMessageId != null)
+              Builder(
+                builder: (context) {
+                  final formatPrefs = ref.read(messageFormatPreferencesProvider);
+                  final isChannel = message.channel.startsWith("#");
+                  if ((isChannel && formatPrefs.enableThreadsInChannels) || !isChannel) {
+                    return _buildReplyPreview(context, message, appTheme);
+                  }
+                  return const SizedBox.shrink();
+                },
+              ),
+            if (message.replyToMessageId != null)
+              Builder(
+                builder: (context) {
+                  final formatPrefs = ref.read(messageFormatPreferencesProvider);
+                  final isChannel = message.channel.startsWith("#");
+                  if ((isChannel && formatPrefs.enableThreadsInChannels) || !isChannel) {
+                    return _buildReplyPreview(context, message, appTheme);
+                  }
+                  return const SizedBox.shrink();
+                },
+              ),
+            if (message.replyToMessageId != null)
+              Builder(
+                builder: (context) {
+                  final formatPrefs = ref.read(messageFormatPreferencesProvider);
+                  final isChannel = message.channel.startsWith("#");
+                  if ((isChannel && formatPrefs.enableThreadsInChannels) || !isChannel) {
+                    return _buildReplyPreview(context, message, appTheme);
+                  }
+                  return const SizedBox.shrink();
+                },
+              ),
+            if (message.replyToMessageId != null)
+              Builder(
+                builder: (context) {
+                  final formatPrefs = ref.read(messageFormatPreferencesProvider);
+                  final isChannel = message.channel.startsWith("#");
+                  if ((isChannel && formatPrefs.enableThreadsInChannels) || !isChannel) {
                     return _buildReplyPreview(context, message, appTheme);
                   }
                   return const SizedBox.shrink();
                 },
               ),
             _buildMessageContent(message.message, isOwnMessage, isBot: false),
-            // Mostrar contador de respuestas si el mensaje tiene respuestas y los hilos están habilitados
+            // Mostrar contador de respuestas si el mensaje tiene respuestas
             Builder(
               builder: (context) {
-                final formatPrefs = ref.read(messageFormatPreferencesProvider);
-                final isChannel = message.channel.startsWith('#');
-                if (isChannel && !formatPrefs.enableThreadsInChannels) {
-                  return const SizedBox.shrink();
-                }
                 final replyCount = message.messageId != null
                     ? _ircService.getReplyCount(message.channel, message.messageId!)
                     : 0;
@@ -8299,16 +8190,90 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       if (replyCount > 0) {
                         return Container(
                           margin: const EdgeInsets.only(bottom: 4),
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                          decoration: BoxDecoration(
+                  // Mostrar mensaje al que se responde (si existe y los hilos están habilitados)
+                  if (message.replyToMessageId != null)
+                    Builder(
+                  if (message.replyToMessageId != null)
+                    Builder(
+                      builder: (context) {
+                        final formatPrefs = ref.read(messageFormatPreferencesProvider);
+                        final isChannel = message.channel.startsWith('#');
+                        if ((isChannel && formatPrefs.enableThreadsInChannels) || !isChannel) {
+                          return _buildReplyPreview(context, message, appTheme);
+                        }
+                        return const SizedBox.shrink();
+                      },
+                    ),
                             color: appTheme.accent.withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: appTheme.accent.withOpacity(0.3)),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(Icons.reply, size: 12, color: appTheme.accent),
+                        final formatPrefs = ref.read(messageFormatPreferencesProvider);
+                        final isChannel = message.channel.startsWith("#");
+                        if ((isChannel && formatPrefs.enableThreadsInChannels) || !isChannel) {
+                        }
+                    Builder(
+                      builder: (context) {
+                        final formatPrefs = ref.read(messageFormatPreferencesProvider);
+                        final isChannel = message.channel.startsWith("#");
+                        if ((isChannel && formatPrefs.enableThreadsInChannels) || !isChannel) {
+                          return _buildReplyPreview(context, message, appTheme);
+                        }
+                        return const SizedBox.shrink();
+                      },
+                    ),
+                  if (message.replyToMessageId != null)
+                    Builder(
+                      builder: (context) {
+                        final formatPrefs = ref.read(messageFormatPreferencesProvider);
+                        final isChannel = message.channel.startsWith("#");
+                        if ((isChannel && formatPrefs.enableThreadsInChannels) || !isChannel) {
+                          return _buildReplyPreview(context, message, appTheme);
+                        }
+                        return const SizedBox.shrink();
+                      },
+                    ),
+                  if (message.replyToMessageId != null)
+                    Builder(
+                      builder: (context) {
+                        final formatPrefs = ref.read(messageFormatPreferencesProvider);
+                        final isChannel = message.channel.startsWith("#");
+                        if ((isChannel && formatPrefs.enableThreadsInChannels) || !isChannel) {
+                          return _buildReplyPreview(context, message, appTheme);
+                        }
+                        return const SizedBox.shrink();
+                      },
+                    ),
+                  if (message.replyToMessageId != null)
+                    Builder(
+                      builder: (context) {
+                        final formatPrefs = ref.read(messageFormatPreferencesProvider);
+                        final isChannel = message.channel.startsWith("#");
+                        if ((isChannel && formatPrefs.enableThreadsInChannels) || !isChannel) {
+                          return _buildReplyPreview(context, message, appTheme);
+                        }
+                        return const SizedBox.shrink();
+                      },
+                    ),
+                  if (message.replyToMessageId != null)
+                    Builder(
+                      builder: (context) {
+                        final formatPrefs = ref.read(messageFormatPreferencesProvider);
+                        final isChannel = message.channel.startsWith("#");
+                        if ((isChannel && formatPrefs.enableThreadsInChannels) || !isChannel) {
+                          return _buildReplyPreview(context, message, appTheme);
+                        }
+                        return const SizedBox.shrink();
+                      },
+                    ),
+                  if (message.replyToMessageId != null)
+                    Builder(
+                      builder: (context) {
+                        final formatPrefs = ref.read(messageFormatPreferencesProvider);
+                        final isChannel = message.channel.startsWith("#");
+                        if ((isChannel && formatPrefs.enableThreadsInChannels) || !isChannel) {
+                          return _buildReplyPreview(context, message, appTheme);
+                        }
+                        return const SizedBox.shrink();
+                      },
+                    ),
                               const SizedBox(width: 4),
                               Text(
                                 '$replyCount ${replyCount == 1 ? 'respuesta' : 'respuestas'}',
@@ -8372,7 +8337,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       builder: (context) {
                         final formatPrefs = ref.read(messageFormatPreferencesProvider);
                         final isChannel = message.channel.startsWith('#');
-                        if (isChannel && formatPrefs.enableThreadsInChannels || !isChannel) {
+                        if ((isChannel && formatPrefs.enableThreadsInChannels) || !isChannel) {
                           return _buildReplyPreview(context, message, appTheme);
                         }
                         return const SizedBox.shrink();
@@ -9046,37 +9011,37 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           // Reacciones rápidas (solo si las reacciones están habilitadas)
           if (formatPrefs.enableReactions) ...[
             PopupMenuButton<String>(
-              icon: Icon(Icons.add_reaction, size: 16, color: appTheme.textSecondary.withOpacity(0.6)),
-              tooltip: 'Reaccionar',
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(),
-              itemBuilder: (context) => [
-                const PopupMenuItem(value: '👍', child: Text('👍')),
-                const PopupMenuItem(value: '❤️', child: Text('❤️')),
-                const PopupMenuItem(value: '😂', child: Text('😂')),
-                const PopupMenuItem(value: '😮', child: Text('😮')),
-                const PopupMenuItem(value: '😢', child: Text('😢')),
-                const PopupMenuItem(value: '🔥', child: Text('🔥')),
-                const PopupMenuItem(value: '⭐', child: Text('⭐')),
-              ],
-              onSelected: (emoji) {
-                // Si el mensaje no tiene messageId, generarlo primero
-                String messageId = message.messageId ?? IRCMessage.generateMessageId();
-                _ircService.toggleReaction(message.channel, messageId, emoji);
-              },
-            ),
-            // Mostrar reacciones usando el widget MessageReactions
-            const SizedBox(width: 8),
-            MessageReactions(
-              messageId: message.messageId ?? '',
-              appTheme: appTheme,
-              reactions: message.reactions.map((key, value) => MapEntry(key, List<String>.filled(value, ''))),
-              onReactionTap: (emoji) {
-                // Si el mensaje no tiene messageId, generarlo primero
-                String messageId = message.messageId ?? IRCMessage.generateMessageId();
-                _ircService.toggleReaction(message.channel, messageId, emoji);
-              },
-            ),
+            icon: Icon(Icons.add_reaction, size: 16, color: appTheme.textSecondary.withOpacity(0.6)),
+            tooltip: 'Reaccionar',
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
+            itemBuilder: (context) => [
+              const PopupMenuItem(value: '👍', child: Text('👍')),
+              const PopupMenuItem(value: '❤️', child: Text('❤️')),
+              const PopupMenuItem(value: '😂', child: Text('😂')),
+              const PopupMenuItem(value: '😮', child: Text('😮')),
+              const PopupMenuItem(value: '😢', child: Text('😢')),
+              const PopupMenuItem(value: '🔥', child: Text('🔥')),
+              const PopupMenuItem(value: '⭐', child: Text('⭐')),
+            ],
+            onSelected: (emoji) {
+              // Si el mensaje no tiene messageId, generarlo primero
+              String messageId = message.messageId ?? IRCMessage.generateMessageId();
+              _ircService.toggleReaction(message.channel, messageId, emoji);
+            },
+          ),
+          // Mostrar reacciones usando el widget MessageReactions
+          const SizedBox(width: 8),
+          MessageReactions(
+            messageId: message.messageId ?? '',
+            appTheme: appTheme,
+            reactions: message.reactions.map((key, value) => MapEntry(key, List<String>.filled(value, ''))),
+            onReactionTap: (emoji) {
+              // Si el mensaje no tiene messageId, generarlo primero
+              String messageId = message.messageId ?? IRCMessage.generateMessageId();
+              _ircService.toggleReaction(message.channel, messageId, emoji);
+            },
+          ),
           ],
           // Botón de editar (extendido para todos los mensajes propios)
           if (isOwnMessage && !message.isSystem && message.messageId != null) ...[
@@ -9422,388 +9387,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             ),
           ],
         ),
-      ),
-    );
-  }
-
-  // Diálogo para programar un mensaje
-  void _showScheduledMessageDialog(BuildContext context) {
-    final appTheme = ref.read(themeProvider);
-    final currentChannel = ref.read(currentChannelProvider);
-    if (currentChannel == null) return;
-    
-    final messageController = TextEditingController(text: _messageController.text);
-    DateTime selectedDate = DateTime.now().add(const Duration(hours: 1));
-    TimeOfDay selectedTime = TimeOfDay.fromDateTime(selectedDate);
-    bool isRecurring = false;
-    Duration? recurrenceInterval;
-    int? maxRecurrences;
-    
-    showDialog(
-      context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setState) => AlertDialog(
-          backgroundColor: appTheme.surface,
-          title: Row(
-            children: [
-              Icon(Icons.schedule, color: appTheme.primary, size: 20),
-              const SizedBox(width: 8),
-              Text('Programar mensaje', style: TextStyle(color: appTheme.textPrimary)),
-            ],
-          ),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                TextField(
-                  controller: messageController,
-                  autofocus: true,
-                  maxLines: 5,
-                  style: TextStyle(color: appTheme.textPrimary),
-                  decoration: InputDecoration(
-                    labelText: 'Mensaje',
-                    labelStyle: TextStyle(color: appTheme.primary),
-                    hintText: 'Escribe el mensaje a programar...',
-                    hintStyle: TextStyle(color: appTheme.textSecondary),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
-                      borderSide: BorderSide(color: appTheme.primary),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
-                      borderSide: BorderSide(color: appTheme.primary, width: 2),
-                    ),
-                    filled: true,
-                    fillColor: appTheme.background,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  'Fecha y hora:',
-                  style: TextStyle(color: appTheme.textPrimary, fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: () async {
-                          final date = await showDatePicker(
-                            context: context,
-                            initialDate: selectedDate,
-                            firstDate: DateTime.now(),
-                            lastDate: DateTime.now().add(const Duration(days: 365)),
-                            builder: (context, child) {
-                              return Theme(
-                                data: Theme.of(context).copyWith(
-                                  colorScheme: ColorScheme.light(primary: appTheme.primary),
-                                ),
-                                child: child!,
-                              );
-                            },
-                          );
-                          if (date != null) {
-                            setState(() {
-                              selectedDate = DateTime(
-                                date.year,
-                                date.month,
-                                date.day,
-                                selectedTime.hour,
-                                selectedTime.minute,
-                              );
-                            });
-                          }
-                        },
-                        icon: const Icon(Icons.calendar_today),
-                        label: Text(DateFormat('dd/MM/yyyy').format(selectedDate)),
-                        style: OutlinedButton.styleFrom(
-                          side: BorderSide(color: appTheme.primary),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: () async {
-                          final time = await showTimePicker(
-                            context: context,
-                            initialTime: selectedTime,
-                            builder: (context, child) {
-                              return Theme(
-                                data: Theme.of(context).copyWith(
-                                  colorScheme: ColorScheme.light(primary: appTheme.primary),
-                                ),
-                                child: child!,
-                              );
-                            },
-                          );
-                          if (time != null) {
-                            setState(() {
-                              selectedTime = time;
-                              selectedDate = DateTime(
-                                selectedDate.year,
-                                selectedDate.month,
-                                selectedDate.day,
-                                time.hour,
-                                time.minute,
-                              );
-                            });
-                          }
-                        },
-                        icon: const Icon(Icons.access_time),
-                        label: Text(selectedTime.format(context)),
-                        style: OutlinedButton.styleFrom(
-                          side: BorderSide(color: appTheme.primary),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                CheckboxListTile(
-                  title: Text('Mensaje recurrente', style: TextStyle(color: appTheme.textPrimary)),
-                  value: isRecurring,
-                  onChanged: (value) {
-                    setState(() {
-                      isRecurring = value ?? false;
-                      if (!isRecurring) {
-                        recurrenceInterval = null;
-                        maxRecurrences = null;
-                      }
-                    });
-                  },
-                  activeColor: appTheme.primary,
-                ),
-                if (isRecurring) ...[
-                  const SizedBox(height: 8),
-                  Text(
-                    'Intervalo de recurrencia:',
-                    style: TextStyle(color: appTheme.textPrimary, fontSize: 12),
-                  ),
-                  const SizedBox(height: 4),
-                  Wrap(
-                    spacing: 8,
-                    children: [
-                      Duration(hours: 1),
-                      Duration(hours: 6),
-                      Duration(hours: 12),
-                      Duration(days: 1),
-                      Duration(days: 7),
-                    ].map((duration) {
-                      final isSelected = recurrenceInterval == duration;
-                      return ChoiceChip(
-                        label: Text(_formatDuration(duration)),
-                        selected: isSelected,
-                        onSelected: (selected) {
-                          if (selected) {
-                            setState(() => recurrenceInterval = duration);
-                          }
-                        },
-                        selectedColor: appTheme.primary.withOpacity(0.3),
-                        labelStyle: TextStyle(
-                          color: isSelected ? appTheme.primary : appTheme.textPrimary,
-                          fontSize: 12,
-                        ),
-                      );
-                    }).toList(),
-                  ),
-                  const SizedBox(height: 8),
-                  TextField(
-                    keyboardType: TextInputType.number,
-                    style: TextStyle(color: appTheme.textPrimary, fontSize: 12),
-                    decoration: InputDecoration(
-                      labelText: 'Máximo de repeticiones (opcional)',
-                      labelStyle: TextStyle(color: appTheme.primary, fontSize: 12),
-                      hintText: 'Dejar vacío para infinito',
-                      hintStyle: TextStyle(color: appTheme.textSecondary, fontSize: 12),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                        borderSide: BorderSide(color: appTheme.primary),
-                      ),
-                      filled: true,
-                      fillColor: appTheme.background,
-                    ),
-                    onChanged: (value) {
-                      setState(() {
-                        maxRecurrences = value.isEmpty ? null : int.tryParse(value);
-                      });
-                    },
-                  ),
-                ],
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: Text('Cancelar', style: TextStyle(color: appTheme.textSecondary)),
-            ),
-            TextButton(
-              onPressed: () {
-                if (messageController.text.trim().isNotEmpty) {
-                  _scheduledMessagesService.scheduleMessage(
-                    channel: currentChannel,
-                    message: messageController.text.trim(),
-                    scheduledTime: selectedDate,
-                    isRecurring: isRecurring,
-                    recurrenceInterval: recurrenceInterval,
-                    maxRecurrences: maxRecurrences,
-                  );
-                  Navigator.pop(context);
-                  _messageController.clear();
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('Mensaje programado para ${DateFormat('dd/MM/yyyy HH:mm').format(selectedDate)}'),
-                    ),
-                  );
-                }
-              },
-              child: Text('Programar', style: TextStyle(color: appTheme.primary, fontWeight: FontWeight.bold)),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-  
-  String _formatDuration(Duration duration) {
-    if (duration.inDays > 0) {
-      return '${duration.inDays} día${duration.inDays > 1 ? 's' : ''}';
-    } else if (duration.inHours > 0) {
-      return '${duration.inHours} hora${duration.inHours > 1 ? 's' : ''}';
-    } else {
-      return '${duration.inMinutes} minuto${duration.inMinutes > 1 ? 's' : ''}';
-    }
-  }
-  
-  // Diálogo para ver y gestionar mensajes programados
-  void _showScheduledMessagesListDialog(BuildContext context) {
-    final appTheme = ref.read(themeProvider);
-    final currentChannel = ref.read(currentChannelProvider);
-    if (currentChannel == null) return;
-    
-    final scheduledMessages = _scheduledMessagesService.getScheduledMessagesForChannel(currentChannel);
-    
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: appTheme.surface,
-        title: Row(
-          children: [
-            Icon(Icons.list, color: appTheme.primary, size: 20),
-            const SizedBox(width: 8),
-            Text(
-              'Mensajes programados',
-              style: TextStyle(color: appTheme.textPrimary),
-            ),
-            if (scheduledMessages.isNotEmpty) ...[
-              const SizedBox(width: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: appTheme.primary,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Text(
-                  '${scheduledMessages.length}',
-                  style: const TextStyle(color: Colors.white, fontSize: 12),
-                ),
-              ),
-            ],
-          ],
-        ),
-        content: SizedBox(
-          width: double.maxFinite,
-          child: scheduledMessages.isEmpty
-              ? Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.schedule, size: 48, color: appTheme.textSecondary),
-                      const SizedBox(height: 16),
-                      Text(
-                        'No hay mensajes programados',
-                        style: TextStyle(color: appTheme.textSecondary),
-                      ),
-                    ],
-                  ),
-                )
-              : ListView.builder(
-                  shrinkWrap: true,
-                  itemCount: scheduledMessages.length,
-                  itemBuilder: (context, index) {
-                    final msg = scheduledMessages[index];
-                    return Card(
-                      margin: const EdgeInsets.only(bottom: 8),
-                      color: appTheme.background,
-                      child: ListTile(
-                        title: Text(
-                          msg.message,
-                          style: TextStyle(color: appTheme.textPrimary),
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        subtitle: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const SizedBox(height: 4),
-                            Text(
-                              'Fecha: ${DateFormat('dd/MM/yyyy HH:mm').format(msg.scheduledTime)}',
-                              style: TextStyle(color: appTheme.textSecondary, fontSize: 12),
-                            ),
-                            if (msg.isRecurring) ...[
-                              const SizedBox(height: 2),
-                              Text(
-                                'Recurrente: ${_formatDuration(msg.recurrenceInterval ?? const Duration())}',
-                                style: TextStyle(color: appTheme.primary, fontSize: 12),
-                              ),
-                              if (msg.maxRecurrences != null)
-                                Text(
-                                  'Repeticiones: ${msg.currentRecurrences}/${msg.maxRecurrences}',
-                                  style: TextStyle(color: appTheme.textSecondary, fontSize: 12),
-                                ),
-                            ],
-                          ],
-                        ),
-                        trailing: IconButton(
-                          icon: const Icon(Icons.delete, color: Colors.red),
-                          onPressed: () async {
-                            final cancelled = await _scheduledMessagesService.cancelScheduledMessage(msg.id);
-                            if (cancelled) {
-                              Navigator.pop(context);
-                              _showScheduledMessagesListDialog(context);
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(content: Text('Mensaje programado cancelado')),
-                              );
-                            }
-                          },
-                        ),
-                      ),
-                    );
-                  },
-                ),
-        ),
-        actions: [
-          if (scheduledMessages.isNotEmpty)
-            TextButton(
-              onPressed: () async {
-                await _scheduledMessagesService.clearAllScheduledMessages();
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Todos los mensajes programados han sido cancelados')),
-                );
-              },
-              child: Text(
-                'Cancelar todos',
-                style: TextStyle(color: Colors.red),
-              ),
-            ),
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text('Cerrar', style: TextStyle(color: appTheme.textSecondary)),
-          ),
-        ],
       ),
     );
   }
@@ -13799,9 +13382,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                           _IRCOpMenuItem(
                             icon: Icons.badge,
                             iconColor: Colors.purple,
-                            title: 'SVSNICK',
+                            title: 'SANICK',
                             subtitle: 'Cambiar nick de usuario',
-                            onTap: () => _showSvsnickDialog(context),
+                            onTap: () => _showSanickDialog(context),
                           ),
                           _IRCOpMenuItem(
                             icon: Icons.message,
@@ -14634,7 +14217,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     );
   }
 
-  void _showSvsnickDialog(BuildContext context) {
+  void _showSanickDialog(BuildContext context) {
     final appTheme = ref.read(themeProvider);
     final nickController = TextEditingController();
     final newNickController = TextEditingController();
@@ -14643,7 +14226,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: appTheme.surface,
-        title: Text('SVSNICK - Cambiar Nick', style: TextStyle(color: appTheme.textPrimary)),
+        title: Text('SANICK - Cambiar Nick', style: TextStyle(color: appTheme.textPrimary)),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -14674,14 +14257,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           TextButton(
             onPressed: () {
               if (nickController.text.trim().isNotEmpty && newNickController.text.trim().isNotEmpty) {
-                _ircService.svsnickUser(nickController.text.trim(), newNickController.text.trim());
+                _ircService.sanickUser(nickController.text.trim(), newNickController.text.trim());
                 Navigator.pop(context);
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(content: Text('Cambiando nick de ${nickController.text.trim()} a ${newNickController.text.trim()}...')),
                 );
               }
             },
-            child: Text('SVSNICK', style: TextStyle(color: Colors.purple, fontWeight: FontWeight.bold)),
+            child: Text('SANICK', style: TextStyle(color: Colors.purple, fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -15648,22 +15231,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 leading: Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: Colors.red.withOpacity(0.2),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Icon(Icons.delete_sweep, color: Colors.red),
-                ),
-                title: const Text('Borrar historial de todos los privados'),
-                subtitle: const Text('Elimina todos los mensajes privados guardados'),
-                onTap: () {
-                  Navigator.pop(context);
-                  _showClearAllPrivateHistoryDialog(context);
-                },
-              ),
-              ListTile(
-                leading: Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
                     color: Colors.purple.withOpacity(0.2),
                     borderRadius: BorderRadius.circular(8),
                   ),
@@ -16392,86 +15959,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               'Cambiar',
               style: TextStyle(
                 color: appTheme.primary,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showClearAllPrivateHistoryDialog(BuildContext context) {
-    final appTheme = ref.read(themeProvider);
-    
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: appTheme.surface,
-        title: Row(
-          children: [
-            const Icon(Icons.warning, color: Colors.orange),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                'Borrar todo el historial de privados',
-                style: TextStyle(color: appTheme.textPrimary),
-              ),
-            ),
-          ],
-        ),
-        content: Text(
-          '¿Estás seguro de que quieres eliminar todos los mensajes privados guardados? Esta acción eliminará el historial de todas las conversaciones privadas y no se puede deshacer.',
-          style: TextStyle(color: appTheme.textSecondary),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text(
-              'Cancelar',
-              style: TextStyle(color: appTheme.textSecondary),
-            ),
-          ),
-          TextButton(
-            onPressed: () async {
-              Navigator.pop(context);
-              
-              try {
-                // Borrar de memoria
-                ref.read(messagesProvider.notifier).clearPrivateMessages();
-                
-                // Borrar de base de datos
-                final ircService = ref.read(ircServiceProvider);
-                final server = ircService.serverHost;
-                if (server != null) {
-                  await ChatHistoryService().deletePrivateMessages(server: server);
-                }
-                
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('✅ Todo el historial de privados ha sido eliminado correctamente'),
-                      duration: Duration(seconds: 3),
-                      backgroundColor: Colors.green,
-                    ),
-                  );
-                }
-              } catch (e) {
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('❌ Error al borrar historial: $e'),
-                      duration: const Duration(seconds: 3),
-                      backgroundColor: Colors.red,
-                    ),
-                  );
-                }
-              }
-            },
-            child: const Text(
-              'Borrar Todo',
-              style: TextStyle(
-                color: Colors.red,
                 fontWeight: FontWeight.bold,
               ),
             ),
