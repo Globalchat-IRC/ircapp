@@ -25,6 +25,7 @@ class IRCService {
   final List<Function()> _disconnectionListeners = [];
   final List<Function(WhoisInfo)> _whoisListeners = [];
   final List<Function(String)> _nickChangeListeners = []; // Listeners para cambios de nick
+  final List<Function(String, String)> _kickListeners = []; // Listeners para cuando el usuario es expulsado (channel, reason)
   final List<Function()> _ircopListeners = []; // Listeners para cuando se identifica como IRCop
   final List<Function(int)> _lagListeners = []; // Listeners para actualizaciones de lag
   final List<Function(String)> _debugLogListeners = []; // Listeners para logs de debug
@@ -1984,10 +1985,10 @@ class IRCService {
           print('⚠️ [IRCService] Error 433 recibido - Nickname in use: $_nickname');
           print('⚠️ [IRCService] Línea completa: $line');
           
-          // Verificar que el mensaje realmente dice que el nick está en uso
-          final lineLower = line.toLowerCase();
+            // Verificar que el mensaje realmente dice que el nick está en uso
+            final lineLower = line.toLowerCase();
           final isNickInUse = lineLower.contains('nickname is already in use') || 
-                             lineLower.contains('nick already in use') ||
+                lineLower.contains('nick already in use') ||
                              lineLower.contains('nickname already in use');
           
           if (!isNickInUse) {
@@ -2022,16 +2023,16 @@ class IRCService {
             print('⚠️ [IRCService] Nick es null, usando fallback: $newNick');
           }
           
-          _nickname = newNick;
-          _sendCommand('NICK $newNick');
+              _nickname = newNick;
+              _sendCommand('NICK $newNick');
           
-          // Notificar a los listeners del cambio de nick
-          for (var listener in _nickChangeListeners) {
-            try {
-              listener(newNick);
-            } catch (e) {
-              // Ignorar errores en listeners
-            }
+              // Notificar a los listeners del cambio de nick
+              for (var listener in _nickChangeListeners) {
+                try {
+                  listener(newNick);
+                } catch (e) {
+                  // Ignorar errores en listeners
+                }
           }
           break;
         
@@ -2230,7 +2231,7 @@ class IRCService {
                   } else {
                     print('🔍 [DEBUG] ➕ Adding new user: "$cleanUser" with mode: "$userMode"');
                     channels[finalChannel]!.addUser(cleanUser, mode: userMode);
-                    addedCount++;
+                  addedCount++;
                     
                     // Hacer WHOIS automático para detectar estado away (con delay para evitar spam)
                     Future.delayed(const Duration(seconds: 2), () {
@@ -2246,7 +2247,7 @@ class IRCService {
                         }
                       }
                     });
-                  }
+                }
               } else {
                 if (isServerHost) {
                   // print('🔍 [DEBUG] ❌ Skipping server/host name: "$cleanUser"');
@@ -2328,12 +2329,42 @@ class IRCService {
               
               // Actualizar el nick en todos los canales donde aparezca nuestro nick antiguo
               // print('🔄 [IRCService] Actualizando nick en canales...');
+              final oldNickLower = oldNick.toLowerCase();
               for (var channel in channels.values) {
-                if (channel.users.contains(oldNick)) {
-                  // print('🔄 [IRCService] Actualizando nick en canal "${channel.name}": "$oldNick" -> "$newNick"');
-                  channel.users.remove(oldNick);
+                // Buscar el usuario de forma case-insensitive
+                String? existingNick;
+                for (var user in channel.users) {
+                  if (user.toLowerCase() == oldNickLower) {
+                    existingNick = user;
+                    break;
+                  }
+                }
+                
+                if (existingNick != null) {
+                  // Guardar host y modo del usuario antiguo si existen
+                  final oldHost = channel.userHosts[existingNick];
+                  final oldMode = channel.userModes[existingNick];
+                  
+                  // Remover el usuario antiguo
+                  channel.users.remove(existingNick);
+                  if (channel.userHosts.containsKey(existingNick)) {
+                    channel.userHosts.remove(existingNick);
+                  }
+                  if (channel.userModes.containsKey(existingNick)) {
+                    channel.userModes.remove(existingNick);
+                  }
+                  
+                  // Agregar el usuario con el nuevo nick y restaurar host/modo
                   channel.users.add(newNick);
+                  if (oldHost != null) {
+                    channel.userHosts[newNick] = oldHost;
+                  }
+                  if (oldMode != null) {
+                    channel.userModes[newNick] = oldMode;
+                  }
+                  
                   _notifyUserListListeners(channel.name);
+                  // print('🔄 [IRCService] Actualizando nick en canal "${channel.name}": "$existingNick" -> "$newNick"');
                 }
               }
               
@@ -2350,15 +2381,58 @@ class IRCService {
                 }
               }
               // print('🔄 [IRCService] ✅ Todos los listeners notificados');
+              
+              // Cuando cambias de nick, el servidor te expulsa de todos los canales
+              // Cerrar todos los canales y notificar
+              final channelsToClose = List<String>.from(channels.keys);
+              for (var channelName in channelsToClose) {
+                if (channels.containsKey(channelName)) {
+                  channels.remove(channelName);
+                  _notifyUserListListeners(channelName);
+                }
+              }
+              _currentChannel = null;
+              print('🔄 [IRCService] Canales cerrados debido a cambio de nick');
             } else {
               // Es el cambio de nick de otro usuario
               // print('🔄 [IRCService] Usuario "$oldNick" cambió su nick a "$newNick" (no es nuestro)');
-              // Actualizar el nick en todos los canales donde aparezca
+              // Actualizar el nick en todos los canales donde aparezca (case-insensitive)
+              final oldNickLower = oldNick.toLowerCase();
               for (var channel in channels.values) {
-                if (channel.users.contains(oldNick)) {
-                  channel.users.remove(oldNick);
+                // Buscar el usuario de forma case-insensitive
+                String? existingNick;
+                for (var user in channel.users) {
+                  if (user.toLowerCase() == oldNickLower) {
+                    existingNick = user;
+                    break;
+                  }
+                }
+                
+                if (existingNick != null) {
+                  // Guardar host y modo del usuario antiguo si existen
+                  final oldHost = channel.userHosts[existingNick];
+                  final oldMode = channel.userModes[existingNick];
+                  
+                  // Remover el usuario antiguo
+                  channel.users.remove(existingNick);
+                  if (channel.userHosts.containsKey(existingNick)) {
+                    channel.userHosts.remove(existingNick);
+                  }
+                  if (channel.userModes.containsKey(existingNick)) {
+                    channel.userModes.remove(existingNick);
+                  }
+                  
+                  // Agregar el usuario con el nuevo nick y restaurar host/modo
                   channel.users.add(newNick);
+                  if (oldHost != null) {
+                    channel.userHosts[newNick] = oldHost;
+                  }
+                  if (oldMode != null) {
+                    channel.userModes[newNick] = oldMode;
+                  }
+                  
                   _notifyUserListListeners(channel.name);
+                  print('🔄 [IRCService] Nick actualizado en ${channel.name}: "$existingNick" -> "$newNick"');
                 }
               }
             }
@@ -2409,8 +2483,8 @@ class IRCService {
               }
               
               if (!userExists) {
-                channels[channel]!.addUser(nick, host: host);
-                // print('🔍 [DEBUG] Added user "$nick" to channel "$channel" with host: ${host ?? "unknown"}');
+              channels[channel]!.addUser(nick, host: host);
+              // print('🔍 [DEBUG] Added user "$nick" to channel "$channel" with host: ${host ?? "unknown"}');
                 
                 // Hacer WHOIS automático para detectar estado away (con delay para evitar spam)
                 Future.delayed(const Duration(seconds: 2), () {
@@ -2573,6 +2647,26 @@ class IRCService {
               // Notificar cambio en la lista de usuarios
               _notifyUserListListeners(channel);
               // print('👢 [IRCService] Usuario $kickedNick expulsado de $channel');
+              
+              // Si somos nosotros los expulsados, cerrar el canal y notificar
+              if (_nickname != null && kickedNick.toLowerCase() == _nickname!.toLowerCase()) {
+                if (channels.containsKey(channel)) {
+                  channels.remove(channel);
+                  _notifyUserListListeners(channel);
+                }
+                if (_currentChannel == channel) {
+                  _currentChannel = null;
+                }
+                // Notificar a los listeners de KICK
+                for (var listener in _kickListeners) {
+                  try {
+                    listener(channel, reason ?? '');
+                  } catch (e) {
+                    print('⚠️ [IRCService] Error en listener de KICK: $e');
+                  }
+                }
+                print('👢 [IRCService] Fuiste expulsado de $channel, canal cerrado');
+              }
             }
           }
           break;
@@ -3261,13 +3355,13 @@ class IRCService {
                       // También verificar si ambos son mensajes ACTION
                       if (msg.isAction == isAction) {
                         // print('🔍 [IRCService] Comparando pendiente[$i]: "$msgContent" con recibido: "$receivedContent" (isAction: $isAction)');
-                        if (msgContent == receivedContent ||
-                            receivedContent.contains(msgContent) ||
-                            msgContent.contains(receivedContent)) {
-                          pendingMsgIndex = i;
-                          pendingMsg = msg;
-                          // print('✅ [IRCService] Mensaje pendiente encontrado en índice $i: "${msg.message}" (pendingId: ${msg.pendingId})');
-                          break;
+                      if (msgContent == receivedContent ||
+                          receivedContent.contains(msgContent) ||
+                          msgContent.contains(receivedContent)) {
+                        pendingMsgIndex = i;
+                        pendingMsg = msg;
+                        // print('✅ [IRCService] Mensaje pendiente encontrado en índice $i: "${msg.message}" (pendingId: ${msg.pendingId})');
+                        break;
                         }
                       }
                     }
@@ -3669,6 +3763,14 @@ class IRCService {
 
   void removeNickChangeListener(Function(String) listener) {
     _nickChangeListeners.remove(listener);
+  }
+  
+  void addKickListener(Function(String, String) listener) {
+    _kickListeners.add(listener);
+  }
+  
+  void removeKickListener(Function(String, String) listener) {
+    _kickListeners.remove(listener);
   }
 
   void addWhoisListener(Function(WhoisInfo) listener) {

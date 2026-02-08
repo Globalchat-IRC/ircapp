@@ -407,6 +407,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     // Listen for nickname changes
     _ircService.addNickChangeListener(_onNickChanged);
     
+    // Listen for KICK events (when user is kicked from a channel)
+    _ircService.addKickListener(_onKicked);
+    
     // Listen for IRCop identification
     _ircService.addIRCOpListener(_onIRCOpIdentified);
     
@@ -611,15 +614,44 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         ref.read(currentNicknameProvider.notifier).state = newNick;
         final updatedNick = ref.read(currentNicknameProvider);
         // print('🔄 [ChatScreen] ✅ Provider actualizado, nuevo valor: $updatedNick');
+        
+        // Cerrar todos los canales cuando cambias de nick (el servidor te expulsa)
+        final currentChannel = ref.read(currentChannelProvider);
+        if (currentChannel != null) {
+          ref.read(currentChannelProvider.notifier).state = null;
+        }
+        
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Nick cambiado a $newNick'),
-            duration: const Duration(seconds: 2),
+            content: Text('Nick cambiado a $newNick. Has sido expulsado de todos los canales.'),
+            duration: const Duration(seconds: 3),
           ),
         );
       });
     } else {
       // print('🔄 [ChatScreen] ❌ Widget no está montado, no se puede actualizar');
+    }
+  }
+  
+  void _onKicked(String channel, String reason) {
+    if (mounted) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        
+        // Cerrar el canal si es el canal actual
+        final currentChannel = ref.read(currentChannelProvider);
+        if (currentChannel != null && currentChannel.toLowerCase() == channel.toLowerCase()) {
+          ref.read(currentChannelProvider.notifier).state = null;
+        }
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Fuiste expulsado de $channel${reason.isNotEmpty ? " (razón: $reason)" : ""}'),
+            duration: const Duration(seconds: 4),
+            backgroundColor: Colors.red.shade700,
+          ),
+        );
+      });
     }
   }
 
@@ -2130,6 +2162,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     _ircService.removeTopicListener(_onTopicChanged);
     _ircService.removeMessageListener(_onMessageReceived);
     _ircService.removeNickChangeListener(_onNickChanged);
+    _ircService.removeKickListener(_onKicked);
     _ircService.removeLagListener(_onLagUpdated);
     _messageController.removeListener(_onMessageTextChanged);
     _messageController.dispose();
