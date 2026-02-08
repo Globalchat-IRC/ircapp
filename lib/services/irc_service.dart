@@ -63,6 +63,8 @@ class IRCService {
   bool _autoJoinOfficialGlobalChat = true; // Controla si se hace autojoin al canal oficial #globalchat
   final Set<String> _manuallyClosedChannels = {}; // Canales que el usuario cerró manualmente
   Timer? _expiredMessagesTimer; // Timer para verificar mensajes expirados periódicamente
+  Timer? _awayStatusUpdateTimer; // Timer para actualizar estado away de usuarios periódicamente
+  final Map<String, DateTime> _lastWhoisCheck = {}; // Última vez que se hizo WHOIS para cada usuario
 
   bool get isConnected => _isConnected;
   String? get currentChannel => _currentChannel;
@@ -178,6 +180,7 @@ class IRCService {
       _isConnected = true;
       _startLagPingTimer();
       _startExpiredMessagesTimer();
+      _startAwayStatusUpdateTimer();
       
       // Notify listeners
       // print('📢 [IRCService] Notifying listeners');
@@ -208,6 +211,7 @@ class IRCService {
     // Detener timers
     _stopLagPingTimer();
     _stopExpiredMessagesTimer();
+    _stopAwayStatusUpdateTimer();
     // Resetear flags de autojoin al desconectar
     _hasAutoJoinedGlobalChat = false;
     _manuallyClosedChannels.clear();
@@ -751,13 +755,24 @@ class IRCService {
   }
   
   void sendAway([String? message]) {
-    final messageToSend = message ?? _defaultAwayMessage;
-    if (messageToSend != null && messageToSend.isNotEmpty) {
-      _sendCommand('AWAY :$messageToSend');
-      // print('🚶 [IRCService] Estableciendo mensaje de ausencia: $messageToSend');
-    } else {
+    // Si message es null explícitamente, no usar el mensaje por defecto (quitar away)
+    // Si message es una cadena vacía, usar el mensaje por defecto si existe
+    if (message == null) {
+      // Quitar away explícitamente
       _sendCommand('AWAY');
-      // print('🚶 [IRCService] Estableciendo mensaje de ausencia (sin mensaje)');
+      // print('✅ [IRCService] Quitando modo away');
+    } else if (message.isEmpty && _defaultAwayMessage != null && _defaultAwayMessage!.isNotEmpty) {
+      // Mensaje vacío pero hay mensaje por defecto, usar el por defecto
+      _sendCommand('AWAY :$_defaultAwayMessage');
+      // print('🚶 [IRCService] Estableciendo mensaje de ausencia (por defecto): $_defaultAwayMessage');
+    } else if (message.isNotEmpty) {
+      // Usar el mensaje proporcionado
+      _sendCommand('AWAY :$message');
+      // print('🚶 [IRCService] Estableciendo mensaje de ausencia: $message');
+    } else {
+      // Mensaje vacío y no hay mensaje por defecto, quitar away
+      _sendCommand('AWAY');
+      // print('✅ [IRCService] Quitando modo away (sin mensaje)');
     }
   }
 
@@ -792,8 +807,25 @@ class IRCService {
       return;
     }
     final normalized = _normalizeChannelName(channel);
-    final command = 'PRIVMSG $normalized :\x01ACTION $action\x01';
-    print('🎭 [IRCService] Enviando acción /me en $normalized: $action');
+    
+    // Añadir el mensaje localmente primero
+    if (channels.containsKey(normalized)) {
+      final msg = IRCMessage(
+        nick: _nickname ?? 'You',
+        channel: normalized,
+        message: action,
+        timestamp: DateTime.now(),
+        isAction: true,
+        messageId: IRCMessage.generateMessageId(),
+      );
+      channels[normalized]!.addMessage(msg);
+      _notifyMessageListeners(msg);
+    }
+    
+    // Enviar el comando ACTION como NOTICE al canal
+    final command = 'NOTICE $normalized :\x01ACTION $action\x01';
+    print('🎭 [IRCService] Enviando acción /me como NOTICE en $normalized: $action');
+    print('🎭 [IRCService] Comando completo: $command');
     _sendCommand(command);
   }
 
@@ -1519,7 +1551,7 @@ class IRCService {
       return;
     }
     
-    print('🎭 [IRCService] Enviando acción /ame a todos los canales: $action');
+    print('🎭 [IRCService] Enviando acción /ame como NOTICE a todos los canales: $action');
     
     // Enviar a todos los canales donde estás presente
     for (final channelEntry in channels.entries) {
@@ -1527,7 +1559,24 @@ class IRCService {
       // Solo enviar a canales (que empiezan con #), no a queries privadas
       if (channelName.startsWith('#')) {
         final normalized = _normalizeChannelName(channelName);
-        final command = 'PRIVMSG $normalized :\x01ACTION $action\x01';
+        
+        // Añadir el mensaje localmente primero
+        if (channels.containsKey(normalized)) {
+          final msg = IRCMessage(
+            nick: _nickname ?? 'You',
+            channel: normalized,
+            message: action,
+            timestamp: DateTime.now(),
+            isAction: true,
+            messageId: IRCMessage.generateMessageId(),
+          );
+          channels[normalized]!.addMessage(msg);
+          _notifyMessageListeners(msg);
+        }
+        
+        // Enviar el comando ACTION como NOTICE al servidor
+        final command = 'NOTICE $normalized :\x01ACTION $action\x01';
+        print('🎭 [IRCService] Enviando /ame como NOTICE a $normalized: $action');
         _sendCommand(command);
       }
     }
@@ -2147,8 +2196,23 @@ class IRCService {
                   } else {
                     print('🔍 [DEBUG] ➕ Adding new user: "$cleanUser" with mode: "$userMode"');
                     channels[finalChannel]!.addUser(cleanUser, mode: userMode);
-                  addedCount++;
-                }
+                    addedCount++;
+                    
+                    // Hacer WHOIS automático para detectar estado away (con delay para evitar spam)
+                    Future.delayed(const Duration(seconds: 2), () {
+                      if (_isConnected && _hasActiveConnection) {
+                        // Solo hacer WHOIS si no tenemos información reciente en caché
+                        final cachedInfo = _whoisCache[cleanUser.toLowerCase()];
+                        final shouldRequestWhois = cachedInfo == null || 
+                            (cachedInfo.signonTime != null && 
+                             DateTime.now().difference(cachedInfo.signonTime!) > const Duration(minutes: 5));
+                        
+                        if (shouldRequestWhois) {
+                          sendWhois(cleanUser);
+                        }
+                      }
+                    });
+                  }
               } else {
                 if (isServerHost) {
                   // print('🔍 [DEBUG] ❌ Skipping server/host name: "$cleanUser"');
@@ -2299,8 +2363,37 @@ class IRCService {
                  RegExp(r'\.(org|com|net|edu|gov|io|co|uk|de|fr|es|it|nl|be|ch|at|se|no|dk|fi|pl|cz|sk|hu|ro|bg|gr|pt|ie|lu|mt|cy|ee|lv|lt|si|hr|rs|ba|mk|al|me|is|li|ad|mc|sm|va|by|ua|md|ge|am|az|kz|uz|tm|tj|kg|mn|cn|jp|kr|in|au|nz|za|br|mx|ar|cl|co|pe|ve|ec|uy|py|bo|cr|pa|do|gt|hn|ni|sv|bz|jm|tt|bb|gd|lc|vc|ag|bs|dm|kn|sr|gy|fk|ai|vg|ky|bm|tc|ms|pw|fm|mh|nr|ki|tv|to|ws|sb|vu|nc|pf|as|gu|mp|pr|vi|um|us|ca)$', caseSensitive: false).hasMatch(nick)); // Termina en dominio común
             
             if (!isServerHost) {
-              channels[channel]!.addUser(nick, host: host);
-              // print('🔍 [DEBUG] Added user "$nick" to channel "$channel" with host: ${host ?? "unknown"}');
+              // Verificar si el usuario ya existe antes de agregarlo
+              final nickLower = nick.toLowerCase();
+              final channelObj = channels[channel]!;
+              bool userExists = false;
+              for (var existingUser in channelObj.users) {
+                if (existingUser.toLowerCase() == nickLower) {
+                  userExists = true;
+                  break;
+                }
+              }
+              
+              if (!userExists) {
+                channels[channel]!.addUser(nick, host: host);
+                // print('🔍 [DEBUG] Added user "$nick" to channel "$channel" with host: ${host ?? "unknown"}');
+                
+                // Hacer WHOIS automático para detectar estado away (con delay para evitar spam)
+                Future.delayed(const Duration(seconds: 2), () {
+                  if (_isConnected && _hasActiveConnection) {
+                    // Solo hacer WHOIS si no tenemos información reciente en caché
+                    final cachedInfo = _whoisCache[nickLower];
+                    final shouldRequestWhois = cachedInfo == null || 
+                        (cachedInfo.signonTime != null && 
+                         DateTime.now().difference(cachedInfo.signonTime!) > const Duration(minutes: 5));
+                    
+                    if (shouldRequestWhois) {
+                      sendWhois(nick);
+                    }
+                  }
+                });
+              }
+              
               // Notificar cambio en la lista de usuarios
               _notifyUserListListeners(channel);
             } else {
@@ -2596,19 +2689,24 @@ class IRCService {
         case '318': // End of WHOIS: :server 318 nick target :End of /WHOIS list.
           if (args.length >= 2) {
             final targetNick = args[1];
+            final targetNickLower = targetNick.toLowerCase();
             if (_pendingWhois.containsKey(targetNick)) {
               final whoisInfo = _pendingWhois[targetNick]!;
-              _whoisCache[targetNick.toLowerCase()] = whoisInfo;
+              _whoisCache[targetNickLower] = whoisInfo;
               _notifyWhoisListeners(whoisInfo);
               _pendingWhois.remove(targetNick);
+              // Actualizar timestamp de última verificación
+              _lastWhoisCheck[targetNickLower] = DateTime.now();
               // print('🔍 [WHOIS] 318 - End of WHOIS for $targetNick');
             } else {
               // Si no hay información pendiente, crear una entrada básica para notificar
               // Esto puede pasar si el servidor envía 318 sin enviar otros códigos
               // print('⚠️  [WHOIS] 318 recibido pero no hay información pendiente para $targetNick');
               final basicInfo = WhoisInfo(nick: targetNick);
-              _whoisCache[targetNick.toLowerCase()] = basicInfo;
+              _whoisCache[targetNickLower] = basicInfo;
               _notifyWhoisListeners(basicInfo);
+              // Actualizar timestamp de última verificación
+              _lastWhoisCheck[targetNickLower] = DateTime.now();
             }
           }
           break;
@@ -2791,6 +2889,7 @@ class IRCService {
             final targetNick = args[1];
             final awayMessage = args.sublist(2).join(' ').replaceFirst(':', '').trim();
             
+            // Actualizar información pendiente de WHOIS
             if (_pendingWhois.containsKey(targetNick)) {
               _pendingWhois[targetNick] = _pendingWhois[targetNick]!.copyWith(
                 isAway: true,
@@ -2802,6 +2901,32 @@ class IRCService {
                 isAway: true,
                 awayMessage: awayMessage,
               );
+            }
+            
+            // También actualizar el caché y notificar inmediatamente para que se vea en los avatares
+            final targetNickLower = targetNick.toLowerCase();
+            final cachedInfo = _whoisCache[targetNickLower];
+            if (cachedInfo != null) {
+              // Actualizar información existente en caché
+              final updatedInfo = cachedInfo.copyWith(
+                isAway: true,
+                awayMessage: awayMessage,
+              );
+              _whoisCache[targetNickLower] = updatedInfo;
+              _notifyWhoisListeners(updatedInfo);
+              // Actualizar timestamp de última verificación
+              _lastWhoisCheck[targetNickLower] = DateTime.now();
+            } else {
+              // Crear nueva entrada en caché y notificar
+              final newInfo = WhoisInfo(
+                nick: targetNick,
+                isAway: true,
+                awayMessage: awayMessage,
+              );
+              _whoisCache[targetNickLower] = newInfo;
+              _notifyWhoisListeners(newInfo);
+              // Actualizar timestamp de última verificación
+              _lastWhoisCheck[targetNickLower] = DateTime.now();
             }
             // print('🔍 [WHOIS] 301 - $targetNick is away: $awayMessage');
           }
@@ -3063,15 +3188,19 @@ class IRCService {
                         msg.nick == _nickname) {
                       // Verificar si el contenido coincide (exacto o similar)
                       final msgContent = msg.message.trim();
-                      final receivedContent = messageContent.trim();
-                      // print('🔍 [IRCService] Comparando pendiente[$i]: "$msgContent" con recibido: "$receivedContent"');
-                      if (msgContent == receivedContent ||
-                          receivedContent.contains(msgContent) ||
-                          msgContent.contains(receivedContent)) {
-                        pendingMsgIndex = i;
-                        pendingMsg = msg;
-                        // print('✅ [IRCService] Mensaje pendiente encontrado en índice $i: "${msg.message}" (pendingId: ${msg.pendingId})');
-                        break;
+                      // Para mensajes ACTION, usar actionText en lugar de messageContent
+                      final receivedContent = (isAction && actionText != null) ? actionText.trim() : messageContent.trim();
+                      // También verificar si ambos son mensajes ACTION
+                      if (msg.isAction == isAction) {
+                        // print('🔍 [IRCService] Comparando pendiente[$i]: "$msgContent" con recibido: "$receivedContent" (isAction: $isAction)');
+                        if (msgContent == receivedContent ||
+                            receivedContent.contains(msgContent) ||
+                            msgContent.contains(receivedContent)) {
+                          pendingMsgIndex = i;
+                          pendingMsg = msg;
+                          // print('✅ [IRCService] Mensaje pendiente encontrado en índice $i: "${msg.message}" (pendingId: ${msg.pendingId})');
+                          break;
+                        }
                       }
                     }
                   }
@@ -3099,7 +3228,9 @@ class IRCService {
                     } else {
                       // El timer ya se ejecutó o no había timer (envío inmediato), confirmar el mensaje
                       // print('✅ [IRCService] Timer ya ejecutado o sin delay, confirmando mensaje pendiente');
-                      final confirmed = confirmPendingMessage(channelKey, messageContent, DateTime.now());
+                      // Para mensajes ACTION, usar actionText en lugar de messageContent
+                      final contentToConfirm = (isAction && actionText != null) ? actionText : messageContent;
+                      final confirmed = confirmPendingMessage(channelKey, contentToConfirm, DateTime.now());
                       if (confirmed) {
                         // print('✅ [IRCService] Mensaje pendiente confirmado, no se añadirá duplicado');
                         return; // Salir temprano para evitar añadir un mensaje duplicado
@@ -3115,10 +3246,12 @@ class IRCService {
                   }
                 } else {
                   // Es un mensaje de otro usuario, añadirlo normalmente
+                  // Para mensajes ACTION, usar actionText en lugar de messageContent
+                  final finalMessage = (isAction && actionText != null) ? actionText : messageContent;
             final msg = IRCMessage(
               nick: nick,
                   channel: channelKey,
-              message: messageContent,
+              message: finalMessage,
               timestamp: DateTime.now(),
               isAction: isAction,
               messageId: IRCMessage.generateMessageId(),
@@ -3286,6 +3419,18 @@ class IRCService {
                     break;
                   }
                   
+                  // Detectar y procesar mensajes ACTION (/me) en NOTICE
+                  bool isAction = false;
+                  String? actionText;
+                  String finalMessage = messageContent;
+                  if (messageContent.startsWith('\x01ACTION ') && messageContent.endsWith('\x01')) {
+                    isAction = true;
+                    // Extraer el texto de la acción (sin \x01ACTION y sin el \x01 final)
+                    actionText = messageContent.substring(8, messageContent.length - 1).trim();
+                    finalMessage = actionText; // Usar el texto de la acción como mensaje
+                    // print('🎭 [IRCService] Mensaje ACTION detectado en NOTICE: "$actionText"');
+                  }
+                  
                   // Determinar si es un canal (#) o un mensaje privado (nick)
                   bool isChannel = target.startsWith('#');
                   String channelKey;
@@ -3312,17 +3457,59 @@ class IRCService {
                     channels[channelKey] = IRCChannel(name: channelKey);
                   }
                   
-                  // Crear el mensaje NOTICE
+                  // Verificar si es nuestro propio mensaje (confirmación del servidor)
+                  final isOurOwnMessage = _nickname != null &&
+                      nick.toLowerCase() == _nickname!.toLowerCase();
+                  
+                  if (isOurOwnMessage && isAction) {
+                    // Es nuestro propio mensaje ACTION, buscar mensaje pendiente
+                    final channelObj = channels[channelKey]!;
+                    int pendingMsgIndex = -1;
+                    IRCMessage? pendingMsg;
+                    
+                    // Buscar desde el final (más reciente) hacia el principio
+                    for (int i = channelObj.messages.length - 1; i >= 0; i--) {
+                      final msg = channelObj.messages[i];
+                      if (msg.isPending && 
+                          msg.channel == channelKey &&
+                          msg.nick == _nickname &&
+                          msg.isAction == true) {
+                        final msgContent = msg.message.trim();
+                        final receivedContent = actionText?.trim() ?? '';
+                        if (msgContent == receivedContent ||
+                            receivedContent.contains(msgContent) ||
+                            msgContent.contains(receivedContent)) {
+                          pendingMsgIndex = i;
+                          pendingMsg = msg;
+                          break;
+                        }
+                      }
+                    }
+                    
+                    if (pendingMsgIndex != -1 && pendingMsg != null) {
+                      // Confirmar el mensaje pendiente
+                      final confirmed = confirmPendingMessage(channelKey, actionText ?? messageContent, DateTime.now());
+                      if (confirmed) {
+                        return; // No añadir duplicado
+                      }
+                    }
+                    // Si no se encontró pendiente, no añadir duplicado de todas formas
+                    return;
+                  }
+                  
+                  // Crear el mensaje NOTICE (puede ser ACTION)
                   final msg = IRCMessage(
                     nick: nick,
                     channel: channelKey,
-                    message: messageContent,
+                    message: finalMessage,
                     timestamp: DateTime.now(),
+                    isAction: isAction,
+                    messageId: IRCMessage.generateMessageId(),
                   );
                   
                   channels[channelKey]!.addMessage(msg);
                   _notifyMessageListeners(msg);
-                  // print('📢 [IRCService] NOTICE añadido: $nick -> $channelKey: $messageContent');
+                  // print('📢 [IRCService] NOTICE añadido: $nick -> $channelKey: $messageContent (isAction: $isAction)');
                 }
               }
             }
@@ -3362,6 +3549,7 @@ class IRCService {
 
   void _onDisconnect() {
     _stopLagPingTimer();
+    _stopAwayStatusUpdateTimer();
     _isConnected = false;
     // Resetear el lag al desconectar
     _notifyLagListeners(0); // Notificar lag 0 para resetear
@@ -3369,6 +3557,7 @@ class IRCService {
     _currentChannel = null;
     _connection = null;
     _currentHost = null;
+    _lastWhoisCheck.clear(); // Limpiar timestamps de verificación
     for (var listener in _disconnectionListeners) {
       listener();
     }
@@ -3554,6 +3743,79 @@ class IRCService {
   void _stopExpiredMessagesTimer() {
     _expiredMessagesTimer?.cancel();
     _expiredMessagesTimer = null;
+  }
+
+  void _startAwayStatusUpdateTimer() {
+    _awayStatusUpdateTimer?.cancel();
+    
+    // Actualizar estado away cada 2 minutos para usuarios en canales activos
+    _awayStatusUpdateTimer = Timer.periodic(const Duration(minutes: 2), (timer) {
+      if (_isConnected && _hasActiveConnection) {
+        _updateAwayStatusForActiveUsers();
+      } else {
+        timer.cancel();
+      }
+    });
+  }
+  
+  void _stopAwayStatusUpdateTimer() {
+    _awayStatusUpdateTimer?.cancel();
+    _awayStatusUpdateTimer = null;
+    _lastWhoisCheck.clear();
+  }
+  
+  void _updateAwayStatusForActiveUsers() {
+    if (!_isConnected || !_hasActiveConnection) return;
+    
+    final now = DateTime.now();
+    final Set<String> usersToCheck = {};
+    
+    // Recopilar usuarios de todos los canales activos
+    for (var channelEntry in channels.entries) {
+      final channel = channelEntry.value;
+      for (var user in channel.users) {
+        // No hacer WHOIS de nosotros mismos
+        if (_nickname != null && user.toLowerCase() == _nickname!.toLowerCase()) {
+          continue;
+        }
+        
+        // Solo verificar usuarios válidos (no servidores/hosts)
+        final isServerHost = user.contains('.') && 
+            (user.split('.').length > 2 || 
+             RegExp(r'\.(org|com|net|edu|gov|io|co|uk|de|fr|es|it|nl|be|ch|at|se|no|dk|fi|pl|cz|sk|hu|ro|bg|gr|pt|ie|lu|mt|cy|ee|lv|lt|si|hr|rs|ba|mk|al|me|is|li|ad|mc|sm|va|by|ua|md|ge|am|az|kz|uz|tm|tj|kg|mn|cn|jp|kr|in|au|nz|za|br|mx|ar|cl|co|pe|ve|ec|uy|py|bo|cr|pa|do|gt|hn|ni|sv|bz|jm|tt|bb|gd|lc|vc|ag|bs|dm|kn|sr|gy|fk|ai|vg|ky|bm|tc|ms|pw|fm|mh|nr|ki|tv|to|ws|sb|vu|nc|pf|as|gu|mp|pr|vi|um|us|ca)$', caseSensitive: false).hasMatch(user));
+        
+        if (!isServerHost) {
+          final userLower = user.toLowerCase();
+          final lastCheck = _lastWhoisCheck[userLower];
+          
+          // Solo hacer WHOIS si:
+          // 1. Nunca se ha hecho WHOIS para este usuario, O
+          // 2. La última verificación fue hace más de 2 minutos, O
+          // 3. No tenemos información en caché o es antigua (más de 5 minutos)
+          final cachedInfo = _whoisCache[userLower];
+          final shouldCheck = lastCheck == null || 
+              now.difference(lastCheck) > const Duration(minutes: 2) ||
+              cachedInfo == null ||
+              (cachedInfo.signonTime != null && now.difference(cachedInfo.signonTime!) > const Duration(minutes: 5));
+          
+          if (shouldCheck) {
+            usersToCheck.add(user);
+          }
+        }
+      }
+    }
+    
+    // Hacer WHOIS para los usuarios seleccionados, con un pequeño delay entre cada uno para evitar spam
+    int delay = 0;
+    for (var user in usersToCheck) {
+      Future.delayed(Duration(milliseconds: delay), () {
+        if (_isConnected && _hasActiveConnection) {
+          _lastWhoisCheck[user.toLowerCase()] = DateTime.now();
+          sendWhois(user);
+        }
+      });
+      delay += 500; // 500ms entre cada WHOIS
+    }
   }
 
   void _notifyMessageListeners(IRCMessage message) {

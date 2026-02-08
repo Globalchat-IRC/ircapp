@@ -954,11 +954,46 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
     return FutureBuilder<UserProfile?>(
       future: ref.read(videoDatabaseProvider).getUserProfile(widget.nick),
       builder: (context, snapshot) {
-        if (!snapshot.hasData) {
-          return const SizedBox.shrink();
+        // Si está cargando, mostrar un indicador
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return _buildSection(
+            appTheme,
+            'Perfil Personal',
+            [
+              const Center(
+                child: Padding(
+                  padding: EdgeInsets.all(16.0),
+                  child: CircularProgressIndicator(),
+                ),
+              ),
+            ],
+          );
         }
         
-        final profile = snapshot.data!;
+        // Si no hay datos o el perfil no existe, crear uno por defecto
+        UserProfile profile;
+        if (!snapshot.hasData || snapshot.data == null) {
+          profile = UserProfile(
+            nick: widget.nick,
+            role: UserRole.user,
+            reputation: 50,
+            hasAcceptedVideoTerms: false,
+            emailVerified: false,
+            phoneVerified: false,
+            idVerified: false,
+            gender: null,
+            age: null,
+            interests: [],
+          );
+          // Guardar el perfil por defecto en segundo plano
+          Future.microtask(() async {
+            final db = ref.read(videoDatabaseProvider);
+            await db.saveUserProfile(profile);
+          });
+        } else {
+          profile = snapshot.data!;
+        }
+        
         return _buildSection(
           appTheme,
           'Perfil Personal',
@@ -972,6 +1007,10 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(content: Text('Perfil actualizado')),
                 );
+                // Forzar actualización del widget
+                if (context.mounted) {
+                  setState(() {});
+                }
               },
             ),
           ],

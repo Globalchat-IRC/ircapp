@@ -324,7 +324,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     {'command': 'who', 'description': 'Listar usuarios con info', 'usage': '/who [canal]'},
     {'command': 'list', 'description': 'Listar canales', 'usage': '/list [patrón]'},
     {'command': 'names', 'description': 'Listar usuarios del canal', 'usage': '/names [canal]'},
-    {'command': 'away', 'description': 'Establecer ausencia', 'usage': '/away [mensaje]'},
+    {'command': 'away', 'description': 'Establecer/quitar ausencia', 'usage': '/away [mensaje] - Sin mensaje quita el away'},
     {'command': 'back', 'description': 'Volver de ausencia', 'usage': '/back'},
     {'command': 'me', 'description': 'Acción (/me)', 'usage': '/me <acción>'},
     {'command': 'ame', 'description': 'Acción a todos los canales (/ame)', 'usage': '/ame <acción>'},
@@ -2652,19 +2652,26 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   // Función auxiliar para parsear comandos que tienen un mensaje al final
   // Ejemplo: /msg nick mensaje con espacios -> nick = 'nick', message = 'mensaje con espacios'
+  // Ejemplo: /me acción con espacios -> message = 'acción con espacios'
   Map<String, String>? _parseCommandWithMessage(String command, int requiredArgs) {
     final parts = command.substring(1).split(' '); // Remover el / inicial
     if (parts.isEmpty) return null;
     
-    if (parts.length <= requiredArgs) return null;
+    // Verificar que haya al menos el comando + los argumentos requeridos + el mensaje
+    // Para requiredArgs=0 (como /me), necesitamos al menos 2 elementos: ['me', 'acción']
+    if (parts.length <= requiredArgs + 1) return null;
     
     // Para comandos con mensaje, tomar todo después de los argumentos requeridos
-    final args = parts.sublist(1, requiredArgs + 1);
-    final message = parts.sublist(requiredArgs + 1).join(' ');
-    
     if (requiredArgs == 1) {
+      // /msg nick mensaje con espacios
+      final args = parts.sublist(1, 2); // Solo el primer argumento (nick)
+      final message = parts.sublist(2).join(' '); // Todo lo demás es el mensaje
+      if (args.isEmpty || message.isEmpty) return null;
       return {'arg1': args[0], 'message': message};
     } else if (requiredArgs == 0) {
+      // /me acción con espacios
+      final message = parts.sublist(1).join(' '); // Todo después del comando es el mensaje
+      if (message.isEmpty) return null;
       return {'message': message};
     }
     return null;
@@ -3374,14 +3381,26 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         break;
         
       case 'away':
-        final message = args.isNotEmpty ? args.join(' ') : null;
-        _ircService.sendAway(message);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(message != null ? 'Mensaje de ausencia establecido: $message' : 'Mensaje de ausencia establecido'),
-            duration: const Duration(seconds: 2),
-          ),
-        );
+        if (args.isEmpty) {
+          // Sin argumentos: quitar el modo away
+          _ircService.sendBack();
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Modo away desactivado'),
+              duration: Duration(seconds: 2),
+            ),
+          );
+        } else {
+          // Con argumentos: establecer mensaje de away
+          final message = args.join(' ');
+          _ircService.sendAway(message);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Mensaje de ausencia establecido: $message'),
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        }
         break;
         
       case 'back':
@@ -3397,6 +3416,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       case 'me':
         // Parsear correctamente: /me acción con espacios
         final meParsed = _parseCommandWithMessage(command, 0);
+        print('🔍 [DEBUG /me] Comando recibido: $command');
+        print('🔍 [DEBUG /me] Parsed: $meParsed');
+        
         if (meParsed == null || meParsed['message'] == null || meParsed['message']!.isEmpty) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -3429,12 +3451,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         }
         
         final action = meParsed['message']!;
+        print('🔍 [DEBUG /me] Enviando acción: "$action" al canal: $currentChannel');
         _ircService.sendMe(currentChannel, action);
         break;
         
       case 'ame':
         // Parsear correctamente: /ame acción con espacios
         final ameParsed = _parseCommandWithMessage(command, 0);
+        print('🔍 [DEBUG /ame] Comando recibido: $command');
+        print('🔍 [DEBUG /ame] Parsed: $ameParsed');
+        
         if (ameParsed == null || ameParsed['message'] == null || ameParsed['message']!.isEmpty) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -3456,6 +3482,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         }
         
         final action = ameParsed['message']!;
+        print('🔍 [DEBUG /ame] Enviando acción: "$action" a todos los canales');
         _ircService.sendAme(action);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -7780,7 +7807,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   return const SizedBox.shrink();
                 },
               ),
-            _buildMessageContent(message.message, isOwnMessage, isBot: false),
+            // Mostrar mensaje ACTION con color distintivo
+            message.isAction
+                ? _buildActionMessage(message.nick, message.message, isOwnMessage, appTheme.accent, appTheme)
+                : _buildMessageContent(message.message, isOwnMessage, isBot: false),
             // Mostrar contador de respuestas si el mensaje tiene respuestas y los hilos están habilitados
             Builder(
               builder: (context) {
@@ -9810,6 +9840,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   // Widget para mostrar mensajes de acción (/me) con emoticono moderno
   Widget _buildActionMessage(String nick, String actionText, bool isOwnMessage, Color userColor, AppTheme appTheme) {
+    // Color distintivo para mensajes ACTION (dorado/amarillo)
+    final actionColor = isOwnMessage 
+        ? Colors.amber.shade300 
+        : Colors.amber.shade400;
+    
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -9826,16 +9861,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               style: TextStyle(
                 fontSize: 14,
                 fontStyle: FontStyle.italic,
-                color: isOwnMessage
-                    ? Colors.white.withOpacity(0.95)
-                    : appTheme.textPrimary,
+                color: actionColor,
               ),
               children: [
                 TextSpan(
                   text: nick,
                   style: TextStyle(
                     fontWeight: FontWeight.bold,
-                    color: isOwnMessage ? Colors.white : userColor,
+                    color: actionColor,
                   ),
                 ),
                 const TextSpan(text: ' '),
