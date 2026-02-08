@@ -13,6 +13,11 @@ class IRCMessage {
   final DateTime? editedAt; // Timestamp de la última edición
   final String? replyToMessageId; // ID del mensaje al que responde (para threads)
   final Map<String, int> reactions; // Reacciones: emoji -> cantidad
+  final bool isPinned; // Indica si el mensaje está fijado
+  final DateTime? pinnedAt; // Timestamp de cuando se fijó el mensaje
+  final String? pinnedBy; // Nick de quien fijó el mensaje
+  final DateTime? expiresAt; // Timestamp de expiración para mensajes temporales
+  final Map<String, DateTime> readBy; // Confirmación de lectura: nick -> timestamp
 
   IRCMessage({
     required this.nick,
@@ -29,7 +34,13 @@ class IRCMessage {
     this.editedAt,
     this.replyToMessageId,
     Map<String, int>? reactions,
-  }) : reactions = reactions ?? {};
+    this.isPinned = false,
+    this.pinnedAt,
+    this.pinnedBy,
+    this.expiresAt,
+    Map<String, DateTime>? readBy,
+  }) : reactions = reactions ?? {},
+       readBy = readBy ?? {};
 
   // Crear una copia con campos modificados
   IRCMessage copyWith({
@@ -47,6 +58,11 @@ class IRCMessage {
     DateTime? editedAt,
     String? replyToMessageId,
     Map<String, int>? reactions,
+    bool? isPinned,
+    DateTime? pinnedAt,
+    String? pinnedBy,
+    DateTime? expiresAt,
+    Map<String, DateTime>? readBy,
   }) {
     return IRCMessage(
       nick: nick ?? this.nick,
@@ -63,6 +79,11 @@ class IRCMessage {
       editedAt: editedAt ?? this.editedAt,
       replyToMessageId: replyToMessageId ?? this.replyToMessageId,
       reactions: reactions ?? this.reactions,
+      isPinned: isPinned ?? this.isPinned,
+      pinnedAt: pinnedAt ?? this.pinnedAt,
+      pinnedBy: pinnedBy ?? this.pinnedBy,
+      expiresAt: expiresAt ?? this.expiresAt,
+      readBy: readBy ?? this.readBy,
     );
   }
   
@@ -88,6 +109,11 @@ class IRCMessage {
       'editedAt': editedAt?.millisecondsSinceEpoch,
       'replyToMessageId': replyToMessageId,
       'reactions': reactions,
+      'isPinned': isPinned,
+      'pinnedAt': pinnedAt?.millisecondsSinceEpoch,
+      'pinnedBy': pinnedBy,
+      'expiresAt': expiresAt?.millisecondsSinceEpoch,
+      'readBy': readBy.map((key, value) => MapEntry(key, value.millisecondsSinceEpoch)),
     };
   }
 
@@ -112,6 +138,21 @@ class IRCMessage {
       reactions: json['reactions'] != null
           ? Map<String, int>.from(json['reactions'] as Map)
           : {},
+      isPinned: json['isPinned'] as bool? ?? false,
+      pinnedAt: json['pinnedAt'] != null
+          ? DateTime.fromMillisecondsSinceEpoch(json['pinnedAt'] as int)
+          : null,
+      pinnedBy: json['pinnedBy'] as String?,
+      expiresAt: json['expiresAt'] != null
+          ? DateTime.fromMillisecondsSinceEpoch(json['expiresAt'] as int)
+          : null,
+      readBy: json['readBy'] != null
+          ? Map<String, DateTime>.from(
+              (json['readBy'] as Map).map((key, value) => MapEntry(
+                key as String,
+                DateTime.fromMillisecondsSinceEpoch(value as int),
+              )))
+          : {},
     );
   }
 
@@ -126,6 +167,7 @@ class IRCChannel {
   final Map<String, String> userHosts; // Mapa de nick -> host
   final Map<String, String> userModes; // Mapa de nick -> modo (prefix: @, +, %, &)
   String? topic;
+  final List<String> pinnedMessageIds; // IDs de mensajes fijados
 
   IRCChannel({
     required this.name,
@@ -134,10 +176,12 @@ class IRCChannel {
     Map<String, String>? userHosts,
     Map<String, String>? userModes,
     this.topic,
+    List<String>? pinnedMessageIds,
   })  : messages = messages ?? [],
         users = users ?? [],
         userHosts = userHosts ?? {},
-        userModes = userModes ?? {};
+        userModes = userModes ?? {},
+        pinnedMessageIds = pinnedMessageIds ?? [];
 
   void addMessage(IRCMessage msg) {
     messages.add(msg);

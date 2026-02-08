@@ -500,6 +500,7 @@ class ChannelsNotifier extends Notifier<Map<String, IRCChannel>> {
         userHosts: Map<String, String>.from(entry.value.userHosts), // Copiar el mapa de hosts
         userModes: Map<String, String>.from(entry.value.userModes), // Copiar el mapa de modos
         topic: entry.value.topic, // Incluir el topic en la copia
+        pinnedMessageIds: List<String>.from(entry.value.pinnedMessageIds), // Incluir mensajes fijados
       );
       newState[entry.key] = channelCopy;
       // print('🔍 [DEBUG] Copied channel ${entry.key} with ${channelCopy.users.length} users: ${channelCopy.users}, topic: ${channelCopy.topic}');
@@ -549,6 +550,7 @@ class ChannelsNotifier extends Notifier<Map<String, IRCChannel>> {
         userHosts: Map<String, String>.from(entry.value.userHosts), // Copiar el mapa de hosts
         userModes: Map<String, String>.from(entry.value.userModes), // Copiar el mapa de modos
         topic: entry.value.topic, // Incluir el topic en la copia
+        pinnedMessageIds: List<String>.from(entry.value.pinnedMessageIds), // Incluir mensajes fijados
       );
       newState[entry.key] = channelCopy;
       // print('🔍 [DEBUG] Copied channel ${entry.key} with ${channelCopy.users.length} users, topic: ${channelCopy.topic}');

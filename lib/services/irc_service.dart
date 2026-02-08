@@ -61,6 +61,7 @@ class IRCService {
   bool _hasAutoJoinedGlobalChat = false; // Flag para rastrear si ya se hizo autojoin inicial a #globalchat
   bool _autoJoinOfficialGlobalChat = true; // Controla si se hace autojoin al canal oficial #globalchat
   final Set<String> _manuallyClosedChannels = {}; // Canales que el usuario cerró manualmente
+  Timer? _expiredMessagesTimer; // Timer para verificar mensajes expirados periódicamente
 
   bool get isConnected => _isConnected;
   String? get currentChannel => _currentChannel;
@@ -175,6 +176,7 @@ class IRCService {
       // Set connection as established
       _isConnected = true;
       _startLagPingTimer();
+      _startExpiredMessagesTimer();
       
       // Notify listeners
       // print('📢 [IRCService] Notifying listeners');
@@ -202,6 +204,9 @@ class IRCService {
       _isConnected = false;
       _currentHost = null;
     }
+    // Detener timers
+    _stopLagPingTimer();
+    _stopExpiredMessagesTimer();
     // Resetear flags de autojoin al desconectar
     _hasAutoJoinedGlobalChat = false;
     _manuallyClosedChannels.clear();
@@ -1877,14 +1882,19 @@ class IRCService {
             _nickAttempts++;
             newNick = '$_originalNickname$_nickAttempts';
             print('⚠️ [IRCService] Nick en uso, intentando alternativa $_nickAttempts: $_nickname -> $newNick');
-          } else if (!_nickname.endsWith('_')) {
+          } else if (_nickname != null && !_nickname!.endsWith('_')) {
             // Si ya probamos números o no hay nick original, usar guion
             newNick = '${_nickname}_';
             print('⚠️ [IRCService] Nick en uso, añadiendo guion: $_nickname -> $newNick');
-          } else {
+          } else if (_nickname != null) {
             // Si ya termina en guion, añadir otro
             newNick = '${_nickname}_';
             print('⚠️ [IRCService] Nick en uso, añadiendo otro guion: $_nickname -> $newNick');
+          } else {
+            // Fallback si _nickname es null (no debería pasar, pero por seguridad)
+            newNick = 'user${_nickAttempts + 1}';
+            _nickAttempts++;
+            print('⚠️ [IRCService] Nick es null, usando fallback: $newNick');
           }
           
           _nickname = newNick;
@@ -3446,6 +3456,24 @@ class IRCService {
     _lastPingSent = null;
     _lastPingToken = null;
   }
+  
+  void _startExpiredMessagesTimer() {
+    _expiredMessagesTimer?.cancel();
+    
+    // Verificar mensajes expirados cada 10 segundos
+    _expiredMessagesTimer = Timer.periodic(const Duration(seconds: 10), (timer) {
+      if (_isConnected) {
+        _checkExpiredMessages();
+      } else {
+        timer.cancel();
+      }
+    });
+  }
+  
+  void _stopExpiredMessagesTimer() {
+    _expiredMessagesTimer?.cancel();
+    _expiredMessagesTimer = null;
+  }
 
   void _notifyMessageListeners(IRCMessage message) {
     for (var listener in _messageListeners) {
@@ -3665,6 +3693,190 @@ class IRCService {
       );
     } catch (e) {
       return null;
+    }
+  }
+  
+  // Fijar un mensaje en un canal
+  bool pinMessage(String channel, String messageId) {
+    final normalized = _normalizeChannelName(channel);
+    if (!channels.containsKey(normalized)) return false;
+    if (_nickname == null) return false;
+    
+    final channelObj = channels[normalized]!;
+    final messageIndex = channelObj.messages.indexWhere(
+      (msg) => msg.messageId == messageId,
+    );
+    
+    if (messageIndex == -1) return false;
+    
+    final message = channelObj.messages[messageIndex];
+    
+    // Si ya está fijado, no hacer nada
+    if (message.isPinned) return true;
+    
+    // Actualizar el mensaje
+    final updatedMessage = message.copyWith(
+      isPinned: true,
+      pinnedAt: DateTime.now(),
+      pinnedBy: _nickname,
+    );
+    channelObj.messages[messageIndex] = updatedMessage;
+    
+    // Añadir a la lista de mensajes fijados del canal
+    if (!channelObj.pinnedMessageIds.contains(messageId)) {
+      channelObj.pinnedMessageIds.add(messageId);
+    }
+    
+    _notifyMessageListeners(updatedMessage);
+    _notifyUserListListeners(normalized); // Notificar para actualizar UI
+    
+    return true;
+  }
+  
+  // Desfijar un mensaje
+  bool unpinMessage(String channel, String messageId) {
+    final normalized = _normalizeChannelName(channel);
+    if (!channels.containsKey(normalized)) return false;
+    
+    final channelObj = channels[normalized]!;
+    final messageIndex = channelObj.messages.indexWhere(
+      (msg) => msg.messageId == messageId,
+    );
+    
+    if (messageIndex == -1) return false;
+    
+    final message = channelObj.messages[messageIndex];
+    
+    // Si no está fijado, no hacer nada
+    if (!message.isPinned) return true;
+    
+    // Actualizar el mensaje
+    final updatedMessage = message.copyWith(
+      isPinned: false,
+      pinnedAt: null,
+      pinnedBy: null,
+    );
+    channelObj.messages[messageIndex] = updatedMessage;
+    
+    // Remover de la lista de mensajes fijados
+    channelObj.pinnedMessageIds.remove(messageId);
+    
+    _notifyMessageListeners(updatedMessage);
+    _notifyUserListListeners(normalized); // Notificar para actualizar UI
+    
+    return true;
+  }
+  
+  // Obtener mensajes fijados de un canal
+  List<IRCMessage> getPinnedMessages(String channel) {
+    final normalized = _normalizeChannelName(channel);
+    if (!channels.containsKey(normalized)) return [];
+    
+    final channelObj = channels[normalized]!;
+    return channelObj.messages.where((msg) => 
+      msg.isPinned && channelObj.pinnedMessageIds.contains(msg.messageId)
+    ).toList();
+  }
+  
+  // Marcar un mensaje como leído (confirmación de lectura)
+  bool markAsRead(String channel, String messageId, String readerNick) {
+    final normalized = _normalizeChannelName(channel);
+    if (!channels.containsKey(normalized)) return false;
+    
+    final channelObj = channels[normalized]!;
+    final messageIndex = channelObj.messages.indexWhere(
+      (msg) => msg.messageId == messageId,
+    );
+    
+    if (messageIndex == -1) return false;
+    
+    final message = channelObj.messages[messageIndex];
+    final updatedReadBy = Map<String, DateTime>.from(message.readBy);
+    updatedReadBy[readerNick] = DateTime.now();
+    
+    final updatedMessage = message.copyWith(readBy: updatedReadBy);
+    channelObj.messages[messageIndex] = updatedMessage;
+    _notifyMessageListeners(updatedMessage);
+    
+    return true;
+  }
+  
+  // Establecer expiración para un mensaje temporal
+  bool setMessageExpiration(String channel, String messageId, Duration expirationDuration) {
+    final normalized = _normalizeChannelName(channel);
+    if (!channels.containsKey(normalized)) return false;
+    
+    final channelObj = channels[normalized]!;
+    final messageIndex = channelObj.messages.indexWhere(
+      (msg) => msg.messageId == messageId,
+    );
+    
+    if (messageIndex == -1) return false;
+    
+    final message = channelObj.messages[messageIndex];
+    final expiresAt = DateTime.now().add(expirationDuration);
+    
+    final updatedMessage = message.copyWith(expiresAt: expiresAt);
+    channelObj.messages[messageIndex] = updatedMessage;
+    _notifyMessageListeners(updatedMessage);
+    
+    // Programar eliminación automática
+    Timer(expirationDuration, () {
+      _expireMessage(normalized, messageId);
+    });
+    
+    return true;
+  }
+  
+  // Eliminar un mensaje expirado
+  void _expireMessage(String channel, String messageId) {
+    if (!channels.containsKey(channel)) return;
+    
+    final channelObj = channels[channel]!;
+    final messageIndex = channelObj.messages.indexWhere(
+      (msg) => msg.messageId == messageId,
+    );
+    
+    if (messageIndex == -1) return;
+    
+    final message = channelObj.messages[messageIndex];
+    
+    // Verificar que realmente haya expirado
+    if (message.expiresAt != null && DateTime.now().isBefore(message.expiresAt!)) {
+      return; // Aún no ha expirado
+    }
+    
+    // Remover el mensaje
+    channelObj.messages.removeAt(messageIndex);
+    
+    // Si estaba fijado, removerlo de la lista
+    channelObj.pinnedMessageIds.remove(messageId);
+    
+    // Notificar que el mensaje fue eliminado (crear un mensaje de sistema)
+    final systemMessage = IRCMessage(
+      nick: 'System',
+      channel: channel,
+      message: 'Mensaje temporal eliminado',
+      timestamp: DateTime.now(),
+      isSystem: true,
+    );
+    _notifyMessageListeners(systemMessage);
+    _notifyUserListListeners(channel);
+  }
+  
+  // Verificar y eliminar mensajes expirados periódicamente
+  void _checkExpiredMessages() {
+    for (var channelEntry in channels.entries) {
+      final channel = channelEntry.value;
+      final now = DateTime.now();
+      
+      final expiredMessages = channel.messages.where((msg) => 
+        msg.expiresAt != null && now.isAfter(msg.expiresAt!)
+      ).toList();
+      
+      for (var expiredMsg in expiredMessages) {
+        _expireMessage(channelEntry.key, expiredMsg.messageId ?? '');
+      }
     }
   }
 }
