@@ -1550,7 +1550,6 @@ class _PersonalProfileEditorState extends State<_PersonalProfileEditor> {
                 setState(() {
                   _selectedGender = selected ? 'M' : null;
                 });
-                _saveProfile();
               },
               appTheme: widget.appTheme,
             ),
@@ -1562,7 +1561,6 @@ class _PersonalProfileEditorState extends State<_PersonalProfileEditor> {
                 setState(() {
                   _selectedGender = selected ? 'F' : null;
                 });
-                _saveProfile();
               },
               appTheme: widget.appTheme,
             ),
@@ -1574,7 +1572,6 @@ class _PersonalProfileEditorState extends State<_PersonalProfileEditor> {
                 setState(() {
                   _selectedGender = selected ? 'O' : null;
                 });
-                _saveProfile();
               },
               appTheme: widget.appTheme,
             ),
@@ -1608,7 +1605,6 @@ class _PersonalProfileEditorState extends State<_PersonalProfileEditor> {
             fillColor: widget.appTheme.background,
           ),
           style: TextStyle(color: widget.appTheme.textPrimary),
-          onChanged: (_) => _saveProfile(),
         ),
         const SizedBox(height: 16),
         // Intereses
@@ -1638,7 +1634,44 @@ class _PersonalProfileEditorState extends State<_PersonalProfileEditor> {
             fillColor: widget.appTheme.background,
           ),
           style: TextStyle(color: widget.appTheme.textPrimary),
-          onChanged: (_) => _saveProfile(),
+        ),
+        const SizedBox(height: 24),
+        // Botón de guardar
+        SizedBox(
+          width: double.infinity,
+          child: ElevatedButton(
+            onPressed: () {
+              _saveProfile();
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Perfil guardado correctamente'),
+                  duration: Duration(seconds: 2),
+                ),
+              );
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: widget.appTheme.primary,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
+            child: const Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.save, size: 20),
+                SizedBox(width: 8),
+                Text(
+                  'Guardar Perfil',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
       ],
     );

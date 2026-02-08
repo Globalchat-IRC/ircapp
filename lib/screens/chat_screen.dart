@@ -5177,20 +5177,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final isConnected = ref.watch(connectionStatusProvider);
     final appTheme = ref.watch(themeProvider);
     
-    // Listener para limpiar historial de NickServ cuando se conecta
-    ref.listen<bool>(connectionStatusProvider, (previous, next) {
-      // Si se acaba de conectar (pasó de false a true), limpiar historial de NickServ
-      if (previous != null && !previous && next) {
-        WidgetsBinding.instance.addPostFrameCallback((_) async {
-          try {
-            await ref.read(messagesProvider.notifier).clearNickServHistory();
-            print('✅ [ChatScreen] Historial de NickServ limpiado al conectar');
-          } catch (e) {
-            print('⚠️ [ChatScreen] Error al limpiar historial de NickServ: $e');
-          }
-        });
-      }
-    });
+    // No limpiar al conectar - solo al desconectar para mantener mensajes nuevos visibles
     
     // Listener para establecer el foco en el campo de texto cuando cambia el canal
     ref.listen<String?>(currentChannelProvider, (previous, next) {
@@ -5226,25 +5213,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     // Filtrar mensajes del canal actual (case-insensitive)
     // Para mensajes privados, el channel es el nick (sin #)
     // Para canales, el channel empieza con #
+    // NOTA: No filtramos mensajes de NickServ aquí - solo se limpian al desconectar
     final normalizedCurrentChannel = currentChannel?.toLowerCase().trim();
-    
-    // Lista de variantes de NickServ para filtrar
-    final nickservVariants = ['nick', 'nickserv', 'nickserv', 'nickserv', 'nickserv'];
     
     final channelMessages = normalizedCurrentChannel != null
         ? messages
             .where((m) {
               final normalizedMessageChannel = m.channel.toLowerCase().trim();
-              // Si es un mensaje privado con NickServ, filtrarlo
-              if (!m.channel.startsWith('#')) {
-                final channelLower = m.channel.toLowerCase();
-                final nickLower = m.nick.toLowerCase();
-                for (final variant in nickservVariants) {
-                  if (channelLower == variant.toLowerCase() || nickLower == variant.toLowerCase()) {
-                    return false; // Filtrar mensajes de NickServ
-                  }
-                }
-              }
               return normalizedMessageChannel == normalizedCurrentChannel;
             })
             .toList()
@@ -5258,8 +5233,53 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
     // Filtrar mensajes de usuarios bloqueados (v2.1.0)
     final privacyService = PrivacyService();
-    final filteredHistory = history.where((msg) => !privacyService.isUserBlocked(msg.nick)).toList();
-    final filteredChannelMessages = channelMessages.where((msg) => !privacyService.isUserBlocked(msg.nick)).toList();
+    
+    // Lista de variantes de NickServ para filtrar
+    final nickservVariants = ['nick', 'nickserv', 'nickserv', 'NickServ', 'NICKSERV'];
+    final now = DateTime.now();
+    
+    // Función auxiliar para verificar si es mensaje de NickServ
+    bool _isNickServMessage(IRCMessage msg) {
+      if (msg.channel.startsWith('#')) return false; // No filtrar mensajes de canales
+      final channelLower = msg.channel.toLowerCase();
+      final nickLower = msg.nick.toLowerCase();
+      for (final variant in nickservVariants) {
+        if (channelLower == variant.toLowerCase() || nickLower == variant.toLowerCase()) {
+          return true;
+        }
+      }
+      return false;
+    }
+    
+    // Filtrar mensajes de usuarios bloqueados Y mensajes privados históricos de NickServ
+    // El historial siempre se filtra (son mensajes antiguos)
+    final filteredHistory = history.where((msg) {
+      // Filtrar usuarios bloqueados
+      if (privacyService.isUserBlocked(msg.nick)) return false;
+      
+      // Filtrar TODOS los mensajes privados históricos de NickServ (del historial)
+      if (_isNickServMessage(msg)) {
+        return false;
+      }
+      return true;
+    }).toList();
+    
+    // Filtrar mensajes de usuarios bloqueados Y mensajes privados históricos de NickServ
+    // Solo filtrar mensajes antiguos (más de 2 minutos), permitir los nuevos
+    final filteredChannelMessages = channelMessages.where((msg) {
+      // Filtrar usuarios bloqueados
+      if (privacyService.isUserBlocked(msg.nick)) return false;
+      
+      // Filtrar mensajes privados de NickServ solo si son antiguos (más de 2 minutos)
+      if (_isNickServMessage(msg)) {
+        final messageAge = now.difference(msg.timestamp);
+        if (messageAge.inMinutes > 2) {
+          return false; // Filtrar mensajes antiguos de NickServ
+        }
+        // Permitir mensajes nuevos de NickServ (menos de 2 minutos)
+      }
+      return true;
+    }).toList();
     
     final allMessages = [
       ...filteredHistory,

@@ -1,10 +1,13 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 import '../models/user_role.dart';
 import '../models/video_report.dart';
+import '../utils/platform_utils.dart';
 
 /// Servicio de base de datos para videoconferencias
 class VideoDatabaseService {
@@ -15,6 +18,9 @@ class VideoDatabaseService {
   
   /// Obtener instancia de base de datos
   Future<Database> get database async {
+    if (PlatformUtils.isWeb) {
+      throw UnsupportedError('SQLite no está disponible en web. Use SharedPreferences.');
+    }
     if (_database != null) return _database!;
     _database = await _initDatabase();
     return _database!;
@@ -22,6 +28,9 @@ class VideoDatabaseService {
   
   /// Inicializar base de datos
   Future<Database> _initDatabase() async {
+    if (PlatformUtils.isWeb) {
+      throw UnsupportedError('SQLite no está disponible en web.');
+    }
     final dbPath = await getDatabasesPath();
     final path = join(dbPath, 'video_moderation.db');
     
@@ -179,6 +188,39 @@ class VideoDatabaseService {
   
   /// Crear o actualizar perfil de usuario
   Future<void> saveUserProfile(UserProfile profile) async {
+    if (PlatformUtils.isWeb) {
+      // Usar SharedPreferences en web
+      final prefs = await SharedPreferences.getInstance();
+      final profileKey = 'user_profile_${profile.nick.toLowerCase()}';
+      final profileMap = {
+        'nick': profile.nick,
+        'role': profile.role.name,
+        'reputation': profile.reputation,
+        'has_accepted_video_terms': profile.hasAcceptedVideoTerms,
+        'email_verified': profile.emailVerified,
+        'phone_verified': profile.phoneVerified,
+        'id_verified': profile.idVerified,
+        'registration_date': profile.registrationDate?.toIso8601String(),
+        'gender': profile.gender,
+        'age': profile.age,
+        'interests': profile.interests,
+        'last_seen': DateTime.now().toIso8601String(),
+        'updated_at': DateTime.now().toIso8601String(),
+      };
+      await prefs.setString(profileKey, jsonEncode(profileMap));
+      
+      // Guardar también en lista de perfiles
+      final profilesList = prefs.getStringList('user_profiles_list') ?? [];
+      if (!profilesList.contains(profile.nick.toLowerCase())) {
+        profilesList.add(profile.nick.toLowerCase());
+        await prefs.setStringList('user_profiles_list', profilesList);
+      }
+      
+      print('💾 [VIDEO-DB] Perfil guardado en web: ${profile.nick}');
+      return;
+    }
+    
+    // Usar SQLite en nativo
     final db = await database;
     final now = DateTime.now().toIso8601String();
     
@@ -208,6 +250,41 @@ class VideoDatabaseService {
   
   /// Obtener perfil de usuario
   Future<UserProfile?> getUserProfile(String nick) async {
+    if (PlatformUtils.isWeb) {
+      // Usar SharedPreferences en web
+      final prefs = await SharedPreferences.getInstance();
+      final profileKey = 'user_profile_${nick.toLowerCase()}';
+      final profileJson = prefs.getString(profileKey);
+      
+      if (profileJson == null) return null;
+      
+      try {
+        final map = jsonDecode(profileJson) as Map<String, dynamic>;
+        return UserProfile(
+          nick: map['nick'] as String,
+          role: UserRole.values.firstWhere(
+            (r) => r.name == map['role'],
+            orElse: () => UserRole.user,
+          ),
+          reputation: map['reputation'] as int? ?? 50,
+          hasAcceptedVideoTerms: map['has_accepted_video_terms'] as bool? ?? false,
+          emailVerified: map['email_verified'] as bool? ?? false,
+          phoneVerified: map['phone_verified'] as bool? ?? false,
+          idVerified: map['id_verified'] as bool? ?? false,
+          registrationDate: map['registration_date'] != null
+              ? DateTime.parse(map['registration_date'] as String)
+              : null,
+          gender: map['gender'] as String?,
+          age: map['age'] != null ? (map['age'] is int ? map['age'] as int? : int.tryParse(map['age'].toString())) : null,
+          interests: (map['interests'] as List<dynamic>?)?.map((i) => i.toString()).toList() ?? [],
+        );
+      } catch (e) {
+        print('⚠️ [VIDEO-DB] Error parseando perfil en web: $e');
+        return null;
+      }
+    }
+    
+    // Usar SQLite en nativo
     final db = await database;
     final results = await db.query(
       'user_profiles',
