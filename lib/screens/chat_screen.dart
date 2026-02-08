@@ -3514,6 +3514,118 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         );
         break;
         
+      case 'join':
+        if (args.isEmpty) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Uso: /join <canal>'),
+              duration: Duration(seconds: 2),
+            ),
+          );
+          return;
+        }
+        
+        if (!_ircService.isConnected) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('No estás conectado al servidor'),
+              duration: Duration(seconds: 2),
+            ),
+          );
+          return;
+        }
+        
+        final channel = args[0].trim();
+        if (channel.isEmpty) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Por favor ingresa un canal válido'),
+              duration: Duration(seconds: 2),
+            ),
+          );
+          return;
+        }
+        
+        _joinChannel(channel);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Uniéndose a $channel...'),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+        break;
+        
+      case 'part':
+        if (!_ircService.isConnected) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('No estás conectado al servidor'),
+              duration: Duration(seconds: 2),
+            ),
+          );
+          return;
+        }
+        
+        final currentChannel = ref.read(currentChannelProvider);
+        String? channelToPart;
+        
+        if (args.isNotEmpty) {
+          // Si se especifica un canal, usar ese
+          channelToPart = args[0].trim();
+        } else if (currentChannel != null && currentChannel.startsWith('#')) {
+          // Si no se especifica, usar el canal actual
+          channelToPart = currentChannel;
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Uso: /part [canal]\nO estar en un canal para salir'),
+              duration: Duration(seconds: 2),
+            ),
+          );
+          return;
+        }
+        
+        if (channelToPart == null || channelToPart.isEmpty) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Por favor especifica un canal o está en uno'),
+              duration: Duration(seconds: 2),
+            ),
+          );
+          return;
+        }
+        
+        // Normalizar el nombre del canal
+        String normalizedChannel = channelToPart.trim();
+        if (!normalizedChannel.startsWith('#')) {
+          normalizedChannel = '#$normalizedChannel';
+        }
+        normalizedChannel = normalizedChannel.toLowerCase();
+        
+        _ircService.partChannel(normalizedChannel);
+        
+        // Si es el canal actual, cambiar a otro canal o cerrar
+        if (currentChannel != null && currentChannel.toLowerCase() == normalizedChannel) {
+          // Buscar otro canal disponible
+          final allChannels = _ircService.allChannels.keys
+              .where((ch) => ch.startsWith('#') && ch != normalizedChannel)
+              .toList();
+          
+          if (allChannels.isNotEmpty) {
+            ref.read(currentChannelProvider.notifier).state = allChannels.first;
+          } else {
+            ref.read(currentChannelProvider.notifier).state = null;
+          }
+        }
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Saliendo de $normalizedChannel...'),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+        break;
+        
       // Comandos IRCop
       case 'links':
         _ircService.linksCommand();
@@ -4979,12 +5091,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       ref.read(lastChannelProvider.notifier).state = currentChannel;
     }
 
-    // Limpiar historial del privado de "nick" antes de desconectar
+    // Limpiar historial de NickServ (todas las variantes) antes de desconectar
     try {
-      await ref.read(messagesProvider.notifier).clearPrivateHistory('nick');
-      print('✅ [ChatScreen] Historial del privado "nick" eliminado al desconectar');
+      await ref.read(messagesProvider.notifier).clearNickServHistory();
+      print('✅ [ChatScreen] Historial de NickServ eliminado al desconectar');
     } catch (e) {
-      print('⚠️ [ChatScreen] Error al limpiar historial de "nick": $e');
+      print('⚠️ [ChatScreen] Error al limpiar historial de NickServ: $e');
     }
 
     _ircService.disconnect();
@@ -5065,6 +5177,21 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final isConnected = ref.watch(connectionStatusProvider);
     final appTheme = ref.watch(themeProvider);
     
+    // Listener para limpiar historial de NickServ cuando se conecta
+    ref.listen<bool>(connectionStatusProvider, (previous, next) {
+      // Si se acaba de conectar (pasó de false a true), limpiar historial de NickServ
+      if (previous != null && !previous && next) {
+        WidgetsBinding.instance.addPostFrameCallback((_) async {
+          try {
+            await ref.read(messagesProvider.notifier).clearNickServHistory();
+            print('✅ [ChatScreen] Historial de NickServ limpiado al conectar');
+          } catch (e) {
+            print('⚠️ [ChatScreen] Error al limpiar historial de NickServ: $e');
+          }
+        });
+      }
+    });
+    
     // Listener para establecer el foco en el campo de texto cuando cambia el canal
     ref.listen<String?>(currentChannelProvider, (previous, next) {
       // Cuando cambia el canal, establecer el foco en el campo de texto
@@ -5100,10 +5227,24 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     // Para mensajes privados, el channel es el nick (sin #)
     // Para canales, el channel empieza con #
     final normalizedCurrentChannel = currentChannel?.toLowerCase().trim();
+    
+    // Lista de variantes de NickServ para filtrar
+    final nickservVariants = ['nick', 'nickserv', 'nickserv', 'nickserv', 'nickserv'];
+    
     final channelMessages = normalizedCurrentChannel != null
         ? messages
             .where((m) {
               final normalizedMessageChannel = m.channel.toLowerCase().trim();
+              // Si es un mensaje privado con NickServ, filtrarlo
+              if (!m.channel.startsWith('#')) {
+                final channelLower = m.channel.toLowerCase();
+                final nickLower = m.nick.toLowerCase();
+                for (final variant in nickservVariants) {
+                  if (channelLower == variant.toLowerCase() || nickLower == variant.toLowerCase()) {
+                    return false; // Filtrar mensajes de NickServ
+                  }
+                }
+              }
               return normalizedMessageChannel == normalizedCurrentChannel;
             })
             .toList()
@@ -5229,36 +5370,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         width: constraints.maxWidth > 0 ? constraints.maxWidth - 100 : 200,
                         child: _buildChannelNameWithHash(currentChannel ?? 'Cliente IRC', appTheme),
                       ),
-                      if (currentChannel != null && currentChannel.toLowerCase() == '#globalchat') ...[
-                        const SizedBox(width: 6),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: Colors.amber.withOpacity(0.2),
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                Icons.verified,
-                                size: 12,
-                                color: Colors.amber.shade700,
-                              ),
-                              const SizedBox(width: 2),
-                              Text(
-                                'Canal Oficial',
-                                style: TextStyle(
-                                  color: Colors.amber.shade700,
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.bold,
-                                  letterSpacing: 0.5,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
                     ],
                   ),
               if (nickname != null)
@@ -11188,6 +11299,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       );
     }
 
+    final isOfficialChannel = !isQuery && (channel.toLowerCase() == '#globalchat' || channel.toLowerCase() == 'globalchat');
+    
     return Container(
       height: 40,
       decoration: BoxDecoration(
@@ -11205,13 +11318,54 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           ),
         ],
       ),
-      child: ClipRect(
-        clipBehavior: Clip.hardEdge,
-        child: SizedBox(
-          width: double.infinity,
-          height: 40,
-          child: AnimatedTopicText(topic: topic),
-        ),
+      child: Row(
+        children: [
+          Expanded(
+            child: ClipRect(
+              clipBehavior: Clip.hardEdge,
+              child: SizedBox(
+                width: double.infinity,
+                height: 40,
+                child: AnimatedTopicText(topic: topic),
+              ),
+            ),
+          ),
+          if (isOfficialChannel) ...[
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.25),
+                borderRadius: BorderRadius.circular(4),
+                border: Border.all(
+                  color: Colors.white.withOpacity(0.5),
+                  width: 1,
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.verified,
+                    size: 12,
+                    color: Colors.white,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    'Canal Oficial',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+          ],
+        ],
       ),
     );
   }

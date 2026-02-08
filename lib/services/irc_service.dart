@@ -755,24 +755,58 @@ class IRCService {
   }
   
   void sendAway([String? message]) {
-    // Si message es null explícitamente, no usar el mensaje por defecto (quitar away)
-    // Si message es una cadena vacía, usar el mensaje por defecto si existe
+    // Determinar el mensaje final a usar
+    String? finalMessage;
+    bool shouldSetAway = true;
+    
     if (message == null) {
       // Quitar away explícitamente
+      shouldSetAway = false;
+      finalMessage = null;
       _sendCommand('AWAY');
       // print('✅ [IRCService] Quitando modo away');
     } else if (message.isEmpty && _defaultAwayMessage != null && _defaultAwayMessage!.isNotEmpty) {
       // Mensaje vacío pero hay mensaje por defecto, usar el por defecto
+      finalMessage = _defaultAwayMessage;
       _sendCommand('AWAY :$_defaultAwayMessage');
       // print('🚶 [IRCService] Estableciendo mensaje de ausencia (por defecto): $_defaultAwayMessage');
     } else if (message.isNotEmpty) {
       // Usar el mensaje proporcionado
+      finalMessage = message;
       _sendCommand('AWAY :$message');
       // print('🚶 [IRCService] Estableciendo mensaje de ausencia: $message');
     } else {
       // Mensaje vacío y no hay mensaje por defecto, quitar away
+      shouldSetAway = false;
+      finalMessage = null;
       _sendCommand('AWAY');
       // print('✅ [IRCService] Quitando modo away (sin mensaje)');
+    }
+    
+    // Actualizar estado local inmediatamente para feedback instantáneo
+    _notifyAwayStatusListeners(shouldSetAway, finalMessage);
+    
+    // También actualizar el caché de whois para que el avatar muestre el indicador
+    if (_nickname != null) {
+      final nickLower = _nickname!.toLowerCase();
+      final cachedInfo = _whoisCache[nickLower];
+      if (cachedInfo != null) {
+        final updatedInfo = cachedInfo.copyWith(
+          isAway: shouldSetAway,
+          awayMessage: finalMessage,
+        );
+        _whoisCache[nickLower] = updatedInfo;
+        _notifyWhoisListeners(updatedInfo);
+      } else {
+        // Crear nueva entrada si no existe
+        final newInfo = WhoisInfo(
+          nick: _nickname!,
+          isAway: shouldSetAway,
+          awayMessage: finalMessage,
+        );
+        _whoisCache[nickLower] = newInfo;
+        _notifyWhoisListeners(newInfo);
+      }
     }
   }
 
@@ -2935,13 +2969,47 @@ class IRCService {
         case '305': // RPL_UNAWAY: Usuario ya no está en away
           // print('✅ [IRCService] Ya no estás en away');
           _notifyAwayStatusListeners(false, null);
+          
+          // Actualizar también el caché de whois para que el avatar no muestre el indicador
+          if (_nickname != null) {
+            final nickLower = _nickname!.toLowerCase();
+            final cachedInfo = _whoisCache[nickLower];
+            if (cachedInfo != null) {
+              final updatedInfo = cachedInfo.copyWith(
+                isAway: false,
+                awayMessage: null,
+              );
+              _whoisCache[nickLower] = updatedInfo;
+              _notifyWhoisListeners(updatedInfo);
+            }
+          }
           break;
         
         case '306': // RPL_NOWAWAY: Usuario ahora está en away
           // El mensaje de away puede venir en args[1] o no
+          // Nota: El servidor puede no incluir el mensaje en la respuesta 306
+          // Si no viene, mantener el mensaje que ya tenemos en el estado local
           final awayMessage = args.length > 1 ? args.sublist(1).join(' ').replaceFirst(':', '').trim() : null;
-          // print('🚶 [IRCService] Ahora estás en away${awayMessage != null ? ": $awayMessage" : ""}');
-          _notifyAwayStatusListeners(true, awayMessage);
+          // Si el mensaje viene vacío o null, mantener el mensaje actual del estado
+          final finalAwayMessage = (awayMessage != null && awayMessage.isNotEmpty) 
+              ? awayMessage 
+              : (_whoisCache[_nickname?.toLowerCase() ?? '']?.awayMessage);
+          // print('🚶 [IRCService] Ahora estás en away${finalAwayMessage != null ? ": $finalAwayMessage" : ""}');
+          _notifyAwayStatusListeners(true, finalAwayMessage);
+          
+          // Actualizar también el caché de whois
+          if (_nickname != null) {
+            final nickLower = _nickname!.toLowerCase();
+            final cachedInfo = _whoisCache[nickLower];
+            if (cachedInfo != null) {
+              final updatedInfo = cachedInfo.copyWith(
+                isAway: true,
+                awayMessage: finalAwayMessage ?? cachedInfo.awayMessage,
+              );
+              _whoisCache[nickLower] = updatedInfo;
+              _notifyWhoisListeners(updatedInfo);
+            }
+          }
           break;
         
         case 'PRIVMSG':

@@ -501,6 +501,48 @@ class MessagesNotifier extends Notifier<List<IRCMessage>> {
     _saveHistory();
   }
 
+  /// Limpiar historial de NickServ (todas las variantes: nick, nickserv, NickServ, etc.)
+  Future<void> clearNickServHistory() async {
+    // Lista de todas las variantes posibles de NickServ
+    final nickservVariants = ['nick', 'nickserv', 'nickserv', 'NickServ', 'NICKSERV'];
+    
+    // Limpiar de la memoria
+    state = state.where((message) {
+      // Mantener solo mensajes de canales
+      if (message.channel.startsWith('#')) {
+        return true;
+      }
+      // Eliminar mensajes privados donde el canal o el nick sea alguna variante de NickServ
+      final channelLower = message.channel.toLowerCase();
+      final nickLower = message.nick.toLowerCase();
+      for (final variant in nickservVariants) {
+        if (channelLower == variant.toLowerCase() || nickLower == variant.toLowerCase()) {
+          return false;
+        }
+      }
+      return true;
+    }).toList();
+    
+    // Borrar del historial guardado en base de datos
+    try {
+      final server = ref.read(ircServiceProvider).serverHost;
+      if (server != null) {
+        // Limpiar todas las variantes de la base de datos
+        for (final variant in nickservVariants) {
+          await ChatHistoryService().deletePrivateHistory(
+            server: server,
+            nick: variant,
+          );
+        }
+      }
+    } catch (e) {
+      print('⚠️ [MessagesNotifier] Error borrando historial de NickServ: $e');
+    }
+    
+    _saveHistory();
+    print('✅ [MessagesNotifier] Historial de NickServ limpiado (todas las variantes)');
+  }
+
   void _onMessage(IRCMessage message) {
     // Si el mensaje tiene un pendingId, buscar si ya existe un mensaje pendiente con ese ID
     if (message.pendingId != null) {

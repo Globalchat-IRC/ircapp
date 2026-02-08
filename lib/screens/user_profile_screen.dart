@@ -658,23 +658,24 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
                         ],
                       ),
                       const SizedBox(height: 16),
-                      // Perfil personal (solo si es el propio usuario)
+                      // Perfil personal (editable si es propio, solo lectura si es de otro usuario)
                       Consumer(
                         builder: (context, ref, _) {
                           final currentNick = ref.watch(currentNicknameProvider);
                           final isOwnProfile = currentNick != null && 
                               currentNick.toLowerCase() == widget.nick.toLowerCase();
                           
-                          if (!isOwnProfile) {
-                            return const SizedBox.shrink();
-                          }
-                          
                           return Column(
                             children: [
-                              _buildPersonalProfileSection(context, appTheme, ref),
-                              const SizedBox(height: 16),
-                              _buildAwaySection(context, appTheme, ref),
-                              const SizedBox(height: 16),
+                              if (isOwnProfile)
+                                _buildPersonalProfileSection(context, appTheme, ref)
+                              else
+                                _buildPersonalProfileViewSection(context, appTheme, ref),
+                              if (isOwnProfile) ...[
+                                const SizedBox(height: 16),
+                                _buildAwaySection(context, appTheme, ref),
+                                const SizedBox(height: 16),
+                              ],
                             ],
                           );
                         },
@@ -1013,6 +1014,59 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
                 }
               },
             ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildPersonalProfileViewSection(BuildContext context, AppTheme appTheme, WidgetRef ref) {
+    return FutureBuilder<UserProfile?>(
+      future: ref.read(videoDatabaseProvider).getUserProfile(widget.nick),
+      builder: (context, snapshot) {
+        // Si está cargando, no mostrar nada (o mostrar un indicador sutil)
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const SizedBox.shrink();
+        }
+        
+        // Si no hay datos, no mostrar la sección
+        if (!snapshot.hasData || snapshot.data == null) {
+          return const SizedBox.shrink();
+        }
+        
+        final profile = snapshot.data!;
+        final hasPersonalInfo = profile.gender != null || profile.age != null || (profile.interests.isNotEmpty);
+        
+        // Solo mostrar la sección si hay información personal
+        if (!hasPersonalInfo) {
+          return const SizedBox.shrink();
+        }
+        
+        return _buildSection(
+          appTheme,
+          'Perfil Personal',
+          [
+            if (profile.gender != null)
+              _buildInfoRow(
+                appTheme,
+                'Sexo',
+                profile.gender == 'M' ? 'Masculino' : (profile.gender == 'F' ? 'Femenino' : 'Otro'),
+                Icons.person,
+              ),
+            if (profile.age != null)
+              _buildInfoRow(
+                appTheme,
+                'Edad',
+                '${profile.age} años',
+                Icons.cake,
+              ),
+            if (profile.interests.isNotEmpty)
+              _buildInfoRow(
+                appTheme,
+                'Intereses',
+                profile.interests.join(', '),
+                Icons.favorite,
+              ),
           ],
         );
       },
