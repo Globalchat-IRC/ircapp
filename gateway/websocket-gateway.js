@@ -30,7 +30,7 @@ const activeConnections = new Map();
 const ALLOWED_SERVERS = [
   'ceres.globalchat.org',
   'apolo.globalchat.org',
-  'creta.globalchat.org',
+  // 'creta.globalchat.org', // Comentado temporalmente - servidor con problemas
   'caliope.globalchat.org',
   'localhost',
   '127.0.0.1',

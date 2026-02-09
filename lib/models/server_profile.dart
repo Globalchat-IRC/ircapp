@@ -49,13 +49,14 @@ class ServerProfile {
       port: 6697,
       useSSL: true,
     ),
-    const ServerProfile(
-      id: 'gc-creta-6697',
-      name: 'GlobalChat · Creta (6697 SSL)',
-      host: 'creta.globalchat.org',
-      port: 6697,
-      useSSL: true,
-    ),
+    // Comentado temporalmente - servidor con problemas
+    // const ServerProfile(
+    //   id: 'gc-creta-6697',
+    //   name: 'GlobalChat · Creta (6697 SSL)',
+    //   host: 'creta.globalchat.org',
+    //   port: 6697,
+    //   useSSL: true,
+    // ),
     const ServerProfile(
       id: 'gc-caliope-6697',
       name: 'GlobalChat · Caliope (6697 SSL)',
