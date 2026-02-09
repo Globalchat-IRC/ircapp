@@ -615,16 +615,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         final updatedNick = ref.read(currentNicknameProvider);
         // print('🔄 [ChatScreen] ✅ Provider actualizado, nuevo valor: $updatedNick');
         
-        // Cerrar todos los canales cuando cambias de nick (el servidor te expulsa)
-        final currentChannel = ref.read(currentChannelProvider);
-        if (currentChannel != null) {
-          ref.read(currentChannelProvider.notifier).state = null;
-        }
+        // En IRC estándar, cuando cambias tu nick NO te expulsan de los canales.
+        // El servidor simplemente actualiza tu nick en todos los canales donde estás.
+        // No necesitamos cerrar los canales aquí.
         
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Nick cambiado a $newNick. Has sido expulsado de todos los canales.'),
-            duration: const Duration(seconds: 3),
+            content: Text('Nick cambiado a $newNick'),
+            duration: const Duration(seconds: 2),
+            backgroundColor: Colors.green,
           ),
         );
       });

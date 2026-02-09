@@ -2382,17 +2382,10 @@ class IRCService {
               }
               // print('🔄 [IRCService] ✅ Todos los listeners notificados');
               
-              // Cuando cambias de nick, el servidor te expulsa de todos los canales
-              // Cerrar todos los canales y notificar
-              final channelsToClose = List<String>.from(channels.keys);
-              for (var channelName in channelsToClose) {
-                if (channels.containsKey(channelName)) {
-                  channels.remove(channelName);
-                  _notifyUserListListeners(channelName);
-                }
-              }
-              _currentChannel = null;
-              print('🔄 [IRCService] Canales cerrados debido a cambio de nick');
+              // Nota: En IRC estándar, cuando cambias tu nick NO te expulsan de los canales.
+              // El servidor simplemente actualiza tu nick en todos los canales donde estás.
+              // Ya hemos actualizado el nick en todos los canales arriba, así que no necesitamos cerrarlos.
+              // Si el servidor realmente te expulsa, recibiremos mensajes PART o KICK y los manejaremos entonces.
             } else {
               // Es el cambio de nick de otro usuario
               // print('🔄 [IRCService] Usuario "$oldNick" cambió su nick a "$newNick" (no es nuestro)');
