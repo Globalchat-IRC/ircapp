@@ -26,6 +26,7 @@ import '../models/app_theme.dart';
 import '../services/irc_service.dart';
 import '../services/chat_history_service.dart';
 import '../services/sound_service.dart';
+import '../services/translation_service.dart';
 import 'login_screen.dart';
 import 'user_profile_screen.dart';
 import 'emoji_config_screen.dart';
@@ -3728,6 +3729,30 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         _ircService.rehashServer();
         _showIRCOpResultsWindow('REHASH', 'Recarga de Configuración');
         break;
+
+      case 'traducir':
+        _handleTraducirCommand(args);
+        break;
+      case 'tradstatus':
+        _showTraductorStatus();
+        break;
+      case 'tradtest':
+        _handleTradtestCommand(args);
+        break;
+      case 'tradeclear':
+        ref.read(translationCacheProvider.notifier).clearCache();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Caché del traductor limpiado'),
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+        break;
+      case 't':
+        _handleTranslateAndSendCommand(command);
+        break;
         
       default:
         ScaffoldMessenger.of(context).showSnackBar(
@@ -3738,6 +3763,192 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         );
         break;
     }
+  }
+
+  void _handleTraducirCommand(List<String> args) {
+    final channel = ref.read(currentChannelProvider);
+    if (channel == null || !channel.startsWith('#')) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('[Traductor] Debes estar en un canal para activar/desactivar la traducción'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
+    if (args.isNotEmpty) {
+      final arg = args[0].toLowerCase();
+      if (arg == 'on' || arg == '1' || arg == 'si') {
+        ref.read(translationEnabledChannelsProvider.notifier).setEnabled(channel, true);
+      } else if (arg == 'off' || arg == '0' || arg == 'no') {
+        ref.read(translationEnabledChannelsProvider.notifier).setEnabled(channel, false);
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('[Traductor] Uso: /traducir [on|off]'), duration: Duration(seconds: 2)),
+        );
+        return;
+      }
+    } else {
+      ref.read(translationEnabledChannelsProvider.notifier).toggle(channel);
+    }
+    final enabled = ref.read(translationEnabledChannelsProvider).contains(channel.toLowerCase());
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('[Traductor] Traducción automática ${enabled ? "ACTIVADA" : "DESACTIVADA"} en $channel'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    }
+  }
+
+  void _showTraductorStatus() {
+    final enabled = ref.read(translationEnabledChannelsProvider);
+    final currentChannel = ref.read(currentChannelProvider);
+    final cacheSize = ref.read(translationServiceProvider).cacheSize;
+    final appTheme = ref.read(themeProvider);
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: appTheme.surface,
+        title: Text('AutoTraductor', style: TextStyle(color: appTheme.textPrimary)),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Idioma destino: Español', style: TextStyle(color: appTheme.textSecondary)),
+              Text('Mínimo caracteres: ${TranslationService.minChars}', style: TextStyle(color: appTheme.textSecondary)),
+              Text('Mensajes en caché: $cacheSize', style: TextStyle(color: appTheme.textSecondary)),
+              const SizedBox(height: 12),
+              Text('Canales activados:', style: TextStyle(color: appTheme.textPrimary, fontWeight: FontWeight.bold)),
+              if (enabled.isEmpty)
+                Text('Ninguno', style: TextStyle(color: appTheme.textSecondary))
+              else
+                ...enabled.map((ch) => Text('  • $ch${ch == currentChannel?.toLowerCase() ? " (actual)" : ""}', style: TextStyle(color: appTheme.textSecondary))),
+              const SizedBox(height: 16),
+              Text('Comandos:', style: TextStyle(color: appTheme.textPrimary, fontWeight: FontWeight.bold)),
+              Text('/traducir [on|off] - Activar/desactivar en canal actual', style: TextStyle(color: appTheme.textSecondary, fontSize: 12)),
+              Text('/tradstatus - Ver estado', style: TextStyle(color: appTheme.textSecondary, fontSize: 12)),
+              Text('/tradtest <texto> - Probar traducción', style: TextStyle(color: appTheme.textSecondary, fontSize: 12)),
+              Text('/tradeclear - Limpiar caché', style: TextStyle(color: appTheme.textSecondary, fontSize: 12)),
+              Text('/t <texto> - Traducir al español y enviar', style: TextStyle(color: appTheme.textSecondary, fontSize: 12)),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cerrar'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _handleTradtestCommand(List<String> args) {
+    if (args.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Uso: /tradtest <texto>'), duration: Duration(seconds: 2)),
+      );
+      return;
+    }
+    final text = args.join(' ').trim();
+    if (text.isEmpty) return;
+    final service = ref.read(translationServiceProvider);
+    service.translateToSpanish(text).then((translated) {
+      if (!mounted) return;
+      if (translated != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('[Test] Traducido:', style: TextStyle(fontWeight: FontWeight.bold)),
+                Text(translated),
+              ],
+            ),
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('[Test] No se pudo traducir o no es necesario'), duration: Duration(seconds: 2)),
+        );
+      }
+    });
+  }
+
+  void _handleTranslateAndSendCommand(String command) {
+    final parts = command.substring(1).trim().split(' ');
+    if (parts.length < 2) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Uso: /t <texto> - Traduce al inglés y envía'), duration: Duration(seconds: 2)),
+      );
+      return;
+    }
+    final text = parts.sublist(1).join(' ').trim();
+    if (text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('[Traductor] No hay texto para traducir'), duration: Duration(seconds: 2)),
+      );
+      return;
+    }
+    final channel = ref.read(currentChannelProvider);
+    if (channel == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('[Traductor] Selecciona un canal o privado'), duration: Duration(seconds: 2)),
+      );
+      return;
+    }
+    ref.read(translationServiceProvider).translateToEnglish(text).then((translated) async {
+      if (!mounted) return;
+      if (translated != null && translated.isNotEmpty) {
+        if (channel.startsWith('#')) {
+          _ircService.sendMessage(channel, translated);
+        } else {
+          _ircService.sendPrivateMessage(channel, translated);
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Enviado: $translated'), duration: const Duration(seconds: 2)),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('[Traductor] No se pudo traducir'), duration: Duration(seconds: 2)),
+        );
+      }
+    });
+  }
+
+  Widget _buildTranslationLine(String channel, String nick, String messageText) {
+    final enabled = ref.watch(translationEnabledChannelsProvider).contains(channel.toLowerCase());
+    if (!enabled) return const SizedBox.shrink();
+    final cache = ref.watch(translationCacheProvider);
+    final translated = cache[messageText.trim()];
+    if (translated == null || translated.isEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        ref.read(translationCacheProvider.notifier).getOrTranslate(
+          messageText,
+          ref.read(translationServiceProvider),
+        );
+      });
+      return const SizedBox.shrink();
+    }
+    final appTheme = ref.read(themeProvider);
+    return Padding(
+      padding: const EdgeInsets.only(top: 6),
+      child: Text(
+        '[Traducido de $nick]: $translated',
+        style: TextStyle(
+          fontSize: 12,
+          color: appTheme.primary,
+          fontStyle: FontStyle.italic,
+        ),
+        maxLines: 3,
+        overflow: TextOverflow.ellipsis,
+      ),
+    );
   }
 
   // Ventana para mostrar resultados de /whois
@@ -8438,6 +8649,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   message.isAction
                       ? _buildActionMessage(message.nick, message.message, isOwnMessage, userColor, appTheme)
                       : _buildMessageContent(message.message, isOwnMessage, isBot: isBot),
+                  if (isChannel && !isOwnMessage && !message.isSystem && !message.isAction &&
+                      message.message.trim().length >= TranslationService.minChars &&
+                      !message.message.trim().startsWith('.') && !message.message.trim().startsWith('!'))
+                    _buildTranslationLine(message.channel, message.nick, message.message),
                   // Indicador de "enviando..." y botón de eliminar para mensajes pendientes
                   if (message.isPending && isOwnMessage)
                     _buildPendingMessageIndicator(context, message),
@@ -11328,6 +11543,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     }
     
     if (topic == null || topic.isEmpty) {
+      final translationOn = !isQuery && ref.watch(translationEnabledChannelsProvider).contains(channel.toLowerCase());
       return Container(
         height: 40,
         decoration: BoxDecoration(
@@ -11338,15 +11554,27 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             ],
           ),
         ),
-        child: Center(
-          child: Text(
-            'Sin tema establecido',
-            style: TextStyle(
-              color: appTheme.textSecondary,
-              fontSize: 12,
-              fontStyle: FontStyle.italic,
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              'Sin tema establecido',
+              style: TextStyle(
+                color: appTheme.textSecondary,
+                fontSize: 12,
+                fontStyle: FontStyle.italic,
+              ),
             ),
-          ),
+            if (translationOn) ...[
+              const SizedBox(width: 12),
+              Icon(Icons.translate, size: 14, color: Colors.green),
+              const SizedBox(width: 4),
+              Text(
+                'Traducción activada',
+                style: TextStyle(color: Colors.green, fontSize: 11, fontWeight: FontWeight.bold),
+              ),
+            ],
+          ],
         ),
       );
     }
@@ -11410,6 +11638,40 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       fontSize: 10,
                       fontWeight: FontWeight.bold,
                       letterSpacing: 0.5,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+          ],
+          if (ref.watch(translationEnabledChannelsProvider).contains(channel.toLowerCase())) ...[
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: Colors.green.withOpacity(0.4),
+                borderRadius: BorderRadius.circular(4),
+                border: Border.all(
+                  color: Colors.greenAccent.withOpacity(0.6),
+                  width: 1,
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.translate,
+                    size: 12,
+                    color: Colors.white,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    'Traducción activada',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
                     ),
                   ),
                 ],

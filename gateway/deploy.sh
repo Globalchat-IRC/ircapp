@@ -47,6 +47,9 @@ ssh ${SSH_HOST} "cd ${REMOTE_PATH} && npm install --production"
 echo -e "${YELLOW}🔧 Configurando servicio systemd...${NC}"
 
 # Crear archivo de servicio systemd
+# Para que el IRC vea la IP real de los usuarios, crear en ceres ${REMOTE_PATH}/webirc.env con:
+#   WEBIRC_PASSWORD=tu_password_secreto
+# y configurar el bloque webirc { } en UnrealIRCd con la IP de ceres y el mismo password.
 ssh ${SSH_HOST} "sudo tee /etc/systemd/system/${SERVICE_NAME}.service > /dev/null" <<EOF
 [Unit]
 Description=IRC WebSocket Gateway
@@ -60,6 +63,7 @@ ExecStart=/usr/bin/node websocket-gateway.js
 Restart=always
 RestartSec=10
 Environment=PORT=4443
+EnvironmentFile=-${REMOTE_PATH}/webirc.env
 
 [Install]
 WantedBy=multi-user.target

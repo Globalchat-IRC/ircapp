@@ -179,7 +179,7 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
     final userIcons = ref.read(userIconsProvider);
     final customIcon = userIcons[widget.nick.toLowerCase()];
     
-    final fallback = widget.fallbackIcon ?? 
+    final fallback = widget.fallbackIcon ??
         customIcon ??
         (widget.nick.isNotEmpty ? widget.nick[0].toUpperCase() : '?');
     
@@ -191,10 +191,9 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
       print('👤 [UserAvatar] Construyendo avatar para usuario normal "${widget.nick}", fallback: "$fallback", _avatarUrl: $_avatarUrl, _avatarLoaded: $_avatarLoaded, isRobot: ${widget.isRobot}');
     }
     
-    // Detectar si el fallbackIcon es una URL (emoticono de JoyPixels)
-    final isFallbackUrl = widget.fallbackIcon != null && 
-        (widget.fallbackIcon!.startsWith('http://') || 
-         widget.fallbackIcon!.startsWith('https://'));
+    // Detectar si el fallback es URL (emoticono JoyPixels), asset local o emoji/texto
+    final isFallbackUrl = fallback.startsWith('http://') || fallback.startsWith('https://');
+    final isFallbackAsset = fallback.startsWith('asset:');
     
     // Para usuarios normales, siempre intentar cargar el avatar si tenemos una URL
     // Incluso si _avatarLoaded es false, intentar cargar para que el errorBuilder maneje el fallback
@@ -252,7 +251,7 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
                     print('⏳ [UserAvatar] Cargando avatar para "${widget.nick}": ${loadingProgress.cumulativeBytesLoaded}/${loadingProgress.expectedTotalBytes ?? 0} bytes');
                     return Opacity(
                       opacity: 0.5,
-                      child: _buildFallback(fallback, isFallbackUrl, key: ValueKey('${widget.nick}_loading_${widget.isRobot}')),
+                      child: _buildFallback(fallback, isFallbackUrl, isFallbackAsset, key: ValueKey('${widget.nick}_loading_${widget.isRobot}')),
                     );
                   },
                   errorBuilder: (context, error, stackTrace) {
@@ -278,11 +277,12 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
                     return _buildFallback(
                       fallback,
                       isFallbackUrl,
+                      isFallbackAsset,
                       key: ValueKey('${widget.nick}_error_${widget.isRobot}_${_triedDefaultAvatar ? "default" : "custom"}'),
                     );
                   },
                 )
-              : _buildFallback(fallback, isFallbackUrl, key: ValueKey('${widget.nick}_fallback_${widget.isRobot}_${_lastRefreshTimestamp ?? 0}')), // Incluir isRobot y timestamp en la clave del fallback
+              : _buildFallback(fallback, isFallbackUrl, isFallbackAsset, key: ValueKey('${widget.nick}_fallback_${widget.isRobot}_${_lastRefreshTimestamp ?? 0}')), // Incluir isRobot y timestamp en la clave del fallback
             ),
           ),
         ),
@@ -313,17 +313,36 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
     );
   }
   
-  Widget _buildFallback(String fallback, bool isUrl, {Key? key}) {
+  Widget _buildFallback(String fallback, bool isUrl, bool isAsset, {Key? key}) {
     Widget fallbackWidget;
-    if (isUrl && widget.fallbackIcon != null) {
-      // Si es una URL, mostrar como imagen
-      fallbackWidget = Image.network(
-        widget.fallbackIcon!,
+    if (isAsset && fallback.startsWith('asset:')) {
+      final assetPath = fallback.substring(6);
+      fallbackWidget = Image.asset(
+        assetPath,
         width: widget.size,
         height: widget.size,
         fit: BoxFit.contain,
         errorBuilder: (context, error, stackTrace) {
-          // Si falla, mostrar texto
+          return Center(
+            child: Text(
+              widget.nick.isNotEmpty ? widget.nick[0].toUpperCase() : '?',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+                fontSize: widget.size * 0.4,
+              ),
+            ),
+          );
+        },
+      );
+    } else if (isUrl) {
+      // Si es una URL, mostrar como imagen
+      fallbackWidget = Image.network(
+        fallback,
+        width: widget.size,
+        height: widget.size,
+        fit: BoxFit.contain,
+        errorBuilder: (context, error, stackTrace) {
           return Center(
             child: Text(
               widget.nick.isNotEmpty ? widget.nick[0].toUpperCase() : '?',

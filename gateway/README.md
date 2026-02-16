@@ -21,6 +21,27 @@ npm install
 ### Variables de entorno
 
 - `PORT`: Puerto donde escucha el gateway (default: 4443)
+- `WEBIRC_PASSWORD`: Si está definido, el gateway envía el comando WEBIRC al servidor IRC con la **IP real del usuario** (no la IP de ceres). Necesario para que /whois y baneos vean la IP correcta.
+- `WEBIRC_GATEWAY`: Nombre del gateway en WEBIRC (default: ceres-webirc)
+
+#### Cómo activar la IP real (WEBIRC)
+
+1. **En ceres**: Crear `/opt/irc-gateway/webirc.env` con una línea:
+   ```bash
+   WEBIRC_PASSWORD=tu_password_secreto
+   ```
+   Reiniciar el servicio: `sudo systemctl restart irc-gateway`
+
+2. **En UnrealIRCd** (apolo/ceres/caliope): Añadir un bloque `webirc` en la config con la **IP de ceres** (5.57.224.66) y el **mismo password**:
+   ```
+   webirc {
+     mask 5.57.224.66;
+     password "tu_password_secreto";
+   }
+   ```
+   Opcional pero recomendado: añadir un `except ban` para el gateway para evitar falsos connection-flood. Recargar config IRC: `/rehash`.
+
+3. Si el gateway está detrás de nginx/Apache, asegurar que se reenvía `X-Forwarded-For` al gateway para que la IP del cliente sea la correcta.
 
 ### Servidores permitidos
 

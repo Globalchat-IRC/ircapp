@@ -6,6 +6,12 @@ class EmojiService {
   static const String animatedCdnBaseUrl = 'https://fonts.gstatic.com/s/e/notoemoji/latest/';
   static const String animatedAssetBasePath = 'assets/emoji_animated_noto/';
   static const String notoLatestBaseUrl = 'https://fonts.gstatic.com/s/e/notoemoji/latest/';
+
+  /// Emojis personalizados (imagen estática desde assets, no Noto).
+  /// Clave: código :nombre: | Valor: ruta del asset (ej: assets/avatars/avatar_llorando.png)
+  static const Map<String, String> customImageEmojiMap = {
+    ':llorando:': 'assets/avatars/avatar_llorando.png',
+  };
   
   // Mapa de emoticonos animados (GIFs) generado desde
   // https://googlefonts.github.io/noto-emoji-animation/data/api.json
@@ -787,6 +793,9 @@ class EmojiService {
   // Obtener la URL de la imagen del emoticono
   static String? getEmojiUrl(String emojiCode) {
     final code = emojiCode.toLowerCase();
+    if (customImageEmojiMap.containsKey(code)) {
+      return customImageEmojiMap[code];
+    }
     
     // Verificar si es un emoticono animado
     if (animatedEmojiMap.containsKey(code)) {
@@ -898,9 +907,10 @@ class EmojiService {
     return null;
   }
   
-  // Verificar si un emoticono es animado
+  // Verificar si un emoticono es animado (o emoji de imagen personalizada)
   static bool isAnimated(String emojiCode) {
-    return animatedEmojiMap.containsKey(emojiCode.toLowerCase());
+    final code = emojiCode.toLowerCase();
+    return animatedEmojiMap.containsKey(code) || customImageEmojiMap.containsKey(code);
   }
   
   // Convertir texto con códigos de emoticonos a widgets
@@ -1209,6 +1219,7 @@ class EmojiService {
         ':fire:', ':100:', ':ok:', ':x:', ':o:', ':white_check_mark:',
         ':link:', ':copyright:', ':registered:', ':tm:',
       ],
+      'Especial': [':llorando:'],
     };
   }
 }

@@ -16,6 +16,11 @@ class IconSelectorScreen extends ConsumerStatefulWidget {
 }
 
 class _IconSelectorScreenState extends ConsumerState<IconSelectorScreen> {
+  /// Avatares de imagen (asset) que el usuario puede elegir
+  static const List<Map<String, String>> assetAvatars = [
+    {'path': 'assets/avatars/avatar_llorando.png', 'label': 'Llorando'},
+  ];
+
   // Lista de iconos predeterminados (emojis)
   static const List<String> defaultIcons = [
     '😀', '😃', '😄', '😁', '😆', '😅', '🤣', '😂', '🙂', '🙃',
@@ -102,14 +107,29 @@ class _IconSelectorScreenState extends ConsumerState<IconSelectorScreen> {
                       width: 3,
                     ),
                   ),
-                  child: Center(
-                    child: Text(
-                      _selectedIcon ?? widget.nick[0].toUpperCase(),
-                      style: const TextStyle(
-                        fontSize: 60,
-                        color: Colors.white,
-                      ),
-                    ),
+                  child: ClipOval(
+                    child: _selectedIcon != null && _selectedIcon!.startsWith('asset:')
+                        ? Image.asset(
+                            _selectedIcon!.substring(6),
+                            width: 120,
+                            height: 120,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) => Center(
+                              child: Text(
+                                widget.nick[0].toUpperCase(),
+                                style: const TextStyle(fontSize: 60, color: Colors.white),
+                              ),
+                            ),
+                          )
+                        : Center(
+                            child: Text(
+                              _selectedIcon ?? widget.nick[0].toUpperCase(),
+                              style: const TextStyle(
+                                fontSize: 60,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ),
                   ),
                 ),
                 const SizedBox(height: 16),
@@ -142,7 +162,92 @@ class _IconSelectorScreenState extends ConsumerState<IconSelectorScreen> {
               ],
             ),
           ),
-          // Grid de iconos
+          // Título avatares de imagen
+          if (assetAvatars.isNotEmpty) ...[
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  'Avatares',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: appTheme.textPrimary,
+                  ),
+                ),
+              ),
+            ),
+            SizedBox(
+              height: 88,
+              child: ListView.builder(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                itemCount: assetAvatars.length,
+                itemBuilder: (context, index) {
+                  final entry = assetAvatars[index];
+                  final path = entry['path']!;
+                  final value = 'asset:$path';
+                  final isSelected = _selectedIcon == value;
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 12),
+                    child: GestureDetector(
+                      onTap: () {
+                        setState(() {
+                          _selectedIcon = value;
+                        });
+                      },
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            width: 72,
+                            height: 72,
+                            decoration: BoxDecoration(
+                              color: isSelected
+                                  ? appTheme.primary.withOpacity(0.3)
+                                  : appTheme.surface,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: isSelected
+                                    ? appTheme.primary
+                                    : appTheme.surface.withOpacity(0.3),
+                                width: isSelected ? 2 : 1,
+                              ),
+                            ),
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(10),
+                              child: Image.asset(
+                                path,
+                                fit: BoxFit.cover,
+                                errorBuilder: (_, __, ___) => const Icon(Icons.image_not_supported, size: 32),
+                              ),
+                            ),
+                          ),
+                          if (entry['label'] != null && entry['label']!.isNotEmpty) ...[
+                            const SizedBox(height: 4),
+                            Text(
+                              entry['label']!,
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: appTheme.textPrimary,
+                                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              textAlign: TextAlign.center,
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+            const SizedBox(height: 8),
+          ],
+          // Grid de emojis
           Expanded(
             child: GridView.builder(
               padding: const EdgeInsets.all(16),

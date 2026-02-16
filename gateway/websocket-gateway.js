@@ -7,11 +7,16 @@
  * Permite que clientes web se conecten a cualquier servidor IRC del cluster GlobalChat
  * a través de un único punto de entrada WebSocket.
  * 
+ * Para que el servidor IRC vea la IP real del usuario (no la de ceres), configurar
+ * WEBIRC_PASSWORD y un bloque webirc {} en UnrealIRCd. Ver docs WebIRC.
+ * 
  * Uso:
  *   node websocket-gateway.js
  * 
  * Configuración:
- *   - Puerto WebSocket: 4443 (configurable con PORT)
+ *   - Puerto WebSocket: 4444 (configurable con PORT)
+ *   - WEBIRC_PASSWORD: si está definido, se envía WEBIRC al IRC con la IP real del cliente
+ *   - WEBIRC_GATEWAY: nombre del gateway (default: ceres-webirc)
  *   - Timeout de conexión: 10 segundos
  */
 
@@ -22,6 +27,8 @@ const crypto = require('crypto');
 
 const PORT = process.env.PORT || 4444;
 const CONNECTION_TIMEOUT = 10000; // 10 segundos
+const WEBIRC_PASSWORD = process.env.WEBIRC_PASSWORD || '';
+const WEBIRC_GATEWAY = process.env.WEBIRC_GATEWAY || 'ceres-webirc';
 
 // Mapa de conexiones activas: WebSocket ID -> { ws, tcp, host, port }
 const activeConnections = new Map();
@@ -44,6 +51,17 @@ const ALLOWED_PORTS = [6667, 6697];
  */
 function generateConnectionId() {
   return crypto.randomBytes(8).toString('hex');
+}
+
+/**
+ * Obtener la IP real del cliente (si hay proxy, usar X-Forwarded-For).
+ * Normaliza IPv6-mapped IPv4 (::ffff:1.2.3.4 -> 1.2.3.4).
+ */
+function getClientIP(req) {
+  const forwarded = req.headers['x-forwarded-for'];
+  const raw = (typeof forwarded === 'string' ? forwarded.split(',')[0].trim() : null) || req.socket.remoteAddress || '';
+  if (raw.startsWith('::ffff:')) return raw.slice(7);
+  return raw;
 }
 
 /**
@@ -163,10 +181,15 @@ const wss = new WebSocket.Server({
 console.log(`🚀 WebSocket Gateway iniciado en puerto ${PORT}`);
 console.log(`📡 Servidores permitidos: ${ALLOWED_SERVERS.join(', ')}`);
 console.log(`🔌 Puertos permitidos: ${ALLOWED_PORTS.join(', ')}`);
+if (WEBIRC_PASSWORD) {
+  console.log(`📍 WEBIRC: activado (IP real del cliente se enviará al IRC)`);
+} else {
+  console.log(`⚠️  WEBIRC: desactivado → todos los usuarios verán IP de ceres. Para activar: crear webirc.env con WEBIRC_PASSWORD y configurar webirc {} en UnrealIRCd.`);
+}
 
 wss.on('connection', (ws, req) => {
   const connectionId = generateConnectionId();
-  const clientIP = req.socket.remoteAddress;
+  const clientIP = getClientIP(req);
   
   console.log(`[${connectionId}] 🔵 Nueva conexión WebSocket desde ${clientIP}`);
   
@@ -255,6 +278,14 @@ wss.on('connection', (ws, req) => {
         host: handshakeData.host,
         port: handshakeData.port,
       });
+      
+      // WEBIRC: primera línea al servidor IRC para que vea la IP real del usuario (no la de ceres)
+      if (WEBIRC_PASSWORD) {
+        const hostname = clientIP; // sin reverse DNS, usar IP como hostname
+        const webircLine = `WEBIRC ${WEBIRC_PASSWORD} ${WEBIRC_GATEWAY} ${hostname} ${clientIP}\r\n`;
+        tcpSocket.write(webircLine);
+        console.log(`[${connectionId}] 📍 WEBIRC enviado: IP real ${clientIP}`);
+      }
       
       // Enviar confirmación al cliente
       sendToClient(JSON.stringify({

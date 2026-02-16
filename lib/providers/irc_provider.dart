@@ -12,6 +12,7 @@ import '../models/server_profile.dart';
 import '../models/custom_robot.dart';
 import '../services/irc_service.dart';
 import '../services/chat_history_service.dart';
+import '../services/translation_service.dart';
 import '../utils/platform_utils.dart';
 import 'history_provider.dart';
 
@@ -1967,5 +1968,104 @@ class CustomRobotsNotifier extends Notifier<List<CustomRobot>> {
     
     state = newState;
     await _saveToPrefs();
+  }
+}
+
+// --- Traductor automático (estilo AutoTraductor IRC) ---
+
+final translationServiceProvider = Provider<TranslationService>((ref) {
+  return TranslationService();
+});
+
+const _translationChannelsPrefsKey = 'translation_enabled_channels';
+
+/// Canales donde la traducción automática está activada (mensajes → español).
+final translationEnabledChannelsProvider =
+    NotifierProvider<TranslationEnabledChannelsNotifier, Set<String>>(() {
+  return TranslationEnabledChannelsNotifier();
+});
+
+class TranslationEnabledChannelsNotifier extends Notifier<Set<String>> {
+  @override
+  Set<String> build() {
+    _loadFromPrefs();
+    return {};
+  }
+
+  Future<void> _loadFromPrefs() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final list = prefs.getStringList(_translationChannelsPrefsKey);
+      if (list != null) state = list.toSet();
+    } catch (_) {}
+  }
+
+  Future<void> _saveToPrefs() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setStringList(_translationChannelsPrefsKey, state.toList());
+    } catch (_) {}
+  }
+
+  void toggle(String channel) {
+    final key = channel.toLowerCase();
+    final next = Set<String>.from(state);
+    if (next.contains(key)) {
+      next.remove(key);
+    } else {
+      next.add(key);
+    }
+    state = next;
+    _saveToPrefs();
+  }
+
+  void setEnabled(String channel, bool enabled) {
+    final key = channel.toLowerCase();
+    final next = Set<String>.from(state);
+    if (enabled) {
+      next.add(key);
+    } else {
+      next.remove(key);
+    }
+    state = next;
+    _saveToPrefs();
+  }
+
+  bool isEnabled(String channel) => state.contains(channel.toLowerCase());
+}
+
+/// Caché de traducciones (texto original → traducido) para refrescar UI.
+final translationCacheProvider =
+    NotifierProvider<TranslationCacheNotifier, Map<String, String>>(() {
+  return TranslationCacheNotifier();
+});
+
+class TranslationCacheNotifier extends Notifier<Map<String, String>> {
+  final Set<String> _pending = {};
+
+  @override
+  Map<String, String> build() => {};
+
+  Future<String?> getOrTranslate(String text, TranslationService service) async {
+    final clean = text.trim();
+    if (clean.length < TranslationService.minChars) return null;
+    if (state.containsKey(clean)) return state[clean];
+    if (_pending.contains(clean)) return null;
+    _pending.add(clean);
+    try {
+      final translated = await service.translateToSpanish(clean);
+      if (translated != null) {
+        state = Map<String, String>.from(state)..[clean] = translated;
+        return translated;
+      }
+    } finally {
+      _pending.remove(clean);
+    }
+    return null;
+  }
+
+  void clearCache() {
+    ref.read(translationServiceProvider).clearCache();
+    state = {};
   }
 }
