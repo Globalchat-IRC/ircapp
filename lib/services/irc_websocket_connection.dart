@@ -5,8 +5,19 @@ import 'package:web_socket_channel/status.dart' as status;
 import 'irc_connection_interface.dart';
 import '../utils/platform_utils.dart';
 
-/// Implementación de conexión IRC usando WebSocket (web)
-/// Usa un gateway en ceres.globalchat.org:4444 que enruta a cualquier servidor IRC
+/// Puerto WebSocket nativo de UnrealIRCd (modo directo: el IRC ve la IP real del usuario).
+const int kUnrealIRCdWebSocketPort = 4443;
+
+/// Sufijo de dominios GlobalChat; todos los nodos tienen WebSocket en 4443.
+const String _globalChatHostSuffix = '.globalchat.org';
+
+bool _isGlobalChatHost(String host) {
+  return host.toLowerCase().trim().endsWith(_globalChatHostSuffix);
+}
+
+/// Implementación de conexión IRC usando WebSocket (web).
+/// - Nodos GlobalChat: siempre conexión directa a wss://host:4443; el IRC ve la IP de cada usuario.
+/// - Otros servidores: gateway ceres:4444 + handshake JSON.
 class IRCWebSocketConnection implements IRCConnection {
   WebSocketChannel? _channel;
   final StreamController<String> _streamController = StreamController<String>.broadcast();
@@ -17,6 +28,7 @@ class IRCWebSocketConnection implements IRCConnection {
   int? _targetPort;
   bool? _targetUseSSL;
   Completer<void>? _handshakeCompleter;
+  bool _directMode = false;
 
   @override
   Future<void> connect(String host, int port, {bool useSSL = true}) async {
@@ -30,6 +42,7 @@ class IRCWebSocketConnection implements IRCConnection {
     _targetHost = null;
     _targetPort = null;
     _targetUseSSL = null;
+    _directMode = false;
     
     await _subscription?.cancel();
     _subscription = null;
@@ -45,55 +58,56 @@ class IRCWebSocketConnection implements IRCConnection {
       _targetHost = host;
       _targetPort = port;
       _targetUseSSL = useSSL;
-      
-      _handshakeCompleter = Completer<void>();
-      
-      // Conectarse al gateway en ceres.globalchat.org:4444
-      final bool pageIsHTTPS = Uri.base.scheme == 'https';
-      final String protocol = pageIsHTTPS ? 'wss' : 'ws';
-      final String gatewayHost = 'ceres.globalchat.org';
-      final int gatewayPort = 4444;
-      
-      final uri = Uri.parse('$protocol://$gatewayHost:$gatewayPort');
-      
-      _channel = WebSocketChannel.connect(uri);
-      _setupChannelListeners();
-      
-      await Future.delayed(const Duration(milliseconds: 100));
-      
-      // Enviar handshake con el servidor destino (host, port, useSSL)
-      final handshake = jsonEncode({
-        'host': host,
-        'port': port,
-        'useSSL': useSSL,
-      });
-      
-      _channel!.sink.add(handshake);
-      
-      await _handshakeCompleter!.future.timeout(
-        const Duration(seconds: 10),
-        onTimeout: () {
-          _isConnected = false;
-          _handshakeComplete = false;
-          throw TimeoutException('Timeout esperando handshake del gateway');
-        },
-      );
-      
-      _isConnected = true;
+      // En web, todos los nodos GlobalChat tienen 4443: conectar al nodo elegido en ese puerto (IP visible).
+      _directMode = port == kUnrealIRCdWebSocketPort || _isGlobalChatHost(host);
+
+      if (_directMode) {
+        final int wsPort = _isGlobalChatHost(host) ? kUnrealIRCdWebSocketPort : port;
+        final String protocol = useSSL ? 'wss' : 'ws';
+        final uri = Uri.parse('$protocol://$host:$wsPort');
+        _channel = WebSocketChannel.connect(uri);
+        _handshakeComplete = true;
+        _setupChannelListeners(directMode: true);
+        _isConnected = true;
+      } else {
+        // Modo gateway: ceres:4444 + handshake JSON (servidores no GlobalChat)
+        _handshakeCompleter = Completer<void>();
+        final bool pageIsHTTPS = Uri.base.scheme == 'https';
+        final String protocol = pageIsHTTPS ? 'wss' : 'ws';
+        const String gatewayHost = 'ceres.globalchat.org';
+        const int gatewayPort = 4444;
+        final uri = Uri.parse('$protocol://$gatewayHost:$gatewayPort');
+        _channel = WebSocketChannel.connect(uri);
+        _setupChannelListeners(directMode: false);
+        await Future.delayed(const Duration(milliseconds: 100));
+        final handshake = jsonEncode({
+          'host': host,
+          'port': port,
+          'useSSL': useSSL,
+        });
+        _channel!.sink.add(handshake);
+        await _handshakeCompleter!.future.timeout(
+          const Duration(seconds: 10),
+          onTimeout: () {
+            _isConnected = false;
+            _handshakeComplete = false;
+            throw TimeoutException('Timeout esperando handshake del gateway');
+          },
+        );
+        _isConnected = true;
+      }
     } catch (e) {
       _isConnected = false;
       _handshakeComplete = false;
-      
+      _directMode = false;
       try {
         await _subscription?.cancel();
         _subscription = null;
       } catch (_) {}
-      
       try {
         await _channel?.sink.close(status.goingAway);
         _channel = null;
       } catch (_) {}
-      
       rethrow;
     }
   }
@@ -129,7 +143,7 @@ class IRCWebSocketConnection implements IRCConnection {
     disconnect();
   }
   
-  void _setupChannelListeners() {
+  void _setupChannelListeners({required bool directMode}) {
     _subscription = _channel!.stream.listen(
       (data) {
         try {
@@ -141,13 +155,15 @@ class IRCWebSocketConnection implements IRCConnection {
           } else {
             message = data.toString();
           }
-          
+          if (directMode) {
+            _streamController.add(message);
+            return;
+          }
           // Mensajes de control del gateway (JSON)
           if (message.trim().startsWith('{') && message.trim().endsWith('}')) {
             try {
               final jsonData = jsonDecode(message);
               final type = jsonData['type'] as String?;
-              
               if (type == 'handshake_ok') {
                 _handshakeComplete = true;
                 if (_handshakeCompleter != null && !_handshakeCompleter!.isCompleted) {
@@ -175,7 +191,6 @@ class IRCWebSocketConnection implements IRCConnection {
               // No es JSON de control, tratar como IRC
             }
           }
-          
           _streamController.add(message);
         } catch (e) {
           _streamController.addError(e);

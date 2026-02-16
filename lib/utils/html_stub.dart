@@ -18,7 +18,7 @@ class Location {
   String? get search => null;
   String? get hash => null;
   String? get href => null;
-  void reload() {} // Stub method, no hace nada en nativo
+  void reload([bool forceGet = false]) {} // Stub: en web usa dart:html y forceGet fuerza recarga sin caché
 }
 
 class _Navigator {

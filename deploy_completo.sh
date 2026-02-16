@@ -22,6 +22,12 @@ if [ ! -f "build/web/main.dart.js" ]; then
     exit 1
 fi
 
+# Escribir version.json para que la web fuerce recarga cuando hay nueva versión (usuarios con caché antigua)
+echo "{\"version\": \"$VERSION\"}" > build/web/version.json
+# Hacer que el script principal tenga ?v=VERSION para evitar caché del JS en navegadores (compatible Linux/macOS)
+sed "s|main\.dart\.js|main.dart.js?v=$VERSION|g" build/web/index.html > build/web/index.html.tmp && mv build/web/index.html.tmp build/web/index.html
+echo "📌 version.json e index.html (script versionado) generados: $VERSION"
+
 echo "✅ Compilación completada"
 echo ""
 

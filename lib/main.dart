@@ -1,7 +1,10 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:http/http.dart' as http;
+import 'package:package_info_plus/package_info_plus.dart';
 import 'screens/login_screen.dart';
 import 'providers/theme_provider.dart';
 import 'providers/update_provider.dart';
@@ -11,8 +14,8 @@ import 'services/radio_service.dart';
 import 'services/chat_history_service.dart';
 import 'utils/platform_utils.dart';
 import 'models/app_theme.dart';
-// Conditional import for web page lifecycle events
-import 'utils/html_stub.dart' as html;
+// En web usa dart:html (reload con forceGet); en nativo usa stub
+import 'dart:html' if (dart.library.io) 'package:irc_app/utils/html_stub.dart' as html;
 
 void globalLog(String message) {
   // Logs deshabilitados para producción
@@ -25,8 +28,14 @@ void globalLog(String message) {
   // En web simplemente no escribimos a archivo
 }
 
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // En web: si hay nueva versión desplegada, forzar recarga para salir de caché (usuarios con IP del servidor)
+  if (PlatformUtils.isWeb) {
+    final didReload = await _checkWebVersionAndReload();
+    if (didReload) return;
+  }
   
   // Configurar manejo de errores global para evitar errores no capturados
   FlutterError.onError = (FlutterErrorDetails details) {
@@ -101,6 +110,27 @@ void main() {
       child: MyApp(initialTheme: urlTheme),
     ),
   );
+}
+
+/// En web, comprueba si el servidor tiene una versión distinta a la actual (nueva versión desplegada).
+/// Si es así, fuerza una recarga completa (sin caché) para que el usuario cargue el nuevo bundle
+/// y use conexión directa 4443 (IP real visible en el IRC). Devuelve true si se hizo reload.
+Future<bool> _checkWebVersionAndReload() async {
+  try {
+    final packageInfo = await PackageInfo.fromPlatform();
+    final currentVersion = packageInfo.version;
+    final uri = Uri.base.resolve('version.json?bust=${DateTime.now().millisecondsSinceEpoch}');
+    final response = await http.get(uri).timeout(const Duration(seconds: 5));
+    if (response.statusCode != 200) return false;
+    final data = jsonDecode(response.body) as Map<String, dynamic>?;
+    final serverVersion = data?['version'] as String?;
+    if (serverVersion == null || serverVersion == currentVersion) return false;
+    // Nueva versión desplegada: recarga para cargar el nuevo JS (dart:html reload no acepta argumentos)
+    html.window.location.reload();
+    return true;
+  } catch (_) {
+    return false;
+  }
 }
 
 /// Configurar listeners para detener la radio y limpiar mensajes privados cuando se cierra la página en web

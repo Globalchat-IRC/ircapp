@@ -117,19 +117,33 @@ class IRCService {
       print('📡 [IRCService] PlatformUtils.canUseNativeSockets: ${PlatformUtils.canUseNativeSockets}');
       print('📡 [IRCService] PlatformUtils.mustUseWebSocket: ${PlatformUtils.mustUseWebSocket}');
       
-      // Conectar usando la interfaz abstracta
+      // Host de respaldo si falla el servidor elegido (todos los nodos detrás)
+      const String fallbackHost = 'irc.globalchat.org';
+      const int fallbackPort = 6697;
+
+      // Conectar usando la interfaz abstracta; si falla, intentar irc.globalchat.org
       try {
         await _connection!.connect(host, port, useSSL: useSSL);
         print('✅ [IRCService] Connection established to $host:$port using ${_connection.runtimeType}');
       } catch (e, stackTrace) {
-        print('❌ [IRCService] Connection failed: $e');
-        print('❌ [IRCService] Error type: ${e.runtimeType}');
-        print('❌ [IRCService] Stack trace: $stackTrace');
-        
-        // NO hacer fallback automático - dejar que el error se propague
-        // El usuario debe saber que la conexión TCP falló
-        print('❌ [IRCService] Native TCP connection failed. Check firewall, network, or server availability.');
-        rethrow;
+        print('❌ [IRCService] Connection failed to $host:$port: $e');
+        if (host == fallbackHost) {
+          print('❌ [IRCService] Fallback host also failed.');
+          rethrow;
+        }
+        print('🔄 [IRCService] Retrying with $fallbackHost:$fallbackPort...');
+        try {
+          _connection?.disconnect();
+        } catch (_) {}
+        _connection = IRCConnectionFactory.create();
+        _currentHost = fallbackHost;
+        try {
+          await _connection!.connect(fallbackHost, fallbackPort, useSSL: true);
+          print('✅ [IRCService] Connection established to $fallbackHost:$fallbackPort (fallback)');
+        } catch (e2, st2) {
+          print('❌ [IRCService] Fallback connection also failed: $e2');
+          rethrow;
+        }
       }
       
       // Start listening to incoming data (non-blocking)
@@ -2131,9 +2145,10 @@ class IRCService {
               }
             }
             
-            // Si no se encontró, crear el canal con el nombre normalizado
+            // Si no se encontró, no crear: puede ser un 353 tardío tras PART (evitar que el canal "vuelva a aparecer")
             if (!channels.containsKey(finalChannel)) {
-              print('🔍 [DEBUG] ⚠️  Channel not found, will create new: $finalChannel');
+              print('🔍 [DEBUG] ⚠️  Ignoring 353 for channel not in map (stale after PART?): $finalChannel');
+              break;
             }
           } else {
             print('🔍 [DEBUG] ✅ Channel found with exact name: $validChannel');
@@ -2580,7 +2595,7 @@ class IRCService {
             var channel = args[0];
             channel = _normalizeChannelName(channel);
             
-            // Verificar si es nuestro propio PART de #globalchat
+            // Verificar si es nuestro propio PART
             final isOurPart = _nickname != null && nick.toLowerCase() == _nickname!.toLowerCase();
             final isGlobalChat = channel.toLowerCase() == '#globalchat';
             
@@ -2597,13 +2612,16 @@ class IRCService {
               );
               channels[channel]!.addMessage(msg);
               _notifyMessageListeners(msg);
-              // Notificar cambio en la lista de usuarios
               _notifyUserListListeners(channel);
               
-              // Si es nuestro propio PART de #globalchat, marcarlo como cerrado manualmente
-              if (isOurPart && isGlobalChat) {
-                _manuallyClosedChannels.add(channel.toLowerCase());
-                print('🌐 [IRC] #globalchat cerrado manualmente (PART detectado), no se volverá a abrir automáticamente');
+              if (isOurPart) {
+                if (isGlobalChat) {
+                  _manuallyClosedChannels.add(channel.toLowerCase());
+                  print('🌐 [IRC] #globalchat cerrado manualmente (PART detectado), no se volverá a abrir automáticamente');
+                }
+                // Al salir nosotros, quitar el canal del mapa para que no siga en la lista y no "vuelva a meter" al tocarlo
+                channels.remove(channel);
+                _notifyUserListListeners(channel);
               }
             }
           }

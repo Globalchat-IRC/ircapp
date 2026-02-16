@@ -97,6 +97,7 @@ flutter:
   assets:
     - cuac_ircap.mp3
     - assets/emoji_animated_noto/
+    - assets/avatars/
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images
