@@ -218,5 +218,74 @@
       return 'playing';
     };
   </script>
+
+  <!-- Cargador de plugins (estilo mlite2/Kiwi: lista name+url, inyección JS/CSS) -->
+  <script>
+    (function() {
+      window.ircApp = window.ircApp || { pluginsLoaded: [], plugins: [] };
+
+      function loadPlugins() {
+        var pluginsUrl = 'plugins.json?t=' + (Date.now());
+        fetch(pluginsUrl)
+          .then(function(r) { return r.ok ? r.json() : []; })
+          .catch(function() { return []; })
+          .then(function(plugins) {
+            if (!Array.isArray(plugins) || plugins.length === 0) return;
+            window.ircApp.plugins = plugins;
+            loadNext(0);
+          });
+      }
+
+      function loadNext(index) {
+        var plugins = window.ircApp.plugins;
+        if (index >= plugins.length) return;
+        var p = plugins[index];
+        var name = (p.name || 'plugin-' + index).replace(/[\s"']/g, '');
+        var url = p.url;
+        if (!url) { loadNext(index + 1); return; }
+
+        var path = url.split('?')[0];
+        if (path.slice(-3) === '.js') {
+          var script = document.createElement('script');
+          script.onerror = function() { loadNext(index + 1); };
+          script.onload = function() { window.ircApp.pluginsLoaded.push(name); loadNext(index + 1); };
+          script.src = url;
+          document.body.appendChild(script);
+        } else if (path.slice(-4) === '.css') {
+          var link = document.createElement('link');
+          link.rel = 'stylesheet';
+          link.href = url;
+          link.onerror = function() { loadNext(index + 1); };
+          link.onload = function() { window.ircApp.pluginsLoaded.push(name); loadNext(index + 1); };
+          document.head.appendChild(link);
+          loadNext(index + 1);
+        } else {
+          fetch(url).then(function(r) { return r.text(); }).then(function(text) {
+            var div = document.createElement('div');
+            div.id = 'irc_plugin_' + name;
+            div.style.display = 'none';
+            div.innerHTML = text;
+            var scripts = div.querySelectorAll('script');
+            for (var i = 0; i < scripts.length; i++) {
+              var s = scripts[i];
+              s.parentNode.removeChild(s);
+              var newScript = document.createElement('script');
+              newScript.text = s.text || '';
+              div.appendChild(newScript);
+            }
+            document.body.appendChild(div);
+            window.ircApp.pluginsLoaded.push(name);
+            loadNext(index + 1);
+          }).catch(function() { loadNext(index + 1); });
+        }
+      }
+
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', function() { setTimeout(loadPlugins, 800); });
+      } else {
+        setTimeout(loadPlugins, 800);
+      }
+    })();
+  </script>
 </body>
 </html>

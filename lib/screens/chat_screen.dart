@@ -14224,6 +14224,31 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      // Panel del Staff (acceso web)
+                      _buildIRCOpSection(
+                        context,
+                        appTheme,
+                        'Panel del Staff',
+                        Icons.dashboard,
+                        [
+                          _IRCOpMenuItem(
+                            icon: Icons.open_in_browser,
+                            iconColor: appTheme.primary,
+                            title: 'Abrir panel UnrealIRCd',
+                            subtitle: 'webpanel.globalchat.org',
+                            onTap: () async {
+                              Navigator.pop(context);
+                              final uri = Uri.parse(
+                                'https://webpanel.globalchat.org/unrealircd-webpanel/login/?timeout=1&redirect=%2Funrealircd-webpanel%2Fusers%2Fdetails.php',
+                              );
+                              if (await canLaunchUrl(uri)) {
+                                await launchUrl(uri, mode: LaunchMode.externalApplication);
+                              }
+                            },
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
                       // Gestión de usuarios
                       _buildIRCOpSection(
                         context,
