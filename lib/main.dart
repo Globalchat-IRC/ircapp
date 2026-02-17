@@ -290,11 +290,18 @@ class _MyAppState extends ConsumerState<MyApp> with WidgetsBindingObserver {
     // NO inicializar el servicio de radio aquí - se inicializará solo en ChatScreen
     // RadioService().initialize();
     
+    final useSystemTheme = appTheme.name == AppTheme.kSystemThemeName;
+    final lightTheme = useSystemTheme
+        ? AppTheme.themes.firstWhere((t) => t.name == 'Claro', orElse: () => appTheme).toThemeData()
+        : appTheme.toThemeData();
+    final darkTheme = useSystemTheme
+        ? AppTheme.themes.firstWhere((t) => t.name == 'Oscuro', orElse: () => appTheme).toDarkThemeData()
+        : appTheme.toDarkThemeData();
     return MaterialApp(
       title: 'Cliente IRC',
-      theme: appTheme.toThemeData(),
-      darkTheme: appTheme.toDarkThemeData(),
-      themeMode: ThemeMode.light,
+      theme: lightTheme,
+      darkTheme: darkTheme,
+      themeMode: useSystemTheme ? ThemeMode.system : ThemeMode.light,
       home: const LoginScreen(),
     );
   }

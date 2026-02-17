@@ -224,14 +224,32 @@
     (function() {
       window.ircApp = window.ircApp || { pluginsLoaded: [], plugins: [] };
 
+      // Plugins desde URL: ?plugin=https://.../a.js o ?plugins=url1,url2 (como mlite2)
+      function getPluginsFromUrl() {
+        var list = [];
+        var params = new URLSearchParams(window.location.search);
+        var single = params.get('plugin');
+        if (single && single.trim()) list.push({ name: 'url-plugin', url: single.trim() });
+        var multi = params.get('plugins');
+        if (multi) {
+          multi.split(',').forEach(function(u, i) {
+            u = u.trim();
+            if (u) list.push({ name: 'url-plugin-' + i, url: u });
+          });
+        }
+        return list;
+      }
+
       function loadPlugins() {
+        var fromUrl = getPluginsFromUrl();
         var pluginsUrl = 'plugins.json?t=' + (Date.now());
         fetch(pluginsUrl)
           .then(function(r) { return r.ok ? r.json() : []; })
           .catch(function() { return []; })
           .then(function(plugins) {
-            if (!Array.isArray(plugins) || plugins.length === 0) return;
-            window.ircApp.plugins = plugins;
+            if (!Array.isArray(plugins)) plugins = [];
+            window.ircApp.plugins = fromUrl.concat(plugins);
+            if (window.ircApp.plugins.length === 0) return;
             loadNext(0);
           });
       }

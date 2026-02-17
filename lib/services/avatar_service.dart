@@ -42,6 +42,18 @@ class AvatarService {
     return url;
   }
   
+  /// Gravatar (portado de mlite2): URL del avatar por email o cuenta IRC.
+  /// Usar cuando se disponga de cuenta (p. ej. WHOIS account).
+  /// [emailOrAccount] email o identificador (se hashea con MD5).
+  /// [size] tamaño en píxeles (por defecto 80). [d] tipo de default: identicon, retro, etc.
+  static String getGravatarUrl(String emailOrAccount, {int size = 80, String d = 'identicon'}) {
+    if (emailOrAccount.isEmpty) return getDefaultAvatarUrl('');
+    final normalized = emailOrAccount.trim().toLowerCase();
+    final bytes = utf8.encode(normalized);
+    final hash = md5.convert(bytes).toString();
+    return 'https://www.gravatar.com/avatar/$hash?s=$size&d=$d';
+  }
+
   // Obtener URL del avatar generado por defecto (fallback)
   // En web, este también puede tener problemas de CORS, pero el widget manejará el fallback
   static String getDefaultAvatarUrl(String nick) {

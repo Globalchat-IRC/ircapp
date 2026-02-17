@@ -147,6 +147,9 @@ class AppTheme {
     );
   }
 
+  /// Tema "Sistema": sigue preferencia claro/oscuro del SO (estilo plugin auto-dark de mlite2).
+  static const String kSystemThemeName = 'Sistema';
+
   static final List<AppTheme> themes = [
     AppTheme(
       name: 'GlobalChat',
@@ -158,6 +161,17 @@ class AppTheme {
       textPrimary: Colors.white,
       textSecondary: Colors.white70,
       error: Colors.redAccent,
+    ),
+    AppTheme(
+      name: kSystemThemeName,
+      primary: Colors.blue[700]!,
+      secondary: Colors.blue[400]!,
+      accent: Colors.orange,
+      background: Colors.white,
+      surface: Colors.grey[100]!,
+      textPrimary: Colors.black87,
+      textSecondary: Colors.grey[700]!,
+      error: Colors.red,
     ),
     AppTheme(
       name: 'Oscuro',
