@@ -90,5 +90,56 @@ class GeoIPService {
       return null;
     }
   }
+
+  /// URL para geo con ciudad/región (geojs.io)
+  static const String _geoUrl = 'https://get.geojs.io/v1/ip/geo.json';
+
+  /// Obtener ciudad y región por IP (para canal de ciudad/región en login web).
+  /// Retorna map con 'city', 'region', 'country' o null si falla.
+  static Future<Map<String, String>?> getCityRegion() async {
+    try {
+      final response = await http.get(
+        Uri.parse(_geoUrl),
+      ).timeout(
+        const Duration(seconds: 5),
+      );
+      if (response.statusCode != 200) return null;
+      final data = jsonDecode(response.body) as Map<String, dynamic>?;
+      if (data == null) return null;
+      final city = data['city']?.toString().trim();
+      final region = data['region']?.toString().trim();
+      final country = data['country']?.toString().trim();
+      return {
+        if (city != null && city.isNotEmpty) 'city': city,
+        if (region != null && region.isNotEmpty) 'region': region,
+        if (country != null && country.isNotEmpty) 'country': country,
+      };
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /// Convierte nombre de ciudad o región a nombre de canal IRC: #NombreSinAcentos.
+  /// Máximo ~200 caracteres y solo caracteres válidos para canal.
+  static String cityRegionToChannelName(String? city, String? region) {
+    String raw = (city ?? region ?? 'local').trim();
+    if (raw.isEmpty) raw = 'local';
+    // Normalizar: quitar acentos, dejar solo letras/números/espacios/guiones
+    const accented = 'àáâãäåèéêëìíîïòóôõöùúûüñçÀÁÂÃÄÅÈÉÊËÌÍÎÏÒÓÔÕÖÙÚÛÜÑÇ';
+    const plain   = 'aaaaaaeeeeiiiiooooouuuuncAAAAAAEEEEIIIIOOOOOUUUUNC';
+    for (int i = 0; i < accented.length; i++) {
+      raw = raw.replaceAll(accented[i], plain[i]);
+    }
+    final allowed = RegExp(r'[a-zA-Z0-9\s\-]');
+    final sb = StringBuffer();
+    for (int i = 0; i < raw.length && sb.length < 200; i++) {
+      if (allowed.hasMatch(raw[i])) sb.write(raw[i]);
+    }
+    String name = sb.toString().trim().replaceAll(RegExp(r'\s+'), ' ');
+    if (name.isEmpty) name = 'local';
+    name = name.length > 50 ? name.substring(0, 50).trim() : name;
+    final capitalized = name.split(' ').map((w) => w.isEmpty ? w : w[0].toUpperCase() + w.substring(1).toLowerCase()).join('');
+    return '#$capitalized';
+  }
 }
 

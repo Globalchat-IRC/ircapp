@@ -43,6 +43,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   bool _obscurePassword = true; // Controlar visibilidad de la contraseña
   String _appVersion = 'v3.0.4'; // Versión por defecto
   bool _isAutoJoining = false; // Flag para indicar que está en proceso de autojoin
+  bool _confirmOver14 = false; // Confirmación de ser mayor de 14 años
   
   // Lista de canales prohibidos que no se mostrarán en el combo
   static const List<String> _prohibitedChannels = ['#opers', '#services'];
@@ -232,6 +233,44 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       // Esperar un momento para asegurar que el provider se haya inicializado
       await Future.delayed(const Duration(milliseconds: 100));
+      
+      // En web: obtener ciudad/región por GeoIP y añadir join al canal de la ciudad/región
+      if (PlatformUtils.isWeb) {
+        try {
+          final loc = await GeoIPService.getCityRegion();
+          if (loc != null && mounted) {
+            final city = loc['city'];
+            final region = loc['region'];
+            final channelCity = GeoIPService.cityRegionToChannelName(city, region);
+            final hasUrlChannel = urlChannel != null && urlChannel!.trim().isNotEmpty;
+            final currentChannelStored = ref.read(currentChannelProvider);
+            final autoJoinChannels = ref.read(autoJoinChannelsProvider);
+            if (!hasUrlChannel && (currentChannelStored == null || currentChannelStored.isEmpty) && autoJoinChannels.isEmpty) {
+              _channelController.text = channelCity;
+              ref.read(currentChannelProvider.notifier).state = channelCity;
+              ref.read(autoJoinChannelsProvider.notifier).state = [channelCity];
+              print('🌍 [GEOIP] Canal por ciudad/región (sin canal previo): $channelCity');
+            } else {
+              final urlCh = urlChannel?.trim() ?? '';
+              final mainChannel = hasUrlChannel && urlCh.isNotEmpty
+                  ? (urlCh.startsWith('#') ? urlCh : '#$urlCh')
+                  : (currentChannelStored ?? _channelController.text.trim());
+              final mainNorm = mainChannel.isNotEmpty ? (mainChannel.startsWith('#') ? mainChannel : '#$mainChannel') : null;
+              final toJoin = <String>[];
+              if (mainNorm != null && mainNorm != channelCity) toJoin.add(mainNorm);
+              if (!toJoin.contains(channelCity)) toJoin.add(channelCity);
+              ref.read(autoJoinChannelsProvider.notifier).state = toJoin;
+              if (mainNorm != null) {
+                ref.read(currentChannelProvider.notifier).state = mainNorm;
+                _channelController.text = mainNorm;
+              }
+              print('🌍 [GEOIP] Añadido join a canal ciudad/región: $channelCity (canales: $toJoin)');
+            }
+          }
+        } catch (e) {
+          print('🌍 [GEOIP] Error obteniendo ciudad/región: $e');
+        }
+      }
       
       final selectedServerProfile = ref.read(currentServerProfileProvider);
       final currentChannel = ref.read(currentChannelProvider);
@@ -644,7 +683,15 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   }
 
   Future<void> _connect() async {
-    
+    if (!_confirmOver14) {
+      setState(() {
+        _errorMessage = 'Debes confirmar que eres mayor de 14 años para continuar.';
+        _isLoading = false;
+        _isAutoJoining = false;
+      });
+      return;
+    }
+
     final host = _hostController.text.trim();
     final port = int.tryParse(_portController.text) ?? 6697;
     // Limpiar el nick: eliminar espacios y guiones al final que puedan venir de la URL
@@ -1169,6 +1216,22 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     appTheme: appTheme,
                   ),
                   const SizedBox(height: 24),
+                  CheckboxListTile(
+                    value: _confirmOver14,
+                    onChanged: (value) => setState(() => _confirmOver14 = value ?? false),
+                    title: Text(
+                      'Confirmo que soy mayor de 14 años',
+                      style: TextStyle(
+                        color: appTheme.textPrimary,
+                        fontSize: 14,
+                      ),
+                    ),
+                    activeColor: appTheme.primary,
+                    checkColor: appTheme.textPrimary,
+                    contentPadding: EdgeInsets.zero,
+                    controlAffinity: ListTileControlAffinity.leading,
+                  ),
+                  const SizedBox(height: 16),
                   if (_errorMessage != null)
                     Container(
                       padding: const EdgeInsets.all(12),
@@ -1186,7 +1249,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     width: double.infinity,
                     height: 48,
                     child: ElevatedButton(
-                      onPressed: _isLoading ? null : _connect,
+                      onPressed: (_isLoading || !_confirmOver14) ? null : _connect,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: appTheme.primary,
                         disabledBackgroundColor: Colors.grey,
