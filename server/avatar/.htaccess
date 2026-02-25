@@ -1,0 +1,13 @@
+# CORS para que la app (mobilev1.globalchat.org) pueda llamar a upload-gif.php desde el navegador
+# Requiere mod_headers y AllowOverride All (o FileInfo) en el vhost de xmlrpc
+<IfModule mod_headers.c>
+    Header always set Access-Control-Allow-Origin "*"
+    Header always set Access-Control-Allow-Methods "POST, GET, OPTIONS"
+    Header always set Access-Control-Allow-Headers "Content-Type"
+</IfModule>
+# Responder OPTIONS con 204 (preflight) si el servidor no pasa a PHP
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteCond %{REQUEST_METHOD} OPTIONS
+    RewriteRule ^ - [R=204,L]
+</IfModule>

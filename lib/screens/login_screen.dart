@@ -44,6 +44,13 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   String _appVersion = 'v3.0.4'; // Versión por defecto
   bool _isAutoJoining = false; // Flag para indicar que está en proceso de autojoin
   bool _confirmOver14 = false; // Confirmación de ser mayor de 14 años
+  /// Controla si se usa geolocalización (ciudad/país y selección de servidor por GeoIP).
+  /// Por defecto está DESACTIVADA; solo se activa por parámetro de URL o por el switch del formulario.
+  bool _geolocationEnabled = false;
+  /// Si true, se considera validada la edad (mayor de 18) por parámetro URL; no hace falta marcar el checkbox.
+  bool _urlAge18Validated = false;
+  /// Canal leído del parámetro URL (channel=). Se usa cuando geolocation=false para autojoin y como fallback en _connect().
+  String? _urlChannel;
   
   // Lista de canales prohibidos que no se mostrarán en el combo
   static const List<String> _prohibitedChannels = ['#opers', '#services'];
@@ -52,16 +59,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   void initState() {
     super.initState();
     
-    // Log muy temprano para verificar que se ejecuta
-    debugPrint('🔍 [INIT] LoginScreen initState iniciado');
-    print('🔍 [INIT] LoginScreen initState iniciado - PRINT');
-    if (PlatformUtils.isWeb) {
-      try {
-        html.window.console.log('🔍 [INIT] LoginScreen initState iniciado - CONSOLE');
-      } catch (e) {
-        // Ignorar si no está disponible
-      }
-    }
+    // Logs de consola desactivados para rendimiento
+    // debugPrint('🔍 [INIT] LoginScreen initState iniciado');
+    // print('🔍 [INIT] LoginScreen initState iniciado - PRINT');
+    // if (PlatformUtils.isWeb) {
+    //   try {
+    //     html.window.console.log('🔍 [INIT] LoginScreen initState iniciado - CONSOLE');
+    //   } catch (e) {}
+    // }
     
     // Cargar versión de la app
     _loadAppVersion();
@@ -99,6 +104,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           // Ejemplo: ?joinchanneloficial=false  -> NO autojinear a #globalchat
           //          ?joinchanneloficial=true   -> autojinear (por defecto)
           final joinOficialParam = fullUri.queryParameters['joinchanneloficial'];
+          // geolocation: true (default) = usar ciudad/país y servidor por GeoIP; false = desactivar geolocalización
+          final geolocationParam = fullUri.queryParameters['geolocation'];
+          // age18: true = usuario confirma ser mayor de 18 (validación por URL, no hace falta checkbox)
+          final age18Param = fullUri.queryParameters['age18'];
           
           if (nickParam != null && nickParam.trim().isNotEmpty) {
             // Limpiar el nick: eliminar espacios y guiones al final
@@ -142,6 +151,15 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             }
             print('🔍 [URL] ✅ joinchanneloficial leído: "$joinOficialParam" -> $joinChannelOficialFromUrl');
           }
+          if (geolocationParam != null) {
+            final v = geolocationParam.toLowerCase().trim();
+            _geolocationEnabled = v != 'false' && v != '0' && v != 'no';
+          }
+          if (age18Param != null) {
+            final v = age18Param.toLowerCase().trim();
+            _urlAge18Validated = v == 'true' || v == '1' || v == 'yes';
+            if (_urlAge18Validated) _confirmOver14 = true;
+          }
         } else {
           // Fallback a Uri.base si location.href está vacío
           final uri = Uri.base;
@@ -152,6 +170,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           final channelParam = uri.queryParameters['channel'];
           final autoJoinParam = uri.queryParameters['autojoin'];
           final joinOficialParam = uri.queryParameters['joinchanneloficial'];
+          final geolocationParam = uri.queryParameters['geolocation'];
+          final age18Param = uri.queryParameters['age18'];
           
           if (nickParam != null && nickParam.trim().isNotEmpty) {
             // Limpiar el nick: eliminar espacios y guiones al final
@@ -188,14 +208,37 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             }
             print('🔍 [URL] ✅ joinchanneloficial leído de Uri.base: "$joinOficialParam" -> $joinChannelOficialFromUrl');
           }
+          if (geolocationParam != null) {
+            final v = geolocationParam.toLowerCase().trim();
+            _geolocationEnabled = v != 'false' && v != '0' && v != 'no';
+          }
+          if (age18Param != null) {
+            final v = age18Param.toLowerCase().trim();
+            _urlAge18Validated = v == 'true' || v == '1' || v == 'yes';
+            if (_urlAge18Validated) _confirmOver14 = true;
+          }
         }
         
+        // Guardar canal de URL en instancia para usarlo en _connect() y en el callback (geolocation=false)
+        _urlChannel = urlChannel;
         // Debug: verificar que se leyeron los parámetros
-        print('🔍 [URL] Parámetros finales - nick: $urlNick, channel: $urlChannel, autojoin: $autoJoin, joinchanneloficial: $joinChannelOficialFromUrl');
+        print('🔍 [URL] Parámetros finales - nick: $urlNick, channel: $urlChannel, autojoin: $autoJoin, joinchanneloficial: $joinChannelOficialFromUrl, geolocation: $_geolocationEnabled, age18: $_urlAge18Validated');
+        // Forzar rebuild si age18 desde URL para que el checkbox se muestre
+        if (_urlAge18Validated) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) setState(() {});
+          });
+        }
       } catch (e) {
         print('🔍 [URL] Error leyendo URL: $e');
       }
     }
+
+    // Configurar si se permite mostrar el modal de identificación NickServ:
+    // Solo se activará cuando la sesión venga por URL con autojoin=true en web.
+    final allowNickModal = PlatformUtils.isWeb && autoJoin;
+    ref.read(nickIdentifyModalAllowedProvider.notifier).state = allowNickModal;
+    print('🔐 [LOGIN] nickIdentifyModalAllowed = $allowNickModal (autoJoin=$autoJoin, isWeb=${PlatformUtils.isWeb})');
     
     // Generar un nickname aleatorio: GlobalChat-XXXXX (número aleatorio de 4-5 dígitos)
     // O usar el de la URL si está presente
@@ -206,6 +249,20 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     final defaultNick = cleanUrlNick ?? 'GlobalChat-$randomNumber';
     _nickController = TextEditingController(text: defaultNick);
     print('🔍 [LOGIN] NickController inicializado con: "$defaultNick"');
+
+    // Si es la primera vez y no hay servidor seleccionado aún,
+    // preseleccionar un servidor SSL aleatorio en el desplegable.
+    if (_selectedServer == null) {
+      final sslServers = ServerProfile.defaultGlobalChatProfiles
+          .where((profile) => profile.port == 6697 && profile.useSSL)
+          .toList();
+      if (sslServers.isNotEmpty) {
+        final randomIndex = random.nextInt(sslServers.length);
+        _selectedServer = sslServers[randomIndex];
+        _updateServerFields(_selectedServer!);
+        print('🔍 [LOGIN] Servidor inicial aleatorio seleccionado: ${_selectedServer!.host}:${_selectedServer!.port}');
+      }
+    }
     
     // Aplicar configuración de auto-join al canal oficial #globalchat si viene en la URL
     // Solo tiene efecto en web
@@ -215,9 +272,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       print('🌐 [LOGIN] joinchanneloficial aplicado al IRCService: $joinChannelOficialFromUrl');
     }
 
-    // Pre-llenar el canal si viene en la URL
-    if (urlChannel != null && urlChannel.trim().isNotEmpty) {
-      String channel = urlChannel.trim();
+    // Pre-llenar el canal si viene en la URL (usa _urlChannel ya asignado arriba)
+    if (_urlChannel != null && _urlChannel!.trim().isNotEmpty) {
+      String channel = _urlChannel!.trim();
       // Asegurar que empiece con #
       if (!channel.startsWith('#')) {
         channel = '#$channel';
@@ -226,7 +283,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       print('🔍 [URL] ✅ Canal aplicado al controlador: $channel');
       print('🔍 [URL] Verificación - _channelController.text = "${_channelController.text}"');
     } else {
-      print('🔍 [URL] ⚠️ No se aplicó canal - urlChannel: $urlChannel');
+      print('🔍 [URL] ⚠️ No se aplicó canal - _urlChannel: $_urlChannel');
     }
     
     // Leer servidor seleccionado del provider (si se cambió desde el AppBar)
@@ -234,41 +291,51 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       // Esperar un momento para asegurar que el provider se haya inicializado
       await Future.delayed(const Duration(milliseconds: 100));
       
-      // En web: obtener ciudad/región por GeoIP y añadir join al canal de la ciudad/región
-      if (PlatformUtils.isWeb) {
+      // En web: obtener ciudad/región/país por GeoIP y añadir join a canales de país y ciudad/región (si geolocation está activado)
+      if (PlatformUtils.isWeb && _geolocationEnabled) {
         try {
           final loc = await GeoIPService.getCityRegion();
           if (loc != null && mounted) {
             final city = loc['city'];
             final region = loc['region'];
+            final country = loc['country'];
             final channelCity = GeoIPService.cityRegionToChannelName(city, region);
-            final hasUrlChannel = urlChannel != null && urlChannel!.trim().isNotEmpty;
+            final channelCountry = country != null && country.isNotEmpty
+                ? GeoIPService.countryToChannelName(country)
+                : null;
+            final hasUrlChannel = _urlChannel != null && _urlChannel!.trim().isNotEmpty;
             final currentChannelStored = ref.read(currentChannelProvider);
             final autoJoinChannels = ref.read(autoJoinChannelsProvider);
+            final geoChannels = <String>[
+              if (channelCountry != null && channelCountry != channelCity) channelCountry,
+              channelCity,
+            ];
             if (!hasUrlChannel && (currentChannelStored == null || currentChannelStored.isEmpty) && autoJoinChannels.isEmpty) {
               _channelController.text = channelCity;
               ref.read(currentChannelProvider.notifier).state = channelCity;
-              ref.read(autoJoinChannelsProvider.notifier).state = [channelCity];
-              print('🌍 [GEOIP] Canal por ciudad/región (sin canal previo): $channelCity');
+              ref.read(autoJoinChannelsProvider.notifier).state = geoChannels;
+              print('🌍 [GEOIP] Canales por país/ciudad (sin canal previo): $geoChannels');
             } else {
-              final urlCh = urlChannel?.trim() ?? '';
+              final urlCh = _urlChannel?.trim() ?? '';
               final mainChannel = hasUrlChannel && urlCh.isNotEmpty
                   ? (urlCh.startsWith('#') ? urlCh : '#$urlCh')
                   : (currentChannelStored ?? _channelController.text.trim());
               final mainNorm = mainChannel.isNotEmpty ? (mainChannel.startsWith('#') ? mainChannel : '#$mainChannel') : null;
               final toJoin = <String>[];
-              if (mainNorm != null && mainNorm != channelCity) toJoin.add(mainNorm);
-              if (!toJoin.contains(channelCity)) toJoin.add(channelCity);
+              if (mainNorm != null) toJoin.add(mainNorm);
+              for (final ch in geoChannels) {
+                if (!toJoin.contains(ch)) toJoin.add(ch);
+              }
               ref.read(autoJoinChannelsProvider.notifier).state = toJoin;
               if (mainNorm != null) {
                 ref.read(currentChannelProvider.notifier).state = mainNorm;
                 _channelController.text = mainNorm;
               }
-              print('🌍 [GEOIP] Añadido join a canal ciudad/región: $channelCity (canales: $toJoin)');
+              print('🌍 [GEOIP] Añadido join a canales país y ciudad/región: $geoChannels (canales: $toJoin)');
             }
           }
         } catch (e) {
-          print('🌍 [GEOIP] Error obteniendo ciudad/región: $e');
+          print('🌍 [GEOIP] Error obteniendo ciudad/región/país: $e');
         }
       }
       
@@ -283,7 +350,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       print('🔍 [LOGIN] Nick: $currentNick');
       print('🔍 [LOGIN] Canal: $currentChannel');
       print('🔍 [LOGIN] Canales autojoin: $autoJoinChannels');
-      print('🔍 [LOGIN] Canal desde URL: $urlChannel');
+      print('🔍 [LOGIN] Canal desde URL: $_urlChannel');
       print('🔍 [LOGIN] ===================================');
       
       // Verificar si hay datos guardados para autojoin (viene de cambio de servidor)
@@ -300,7 +367,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         print('🔍 [LOGIN] Campos actualizados - host: ${_hostController.text}, port: ${_portController.text}');
         
         // Obtener el canal actual si existe (solo si no hay canal de URL)
-        if (urlChannel == null || urlChannel.isEmpty) {
+        if (_urlChannel == null || _urlChannel!.isEmpty) {
           if (currentChannel != null && currentChannel.isNotEmpty) {
             _channelController.text = currentChannel;
             print('🔍 [LOGIN] Canal actual desde provider: $currentChannel');
@@ -375,11 +442,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         print('🔍 [LOGIN] No hay servidor seleccionado en el provider, usando selección por GeoIP');
         
         // Si autojoin está activado desde URL y no hay servidor seleccionado, hacer autojoin
-        if (autoJoin && PlatformUtils.isWeb && (urlNick != null || urlChannel != null)) {
-          print('🔍 [AUTOJOIN_URL] ✅ Autojoin activado desde URL - nick: $urlNick, channel: $urlChannel');
+        if (autoJoin && PlatformUtils.isWeb && (urlNick != null || _urlChannel != null)) {
+          print('🔍 [AUTOJOIN_URL] ✅ Autojoin activado desde URL - nick: $urlNick, channel: $_urlChannel');
           
-          // Asegurar que el canal esté en el controlador (puede venir de URL)
-          String? channelToUse = urlChannel;
+          // Asegurar que el canal esté en el controlador (prioridad: URL, luego formulario)
+          String? channelToUse = _urlChannel;
           if (channelToUse == null || channelToUse.trim().isEmpty) {
             channelToUse = _channelController.text.trim();
           }
@@ -402,10 +469,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               // Asegurar que el puerto sea 6697
               _portController.text = '6697';
               
-              // Detectar ubicación geográfica usando GeoIP y seleccionar servidor
-              // Luego conectar automáticamente
-              // Primero seleccionar el servidor basado en GeoIP
-              await _selectServerByGeoIPFromList(sslServers);
+              // Detectar ubicación geográfica usando GeoIP y seleccionar servidor (o aleatorio si geolocation=false)
+              if (_geolocationEnabled) {
+                await _selectServerByGeoIPFromList(sslServers);
+              } else {
+                final random = Random();
+                _selectedServer = sslServers[random.nextInt(sslServers.length)];
+                _updateServerFields(_selectedServer!);
+              }
               
               // Esperar un momento para asegurar que el servidor se haya actualizado
               await Future.delayed(const Duration(milliseconds: 500));
@@ -449,12 +520,36 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 }
               }
             } else {
-              // Si no hay servidores SSL, usar selección basada en GeoIP
-              await _selectServerByGeoIP();
+              if (_geolocationEnabled) {
+                await _selectServerByGeoIP();
+              } else {
+                final sslServers = ServerProfile.defaultGlobalChatProfiles
+                    .where((p) => p.port == 6697 && p.useSSL)
+                    .toList();
+                if (sslServers.isNotEmpty) {
+                  final random = Random();
+                  _selectedServer = sslServers[random.nextInt(sslServers.length)];
+                  _updateServerFields(_selectedServer!);
+                } else {
+                  await _selectServerByGeoIP();
+                }
+              }
             }
-          } else {
-            // Si no hay canal, usar selección basada en GeoIP
-            await _selectServerByGeoIP();
+            } else {
+              if (_geolocationEnabled) {
+                await _selectServerByGeoIP();
+              } else {
+              final sslServers = ServerProfile.defaultGlobalChatProfiles
+                  .where((p) => p.port == 6697 && p.useSSL)
+                  .toList();
+              if (sslServers.isNotEmpty) {
+                final random = Random();
+                _selectedServer = sslServers[random.nextInt(sslServers.length)];
+                _updateServerFields(_selectedServer!);
+              } else {
+                await _selectServerByGeoIP();
+              }
+            }
           }
         }
       }
@@ -483,9 +578,18 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         }
       } else if (isAmericas == false) {
         // Si está fuera de América, usar otros servidores (excluyendo caliope)
-        final nonAmericasServers = sslServers
+        var nonAmericasServers = sslServers
             .where((profile) => profile.host != 'caliope.globalchat.org')
             .toList();
+        // En web, evitar seleccionar Apolo por defecto (solo si el usuario lo elige explícitamente)
+        if (PlatformUtils.isWeb) {
+          final filtered = nonAmericasServers
+              .where((profile) => profile.host != 'apolo.globalchat.org')
+              .toList();
+          if (filtered.isNotEmpty) {
+            nonAmericasServers = filtered;
+          }
+        }
         
         if (nonAmericasServers.isNotEmpty) {
           // Seleccionar aleatoriamente entre los servidores no americanos
@@ -563,9 +667,18 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         }
       } else if (isAmericas == false) {
         // Si está fuera de América, usar otros servidores (excluyendo caliope)
-        final nonAmericasServers = sslServers
+        var nonAmericasServers = sslServers
             .where((profile) => profile.host != 'caliope.globalchat.org')
             .toList();
+        // En web, evitar seleccionar Apolo por defecto (solo si el usuario lo elige explícitamente)
+        if (PlatformUtils.isWeb) {
+          final filtered = nonAmericasServers
+              .where((profile) => profile.host != 'apolo.globalchat.org')
+              .toList();
+          if (filtered.isNotEmpty) {
+            nonAmericasServers = filtered;
+          }
+        }
         
         if (nonAmericasServers.isNotEmpty) {
           // Seleccionar aleatoriamente entre los servidores no americanos
@@ -652,6 +765,78 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     }
   }
 
+  /// Aplicar sugerencias de canales basadas en GeoIP cuando el usuario
+  /// activa manualmente la opción de ubicación.
+  Future<void> _applyGeoIpChannelsFromToggle() async {
+    if (!PlatformUtils.isWeb || !_geolocationEnabled) return;
+    try {
+      final loc = await GeoIPService.getCityRegion();
+      if (loc == null || !mounted || !_geolocationEnabled) return;
+
+      final city = loc['city'];
+      final region = loc['region'];
+      final country = loc['country'];
+      final channelCity = GeoIPService.cityRegionToChannelName(city, region);
+      final channelCountry = country != null && country.isNotEmpty
+          ? GeoIPService.countryToChannelName(country)
+          : null;
+
+      final geoChannels = <String>[
+        if (channelCountry != null && channelCountry != channelCity) channelCountry,
+        channelCity,
+      ];
+
+      // Si el usuario no ha puesto canal aún, usar la ciudad.
+      final currentChannelText = _channelController.text.trim();
+      String mainChannel = currentChannelText.isEmpty || currentChannelText == '#'
+          ? channelCity
+          : currentChannelText;
+
+      // Normalizar canal principal
+      if (mainChannel.isNotEmpty && !mainChannel.startsWith('#')) {
+        mainChannel = '#$mainChannel';
+      }
+
+      final toJoin = <String>[];
+      if (mainChannel.isNotEmpty) {
+        toJoin.add(mainChannel);
+      }
+      for (final ch in geoChannels) {
+        if (!toJoin.contains(ch)) {
+          toJoin.add(ch);
+        }
+      }
+
+      ref.read(autoJoinChannelsProvider.notifier).state = toJoin;
+      if (mainChannel.isNotEmpty) {
+        ref.read(currentChannelProvider.notifier).state = mainChannel;
+        setState(() {
+          _channelController.text = mainChannel;
+        });
+      }
+
+      print('🌍 [GEOIP] (toggle) Canales sugeridos: $geoChannels (canales: $toJoin)');
+    } catch (e) {
+      print('🌍 [GEOIP] Error al obtener GeoIP desde toggle: $e');
+    }
+  }
+
+  /// Limpiar canal y autojoin cuando se desactiva la geolocalización
+  /// desde el switch del formulario.
+  void _clearGeoIpChannelsFromToggle() {
+    if (!PlatformUtils.isWeb) return;
+    // Limpiar lista de canales para autojoin y canal actual;
+    // el usuario elegirá manualmente el canal.
+    try {
+      ref.read(autoJoinChannelsProvider.notifier).state = [];
+      ref.read(currentChannelProvider.notifier).state = '';
+    } catch (_) {}
+    setState(() {
+      _channelController.text = '';
+    });
+    print('🌍 [GEOIP] (toggle) Desactivado: canal y autojoin limpiados para selección manual');
+  }
+
   // Cargar información de versión de la app
   Future<void> _loadAppVersion() async {
     try {
@@ -700,7 +885,15 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     while (nick.endsWith('_')) {
       nick = nick.substring(0, nick.length - 1).trim();
     }
-    final channel = _channelController.text.trim();
+    var channel = _channelController.text.trim();
+    // Si el canal está vacío pero tenemos canal en la URL (p. ej. geolocation=false), usarlo
+    if (channel.isEmpty && _urlChannel != null && _urlChannel!.trim().isNotEmpty) {
+      String ch = _urlChannel!.trim();
+      if (!ch.startsWith('#')) ch = '#$ch';
+      channel = ch.toLowerCase();
+      _channelController.text = channel;
+      print('🔍 [LOGIN] Canal tomado de URL (_urlChannel): $channel');
+    }
     
     print('🔍 [LOGIN] Nick procesado: "${_nickController.text}" -> "$nick"');
 
@@ -759,6 +952,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       
       // Actualizar el provider con el nick inicial (se actualizará automáticamente si el servidor lo modifica)
       ref.read(currentNicknameProvider.notifier).state = nick;
+      // Subir avatar GIF al servidor automáticamente para que otros usuarios lo vean (sin pedir nada al usuario)
+      ref.read(globalAvatarGifProvider.notifier).syncGifToServer(nick);
       // globalLog('🔵 [LOGIN] Set nickname in provider');
       
       // Normalizar el nombre del canal antes de guardarlo
@@ -902,7 +1097,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Cliente IRC'),
+        title: Text(PlatformUtils.isWeb ? 'GlobalChat Web Script' : 'GlobalChat Script'),
         backgroundColor: appTheme.primary,
         foregroundColor: appTheme.textPrimary,
         elevation: 2,
@@ -986,14 +1181,28 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Expanded(
-                        child: Text(
-                          'Conectar a GlobalChat IRC Network',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            fontSize: 24,
-                            fontWeight: FontWeight.bold,
-                            color: appTheme.primary,
-                          ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              PlatformUtils.isWeb ? 'GlobalChat Web Script' : 'GlobalChat Script',
+                              textAlign: TextAlign.left,
+                              style: TextStyle(
+                                fontSize: 24,
+                                fontWeight: FontWeight.bold,
+                                color: appTheme.primary,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Cliente avanzado para GlobalChat IRC Network',
+                              textAlign: TextAlign.left,
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: appTheme.textSecondary,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                       const SizedBox(width: 12),
@@ -1209,13 +1418,71 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     ),
                   ],
                   const SizedBox(height: 16),
+                  if (PlatformUtils.isWeb) ...[
+                    Container(
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(8),
+                        color: appTheme.surface.withOpacity(0.9),
+                        border: Border.all(
+                          color: appTheme.primary.withOpacity(0.4),
+                          width: 1,
+                        ),
+                      ),
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      child: Row(
+                        children: [
+                          Switch(
+                            value: _geolocationEnabled,
+                            onChanged: (value) {
+                              setState(() {
+                                _geolocationEnabled = value;
+                              });
+                              if (value) {
+                                _applyGeoIpChannelsFromToggle();
+                              } else {
+                                _clearGeoIpChannelsFromToggle();
+                              }
+                            },
+                            activeColor: appTheme.primary,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Usar ubicación (GeoIP)',
+                                  style: TextStyle(
+                                    color: appTheme.textPrimary,
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  _geolocationEnabled
+                                      ? 'Activado: sugerirá servidor y canales según tu país/ciudad.'
+                                      : 'Desactivado: no usará ubicación; elige servidor y canal manualmente.',
+                                  style: TextStyle(
+                                    color: appTheme.textSecondary,
+                                    fontSize: 11,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                  ],
                   _ChannelSelector(
                     controller: _channelController,
                     channels: _channels,
                     loadingChannels: _loadingChannels,
                     appTheme: appTheme,
                   ),
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 16),
                   CheckboxListTile(
                     value: _confirmOver14,
                     onChanged: (value) => setState(() => _confirmOver14 = value ?? false),

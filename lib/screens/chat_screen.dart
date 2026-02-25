@@ -56,7 +56,7 @@ import '../widgets/email_verification_dialog.dart';
 import '../models/user_role.dart';
 import '../widgets/debug_connection_window.dart';
 import '../widgets/voice_assistant_dialog.dart';
-import '../widgets/rustdesk_support_dialog.dart';
+import '../widgets/remote_support_dialog.dart';
 import '../providers/debug_log_provider.dart';
 import '../models/video_report.dart' as video_report_model;
 import '../services/video_conference_service.dart' show ConferenceType;
@@ -11537,6 +11537,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 }
               },
             ),
+            // Botón para borrar historial del privado
+            IconButton(
+              icon: Icon(Icons.delete_sweep, size: 20, color: appTheme.textSecondary),
+              tooltip: 'Borrar historial del privado',
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+              onPressed: () => _showClearPrivateHistoryDialog(context, nick),
+            ),
           ],
         ),
       );
@@ -11574,6 +11582,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 style: TextStyle(color: Colors.green, fontSize: 11, fontWeight: FontWeight.bold),
               ),
             ],
+            const Spacer(),
+            IconButton(
+              icon: Icon(Icons.delete_sweep, size: 20, color: appTheme.textSecondary),
+              tooltip: 'Borrar historial del canal',
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+              onPressed: () => _showClearChannelHistoryDialog(context, channel),
+            ),
           ],
         ),
       );
@@ -11664,8 +11680,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     Icons.translate,
                     size: 12,
                     color: Colors.white,
-                  ),
-                  const SizedBox(width: 4),
+            ),
+            const SizedBox(width: 4),
                   Text(
                     'Traducción activada',
                     style: TextStyle(
@@ -11679,6 +11695,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             ),
             const SizedBox(width: 8),
           ],
+          IconButton(
+            icon: Icon(Icons.delete_sweep, size: 20, color: Colors.white70),
+            tooltip: 'Borrar historial del canal',
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+            onPressed: () => _showClearChannelHistoryDialog(context, channel),
+          ),
         ],
       ),
     );
@@ -12358,11 +12381,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                           Future.delayed(const Duration(milliseconds: 100), () {
                             showDialog(
                               context: context,
-                              builder: (dialogContext) => RustDeskSupportDialog(
+                              builder: (dialogContext) => RemoteSupportDialog(
                                 appTheme: appTheme,
                                 onJoinHelpChannel: () {
-                                  // No unirse automáticamente para evitar que se abra el asistente AI
-                                  // El usuario puede unirse manualmente si lo desea
                                   ScaffoldMessenger.of(context).showSnackBar(
                                     const SnackBar(
                                       content: Text('Puedes unirte manualmente a #Ayuda o #cau desde la lista de canales'),
@@ -12394,7 +12415,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                             SizedBox(width: 8),
                             Flexible(
                               child: Text(
-                                'Soporte Remoto (RustDesk)',
+                                'Soporte Remoto (Chrome)',
                                 overflow: TextOverflow.ellipsis,
                               ),
                             ),

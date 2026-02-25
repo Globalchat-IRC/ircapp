@@ -141,5 +141,10 @@ class GeoIPService {
     final capitalized = name.split(' ').map((w) => w.isEmpty ? w : w[0].toUpperCase() + w.substring(1).toLowerCase()).join('');
     return '#$capitalized';
   }
+
+  /// Convierte nombre de país a nombre de canal IRC (misma lógica que ciudad/región).
+  static String countryToChannelName(String? country) {
+    return cityRegionToChannelName(null, country);
+  }
 }
 

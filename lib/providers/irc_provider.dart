@@ -13,6 +13,7 @@ import '../models/custom_robot.dart';
 import '../services/irc_service.dart';
 import '../services/chat_history_service.dart';
 import '../services/translation_service.dart';
+import '../services/avatar_service.dart';
 import '../utils/platform_utils.dart';
 import 'history_provider.dart';
 
@@ -194,6 +195,12 @@ final lastChannelProvider = StateProvider<String?>((ref) => null);
 
 /// Lista de canales para autojoin cuando se cambia de servidor
 final autoJoinChannelsProvider = StateProvider<List<String>>((ref) => []);
+
+/// Controla si se debe mostrar el modal de identificación de NickServ (nick registrado).
+/// - Por defecto es false (no mostrar modal).
+/// - Se activa explícitamente en el login solo cuando la sesión se inicia
+///   mediante parámetros de URL con autojoin=true.
+final nickIdentifyModalAllowedProvider = StateProvider<bool>((ref) => false);
 
 /// Canales/nicks marcados como favoritos (para autounirse y sección destacada)
 final favoritesProvider =
@@ -1529,6 +1536,8 @@ class MessageFormatPreferences {
   final double emojiSize;
   final bool enableThreadsInChannels;
   final bool enableReactions;
+  /// Controla si se permiten avatares animados (GIFs) en la interfaz.
+  final bool enableAnimatedAvatars;
 
   const MessageFormatPreferences({
     this.channelFormat = MessageFormat.plain,
@@ -1541,6 +1550,7 @@ class MessageFormatPreferences {
     this.emojiSize = 40.0,
     this.enableThreadsInChannels = true,
     this.enableReactions = true,
+    this.enableAnimatedAvatars = false,
   });
 
   MessageFormatPreferences copyWith({
@@ -1554,6 +1564,7 @@ class MessageFormatPreferences {
     double? emojiSize,
     bool? enableThreadsInChannels,
     bool? enableReactions,
+    bool? enableAnimatedAvatars,
   }) {
     return MessageFormatPreferences(
       channelFormat: channelFormat ?? this.channelFormat,
@@ -1566,6 +1577,8 @@ class MessageFormatPreferences {
       emojiSize: emojiSize ?? this.emojiSize,
       enableThreadsInChannels: enableThreadsInChannels ?? this.enableThreadsInChannels,
       enableReactions: enableReactions ?? this.enableReactions,
+      enableAnimatedAvatars:
+          enableAnimatedAvatars ?? this.enableAnimatedAvatars,
     );
   }
 }
@@ -1584,9 +1597,11 @@ class MessageFormatPreferencesNotifier
   static const _prefsKeyPrivateFontSize = 'message_private_font_size';
   static const _prefsKeyChannelFontFamily = 'message_channel_font_family';
   static const _prefsKeyPrivateFontFamily = 'message_private_font_family';
-   static const _prefsKeyEmojiSize = 'message_emoji_size';
+  static const _prefsKeyEmojiSize = 'message_emoji_size';
   static const _prefsKeyEnableThreadsInChannels = 'enable_threads_in_channels';
   static const _prefsKeyEnableReactions = 'enable_reactions';
+  static const _prefsKeyEnableAnimatedAvatars =
+      'enable_animated_avatars';
 
   @override
   MessageFormatPreferences build() {
@@ -1607,6 +1622,8 @@ class MessageFormatPreferencesNotifier
       final emojiSize = prefs.getDouble(_prefsKeyEmojiSize) ?? 40.0;
       final enableThreadsInChannels = prefs.getBool(_prefsKeyEnableThreadsInChannels) ?? true;
       final enableReactions = prefs.getBool(_prefsKeyEnableReactions) ?? true;
+      final enableAnimatedAvatars =
+          prefs.getBool(_prefsKeyEnableAnimatedAvatars) ?? false;
 
       final channelFormat = channelRaw == 'plain'
           ? MessageFormat.plain
@@ -1626,6 +1643,7 @@ class MessageFormatPreferencesNotifier
         emojiSize: emojiSize,
         enableThreadsInChannels: enableThreadsInChannels,
         enableReactions: enableReactions,
+        enableAnimatedAvatars: enableAnimatedAvatars,
       );
     } catch (_) {
       // Ignorar errores de carga
@@ -1739,6 +1757,16 @@ class MessageFormatPreferencesNotifier
       // Ignorar errores de guardado
     }
   }
+
+  Future<void> setEnableAnimatedAvatars(bool enable) async {
+    state = state.copyWith(enableAnimatedAvatars: enable);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_prefsKeyEnableAnimatedAvatars, enable);
+    } catch (_) {
+      // Ignorar errores de guardado
+    }
+  }
 }
 
 /// Provider para iconos personalizados de usuarios
@@ -1802,6 +1830,65 @@ class UserIconsNotifier extends Notifier<Map<String, String>> {
   }
 }
 
+/// Avatar GIF global (subido en Ajustes). Guarda path en disco o data URL en web.
+final globalAvatarGifProvider = NotifierProvider<GlobalAvatarGifNotifier, String?>(() {
+  return GlobalAvatarGifNotifier();
+});
+
+class GlobalAvatarGifNotifier extends Notifier<String?> {
+  static const _prefsKey = 'global_avatar_gif';
+
+  @override
+  String? build() {
+    _loadFromPrefs();
+    return null;
+  }
+
+  Future<void> _loadFromPrefs() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final stored = prefs.getString(_prefsKey);
+      if (stored != null && stored.isNotEmpty) {
+        state = stored;
+      }
+    } catch (_) {}
+  }
+
+  Future<void> setGlobalAvatarGif(String? value) async {
+    state = value;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (value != null && value.isNotEmpty) {
+        await prefs.setString(_prefsKey, value);
+      } else {
+        await prefs.remove(_prefsKey);
+      }
+    } catch (_) {}
+  }
+
+  Future<void> clear() async => setGlobalAvatarGif(null);
+
+  /// Sube el GIF guardado al servidor (xmlrpc) para que otros usuarios lo vean.
+  /// Se llama automáticamente al conectar y al cambiar nick; no requiere que el usuario haga nada.
+  void syncGifToServer(String? nick) {
+    if (nick == null || nick.trim().isEmpty) return;
+    final dataUrl = state;
+    if (dataUrl == null || dataUrl.isEmpty) return;
+    if (!dataUrl.startsWith('data:image/gif;base64,')) return;
+    try {
+      final base64Data = dataUrl.contains(',') ? dataUrl.substring(dataUrl.indexOf(',') + 1) : dataUrl;
+      final bytes = base64Decode(base64Data);
+      if (bytes.isEmpty) return;
+      AvatarService.uploadAvatarGif(nick.trim(), bytes).then((result) {
+        if (!result.success) {
+          // Para revisar si la subida falla: abre la consola del navegador (F12) y busca este mensaje
+          print('🖼️ [AVATAR] Subida automática GIF falló: ${result.errorMessage}');
+        }
+      });
+    } catch (_) {}
+  }
+}
+
 /// Provider para robots personalizados
 /// Permite añadir robots manualmente y asignarles iconos personalizados
 final customRobotsProvider = NotifierProvider<CustomRobotsNotifier, List<CustomRobot>>(() {
@@ -1834,6 +1921,7 @@ class CustomRobotsNotifier extends Notifier<List<CustomRobot>> {
         CustomRobot(nick: 'Memo', icon: '🤖'),
         CustomRobot(nick: 'Ircop', icon: '🤖'),
         CustomRobot(nick: 'Global', icon: '🤖'),
+        CustomRobot(nick: 'ipvirtual', icon: '🤖'),
       ];
       
       if (robotsJson != null) {
@@ -1873,6 +1961,7 @@ class CustomRobotsNotifier extends Notifier<List<CustomRobot>> {
         CustomRobot(nick: 'Memo', icon: '🤖'),
         CustomRobot(nick: 'Ircop', icon: '🤖'),
         CustomRobot(nick: 'Global', icon: '🤖'),
+        CustomRobot(nick: 'ipvirtual', icon: '🤖'),
       ];
     }
   }

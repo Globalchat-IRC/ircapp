@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/irc_provider.dart';
@@ -8,6 +9,7 @@ import '../models/app_theme.dart';
 import '../services/backup_service.dart';
 import '../services/cache_service.dart';
 import '../services/chat_history_service.dart';
+import '../services/avatar_service.dart';
 import 'privacy_settings_screen.dart';
 import 'robots_settings_screen.dart';
 import 'package:file_picker/file_picker.dart';
@@ -304,6 +306,178 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         activeColor: appTheme.primary,
                       ),
                     ],
+                  ),
+                  const SizedBox(height: 24),
+                  // Opción para activar/desactivar avatares animados
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.motion_photos_auto,
+                            color: appTheme.primary,
+                            size: 20,
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Avatares animados',
+                                  style: TextStyle(
+                                    color: appTheme.textPrimary,
+                                    fontSize: 16,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  'Permite usar avatares GIF animados en los nicks (puede consumir más CPU/RAM).',
+                                  style: TextStyle(
+                                    color: appTheme.textSecondary,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      Switch(
+                        value: formatPrefs.enableAnimatedAvatars,
+                        onChanged: (value) {
+                          ref
+                              .read(messageFormatPreferencesProvider.notifier)
+                              .setEnableAnimatedAvatars(value);
+                        },
+                        activeColor: appTheme.primary,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 24),
+                  // Avatar global (GIF)
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.image_outlined,
+                        color: appTheme.primary,
+                        size: 20,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Avatar global (GIF)',
+                              style: TextStyle(
+                                color: appTheme.textPrimary,
+                                fontSize: 16,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Elige un GIF como avatar. Se sube automáticamente al servidor (xmlrpc en ceres); los demás lo verán sin entrar en ninguna web.',
+                              style: TextStyle(
+                                color: appTheme.textSecondary,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Consumer(
+                    builder: (context, ref, _) {
+                      final globalGif = ref.watch(globalAvatarGifProvider);
+                      return Row(
+                        children: [
+                          if (globalGif != null && globalGif.isNotEmpty) ...[
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(8),
+                              child: Image.network(
+                                globalGif,
+                                width: 56,
+                                height: 56,
+                                fit: BoxFit.cover,
+                                errorBuilder: (_, __, ___) => Icon(Icons.broken_image, size: 56, color: appTheme.textSecondary),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                          ],
+                          ElevatedButton.icon(
+                            onPressed: () async {
+                              final result = await FilePicker.pickFiles(
+                                type: FileType.custom,
+                                allowedExtensions: ['gif'],
+                                withData: true,
+                              );
+                              if (result == null || result.files.isEmpty) return;
+                              final file = result.files.single;
+                              final bytes = file.bytes;
+                              if (bytes == null || bytes.isEmpty) {
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(content: Text('No se pudieron leer los datos del GIF.')),
+                                  );
+                                }
+                                return;
+                              }
+                              final dataUrl = 'data:image/gif;base64,${base64Encode(bytes)}';
+                              await ref.read(globalAvatarGifProvider.notifier).setGlobalAvatarGif(dataUrl);
+                              final currentNick = ref.read(currentNicknameProvider);
+                              if (currentNick != null && currentNick.trim().isNotEmpty) {
+                                // Subir a xmlrpc en cuanto el usuario elige el GIF; sin que tenga que hacer nada más
+                                var result = await AvatarService.uploadAvatarGif(currentNick, bytes);
+                                if (!result.success) {
+                                  await Future.delayed(const Duration(seconds: 2));
+                                  result = await AvatarService.uploadAvatarGif(currentNick, bytes);
+                                }
+                                if (context.mounted) {
+                                  final String msg = result.success
+                                      ? 'Avatar subido a xmlrpc. Los demás usuarios lo verán animado.'
+                                      : 'Avatar guardado aquí. No se pudo subir: ${result.errorMessage ?? "error"}. Se reintentará al conectar.';
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(msg),
+                                      duration: const Duration(seconds: 5),
+                                    ),
+                                  );
+                                }
+                              } else if (context.mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(content: Text('Avatar guardado. Se subirá a xmlrpc automáticamente cuando te conectes.')),
+                                );
+                              }
+                            },
+                            icon: const Icon(Icons.upload_file),
+                            label: const Text('Subir GIF'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: appTheme.primary,
+                              foregroundColor: appTheme.textPrimary,
+                            ),
+                          ),
+                          if (globalGif != null && globalGif.isNotEmpty) ...[
+                            const SizedBox(width: 8),
+                            TextButton.icon(
+                              onPressed: () async {
+                                await ref.read(globalAvatarGifProvider.notifier).clear();
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(content: Text('Avatar GIF eliminado.')),
+                                  );
+                                }
+                              },
+                              icon: Icon(Icons.delete_outline, size: 20, color: appTheme.textSecondary),
+                              label: Text('Quitar', style: TextStyle(color: appTheme.textSecondary)),
+                            ),
+                          ],
+                        ],
+                      );
+                    },
                   ),
                   const SizedBox(height: 24),
                   // Mensaje de away por defecto

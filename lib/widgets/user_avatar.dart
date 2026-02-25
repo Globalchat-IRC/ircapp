@@ -47,8 +47,11 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
     _lastIsRobot = widget.isRobot;
     print('🔵 [UserAvatar] initState para "${widget.nick}", isRobot: ${widget.isRobot}');
     _loadAvatar();
-    // Registrar el avatar para refresco automático
+    // Asegurar carga tras el primer frame (por si el setState no se aplica a tiempo en web)
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && !widget.isRobot && _avatarUrl == null && widget.nick.trim().isNotEmpty) {
+        _loadAvatar();
+      }
       if (mounted) {
         ref.read(avatarRefreshProvider.notifier).refreshAvatar(widget.nick);
       }
@@ -94,8 +97,10 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
 
   @override
   Widget build(BuildContext context) {
-    // Observar cambios en el provider de refresco de avatares
-    final refreshTimestamp = ref.watch(avatarRefreshProvider)[widget.nick.toLowerCase()];
+    // Observar solo el timestamp de este nick (evita reconstruir todos los avatares del canal)
+    final refreshTimestamp = ref.watch(
+      avatarRefreshProvider.select((m) => m[widget.nick.toLowerCase()]),
+    );
     
     // Si el timestamp cambió, recargar el avatar
     if (refreshTimestamp != null && refreshTimestamp != _lastRefreshTimestamp) {

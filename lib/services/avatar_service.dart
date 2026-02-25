@@ -133,4 +133,22 @@ class AvatarService {
       return getAvatarUrl(cleanNick);
     }
   }
+
+  /// Resultado de subida de avatar GIF (stub: subida deshabilitada en esta versión).
+  static const _uploadStubResult = UploadAvatarResult(success: false, errorMessage: 'Subida de GIF no disponible en esta versión');
+
+  /// Subir avatar GIF al servidor (stub: no-op en esta versión).
+  static Future<UploadAvatarResult> uploadAvatarGif(String nick, List<int> bytes) async {
+    if (nick.trim().isEmpty || bytes.isEmpty) {
+      return const UploadAvatarResult(success: false, errorMessage: 'Nick o datos vacíos');
+    }
+    return Future.value(_uploadStubResult);
+  }
+}
+
+/// Resultado de subida de avatar GIF.
+class UploadAvatarResult {
+  final bool success;
+  final String? errorMessage;
+  const UploadAvatarResult({required this.success, this.errorMessage});
 }

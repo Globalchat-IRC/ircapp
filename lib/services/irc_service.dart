@@ -691,10 +691,9 @@ class IRCService {
       return;
     }
     
-    // Enviar IDENTIFY al bot "nick" (no "NickServ") con la contraseña
-    // Formato: PRIVMSG nick :IDENTIFY nick password
-    // Algunos bots requieren el nick en el comando
-    final command = 'PRIVMSG nick :IDENTIFY ${_nickname} $trimmedPassword';
+    // Enviar IDENTIFY al bot "nick" (equivale a /msg nick identify password)
+    // Formato: PRIVMSG nick :identify password (el bot identifica por el nick actual)
+    final command = 'PRIVMSG nick :identify $trimmedPassword';
     // print('🔐 [IRCService] Identificando nick ${_nickname} con bot "nick"');
     // print('🔐 [IRCService] Comando completo: $command');
     _sendCommand(command);
@@ -1458,7 +1457,9 @@ class IRCService {
                         nickLower == 'chanserv' ||
                         nickLower == 'memoserv' ||
                         nickLower == 'botserv' ||
-                        nickLower == 'hostserv';
+                        nickLower == 'hostserv' ||
+                        nickLower == 'statserv' ||
+                        nickLower == 'global';
     
     return isBotByNick;
   }
@@ -3119,6 +3120,11 @@ class IRCService {
         
         case 'PRIVMSG':
           if (args.isNotEmpty) {
+            // No mostrar mensajes de StatServ ni Global (mismo criterio que en NOTICE)
+            final privmsgSenderLower = nick.toLowerCase();
+            if (privmsgSenderLower == 'statserv' || privmsgSenderLower == 'global') {
+              break;
+            }
             // print('🔍🔍🔍 [DEBUG PRIVMSG] 📨 PRIVMSG recibido - Raw line: $line');
             // print('🔍🔍🔍 [DEBUG PRIVMSG] 📨 PRIVMSG - nick del source: "$nick", args: $args');
             
@@ -3538,6 +3544,12 @@ class IRCService {
                     // No procesar como mensaje normal si es parte de un comando IRCop
                     break;
                   }
+                }
+
+                // 2.5) No mostrar NOTICE de StatServ ni Global en la ventana de chat (ocultar como servicios)
+                final noticeSenderLower = nick.toLowerCase();
+                if (noticeSenderLower == 'statserv' || noticeSenderLower == 'global') {
+                  break;
                 }
 
                 // 3) Verificar si es un NOTICE privado de un usuario ignorado
