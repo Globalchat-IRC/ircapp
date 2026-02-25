@@ -7,8 +7,7 @@ import '../models/app_theme.dart';
 import '../providers/theme_provider.dart';
 import 'radio_stations_list.dart';
 import '../utils/platform_utils.dart';
-// ignore: avoid_web_libraries_in_flutter
-import 'dart:html' as html;
+import 'dart:html' if (dart.library.io) '../utils/html_stub.dart' as html;
 
 class RadioControls extends ConsumerStatefulWidget {
   const RadioControls({Key? key}) : super(key: key);

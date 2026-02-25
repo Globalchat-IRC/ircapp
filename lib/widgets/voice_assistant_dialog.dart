@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'dart:html' if (dart.library.io) '../utils/html_stub.dart' as html;
-import 'dart:ui_web' if (dart.library.io) 'dart:ui' as ui;
+import 'dart:ui_web' if (dart.library.io) '../utils/ui_web_stub.dart' as ui;
 import '../services/voice_assistant_service.dart';
 import '../models/app_theme.dart';
 import '../utils/platform_utils.dart';

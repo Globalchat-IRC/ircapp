@@ -940,14 +940,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
       // globalLog('🔵 [LOGIN] connect() returned successfully');
       
-      // Si se proporcionó una contraseña y se marcó la opción de identificar, identificar el nick
-      if (_identifyWithNick && _passwordController.text.trim().isNotEmpty) {
-        // globalLog('🔐 [LOGIN] Identificando nick con bot "nick"...');
-        // Esperar un poco más para que la conexión se establezca completamente
-        // y el servidor procese los mensajes iniciales
-        await Future.delayed(const Duration(milliseconds: 2000));
-        // globalLog('🔐 [LOGIN] Enviando comando IDENTIFY al bot "nick"...');
-        ircService.identifyNick(_passwordController.text.trim());
+      // Si hay contraseña (campo de identificación), enviar IDENTIFY al bot "nick" tras conectar
+      final identifyPassword = _passwordController.text.trim();
+      if (identifyPassword.isNotEmpty) {
+        // Esperar a que la conexión y el nick estén confirmados en el servidor
+        await Future.delayed(const Duration(milliseconds: 3000));
+        ircService.identifyNick(identifyPassword);
       }
       
       // Actualizar el provider con el nick inicial (se actualizará automáticamente si el servidor lo modifica)
