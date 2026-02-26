@@ -11,7 +11,35 @@ final themeProvider = NotifierProvider<ThemeNotifier, AppTheme>(() {
 
 class ThemeNotifier extends Notifier<AppTheme> {
   bool _themeLoaded = false;
-  
+
+  /// Normaliza nombre para comparar: minúsculas, sin acentos, trim.
+  static String _normalizeThemeName(String name) {
+    String s = name.trim().toLowerCase();
+    const withAccents = 'áéíóúüñàèìòù';
+    const withoutAccents = 'aeiouunaeiou';
+    for (int i = 0; i < withAccents.length; i++) {
+      s = s.replaceAll(withAccents[i], withoutAccents[i]);
+    }
+    return s;
+  }
+
+  /// Alias del parámetro URL -> nombre exacto del tema en AppTheme.themes.
+  static const Map<String, String> _themeParamAliases = {
+    'oscuro': 'Oscuro',
+    'dark': 'Oscuro',
+    'claro': 'Claro',
+    'light': 'Claro',
+    'globalchat': 'GlobalChat',
+    'naranja': 'Naranja',
+    'orange': 'Naranja',
+    'azul': 'Azul',
+    'blue': 'Azul',
+    'verde': 'Verde',
+    'green': 'Verde',
+    'sistema': 'Sistema',
+    'system': 'Sistema',
+  };
+
   @override
   AppTheme build() {
     _initializeTheme();
@@ -26,52 +54,39 @@ class ThemeNotifier extends Notifier<AppTheme> {
         final location = window.location;
         final fullUrl = location.href ?? '';
         
+        String? themeParam;
         if (fullUrl.isNotEmpty) {
-          // Usar Uri.parse para decodificar correctamente los parámetros
           final fullUri = Uri.parse(fullUrl);
-          final themeParam = fullUri.queryParameters['theme'];
+          themeParam = fullUri.queryParameters['theme'];
+        }
+        if (themeParam == null || themeParam.trim().isEmpty) {
+          final uri = Uri.base;
+          themeParam = uri.queryParameters['theme'];
+        }
+        
+        if (themeParam != null && themeParam.trim().isNotEmpty) {
+          final themeName = themeParam.trim();
+          final normalizedInput = _normalizeThemeName(themeName);
           
-          if (themeParam != null && themeParam.trim().isNotEmpty) {
-            final themeName = themeParam.trim();
-            
-            // Buscar el tema por nombre (case-insensitive y sin espacios extra)
-            AppTheme? foundTheme;
-            final normalizedThemeName = themeName.toLowerCase().trim();
-            
-            // Buscar en todos los temas
-            for (final theme in AppTheme.themes) {
-              if (theme.name.toLowerCase().trim() == normalizedThemeName) {
-                foundTheme = theme;
+          // Resolver alias (ej. "dark" -> "Oscuro") o buscar por nombre normalizado
+          String? canonicalName = _themeParamAliases[normalizedInput];
+          if (canonicalName == null) {
+            for (final t in AppTheme.themes) {
+              if (_normalizeThemeName(t.name) == normalizedInput) {
+                canonicalName = t.name;
                 break;
               }
-            }
-            
-            if (foundTheme != null) {
-              state = foundTheme;
-              _themeLoaded = true;
-              // No guardar en SharedPreferences el tema de URL para no sobrescribir la preferencia del usuario
-              return;
             }
           }
-        } else {
-          // Fallback a Uri.base si location.href está vacío
-          final uri = Uri.base;
-          final themeParam = uri.queryParameters['theme'];
           
-          if (themeParam != null && themeParam.trim().isNotEmpty) {
-            final themeName = themeParam.trim();
-            
+          if (canonicalName != null) {
             AppTheme? foundTheme;
-            final normalizedThemeName = themeName.toLowerCase().trim();
-            
-            // Buscar en todos los temas
-            for (final theme in AppTheme.themes) {
-              if (theme.name.toLowerCase().trim() == normalizedThemeName) {
-                foundTheme = theme;
+            for (final t in AppTheme.themes) {
+              if (t.name == canonicalName) {
+                foundTheme = t;
                 break;
               }
             }
-            
             if (foundTheme != null) {
               state = foundTheme;
               _themeLoaded = true;

@@ -279,7 +279,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   List<IRCMessage> _searchResults = [];
   bool _showUserList = true; // Control de visibilidad de la lista de usuarios
   bool _showChannelsSidebar = true; // Control de visibilidad del sidebar de canales
-  bool _useNoticeForPrivate = false; // Control para usar NOTICE en lugar de PRIVMSG en mensajes privados
   
   // Autocompletado de comandos
   List<Map<String, String>> _commandSuggestions = [];
@@ -2645,7 +2644,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       _ircService.sendMessage(normalizedChannel, message, delaySeconds: delaySeconds);
     } else {
       // Es un query, enviar mensaje privado o NOTICE según la configuración
-      if (_useNoticeForPrivate) {
+      if (ref.read(useNoticeForPrivateProvider)) {
         _ircService.sendPrivateNotice(normalizedChannel, message, delaySeconds: delaySeconds);
       } else {
         _ircService.sendPrivateMessage(normalizedChannel, message, delaySeconds: delaySeconds);
@@ -6249,6 +6248,17 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                             }
                           }
 
+                          // Ordenar por última actividad (último mensaje)
+                          final messages = ref.watch(messagesProvider);
+                          DateTime lastActivity(String ch) {
+                            final norm = ch.toLowerCase();
+                            final list = messages.where((m) => m.channel.toLowerCase() == norm).toList();
+                            if (list.isEmpty) return DateTime(0);
+                            return list.map((m) => m.timestamp).reduce((a, b) => a.isAfter(b) ? a : b);
+                          }
+                          channelList.sort((a, b) => lastActivity(b).compareTo(lastActivity(a)));
+                          queryList.sort((a, b) => lastActivity(b).compareTo(lastActivity(a)));
+
                           // Favoritos y recientes
                           final favorites = ref.watch(favoritesProvider);
                           final recent = ref.watch(recentChannelsProvider);
@@ -6388,6 +6398,38 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                   currentChannel,
                                   ref,
                                 )),
+                                // Cerrar todos los privados
+                                if (queryList.isNotEmpty) ...[
+                                  const SizedBox(height: 8),
+                                  Padding(
+                                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                                    child: TextButton.icon(
+                                      onPressed: () {
+                                        final toRemove = _ircService.allChannels.keys.where((k) => !k.startsWith('#')).toList();
+                                        for (final k in toRemove) {
+                                          _ircService.allChannels.remove(k);
+                                        }
+                                        ref.read(messagesProvider.notifier).clearPrivateMessages();
+                                        ref.read(channelsProvider.notifier).updateChannels();
+                                        for (final ch in toRemove) {
+                                          ref.read(unreadMessagesProvider.notifier).markAsRead(ch);
+                                        }
+                                        final cur = ref.read(currentChannelProvider);
+                                        if (cur != null && !cur.startsWith('#')) {
+                                          final remaining = _ircService.allChannels.keys.where((k) => k.startsWith('#')).toList();
+                                          ref.read(currentChannelProvider.notifier).state = remaining.isNotEmpty ? remaining.first : null;
+                                        }
+                                        if (mounted) {
+                                          ScaffoldMessenger.of(context).showSnackBar(
+                                            const SnackBar(content: Text('Todos los mensajes privados cerrados')),
+                                          );
+                                        }
+                                      },
+                                      icon: Icon(Icons.close_fullscreen, size: 18, color: appTheme.textSecondary),
+                                      label: Text('Cerrar todos los privados', style: TextStyle(fontSize: 12, color: appTheme.textSecondary)),
+                                    ),
+                                  ),
+                                ],
                               ],
 
                               // Sección de Recientes cerrados
@@ -7110,15 +7152,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                           // Toggle para NOTICE/PRIVMSG (solo en mensajes privados)
                           if (currentChannel != null && !currentChannel.startsWith('#'))
                             Tooltip(
-                              message: _useNoticeForPrivate ? 'Cambiar a PRIVMSG' : 'Cambiar a NOTICE',
+                              message: ref.watch(useNoticeForPrivateProvider) ? 'Cambiar a PRIVMSG' : 'Cambiar a NOTICE',
                               child: IconButton(
                                 onPressed: () {
-                                  setState(() {
-                                    _useNoticeForPrivate = !_useNoticeForPrivate;
-                                  });
+                                  ref.read(useNoticeForPrivateProvider.notifier).toggle();
                                   ScaffoldMessenger.of(context).showSnackBar(
                                     SnackBar(
-                                      content: Text(_useNoticeForPrivate 
+                                      content: Text(ref.read(useNoticeForPrivateProvider) 
                                           ? 'Modo NOTICE activado' 
                                           : 'Modo PRIVMSG activado'),
                                       duration: const Duration(seconds: 1),
@@ -7126,10 +7166,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                   );
                                 },
                                 icon: Icon(
-                                  _useNoticeForPrivate ? Icons.notifications_active : Icons.chat,
-                                  color: _useNoticeForPrivate ? appTheme.accent : appTheme.textSecondary,
+                                  ref.watch(useNoticeForPrivateProvider) ? Icons.notifications_active : Icons.chat,
+                                  color: ref.watch(useNoticeForPrivateProvider) ? appTheme.accent : appTheme.textSecondary,
                                 ),
-                                tooltip: _useNoticeForPrivate ? 'Cambiar a PRIVMSG' : 'Cambiar a NOTICE',
+                                tooltip: ref.watch(useNoticeForPrivateProvider) ? 'Cambiar a PRIVMSG' : 'Cambiar a NOTICE',
                               ),
                             ),
                           // Botón para enviar con delay normal
@@ -11498,6 +11538,18 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 fontSize: 12,
                 fontWeight: FontWeight.bold,
               ),
+            ),
+            // Botón Whois (información del usuario)
+            const SizedBox(width: 8),
+            IconButton(
+              icon: Icon(Icons.person_search, size: 20, color: appTheme.accent),
+              tooltip: 'Whois (información de usuario)',
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+              onPressed: () {
+                _ircService.sendWhois(nick);
+                _showWhoisResultsWindow(nick);
+              },
             ),
             // Botón de Ignorar/Designorar para todos los mensajes privados
             const SizedBox(width: 12),

@@ -161,6 +161,42 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     ],
                   ),
                   const SizedBox(height: 24),
+                  // NOTICE en mensajes privados
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Usar NOTICE en privados',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                                color: appTheme.textPrimary,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Si está activado, los mensajes privados se envían como NOTICE (el otro usuario no puede responder automáticamente).',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: appTheme.textSecondary,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Switch(
+                        value: ref.watch(useNoticeForPrivateProvider),
+                        onChanged: (value) {
+                          ref.read(useNoticeForPrivateProvider.notifier).setValue(value);
+                        },
+                        activeColor: appTheme.primary,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 24),
                   // Tamaño global de emoticonos
                   Text(
                     'Tamaño de emoticonos',

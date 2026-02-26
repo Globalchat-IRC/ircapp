@@ -99,6 +99,38 @@ class MessageSendDelayNotifier extends Notifier<int> {
   }
 }
 
+/// Usar NOTICE en lugar de PRIVMSG para mensajes privados (persistido en Ajustes)
+final useNoticeForPrivateProvider = NotifierProvider<UseNoticeForPrivateNotifier, bool>(() {
+  return UseNoticeForPrivateNotifier();
+});
+
+class UseNoticeForPrivateNotifier extends Notifier<bool> {
+  static const _prefsKey = 'use_notice_for_private';
+
+  @override
+  bool build() {
+    _loadFromPrefs();
+    return false;
+  }
+
+  Future<void> _loadFromPrefs() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      state = prefs.getBool(_prefsKey) ?? false;
+    } catch (_) {}
+  }
+
+  Future<void> setValue(bool value) async {
+    state = value;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_prefsKey, value);
+    } catch (_) {}
+  }
+
+  Future<void> toggle() async => setValue(!state);
+}
+
 final currentChannelProvider = StateProvider<String?>((ref) => null);
 
 /// Estado de away del usuario actual

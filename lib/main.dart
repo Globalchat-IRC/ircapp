@@ -197,22 +197,29 @@ class _MyAppState extends ConsumerState<MyApp> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    
-    // TEMPORAL: Borrar historial de privados al arrancar (revertir después)
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      ref.read(messagesProvider.notifier).clearPrivateMessages();
-      if (!PlatformUtils.isWeb) {
-        try {
-          const servers = ['default', 'ceres.globalchat.org', 'apolo.globalchat.org', 'artemis.globalchat.org', 'caliope.globalchat.org'];
-          for (final server in servers) {
-            ChatHistoryService().deletePrivateMessages(server: server);
-          }
-        } catch (e) {
-          // Ignorar errores al limpiar
-        }
-      }
-    });
-    
+
+    // // TEMPORAL (comentado): Borrar historial de privados al arrancar.
+    // // Si en el futuro necesitamos reactivarlo, descomentar este bloque.
+    // WidgetsBinding.instance.addPostFrameCallback((_) {
+    //   ref.read(messagesProvider.notifier).clearPrivateMessages();
+    //   if (!PlatformUtils.isWeb) {
+    //     try {
+    //       const servers = [
+    //         'default',
+    //         'ceres.globalchat.org',
+    //         'apolo.globalchat.org',
+    //         'artemis.globalchat.org',
+    //         'caliope.globalchat.org',
+    //       ];
+    //       for (final server in servers) {
+    //         ChatHistoryService().deletePrivateMessages(server: server);
+    //       }
+    //     } catch (e) {
+    //       // Ignorar errores al limpiar
+    //     }
+    //   }
+    // });
+
     // El tema de la URL ya se maneja en ThemeNotifier._initializeTheme()
     // No necesitamos aplicarlo aquí para evitar conflictos
   }
