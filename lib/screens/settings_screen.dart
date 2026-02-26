@@ -473,6 +473,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                   result = await AvatarService.uploadAvatarGif(currentNick, bytes);
                                 }
                                 if (context.mounted) {
+                                  // Si la subida ha tenido éxito, actualizar el valor guardado a la URL remota
+                                  if (result.success) {
+                                    final remoteUrl = result.url ?? AvatarService.getAvatarGifUrl(currentNick);
+                                    await ref.read(globalAvatarGifProvider.notifier).setGlobalAvatarGif(remoteUrl);
+                                  }
                                   final String msg = result.success
                                       ? 'Avatar subido a xmlrpc. Los demás usuarios lo verán animado.'
                                       : 'Avatar guardado aquí. No se pudo subir: ${result.errorMessage ?? "error"}. Se reintentará al conectar.';

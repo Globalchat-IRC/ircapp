@@ -36,10 +36,13 @@ class UserAvatar extends ConsumerStatefulWidget {
 
 class _UserAvatarState extends ConsumerState<UserAvatar> {
   String? _avatarUrl;
+  String? _staticAvatarUrl;
+  String? _gifAvatarUrl;
   bool _avatarLoaded = false;
   int? _lastRefreshTimestamp;
   bool _lastIsRobot = false;
   bool _triedDefaultAvatar = false;
+  bool _gifPreferred = false;
 
   @override
   void initState() {
@@ -159,21 +162,24 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
       return;
     }
     
-    // Usuario normal: intentar cargar avatar personalizado
-    print('👤 [UserAvatar] Usuario normal "${widget.nick}" (isRobot: ${widget.isRobot}), cargando avatar personalizado...');
+    // Usuario normal: intentar primero avatar GIF animado y luego PNG estático
+    print('👤 [UserAvatar] Usuario normal "${widget.nick}" (isRobot: ${widget.isRobot}), cargando avatar (GIF + PNG)...');
+
+    final staticUrl = await AvatarService.getCorrectAvatarUrl(cleanNick);
+    final gifUrl = AvatarService.getAvatarGifUrl(cleanNick);
     
-    // Obtener la URL correcta del avatar (intenta ambas variantes)
-    // Agregar timestamp para forzar recarga cuando cambia isRobot
-    final url = await AvatarService.getCorrectAvatarUrl(cleanNick);
-    
-    print('👤 [UserAvatar] URL del avatar para "${widget.nick}": ${url ?? "null"}');
+    print('👤 [UserAvatar] URL estática para "${widget.nick}": ${staticUrl ?? "null"}');
+    print('👤 [UserAvatar] URL GIF para "${widget.nick}": $gifUrl');
     
     if (mounted) {
       setState(() {
-        _avatarUrl = url;
+        _staticAvatarUrl = staticUrl;
+        _gifAvatarUrl = gifUrl;
+        _avatarUrl = gifUrl; // Intentar primero el GIF animado
         _avatarLoaded = true;
+        _gifPreferred = true;
         _triedDefaultAvatar = false; // reset al recargar
-        print('👤 [UserAvatar] Avatar cargado para "${widget.nick}": _avatarUrl=${_avatarUrl != null ? "set" : "null"}, _avatarLoaded=$_avatarLoaded');
+        print('👤 [UserAvatar] Estado inicial avatar para "${widget.nick}": _avatarUrl=$_avatarUrl, _staticAvatarUrl=$_staticAvatarUrl');
       });
     }
   }
@@ -260,20 +266,36 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
                     );
                   },
                   errorBuilder: (context, error, stackTrace) {
-                    // Si falla la carga del avatar personalizado, intentar una vez
-                    // el avatar generado por defecto del panel. Si también falla,
-                    // mostrar el fallback (emoji / inicial).
+                    // Estrategia de fallback:
+                    // 1) Si estamos intentando GIF, pasar a PNG estático (_staticAvatarUrl)
+                    // 2) Si PNG falla, intentar avatar generado por defecto del panel
+                    // 3) Si todo falla, usar fallback (emoji / inicial)
                     print('⚠️ [UserAvatar] Error cargando avatar para "${widget.nick}": $error');
                     print('⚠️ [UserAvatar] Stack trace: $stackTrace');
 
-                    if (!_triedDefaultAvatar) {
+                    final cleanNick = widget.nick.trim();
+
+                    if (_gifPreferred && _staticAvatarUrl != null) {
+                      // El GIF ha fallado: cambiar a avatar estático PNG.
+                      _gifPreferred = false;
+                      final nextUrl = _staticAvatarUrl!;
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        if (mounted) {
+                          setState(() {
+                            _avatarUrl = nextUrl;
+                            print('🔄 [UserAvatar] Fallback de GIF a PNG estático para "$cleanNick": $_avatarUrl');
+                          });
+                        }
+                      });
+                    } else if (!_triedDefaultAvatar) {
+                      // El avatar personalizado (GIF o PNG) ha fallado: intentar generador por defecto.
                       _triedDefaultAvatar = true;
-                      final cleanNick = widget.nick.trim();
                       final defaultUrl = AvatarService.getDefaultAvatarUrl(cleanNick);
                       WidgetsBinding.instance.addPostFrameCallback((_) {
                         if (mounted) {
                           setState(() {
                             _avatarUrl = defaultUrl;
+                            print('🔄 [UserAvatar] Fallback a avatar generado por defecto para "$cleanNick": $_avatarUrl');
                           });
                         }
                       });

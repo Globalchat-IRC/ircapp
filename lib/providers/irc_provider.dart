@@ -1912,7 +1912,10 @@ class GlobalAvatarGifNotifier extends Notifier<String?> {
       final bytes = base64Decode(base64Data);
       if (bytes.isEmpty) return;
       AvatarService.uploadAvatarGif(nick.trim(), bytes).then((result) {
-        if (!result.success) {
+        if (result.success && result.url != null && result.url!.isNotEmpty) {
+          // Sustituir la data URL local por la URL remota en el servidor
+          setGlobalAvatarGif(result.url);
+        } else if (!result.success) {
           // Para revisar si la subida falla: abre la consola del navegador (F12) y busca este mensaje
           print('🖼️ [AVATAR] Subida automática GIF falló: ${result.errorMessage}');
         }

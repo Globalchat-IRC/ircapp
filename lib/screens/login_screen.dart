@@ -55,6 +55,23 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   // Lista de canales prohibidos que no se mostrarán en el combo
   static const List<String> _prohibitedChannels = ['#opers', '#services'];
 
+  /// Comprueba si el nick contiene caracteres no permitidos (ñ, acentos, emojis, etc.).
+  /// Solo se permiten [A-Za-z0-9_\-\[\]\\`^{}|].
+  bool _nickHasInvalidCharacters(String raw) {
+    return RegExp(r'[^A-Za-z0-9_\-\[\]\\`^{}|]').hasMatch(raw.trim());
+  }
+
+  /// Limpia el nick para que sea válido en IRC (solo trim y guiones bajos finales).
+  /// Usado para URL y para el valor final al conectar cuando la validación ya pasó.
+  String _sanitizeNick(String raw) {
+    var nick = raw.trim();
+    while (nick.endsWith('_')) {
+      nick = nick.substring(0, nick.length - 1).trim();
+    }
+    nick = nick.replaceAll(RegExp(r'[^A-Za-z0-9_\-\[\]\\`^{}|]'), '');
+    return nick;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -110,13 +127,13 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           final age18Param = fullUri.queryParameters['age18'];
           
           if (nickParam != null && nickParam.trim().isNotEmpty) {
-            // Limpiar el nick: eliminar espacios y guiones al final
-            var cleanNick = nickParam.trim();
-            while (cleanNick.endsWith('_')) {
-              cleanNick = cleanNick.substring(0, cleanNick.length - 1).trim();
+            final sanitized = _sanitizeNick(nickParam);
+            if (sanitized.isNotEmpty) {
+              urlNick = sanitized;
+              print('🔍 [URL] ✅ Nick leído: "$nickParam" -> Sanitizado: "$urlNick"');
+            } else {
+              print('🔍 [URL] ⚠️ Nick inválido tras sanitizar: "$nickParam"');
             }
-            urlNick = cleanNick;
-            print('🔍 [URL] ✅ Nick leído: "$nickParam" -> Limpio: "$urlNick"');
           }
           
           // Leer canal de query string
@@ -174,13 +191,13 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           final age18Param = uri.queryParameters['age18'];
           
           if (nickParam != null && nickParam.trim().isNotEmpty) {
-            // Limpiar el nick: eliminar espacios y guiones al final
-            var cleanNick = nickParam.trim();
-            while (cleanNick.endsWith('_')) {
-              cleanNick = cleanNick.substring(0, cleanNick.length - 1).trim();
+            final sanitized = _sanitizeNick(nickParam);
+            if (sanitized.isNotEmpty) {
+              urlNick = sanitized;
+              print('🔍 [URL] ✅ Nick leído de Uri.base: "$nickParam" -> Sanitizado: "$urlNick"');
+            } else {
+              print('🔍 [URL] ⚠️ Nick inválido tras sanitizar (Uri.base): "$nickParam"');
             }
-            urlNick = cleanNick;
-            print('🔍 [URL] ✅ Nick leído de Uri.base: "$nickParam" -> Limpio: "$urlNick"');
           }
           
           if (channelParam != null) {
@@ -879,12 +896,16 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
     final host = _hostController.text.trim();
     final port = int.tryParse(_portController.text) ?? 6697;
-    // Limpiar el nick: eliminar espacios y guiones al final que puedan venir de la URL
-    var nick = _nickController.text.trim();
-    // Si el nick termina en guion, eliminarlo (puede venir de una conexión anterior)
-    while (nick.endsWith('_')) {
-      nick = nick.substring(0, nick.length - 1).trim();
+    if (_nickHasInvalidCharacters(_nickController.text)) {
+      setState(() {
+        _errorMessage = 'El nick no puede contener ñ, acentos, emojis ni otros caracteres especiales. '
+            'Solo se permiten letras (a-z, A-Z), números y los caracteres _ - [ ] \\ ` ^ { } |';
+        _isLoading = false;
+        _isAutoJoining = false;
+      });
+      return;
     }
+    var nick = _sanitizeNick(_nickController.text);
     var channel = _channelController.text.trim();
     // Si el canal está vacío pero tenemos canal en la URL (p. ej. geolocation=false), usarlo
     if (channel.isEmpty && _urlChannel != null && _urlChannel!.trim().isNotEmpty) {
