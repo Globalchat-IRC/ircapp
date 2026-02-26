@@ -6466,7 +6466,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                         );
                                       }
                                     },
-                                    icon: Icon(Icons.tag_off, size: 18, color: appTheme.textSecondary),
+                                    icon: Icon(Icons.label_off, size: 18, color: appTheme.textSecondary),
                                     label: Text('Cerrar todos los canales', style: TextStyle(fontSize: 12, color: appTheme.textSecondary)),
                                   ),
                                 ),
