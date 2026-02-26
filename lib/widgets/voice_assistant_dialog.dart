@@ -6,6 +6,7 @@ import 'dart:ui_web' if (dart.library.io) '../utils/ui_web_stub.dart' as ui;
 import '../services/voice_assistant_service.dart';
 import '../models/app_theme.dart';
 import '../utils/platform_utils.dart';
+import '../config/debug_config.dart';
 
 /// Diálogo del asistente de voz
 class VoiceAssistantDialog extends ConsumerStatefulWidget {
@@ -60,16 +61,16 @@ class _VoiceAssistantDialogState extends ConsumerState<VoiceAssistantDialog> {
     });
 
     try {
-      print('🎤 [VoiceDialog] Iniciando escucha...');
+      debugLog('🎤 [VoiceDialog] Iniciando escucha...');
       final stream = _assistant.startListening();
       String? finalTranscription;
       
       await for (final text in stream) {
-        print('📝 [VoiceDialog] Texto recibido del stream: "$text"');
+        debugLog('📝 [VoiceDialog] Texto recibido del stream: "$text"');
         
         // Verificar si es un marcador de error
         if (text == '__ERROR__') {
-          print('❌ [VoiceDialog] Error detectado en el stream');
+          debugLog('❌ [VoiceDialog] Error detectado en el stream');
           if (mounted) {
             setState(() {
               _error = 'Error de reconocimiento de voz. Por favor, verifica tu conexión a internet y los permisos del micrófono, e intenta de nuevo.';
@@ -87,20 +88,20 @@ class _VoiceAssistantDialogState extends ConsumerState<VoiceAssistantDialog> {
         }
       }
       
-      print('🔚 [VoiceDialog] Stream terminado. Transcripción final: "$finalTranscription"');
+      debugLog('🔚 [VoiceDialog] Stream terminado. Transcripción final: "$finalTranscription"');
 
       // Cuando termine de escuchar, procesar la pregunta
       final questionToProcess = finalTranscription ?? _transcription;
-      print('❓ [VoiceDialog] Pregunta a procesar: "$questionToProcess"');
+      debugLog('❓ [VoiceDialog] Pregunta a procesar: "$questionToProcess"');
       
       if (mounted && questionToProcess.isNotEmpty && questionToProcess.trim().isNotEmpty && questionToProcess != '__ERROR__') {
-        print('🔄 [VoiceDialog] Iniciando procesamiento de IA...');
+        debugLog('🔄 [VoiceDialog] Iniciando procesamiento de IA...');
         setState(() {
           _isProcessing = true;
         });
 
         final response = await _assistant.getAIResponse(questionToProcess);
-        print('💬 [VoiceDialog] Respuesta recibida: "$response"');
+        debugLog('💬 [VoiceDialog] Respuesta recibida: "$response"');
         
         if (mounted) {
           setState(() {
@@ -109,12 +110,12 @@ class _VoiceAssistantDialogState extends ConsumerState<VoiceAssistantDialog> {
           });
 
           // Hablar la respuesta
-          print('🗣️ [VoiceDialog] Iniciando síntesis de voz...');
+          debugLog('🗣️ [VoiceDialog] Iniciando síntesis de voz...');
           await _assistant.speak(response);
-          print('✅ [VoiceDialog] Síntesis de voz completada');
+          debugLog('✅ [VoiceDialog] Síntesis de voz completada');
         }
       } else {
-        print('⚠️ [VoiceDialog] No hay transcripción para procesar');
+        debugLog('⚠️ [VoiceDialog] No hay transcripción para procesar');
         if (mounted) {
           setState(() {
             _error = 'No se pudo reconocer tu voz. Por favor, intenta de nuevo o verifica tu conexión a internet.';
@@ -123,8 +124,8 @@ class _VoiceAssistantDialogState extends ConsumerState<VoiceAssistantDialog> {
         }
       }
     } catch (e, stackTrace) {
-      print('❌ [VoiceDialog] Error: $e');
-      print('📚 [VoiceDialog] Stack trace: $stackTrace');
+      debugLog('❌ [VoiceDialog] Error: $e');
+      debugLog('📚 [VoiceDialog] Stack trace: $stackTrace');
       if (mounted) {
         setState(() {
           _error = 'Error: $e';
@@ -158,9 +159,9 @@ class _VoiceAssistantDialogState extends ConsumerState<VoiceAssistantDialog> {
     });
 
     try {
-      print('🔄 [VoiceDialog] Procesando pregunta escrita: "$question"');
+      debugLog('🔄 [VoiceDialog] Procesando pregunta escrita: "$question"');
       final response = await _assistant.getAIResponse(question);
-      print('💬 [VoiceDialog] Respuesta recibida: "$response"');
+      debugLog('💬 [VoiceDialog] Respuesta recibida: "$response"');
 
       if (mounted) {
         setState(() {
@@ -170,13 +171,13 @@ class _VoiceAssistantDialogState extends ConsumerState<VoiceAssistantDialog> {
         });
 
         // Hablar la respuesta
-        print('🗣️ [VoiceDialog] Iniciando síntesis de voz...');
+        debugLog('🗣️ [VoiceDialog] Iniciando síntesis de voz...');
         await _assistant.speak(response);
-        print('✅ [VoiceDialog] Síntesis de voz completada');
+        debugLog('✅ [VoiceDialog] Síntesis de voz completada');
       }
     } catch (e, stackTrace) {
-      print('❌ [VoiceDialog] Error: $e');
-      print('📚 [VoiceDialog] Stack trace: $stackTrace');
+      debugLog('❌ [VoiceDialog] Error: $e');
+      debugLog('📚 [VoiceDialog] Stack trace: $stackTrace');
       if (mounted) {
         setState(() {
           _error = 'Error al procesar la pregunta: $e';

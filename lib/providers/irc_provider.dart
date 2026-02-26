@@ -16,6 +16,7 @@ import '../services/translation_service.dart';
 import '../services/avatar_service.dart';
 import '../utils/platform_utils.dart';
 import 'history_provider.dart';
+import '../config/debug_config.dart';
 
 final ircServiceProvider = Provider<IRCService>((ref) {
   return IRCService();
@@ -300,7 +301,7 @@ class CurrentServerProfileNotifier extends Notifier<ServerProfile?> {
     try {
       final prefs = await SharedPreferences.getInstance();
       final serverId = prefs.getString(_prefsKey);
-      print('🔍 [SERVER_PROFILE] Leyendo desde prefs, serverId: $serverId');
+      debugLog('🔍 [SERVER_PROFILE] Leyendo desde prefs, serverId: $serverId');
       if (serverId != null && serverId.isNotEmpty) {
         // Buscar el perfil por ID en la lista de perfiles por defecto
         final profile = ServerProfile.defaultGlobalChatProfiles.firstWhere(
@@ -311,28 +312,28 @@ class CurrentServerProfileNotifier extends Notifier<ServerProfile?> {
           ),
         );
         state = profile;
-        print('🔍 [SERVER_PROFILE] ✅ Cargado desde prefs: ${profile.name} (${profile.host}:${profile.port})');
+        debugLog('🔍 [SERVER_PROFILE] ✅ Cargado desde prefs: ${profile.name} (${profile.host}:${profile.port})');
       } else {
-        print('🔍 [SERVER_PROFILE] No hay serverId guardado en prefs');
+        debugLog('🔍 [SERVER_PROFILE] No hay serverId guardado en prefs');
       }
     } catch (e) {
-      print('❌ [SERVER_PROFILE] Error cargando desde prefs: $e');
+      debugLog('❌ [SERVER_PROFILE] Error cargando desde prefs: $e');
     }
   }
 
   Future<void> setServerProfile(ServerProfile profile) async {
-    print('🔍 [SERVER_PROFILE] setServerProfile llamado: ${profile.name} (${profile.host}:${profile.port}, id: ${profile.id})');
+    debugLog('🔍 [SERVER_PROFILE] setServerProfile llamado: ${profile.name} (${profile.host}:${profile.port}, id: ${profile.id})');
     state = profile;
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_prefsKey, profile.id);
-      print('🔍 [SERVER_PROFILE] ✅ Guardado en prefs: ${profile.name} (id: ${profile.id})');
+      debugLog('🔍 [SERVER_PROFILE] ✅ Guardado en prefs: ${profile.name} (id: ${profile.id})');
       
       // Verificar que se guardó correctamente
       final savedId = prefs.getString(_prefsKey);
-      print('🔍 [SERVER_PROFILE] Verificación - serverId en prefs: $savedId');
+      debugLog('🔍 [SERVER_PROFILE] Verificación - serverId en prefs: $savedId');
     } catch (e) {
-      print('❌ [SERVER_PROFILE] Error guardando en prefs: $e');
+      debugLog('❌ [SERVER_PROFILE] Error guardando en prefs: $e');
     }
   }
 
@@ -342,7 +343,7 @@ class CurrentServerProfileNotifier extends Notifier<ServerProfile?> {
       final prefs = SharedPreferences.getInstance();
       prefs.then((p) => p.remove(_prefsKey));
     } catch (e) {
-      print('❌ [SERVER_PROFILE] Error limpiando prefs: $e');
+      debugLog('❌ [SERVER_PROFILE] Error limpiando prefs: $e');
     }
   }
 }
@@ -421,10 +422,10 @@ class MessagesNotifier extends Notifier<List<IRCMessage>> {
         
         // Actualizar el estado con todos los mensajes cargados (sin duplicados)
         state = uniqueMessages.values.toList();
-        print('✅ [MessagesNotifier] Historial cargado: ${state.length} mensajes únicos');
+        debugLog('✅ [MessagesNotifier] Historial cargado: ${state.length} mensajes únicos');
       }
     } catch (e) {
-      print('⚠️ [MessagesNotifier] Error cargando historial: $e');
+      debugLog('⚠️ [MessagesNotifier] Error cargando historial: $e');
     }
   }
   
@@ -447,7 +448,7 @@ class MessagesNotifier extends Notifier<List<IRCMessage>> {
       // Guardar también en la clave antigua para compatibilidad
       await _savePrivateMessages();
     } catch (e) {
-      print('⚠️ [MessagesNotifier] Error guardando historial: $e');
+      debugLog('⚠️ [MessagesNotifier] Error guardando historial: $e');
     }
   }
   
@@ -478,7 +479,7 @@ class MessagesNotifier extends Notifier<List<IRCMessage>> {
       }
     } catch (e) {
       // Ignorar errores de carga
-      print('⚠️ [MessagesNotifier] Error cargando mensajes privados: $e');
+      debugLog('⚠️ [MessagesNotifier] Error cargando mensajes privados: $e');
     }
   }
 
@@ -495,7 +496,7 @@ class MessagesNotifier extends Notifier<List<IRCMessage>> {
       await prefs.setString(_privateMessagesKey, jsonString);
     } catch (e) {
       // Ignorar errores de guardado
-      print('⚠️ [MessagesNotifier] Error guardando mensajes privados: $e');
+      debugLog('⚠️ [MessagesNotifier] Error guardando mensajes privados: $e');
     }
   }
 
@@ -530,7 +531,7 @@ class MessagesNotifier extends Notifier<List<IRCMessage>> {
         );
       }
     } catch (e) {
-      print('⚠️ [MessagesNotifier] Error borrando historial del canal: $e');
+      debugLog('⚠️ [MessagesNotifier] Error borrando historial del canal: $e');
     }
     
     _saveHistory();
@@ -557,7 +558,7 @@ class MessagesNotifier extends Notifier<List<IRCMessage>> {
         );
       }
     } catch (e) {
-      print('⚠️ [MessagesNotifier] Error borrando historial privado: $e');
+      debugLog('⚠️ [MessagesNotifier] Error borrando historial privado: $e');
     }
     
     _saveHistory();
@@ -598,11 +599,11 @@ class MessagesNotifier extends Notifier<List<IRCMessage>> {
         }
       }
     } catch (e) {
-      print('⚠️ [MessagesNotifier] Error borrando historial de NickServ: $e');
+      debugLog('⚠️ [MessagesNotifier] Error borrando historial de NickServ: $e');
     }
     
     _saveHistory();
-    print('✅ [MessagesNotifier] Historial de NickServ limpiado (todas las variantes)');
+    debugLog('✅ [MessagesNotifier] Historial de NickServ limpiado (todas las variantes)');
   }
 
   void _onMessage(IRCMessage message) {
@@ -656,7 +657,7 @@ class MessagesNotifier extends Notifier<List<IRCMessage>> {
       await prefs.remove(_allMessagesKey);
       await prefs.remove(_privateMessagesKey);
     } catch (e) {
-      print('⚠️ [MessagesNotifier] Error limpiando historial: $e');
+      debugLog('⚠️ [MessagesNotifier] Error limpiando historial: $e');
     }
   }
 
@@ -678,9 +679,9 @@ class ChannelsNotifier extends Notifier<Map<String, IRCChannel>> {
   }
 
   void _onUserListUpdate(String channel) {
-    // print('🔍 [DEBUG] 🔄 ChannelsNotifier._onUserListUpdate: channel=$channel');
-    // print('🔍 [DEBUG] 📊 Service channels: ${_service.channels.keys.toList()}');
-    // print('🔍 [DEBUG] 📊 Current state channels: ${state.keys.toList()}');
+    // debugLog('🔍 [DEBUG] 🔄 ChannelsNotifier._onUserListUpdate: channel=$channel');
+    // debugLog('🔍 [DEBUG] 📊 Service channels: ${_service.channels.keys.toList()}');
+    // debugLog('🔍 [DEBUG] 📊 Current state channels: ${state.keys.toList()}');
     
     // Always update the entire state with current service state
     final newState = <String, IRCChannel>{};
@@ -696,15 +697,15 @@ class ChannelsNotifier extends Notifier<Map<String, IRCChannel>> {
         pinnedMessageIds: List<String>.from(entry.value.pinnedMessageIds), // Incluir mensajes fijados
       );
       newState[entry.key] = channelCopy;
-      // print('🔍 [DEBUG] Copied channel ${entry.key} with ${channelCopy.users.length} users: ${channelCopy.users}, topic: ${channelCopy.topic}');
+      // debugLog('🔍 [DEBUG] Copied channel ${entry.key} with ${channelCopy.users.length} users: ${channelCopy.users}, topic: ${channelCopy.topic}');
     }
     
     if (newState.containsKey(channel)) {
-      // print('🔍 [DEBUG] 👥 Channel found in new state, users: ${newState[channel]!.users}');
-      // print('🔍 [DEBUG] 👥 Channel users count: ${newState[channel]!.users.length}');
+      // debugLog('🔍 [DEBUG] 👥 Channel found in new state, users: ${newState[channel]!.users}');
+      // debugLog('🔍 [DEBUG] 👥 Channel users count: ${newState[channel]!.users.length}');
     } else {
-      // print('🔍 [DEBUG] ⚠️  Channel not found in service: $channel');
-      // print('🔍 [DEBUG] Available channels: ${newState.keys.toList()}');
+      // debugLog('🔍 [DEBUG] ⚠️  Channel not found in service: $channel');
+      // debugLog('🔍 [DEBUG] Available channels: ${newState.keys.toList()}');
     }
     
     // Comparar estados
@@ -714,22 +715,24 @@ class ChannelsNotifier extends Notifier<Map<String, IRCChannel>> {
       if (oldChannel == null) return true;
       final usersChanged = oldChannel.users.length != e.value.users.length ||
           !oldChannel.users.every((u) => e.value.users.contains(u));
-      final topicChanged = oldChannel.topic != e.value.topic; // Verificar cambios en el topic
-      return usersChanged || topicChanged;
+      final topicChanged = oldChannel.topic != e.value.topic;
+      final modesChanged = oldChannel.userModes.length != e.value.userModes.length ||
+          oldChannel.userModes.entries.any((entry) => e.value.userModes[entry.key] != entry.value);
+      return usersChanged || topicChanged || modesChanged;
     });
     
-    // print('🔍 [DEBUG] Keys changed: $keysChanged, Values changed: $valuesChanged');
+    // debugLog('🔍 [DEBUG] Keys changed: $keysChanged, Values changed: $valuesChanged');
     
     // Always update to ensure UI reflects current state
-    // print('🔍 [DEBUG] ✅ Updating state with new channels');
+    // debugLog('🔍 [DEBUG] ✅ Updating state with new channels');
       state = newState;
-    // print('🔍 [DEBUG] ✅ State updated, now has ${state.length} channels');
+    // debugLog('🔍 [DEBUG] ✅ State updated, now has ${state.length} channels');
   }
 
   void updateChannels() {
-    // print('🔍 [DEBUG] 🔄 updateChannels() called, service has ${_service.channels.length} channels');
+    // debugLog('🔍 [DEBUG] 🔄 updateChannels() called, service has ${_service.channels.length} channels');
     for (var entry in _service!.channels.entries) {
-      // print('🔍 [DEBUG]   - ${entry.key}: ${entry.value.users.length} users: ${entry.value.users}');
+      // debugLog('🔍 [DEBUG]   - ${entry.key}: ${entry.value.users.length} users: ${entry.value.users}');
     }
     
     // Crear una copia profunda del estado del servicio
@@ -746,10 +749,10 @@ class ChannelsNotifier extends Notifier<Map<String, IRCChannel>> {
         pinnedMessageIds: List<String>.from(entry.value.pinnedMessageIds), // Incluir mensajes fijados
       );
       newState[entry.key] = channelCopy;
-      // print('🔍 [DEBUG] Copied channel ${entry.key} with ${channelCopy.users.length} users, topic: ${channelCopy.topic}');
+      // debugLog('🔍 [DEBUG] Copied channel ${entry.key} with ${channelCopy.users.length} users, topic: ${channelCopy.topic}');
     }
     
-    // print('🔍 [DEBUG] ✅ Updating state with ${newState.length} channels');
+    // debugLog('🔍 [DEBUG] ✅ Updating state with ${newState.length} channels');
     state = newState;
   }
 
@@ -784,11 +787,11 @@ class WhoisNotifier extends Notifier<Map<String, WhoisInfo>> {
   }
 
   void _onWhoisReceived(WhoisInfo info) {
-    // print('🔍 [WHOIS NOTIFIER] Received whois info for: ${info.nick}');
-    // print('🔍 [WHOIS NOTIFIER] Info: ${info.username}@${info.host}, realName: ${info.realName}');
+    // debugLog('🔍 [WHOIS NOTIFIER] Received whois info for: ${info.nick}');
+    // debugLog('🔍 [WHOIS NOTIFIER] Info: ${info.username}@${info.host}, realName: ${info.realName}');
     final newState = {...state, info.nick.toLowerCase(): info};
     state = newState;
-    // print('🔍 [WHOIS NOTIFIER] Updated state, now has ${newState.length} entries');
+    // debugLog('🔍 [WHOIS NOTIFIER] Updated state, now has ${newState.length} entries');
   }
 
   WhoisInfo? getWhois(String nick) {
@@ -796,14 +799,14 @@ class WhoisNotifier extends Notifier<Map<String, WhoisInfo>> {
   }
 
   void requestWhois(String nick) {
-    // print('🔍 [WHOIS NOTIFIER] Requesting whois for: $nick');
+    // debugLog('🔍 [WHOIS NOTIFIER] Requesting whois for: $nick');
     // Verificar si ya tenemos la información en caché del servicio
       final cachedInfo = _service?.getWhoisInfo(nick);
     if (cachedInfo != null) {
-      // print('🔍 [WHOIS NOTIFIER] Found cached info, updating state');
+      // debugLog('🔍 [WHOIS NOTIFIER] Found cached info, updating state');
       _onWhoisReceived(cachedInfo);
     } else {
-      // print('🔍 [WHOIS NOTIFIER] No cached info, requesting from server');
+      // debugLog('🔍 [WHOIS NOTIFIER] No cached info, requesting from server');
       _service?.sendWhois(nick);
     }
   }
@@ -877,11 +880,11 @@ class FavoritesNotifier extends Notifier<Set<String>> {
     try {
       final prefs = await SharedPreferences.getInstance();
       final list = prefs.getStringList(_prefsKey) ?? <String>[];
-      // print('📋 [FavoritesNotifier] ========== CARGANDO FAVORITOS ==========');
-      // print('📋 [FavoritesNotifier] Favoritos RAW de SharedPreferences: $list');
-      // print('📋 [FavoritesNotifier] Total favoritos RAW: ${list.length}');
-      // print('📋 [FavoritesNotifier] Canales excluidos actuales: $_excludedChannels');
-      // print('📋 [FavoritesNotifier] Total excluidos: ${_excludedChannels.length}');
+      // debugLog('📋 [FavoritesNotifier] ========== CARGANDO FAVORITOS ==========');
+      // debugLog('📋 [FavoritesNotifier] Favoritos RAW de SharedPreferences: $list');
+      // debugLog('📋 [FavoritesNotifier] Total favoritos RAW: ${list.length}');
+      // debugLog('📋 [FavoritesNotifier] Canales excluidos actuales: $_excludedChannels');
+      // debugLog('📋 [FavoritesNotifier] Total excluidos: ${_excludedChannels.length}');
       
       // Filtrar los canales excluidos al cargar
       final filtered = list
@@ -889,23 +892,23 @@ class FavoritesNotifier extends Notifier<Set<String>> {
           .where((e) => !_excludedChannels.contains(e))
           .toList();
       
-      // print('📋 [FavoritesNotifier] Favoritos después de filtrar excluidos: $filtered');
-      // print('📋 [FavoritesNotifier] Total favoritos filtrados: ${filtered.length}');
+      // debugLog('📋 [FavoritesNotifier] Favoritos después de filtrar excluidos: $filtered');
+      // debugLog('📋 [FavoritesNotifier] Total favoritos filtrados: ${filtered.length}');
       
       // Si hay canales excluidos en la lista guardada, limpiarlos de SharedPreferences
       if (filtered.length != list.length) {
         final removed = list.where((e) => _excludedChannels.contains(e.toLowerCase())).toList();
         await prefs.setStringList(_prefsKey, filtered);
-        // print('🧹 [FavoritesNotifier] Limpiados ${list.length - filtered.length} canales excluidos de favoritos guardados');
-        // print('🧹 [FavoritesNotifier] Canales eliminados específicamente: $removed');
+        // debugLog('🧹 [FavoritesNotifier] Limpiados ${list.length - filtered.length} canales excluidos de favoritos guardados');
+        // debugLog('🧹 [FavoritesNotifier] Canales eliminados específicamente: $removed');
       }
       
       state = filtered.toSet();
-      // print('✅ [FavoritesNotifier] Estado final de favoritos: $state');
-      // print('✅ [FavoritesNotifier] Total en estado final: ${state.length}');
-      // print('📋 [FavoritesNotifier] ===========================================');
+      // debugLog('✅ [FavoritesNotifier] Estado final de favoritos: $state');
+      // debugLog('✅ [FavoritesNotifier] Total en estado final: ${state.length}');
+      // debugLog('📋 [FavoritesNotifier] ===========================================');
     } catch (e) {
-      // print('❌ [FavoritesNotifier] Error al cargar favoritos: $e');
+      // debugLog('❌ [FavoritesNotifier] Error al cargar favoritos: $e');
       // Si falla la lectura, simplemente dejamos los favoritos vacíos
     }
   }
@@ -981,41 +984,41 @@ class FavoritesNotifier extends Notifier<Set<String>> {
     try {
       final prefs = await SharedPreferences.getInstance();
       
-      // print('🧹 [FavoritesNotifier] ========== LIMPIANDO TODOS LOS FAVORITOS ==========');
-      // print('🧹 [FavoritesNotifier] Estado ANTES de limpiar: $state');
-      // print('🧹 [FavoritesNotifier] Excluidos ANTES de limpiar: $_excludedChannels');
+      // debugLog('🧹 [FavoritesNotifier] ========== LIMPIANDO TODOS LOS FAVORITOS ==========');
+      // debugLog('🧹 [FavoritesNotifier] Estado ANTES de limpiar: $state');
+      // debugLog('🧹 [FavoritesNotifier] Excluidos ANTES de limpiar: $_excludedChannels');
       
       // Obtener los favoritos actuales antes de limpiar para logging
       final currentFavorites = prefs.getStringList(_prefsKey) ?? <String>[];
-      // print('🧹 [FavoritesNotifier] Favoritos en SharedPreferences ANTES: $currentFavorites');
+      // debugLog('🧹 [FavoritesNotifier] Favoritos en SharedPreferences ANTES: $currentFavorites');
       
       // Limpiar favoritos guardados
       final removedFavorites = await prefs.remove(_prefsKey);
-      // print('🧹 [FavoritesNotifier] Favoritos eliminados de SharedPreferences: $removedFavorites');
+      // debugLog('🧹 [FavoritesNotifier] Favoritos eliminados de SharedPreferences: $removedFavorites');
       
       // Verificar que se eliminaron correctamente
       final verifyFavorites = prefs.getStringList(_prefsKey) ?? <String>[];
-      // print('🧹 [FavoritesNotifier] Verificación - Favoritos después de remove: $verifyFavorites');
+      // debugLog('🧹 [FavoritesNotifier] Verificación - Favoritos después de remove: $verifyFavorites');
       
       // Limpiar también la lista de excluidos para permitir que el usuario vuelva a añadir canales
       final currentExcluded = prefs.getStringList(_excludedPrefsKey) ?? <String>[];
-      // print('🧹 [FavoritesNotifier] Excluidos en SharedPreferences ANTES: $currentExcluded');
+      // debugLog('🧹 [FavoritesNotifier] Excluidos en SharedPreferences ANTES: $currentExcluded');
       
       _excludedChannels.clear();
       final removedExcluded = await prefs.remove(_excludedPrefsKey);
-      // print('🧹 [FavoritesNotifier] Excluidos eliminados de SharedPreferences: $removedExcluded');
+      // debugLog('🧹 [FavoritesNotifier] Excluidos eliminados de SharedPreferences: $removedExcluded');
       
       // Verificar que se eliminaron correctamente
       final verifyExcluded = prefs.getStringList(_excludedPrefsKey) ?? <String>[];
-      // print('🧹 [FavoritesNotifier] Verificación - Excluidos después de remove: $verifyExcluded');
+      // debugLog('🧹 [FavoritesNotifier] Verificación - Excluidos después de remove: $verifyExcluded');
       
       // Actualizar el estado
       state = <String>{};
-      // print('✅ [FavoritesNotifier] Estado DESPUÉS de limpiar: $state');
-      // print('✅ [FavoritesNotifier] Excluidos DESPUÉS de limpiar: $_excludedChannels');
-      // print('🧹 [FavoritesNotifier] ====================================================');
+      // debugLog('✅ [FavoritesNotifier] Estado DESPUÉS de limpiar: $state');
+      // debugLog('✅ [FavoritesNotifier] Excluidos DESPUÉS de limpiar: $_excludedChannels');
+      // debugLog('🧹 [FavoritesNotifier] ====================================================');
     } catch (e) {
-      // print('❌ [FavoritesNotifier] Error al limpiar favoritos: $e');
+      // debugLog('❌ [FavoritesNotifier] Error al limpiar favoritos: $e');
     }
   }
 }
@@ -2029,7 +2032,7 @@ class UserIconsNotifier extends Notifier<Map<String, String>> {
         state = Map<String, String>.from(decoded);
       }
     } catch (e) {
-      // print('Error cargando iconos personalizados: $e');
+      // debugLog('Error cargando iconos personalizados: $e');
     }
   }
   
@@ -2043,7 +2046,7 @@ class UserIconsNotifier extends Notifier<Map<String, String>> {
       final iconsJson = json.encode(newState);
       await prefs.setString(_prefsKey, iconsJson);
     } catch (e) {
-      // print('Error guardando icono personalizado: $e');
+      // debugLog('Error guardando icono personalizado: $e');
     }
   }
   
@@ -2057,7 +2060,7 @@ class UserIconsNotifier extends Notifier<Map<String, String>> {
       final iconsJson = json.encode(newState);
       await prefs.setString(_prefsKey, iconsJson);
     } catch (e) {
-      // print('Error eliminando icono personalizado: $e');
+      // debugLog('Error eliminando icono personalizado: $e');
     }
   }
   
@@ -2121,7 +2124,7 @@ class GlobalAvatarGifNotifier extends Notifier<String?> {
           setGlobalAvatarGif(result.url);
         } else if (!result.success) {
           // Para revisar si la subida falla: abre la consola del navegador (F12) y busca este mensaje
-          print('🖼️ [AVATAR] Subida automática GIF falló: ${result.errorMessage}');
+          debugLog('🖼️ [AVATAR] Subida automática GIF falló: ${result.errorMessage}');
         }
       });
     } catch (_) {}
@@ -2187,7 +2190,7 @@ class CustomRobotsNotifier extends Notifier<List<CustomRobot>> {
         await _saveToPrefs(); // Guardar la lista inicial
       }
     } catch (e) {
-      print('Error cargando robots personalizados: $e');
+      debugLog('Error cargando robots personalizados: $e');
       // En caso de error, usar lista por defecto
       state = [
         CustomRobot(nick: 'GlobalChat', icon: '🤖', host: 'GlobalChat.Org'),
@@ -2211,7 +2214,7 @@ class CustomRobotsNotifier extends Notifier<List<CustomRobot>> {
       final robotsJson = json.encode(state.map((r) => r.toJson()).toList());
       await prefs.setString(_prefsKey, robotsJson);
     } catch (e) {
-      print('Error guardando robots personalizados: $e');
+      debugLog('Error guardando robots personalizados: $e');
     }
   }
   

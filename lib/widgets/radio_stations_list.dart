@@ -8,6 +8,7 @@ import '../providers/theme_provider.dart';
 import '../services/irc_service.dart';
 import '../providers/irc_provider.dart';
 import '../services/radio_service.dart';
+import '../config/debug_config.dart';
 
 class RadioStationsList extends ConsumerStatefulWidget {
   const RadioStationsList({Key? key}) : super(key: key);
@@ -165,8 +166,8 @@ class _RadioStationsListState extends ConsumerState<RadioStationsList> {
                                       final radioState = ref.read(radioProvider);
                                       final updatedStation = radioState.activeStation;
                                       
-                                      print('🎵 [RadioStationsList] Estación actualizada: ${updatedStation?.name}');
-                                      print('🎵 [RadioStationsList] URL a reproducir: ${updatedStation?.source}');
+                                      debugLog('🎵 [RadioStationsList] Estación actualizada: ${updatedStation?.name}');
+                                      debugLog('🎵 [RadioStationsList] URL a reproducir: ${updatedStation?.source}');
                                       
                                       if (updatedStation != null) {
                                         // Reproducir con la URL actualizada

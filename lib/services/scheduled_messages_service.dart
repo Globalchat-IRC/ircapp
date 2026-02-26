@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
+import '../config/debug_config.dart';
 
 /// Modelo para un mensaje programado
 class ScheduledMessage {
@@ -101,7 +102,7 @@ class ScheduledMessagesService {
         );
       }
     } catch (e) {
-      print('⚠️ [ScheduledMessagesService] Error cargando mensajes: $e');
+      debugLog('⚠️ [ScheduledMessagesService] Error cargando mensajes: $e');
     }
   }
 
@@ -114,7 +115,7 @@ class ScheduledMessagesService {
       );
       await prefs.setString(_storageKey, messagesJson);
     } catch (e) {
-      print('⚠️ [ScheduledMessagesService] Error guardando mensajes: $e');
+      debugLog('⚠️ [ScheduledMessagesService] Error guardando mensajes: $e');
     }
   }
 

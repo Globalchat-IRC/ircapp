@@ -15,6 +15,7 @@ import 'chat_screen.dart';
 import '../main.dart' show globalLog;
 import '../utils/platform_utils.dart';
 import '../services/geoip_service.dart';
+import '../config/debug_config.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({Key? key}) : super(key: key);
@@ -78,7 +79,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     
     // Logs de consola desactivados para rendimiento
     // debugPrint('🔍 [INIT] LoginScreen initState iniciado');
-    // print('🔍 [INIT] LoginScreen initState iniciado - PRINT');
+    // debugLog('🔍 [INIT] LoginScreen initState iniciado - PRINT');
     // if (PlatformUtils.isWeb) {
     //   try {
     //     html.window.console.log('🔍 [INIT] LoginScreen initState iniciado - CONSOLE');
@@ -98,20 +99,20 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     bool? joinChannelOficialFromUrl;
     
     if (PlatformUtils.isWeb) {
-      print('🔍 [INIT] PlatformUtils.isWeb = true, leyendo parámetros de URL');
+      debugLog('🔍 [INIT] PlatformUtils.isWeb = true, leyendo parámetros de URL');
       try {
         // Usar dart:html directamente para leer la URL (más confiable en Flutter web)
         final window = html.window;
         final location = window.location;
         final fullUrl = location.href ?? '';
         
-        print('🔍 [URL] location.href: "$fullUrl"');
-        print('🔍 [URL] location.search: "${location.search}"');
-        print('🔍 [URL] location.hash: "${location.hash}"');
+        debugLog('🔍 [URL] location.href: "$fullUrl"');
+        debugLog('🔍 [URL] location.search: "${location.search}"');
+        debugLog('🔍 [URL] location.hash: "${location.hash}"');
         
         if (fullUrl.isNotEmpty) {
           final fullUri = Uri.parse(fullUrl);
-          print('🔍 [URL] fullUri.queryParameters: ${fullUri.queryParameters}');
+          debugLog('🔍 [URL] fullUri.queryParameters: ${fullUri.queryParameters}');
           
           // Leer parámetros del query string
           final nickParam = fullUri.queryParameters['nick'];
@@ -130,9 +131,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             final sanitized = _sanitizeNick(nickParam);
             if (sanitized.isNotEmpty) {
               urlNick = sanitized;
-              print('🔍 [URL] ✅ Nick leído: "$nickParam" -> Sanitizado: "$urlNick"');
+              debugLog('🔍 [URL] ✅ Nick leído: "$nickParam" -> Sanitizado: "$urlNick"');
             } else {
-              print('🔍 [URL] ⚠️ Nick inválido tras sanitizar: "$nickParam"');
+              debugLog('🔍 [URL] ⚠️ Nick inválido tras sanitizar: "$nickParam"');
             }
           }
           
@@ -141,12 +142,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             final trimmed = channelParam.trim();
             if (trimmed.isNotEmpty && trimmed != '=') {
               urlChannel = trimmed;
-              print('🔍 [URL] ✅ Canal leído: "$urlChannel"');
+              debugLog('🔍 [URL] ✅ Canal leído: "$urlChannel"');
             } else {
-              print('🔍 [URL] ⚠️ Canal vacío o solo "=", channelParam="$channelParam"');
+              debugLog('🔍 [URL] ⚠️ Canal vacío o solo "=", channelParam="$channelParam"');
             }
           } else {
-            print('🔍 [URL] ⚠️ channelParam es null');
+            debugLog('🔍 [URL] ⚠️ channelParam es null');
           }
           
           // Leer parámetro autojoin
@@ -155,7 +156,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             autoJoin = autoJoinValue == 'true' || 
                        autoJoinValue == '1' || 
                        autoJoinValue == 'yes';
-            print('🔍 [URL] ✅ autoJoin leído: "$autoJoinParam" -> autoJoin=$autoJoin');
+            debugLog('🔍 [URL] ✅ autoJoin leído: "$autoJoinParam" -> autoJoin=$autoJoin');
           }
 
           // Leer parámetro joinchanneloficial (controla autojoin a #globalchat)
@@ -166,7 +167,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             } else if (value == 'true' || value == '1' || value == 'yes') {
               joinChannelOficialFromUrl = true;
             }
-            print('🔍 [URL] ✅ joinchanneloficial leído: "$joinOficialParam" -> $joinChannelOficialFromUrl');
+            debugLog('🔍 [URL] ✅ joinchanneloficial leído: "$joinOficialParam" -> $joinChannelOficialFromUrl');
           }
           if (geolocationParam != null) {
             final v = geolocationParam.toLowerCase().trim();
@@ -180,8 +181,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         } else {
           // Fallback a Uri.base si location.href está vacío
           final uri = Uri.base;
-          print('🔍 [URL] Fallback a Uri.base: ${Uri.base}');
-          print('🔍 [URL] Uri.base.queryParameters: ${uri.queryParameters}');
+          debugLog('🔍 [URL] Fallback a Uri.base: ${Uri.base}');
+          debugLog('🔍 [URL] Uri.base.queryParameters: ${uri.queryParameters}');
           
           final nickParam = uri.queryParameters['nick'];
           final channelParam = uri.queryParameters['channel'];
@@ -194,9 +195,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             final sanitized = _sanitizeNick(nickParam);
             if (sanitized.isNotEmpty) {
               urlNick = sanitized;
-              print('🔍 [URL] ✅ Nick leído de Uri.base: "$nickParam" -> Sanitizado: "$urlNick"');
+              debugLog('🔍 [URL] ✅ Nick leído de Uri.base: "$nickParam" -> Sanitizado: "$urlNick"');
             } else {
-              print('🔍 [URL] ⚠️ Nick inválido tras sanitizar (Uri.base): "$nickParam"');
+              debugLog('🔍 [URL] ⚠️ Nick inválido tras sanitizar (Uri.base): "$nickParam"');
             }
           }
           
@@ -204,7 +205,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             final trimmed = channelParam.trim();
             if (trimmed.isNotEmpty && trimmed != '=') {
               urlChannel = trimmed;
-              print('🔍 [URL] ✅ Canal leído de Uri.base: "$urlChannel"');
+              debugLog('🔍 [URL] ✅ Canal leído de Uri.base: "$urlChannel"');
             }
           }
           
@@ -213,7 +214,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             autoJoin = autoJoinValue == 'true' || 
                        autoJoinValue == '1' || 
                        autoJoinValue == 'yes';
-            print('🔍 [URL] ✅ autoJoin leído de Uri.base: "$autoJoinParam" -> autoJoin=$autoJoin');
+            debugLog('🔍 [URL] ✅ autoJoin leído de Uri.base: "$autoJoinParam" -> autoJoin=$autoJoin');
           }
 
           if (joinOficialParam != null) {
@@ -223,7 +224,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             } else if (value == 'true' || value == '1' || value == 'yes') {
               joinChannelOficialFromUrl = true;
             }
-            print('🔍 [URL] ✅ joinchanneloficial leído de Uri.base: "$joinOficialParam" -> $joinChannelOficialFromUrl');
+            debugLog('🔍 [URL] ✅ joinchanneloficial leído de Uri.base: "$joinOficialParam" -> $joinChannelOficialFromUrl');
           }
           if (geolocationParam != null) {
             final v = geolocationParam.toLowerCase().trim();
@@ -239,7 +240,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         // Guardar canal de URL en instancia para usarlo en _connect() y en el callback (geolocation=false)
         _urlChannel = urlChannel;
         // Debug: verificar que se leyeron los parámetros
-        print('🔍 [URL] Parámetros finales - nick: $urlNick, channel: $urlChannel, autojoin: $autoJoin, joinchanneloficial: $joinChannelOficialFromUrl, geolocation: $_geolocationEnabled, age18: $_urlAge18Validated');
+        debugLog('🔍 [URL] Parámetros finales - nick: $urlNick, channel: $urlChannel, autojoin: $autoJoin, joinchanneloficial: $joinChannelOficialFromUrl, geolocation: $_geolocationEnabled, age18: $_urlAge18Validated');
         // Forzar rebuild si age18 desde URL para que el checkbox se muestre
         if (_urlAge18Validated) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -247,7 +248,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           });
         }
       } catch (e) {
-        print('🔍 [URL] Error leyendo URL: $e');
+        debugLog('🔍 [URL] Error leyendo URL: $e');
       }
     }
 
@@ -255,7 +256,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     // Solo se activará cuando la sesión venga por URL con autojoin=true en web.
     final allowNickModal = PlatformUtils.isWeb && autoJoin;
     ref.read(nickIdentifyModalAllowedProvider.notifier).state = allowNickModal;
-    print('🔐 [LOGIN] nickIdentifyModalAllowed = $allowNickModal (autoJoin=$autoJoin, isWeb=${PlatformUtils.isWeb})');
+    debugLog('🔐 [LOGIN] nickIdentifyModalAllowed = $allowNickModal (autoJoin=$autoJoin, isWeb=${PlatformUtils.isWeb})');
     
     // Generar un nickname aleatorio: GlobalChat-XXXXX (número aleatorio de 4-5 dígitos)
     // O usar el de la URL si está presente
@@ -265,7 +266,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     final cleanUrlNick = urlNick != null ? urlNick.trim() : null;
     final defaultNick = cleanUrlNick ?? 'GlobalChat-$randomNumber';
     _nickController = TextEditingController(text: defaultNick);
-    print('🔍 [LOGIN] NickController inicializado con: "$defaultNick"');
+    debugLog('🔍 [LOGIN] NickController inicializado con: "$defaultNick"');
 
     // Si es la primera vez y no hay servidor seleccionado aún,
     // preseleccionar un servidor SSL aleatorio en el desplegable.
@@ -277,7 +278,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         final randomIndex = random.nextInt(sslServers.length);
         _selectedServer = sslServers[randomIndex];
         _updateServerFields(_selectedServer!);
-        print('🔍 [LOGIN] Servidor inicial aleatorio seleccionado: ${_selectedServer!.host}:${_selectedServer!.port}');
+        debugLog('🔍 [LOGIN] Servidor inicial aleatorio seleccionado: ${_selectedServer!.host}:${_selectedServer!.port}');
       }
     }
     
@@ -286,7 +287,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     if (PlatformUtils.isWeb && joinChannelOficialFromUrl != null) {
       final ircService = ref.read(ircServiceProvider);
       ircService.setAutoJoinOfficialGlobalChat(joinChannelOficialFromUrl);
-      print('🌐 [LOGIN] joinchanneloficial aplicado al IRCService: $joinChannelOficialFromUrl');
+      debugLog('🌐 [LOGIN] joinchanneloficial aplicado al IRCService: $joinChannelOficialFromUrl');
     }
 
     // Pre-llenar el canal si viene en la URL (usa _urlChannel ya asignado arriba)
@@ -297,10 +298,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         channel = '#$channel';
       }
       _channelController.text = channel;
-      print('🔍 [URL] ✅ Canal aplicado al controlador: $channel');
-      print('🔍 [URL] Verificación - _channelController.text = "${_channelController.text}"');
+      debugLog('🔍 [URL] ✅ Canal aplicado al controlador: $channel');
+      debugLog('🔍 [URL] Verificación - _channelController.text = "${_channelController.text}"');
     } else {
-      print('🔍 [URL] ⚠️ No se aplicó canal - _urlChannel: $_urlChannel');
+      debugLog('🔍 [URL] ⚠️ No se aplicó canal - _urlChannel: $_urlChannel');
     }
     
     // Leer servidor seleccionado del provider (si se cambió desde el AppBar)
@@ -331,7 +332,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               _channelController.text = channelCity;
               ref.read(currentChannelProvider.notifier).state = channelCity;
               ref.read(autoJoinChannelsProvider.notifier).state = geoChannels;
-              print('🌍 [GEOIP] Canales por país/ciudad (sin canal previo): $geoChannels');
+              debugLog('🌍 [GEOIP] Canales por país/ciudad (sin canal previo): $geoChannels');
             } else {
               final urlCh = _urlChannel?.trim() ?? '';
               final mainChannel = hasUrlChannel && urlCh.isNotEmpty
@@ -348,11 +349,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 ref.read(currentChannelProvider.notifier).state = mainNorm;
                 _channelController.text = mainNorm;
               }
-              print('🌍 [GEOIP] Añadido join a canales país y ciudad/región: $geoChannels (canales: $toJoin)');
+              debugLog('🌍 [GEOIP] Añadido join a canales país y ciudad/región: $geoChannels (canales: $toJoin)');
             }
           }
         } catch (e) {
-          print('🌍 [GEOIP] Error obteniendo ciudad/región/país: $e');
+          debugLog('🌍 [GEOIP] Error obteniendo ciudad/región/país: $e');
         }
       }
       
@@ -361,54 +362,54 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       final currentNick = ref.read(currentNicknameProvider);
       final autoJoinChannels = ref.read(autoJoinChannelsProvider);
       
-      print('🔍 [LOGIN] ========== INICIO LOGIN ==========');
-      print('🔍 [LOGIN] Estado inicial - servidor: ${selectedServerProfile?.name ?? "null"}');
-      print('🔍 [LOGIN] Servidor host: ${selectedServerProfile?.host ?? "null"}, port: ${selectedServerProfile?.port ?? "null"}');
-      print('🔍 [LOGIN] Nick: $currentNick');
-      print('🔍 [LOGIN] Canal: $currentChannel');
-      print('🔍 [LOGIN] Canales autojoin: $autoJoinChannels');
-      print('🔍 [LOGIN] Canal desde URL: $_urlChannel');
-      print('🔍 [LOGIN] ===================================');
+      debugLog('🔍 [LOGIN] ========== INICIO LOGIN ==========');
+      debugLog('🔍 [LOGIN] Estado inicial - servidor: ${selectedServerProfile?.name ?? "null"}');
+      debugLog('🔍 [LOGIN] Servidor host: ${selectedServerProfile?.host ?? "null"}, port: ${selectedServerProfile?.port ?? "null"}');
+      debugLog('🔍 [LOGIN] Nick: $currentNick');
+      debugLog('🔍 [LOGIN] Canal: $currentChannel');
+      debugLog('🔍 [LOGIN] Canales autojoin: $autoJoinChannels');
+      debugLog('🔍 [LOGIN] Canal desde URL: $_urlChannel');
+      debugLog('🔍 [LOGIN] ===================================');
       
       // Verificar si hay datos guardados para autojoin (viene de cambio de servidor)
       final hasAutoJoinData = currentNick != null && currentNick.isNotEmpty && 
                              (currentChannel != null && currentChannel.isNotEmpty || autoJoinChannels.isNotEmpty);
       
       if (selectedServerProfile != null) {
-        print('🔍 [LOGIN] ✅ Servidor seleccionado desde provider: ${selectedServerProfile.name}');
-        print('🔍 [LOGIN] Servidor host: ${selectedServerProfile.host}, port: ${selectedServerProfile.port}');
+        debugLog('🔍 [LOGIN] ✅ Servidor seleccionado desde provider: ${selectedServerProfile.name}');
+        debugLog('🔍 [LOGIN] Servidor host: ${selectedServerProfile.host}, port: ${selectedServerProfile.port}');
         _selectedServer = selectedServerProfile;
         _updateServerFields(selectedServerProfile);
         
         // Verificar que los campos se actualizaron correctamente
-        print('🔍 [LOGIN] Campos actualizados - host: ${_hostController.text}, port: ${_portController.text}');
+        debugLog('🔍 [LOGIN] Campos actualizados - host: ${_hostController.text}, port: ${_portController.text}');
         
         // Obtener el canal actual si existe (solo si no hay canal de URL)
         if (_urlChannel == null || _urlChannel!.isEmpty) {
           if (currentChannel != null && currentChannel.isNotEmpty) {
             _channelController.text = currentChannel;
-            print('🔍 [LOGIN] Canal actual desde provider: $currentChannel');
+            debugLog('🔍 [LOGIN] Canal actual desde provider: $currentChannel');
           } else if (autoJoinChannels.isNotEmpty) {
             // Si no hay canal actual pero hay canales para autojoin, usar el primero
             _channelController.text = autoJoinChannels.first;
-            print('🔍 [LOGIN] Usando primer canal de autojoin: ${autoJoinChannels.first}');
+            debugLog('🔍 [LOGIN] Usando primer canal de autojoin: ${autoJoinChannels.first}');
           }
         } else {
-          print('🔍 [LOGIN] Canal de URL tiene prioridad, no se sobrescribe con provider');
+          debugLog('🔍 [LOGIN] Canal de URL tiene prioridad, no se sobrescribe con provider');
         }
         
         // Obtener el nick del provider si está disponible (solo si no hay nick de URL)
         if ((urlNick == null || urlNick.isEmpty) && currentNick != null && currentNick.isNotEmpty) {
           _nickController.text = currentNick;
-          print('🔍 [LOGIN] Nick actual desde provider: $currentNick');
+          debugLog('🔍 [LOGIN] Nick actual desde provider: $currentNick');
         } else if (urlNick != null && urlNick.isNotEmpty) {
-          print('🔍 [LOGIN] Nick de URL tiene prioridad, no se sobrescribe con provider');
+          debugLog('🔍 [LOGIN] Nick de URL tiene prioridad, no se sobrescribe con provider');
         }
         
         // Hacer autojoin automáticamente cuando se cambia de servidor
         // PERO solo si NO viene autojoin desde la URL (para evitar doble conexión)
         if (hasAutoJoinData && !(autoJoin && PlatformUtils.isWeb)) {
-          print('🔍 [AUTOJOIN] ✅ Condiciones cumplidas para autojoin: servidor=${selectedServerProfile.name}, nick=$currentNick, canales=$autoJoinChannels');
+          debugLog('🔍 [AUTOJOIN] ✅ Condiciones cumplidas para autojoin: servidor=${selectedServerProfile.name}, nick=$currentNick, canales=$autoJoinChannels');
           
           // Esperar un momento para que los campos se actualicen
           Future.delayed(const Duration(milliseconds: 500), () async {
@@ -420,11 +421,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             final nick = _nickController.text.trim();
             final channel = _channelController.text.trim();
             
-            print('🔍 [AUTOJOIN] Verificando campos: host=$host, port=$port, nick=$nick, channel=$channel');
+            debugLog('🔍 [AUTOJOIN] Verificando campos: host=$host, port=$port, nick=$nick, channel=$channel');
             
             if (host.isNotEmpty && nick.isNotEmpty && channel.isNotEmpty) {
-              print('🔍 [AUTOJOIN] ✅ Todos los campos están completos, iniciando conexión...');
-              print('🔍 [AUTOJOIN] Auto-uniéndose después de cambiar servidor: host=$host, port=$port, nick=$nick, channel=$channel');
+              debugLog('🔍 [AUTOJOIN] ✅ Todos los campos están completos, iniciando conexión...');
+              debugLog('🔍 [AUTOJOIN] Auto-uniéndose después de cambiar servidor: host=$host, port=$port, nick=$nick, channel=$channel');
               
               setState(() {
                 _isAutoJoining = true;
@@ -433,9 +434,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               
               try {
                 await _connect();
-                print('🔍 [AUTOJOIN] ✅ Conexión exitosa después de cambiar servidor');
+                debugLog('🔍 [AUTOJOIN] ✅ Conexión exitosa después de cambiar servidor');
               } catch (e) {
-                print('🔍 [AUTOJOIN] ❌ Error en conexión: $e');
+                debugLog('🔍 [AUTOJOIN] ❌ Error en conexión: $e');
                 if (mounted) {
                   setState(() {
                     _errorMessage = 'Error en auto-join: $e';
@@ -445,22 +446,22 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 }
               }
             } else {
-              print('🔍 [AUTOJOIN] ⚠️ Campos incompletos - host: ${host.isNotEmpty}, nick: ${nick.isNotEmpty}, channel: ${channel.isNotEmpty}');
+              debugLog('🔍 [AUTOJOIN] ⚠️ Campos incompletos - host: ${host.isNotEmpty}, nick: ${nick.isNotEmpty}, channel: ${channel.isNotEmpty}');
             }
           });
         } else {
           if (autoJoin && PlatformUtils.isWeb) {
-            print('🔍 [LOGIN] Autojoin desde URL tiene prioridad, no se ejecuta autojoin desde provider');
+            debugLog('🔍 [LOGIN] Autojoin desde URL tiene prioridad, no se ejecuta autojoin desde provider');
           } else {
-            print('🔍 [LOGIN] No se cumplen condiciones para autojoin - nick: ${currentNick != null && currentNick.isNotEmpty}, canal: ${currentChannel != null && currentChannel.isNotEmpty}, canales autojoin: ${autoJoinChannels.isNotEmpty}');
+            debugLog('🔍 [LOGIN] No se cumplen condiciones para autojoin - nick: ${currentNick != null && currentNick.isNotEmpty}, canal: ${currentChannel != null && currentChannel.isNotEmpty}, canales autojoin: ${autoJoinChannels.isNotEmpty}');
           }
         }
       } else {
-        print('🔍 [LOGIN] No hay servidor seleccionado en el provider, usando selección por GeoIP');
+        debugLog('🔍 [LOGIN] No hay servidor seleccionado en el provider, usando selección por GeoIP');
         
         // Si autojoin está activado desde URL y no hay servidor seleccionado, hacer autojoin
         if (autoJoin && PlatformUtils.isWeb && (urlNick != null || _urlChannel != null)) {
-          print('🔍 [AUTOJOIN_URL] ✅ Autojoin activado desde URL - nick: $urlNick, channel: $_urlChannel');
+          debugLog('🔍 [AUTOJOIN_URL] ✅ Autojoin activado desde URL - nick: $urlNick, channel: $_urlChannel');
           
           // Asegurar que el canal esté en el controlador (prioridad: URL, luego formulario)
           String? channelToUse = _urlChannel;
@@ -475,7 +476,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               finalChannel = '#$finalChannel';
             }
             _channelController.text = finalChannel;
-            print('🔍 [AUTOJOIN_URL] Canal normalizado: $finalChannel');
+            debugLog('🔍 [AUTOJOIN_URL] Canal normalizado: $finalChannel');
             
             // Filtrar servidores con puerto 6697 (SSL)
             final sslServers = ServerProfile.defaultGlobalChatProfiles
@@ -509,7 +510,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 
                 // Verificar que todos los campos estén completos
                 if (host.isNotEmpty && nick.isNotEmpty && channel.isNotEmpty) {
-                  print('🔍 [AUTOJOIN_URL] Intentando conectar: host=$host, port=$port, nick=$nick, channel=$channel');
+                  debugLog('🔍 [AUTOJOIN_URL] Intentando conectar: host=$host, port=$port, nick=$nick, channel=$channel');
                   
                   // Mostrar estado de carga para autojoin
                   setState(() {
@@ -520,9 +521,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   // Conectar automáticamente
                   try {
                     await _connect();
-                    print('🔍 [AUTOJOIN_URL] ✅ Conexión exitosa');
+                    debugLog('🔍 [AUTOJOIN_URL] ✅ Conexión exitosa');
                   } catch (e) {
-                    print('🔍 [AUTOJOIN_URL] ❌ Error en conexión: $e');
+                    debugLog('🔍 [AUTOJOIN_URL] ❌ Error en conexión: $e');
                     // Si hay error, mostrar mensaje pero no bloquear
                     if (mounted) {
                       setState(() {
@@ -533,7 +534,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     }
                   }
                 } else {
-                  print('🔍 [AUTOJOIN_URL] ⚠️ Campos incompletos - host: ${host.isNotEmpty}, nick: ${nick.isNotEmpty}, channel: ${channel.isNotEmpty}');
+                  debugLog('🔍 [AUTOJOIN_URL] ⚠️ Campos incompletos - host: ${host.isNotEmpty}, nick: ${nick.isNotEmpty}, channel: ${channel.isNotEmpty}');
                 }
               }
             } else {
@@ -591,7 +592,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           orElse: () => sslServers.first,
         );
         if (PlatformUtils.isWeb) {
-          print('🌎 [GEOIP] Usuario en América, usando Caliope');
+          debugLog('🌎 [GEOIP] Usuario en América, usando Caliope');
         }
       } else if (isAmericas == false) {
         // Si está fuera de América, usar otros servidores (excluyendo caliope)
@@ -614,13 +615,13 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           final selectedIndex = random.nextInt(nonAmericasServers.length);
           selectedServer = nonAmericasServers[selectedIndex];
           if (PlatformUtils.isWeb) {
-            print('🌎 [GEOIP] Usuario fuera de América, usando ${selectedServer.host}');
+            debugLog('🌎 [GEOIP] Usuario fuera de América, usando ${selectedServer.host}');
           }
         } else {
           // Fallback si no hay otros servidores
           selectedServer = sslServers.first;
           if (PlatformUtils.isWeb) {
-            print('🌎 [GEOIP] No hay servidores disponibles, usando por defecto');
+            debugLog('🌎 [GEOIP] No hay servidores disponibles, usando por defecto');
           }
         }
       } else {
@@ -629,13 +630,13 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         final selectedIndex = random.nextInt(sslServers.length);
         selectedServer = sslServers[selectedIndex];
         if (PlatformUtils.isWeb) {
-          print('🌎 [GEOIP] No se pudo determinar ubicación, usando selección aleatoria');
+          debugLog('🌎 [GEOIP] No se pudo determinar ubicación, usando selección aleatoria');
         }
       }
     } catch (e) {
       // Si hay error en GeoIP, usar selección aleatoria normal
       if (PlatformUtils.isWeb) {
-        print('🌎 [GEOIP] Error al detectar ubicación: $e, usando selección aleatoria');
+        debugLog('🌎 [GEOIP] Error al detectar ubicación: $e, usando selección aleatoria');
       }
       final random = Random();
       final selectedIndex = random.nextInt(sslServers.length);
@@ -680,7 +681,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           orElse: () => sslServers.first,
         );
         if (PlatformUtils.isWeb) {
-          print('🌎 [GEOIP] Usuario en América, usando Caliope');
+          debugLog('🌎 [GEOIP] Usuario en América, usando Caliope');
         }
       } else if (isAmericas == false) {
         // Si está fuera de América, usar otros servidores (excluyendo caliope)
@@ -703,13 +704,13 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           final selectedIndex = random.nextInt(nonAmericasServers.length);
           selectedServer = nonAmericasServers[selectedIndex];
           if (PlatformUtils.isWeb) {
-            print('🌎 [GEOIP] Usuario fuera de América, usando ${selectedServer.host}');
+            debugLog('🌎 [GEOIP] Usuario fuera de América, usando ${selectedServer.host}');
           }
         } else {
           // Fallback si no hay otros servidores
           selectedServer = sslServers.first;
           if (PlatformUtils.isWeb) {
-            print('🌎 [GEOIP] No hay servidores disponibles, usando por defecto');
+            debugLog('🌎 [GEOIP] No hay servidores disponibles, usando por defecto');
           }
         }
       } else {
@@ -718,13 +719,13 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         final selectedIndex = random.nextInt(sslServers.length);
         selectedServer = sslServers[selectedIndex];
         if (PlatformUtils.isWeb) {
-          print('🌎 [GEOIP] No se pudo determinar ubicación, usando selección aleatoria');
+          debugLog('🌎 [GEOIP] No se pudo determinar ubicación, usando selección aleatoria');
         }
       }
     } catch (e) {
       // Si hay error en GeoIP, usar selección aleatoria normal
       if (PlatformUtils.isWeb) {
-        print('🌎 [GEOIP] Error al detectar ubicación: $e, usando selección aleatoria');
+        debugLog('🌎 [GEOIP] Error al detectar ubicación: $e, usando selección aleatoria');
       }
       final random = Random();
       final selectedIndex = random.nextInt(sslServers.length);
@@ -768,14 +769,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               ..sort((a, b) => b.users.compareTo(a.users)); // Ordenar por usuarios (mayor a menor)
             _loadingChannels = false;
           });
-          // print('🔍 [DEBUG] Canales cargados: ${_channels.length}');
+          // debugLog('🔍 [DEBUG] Canales cargados: ${_channels.length}');
           for (var channel in _channels.take(5)) {
-            // print('🔍 [DEBUG]   - ${channel.name} (${channel.users} usuarios)');
+            // debugLog('🔍 [DEBUG]   - ${channel.name} (${channel.users} usuarios)');
           }
         }
       }
     } catch (e) {
-      // print('Error cargando canales: $e');
+      // debugLog('Error cargando canales: $e');
       setState(() {
         _loadingChannels = false;
       });
@@ -832,9 +833,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         });
       }
 
-      print('🌍 [GEOIP] (toggle) Canales sugeridos: $geoChannels (canales: $toJoin)');
+      debugLog('🌍 [GEOIP] (toggle) Canales sugeridos: $geoChannels (canales: $toJoin)');
     } catch (e) {
-      print('🌍 [GEOIP] Error al obtener GeoIP desde toggle: $e');
+      debugLog('🌍 [GEOIP] Error al obtener GeoIP desde toggle: $e');
     }
   }
 
@@ -851,7 +852,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     setState(() {
       _channelController.text = '';
     });
-    print('🌍 [GEOIP] (toggle) Desactivado: canal y autojoin limpiados para selección manual');
+    debugLog('🌍 [GEOIP] (toggle) Desactivado: canal y autojoin limpiados para selección manual');
   }
 
   // Cargar información de versión de la app
@@ -861,9 +862,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       setState(() {
         _appVersion = 'v${packageInfo.version}';
       });
-      print('🔍 [LOGIN] App version: $_appVersion');
+      debugLog('🔍 [LOGIN] App version: $_appVersion');
     } catch (e) {
-      print('❌ [LOGIN] Error loading app version: $e');
+      debugLog('❌ [LOGIN] Error loading app version: $e');
       // Mantener versión por defecto
     }
   }
@@ -913,10 +914,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       if (!ch.startsWith('#')) ch = '#$ch';
       channel = ch.toLowerCase();
       _channelController.text = channel;
-      print('🔍 [LOGIN] Canal tomado de URL (_urlChannel): $channel');
+      debugLog('🔍 [LOGIN] Canal tomado de URL (_urlChannel): $channel');
     }
     
-    print('🔍 [LOGIN] Nick procesado: "${_nickController.text}" -> "$nick"');
+    debugLog('🔍 [LOGIN] Nick procesado: "${_nickController.text}" -> "$nick"');
 
     if (host.isEmpty || nick.isEmpty || channel.isEmpty) {
       setState(() => _errorMessage = 'Por favor completa todos los campos');
@@ -947,7 +948,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       _nickChangeListener = (newNick) {
         if (mounted) {
           ref.read(currentNicknameProvider.notifier).state = newNick;
-          print('🔍 [LOGIN] Nick actualizado en provider: $newNick');
+          debugLog('🔍 [LOGIN] Nick actualizado en provider: $newNick');
         }
       };
       ircService.addNickChangeListener(_nickChangeListener!);
@@ -1000,12 +1001,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       final autoJoinChannels = ref.read(autoJoinChannelsProvider);
       final currentChannelFromProvider = ref.read(currentChannelProvider);
       
-      print('🔍 [CONNECT] Canales para autojoin: $autoJoinChannels');
-      print('🔍 [CONNECT] Canal actual desde provider: $currentChannelFromProvider');
+      debugLog('🔍 [CONNECT] Canales para autojoin: $autoJoinChannels');
+      debugLog('🔍 [CONNECT] Canal actual desde provider: $currentChannelFromProvider');
       
       if (autoJoinChannels.isNotEmpty) {
         // Si hay canales guardados, hacer JOIN a todos ellos después de conectarse
-        print('🔍 [AUTOJOIN] ✅ Hay ${autoJoinChannels.length} canales para autojoin: $autoJoinChannels');
+        debugLog('🔍 [AUTOJOIN] ✅ Hay ${autoJoinChannels.length} canales para autojoin: $autoJoinChannels');
         
         // Esperar a que la conexión esté completamente establecida antes de hacer JOIN
         Future.delayed(const Duration(milliseconds: 2000), () {
@@ -1015,7 +1016,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               final channelToJoin = autoJoinChannels[i];
               Future.delayed(Duration(milliseconds: 500 + (i * 300)), () {
                 if (mounted && ircService.isConnected) {
-                  print('🔍 [AUTOJOIN] Uniéndose a canal: $channelToJoin');
+                  debugLog('🔍 [AUTOJOIN] Uniéndose a canal: $channelToJoin');
                   ircService.joinChannel(channelToJoin);
                 }
               });
@@ -1026,7 +1027,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             Future.delayed(const Duration(milliseconds: 1000), () {
               if (mounted) {
                 ref.read(currentChannelProvider.notifier).state = channelToSet;
-                print('🔍 [AUTOJOIN] Canal actual establecido: $channelToSet');
+                debugLog('🔍 [AUTOJOIN] Canal actual establecido: $channelToSet');
               }
             });
           }
@@ -1034,7 +1035,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       } else {
         // Si no hay canales guardados, usar el canal del formulario (comportamiento normal)
         ref.read(currentChannelProvider.notifier).state = normalizedChannel;
-        print('🔍 [CONNECT] Usando canal del formulario: $normalizedChannel');
+        debugLog('🔍 [CONNECT] Usando canal del formulario: $normalizedChannel');
       }
       // globalLog('🔵 [LOGIN] Set channel in provider: "$channel" -> normalized: "$normalizedChannel"');
 
@@ -1901,7 +1902,7 @@ class _ChannelSelectorState extends State<_ChannelSelector> {
               channel.topic.toLowerCase().contains(query);
         }).toList();
       }
-      // print('🔍 [DEBUG] _updateFilteredChannels: ${_filteredChannels.length} canales filtrados de ${widget.channels.length} totales');
+      // debugLog('🔍 [DEBUG] _updateFilteredChannels: ${_filteredChannels.length} canales filtrados de ${widget.channels.length} totales');
     });
   }
 
@@ -1943,7 +1944,7 @@ class _ChannelSelectorState extends State<_ChannelSelector> {
       });
     }
     
-    // print('🔍 [DEBUG] _showDropdownOverlay: ${_filteredChannels.length} canales, ${widget.channels.length} totales');
+    // debugLog('🔍 [DEBUG] _showDropdownOverlay: ${_filteredChannels.length} canales, ${widget.channels.length} totales');
     
     // Usar showModalBottomSheet en lugar de overlay personalizado
     showModalBottomSheet(
@@ -2125,13 +2126,13 @@ class _ChannelSelectorState extends State<_ChannelSelector> {
                                   )
                                 : null,
                             onTap: () {
-                              // print('🔍 [DEBUG] ✅✅✅✅✅ TAP DETECTADO en canal: ${option.name}');
+                              // debugLog('🔍 [DEBUG] ✅✅✅✅✅ TAP DETECTADO en canal: ${option.name}');
                               widget.controller.text = option.name;
                               widget.controller.selection = TextSelection(
                                 baseOffset: widget.controller.text.length,
                                 extentOffset: widget.controller.text.length,
                               );
-                              // print('🔍 [DEBUG] Controlador actualizado: "${widget.controller.text}"');
+                              // debugLog('🔍 [DEBUG] Controlador actualizado: "${widget.controller.text}"');
                               Navigator.pop(context);
                               _focusNode.unfocus();
                             },
@@ -2228,7 +2229,7 @@ class _ChannelSelectorState extends State<_ChannelSelector> {
           ),
         ),
         onTap: () {
-          // print('🔍 [DEBUG] onTap del TextField: ${widget.channels.length} canales disponibles');
+          // debugLog('🔍 [DEBUG] onTap del TextField: ${widget.channels.length} canales disponibles');
           if (widget.channels.isNotEmpty) {
             // Si el campo está vacío, asegurar que se muestren todos los canales
             if (widget.controller.text.trim().isEmpty) {
@@ -2237,7 +2238,7 @@ class _ChannelSelectorState extends State<_ChannelSelector> {
             // Mostrar el dropdown siempre
             _showDropdownOverlay();
           } else {
-            // print('🔍 [DEBUG] ⚠️  No hay canales disponibles aún');
+            // debugLog('🔍 [DEBUG] ⚠️  No hay canales disponibles aún');
           }
         },
     );

@@ -6,6 +6,7 @@ import '../models/radio_station.dart';
 import 'stream_proxy_service.dart';
 import '../main.dart' show globalLog;
 import '../utils/platform_utils.dart';
+import '../config/debug_config.dart';
 // Conditional import for Platform (native only)
 import 'dart:io' if (dart.library.html) 'dart:html' as io;
 // Conditional import for window location (web only)
@@ -29,16 +30,16 @@ class RadioService {
   Future<void> initialize() async {
     if (PlatformUtils.isWeb) {
       if (_webPlayer == null) {
-        print('📻 [RadioService] Inicializando para web...');
+        debugLog('📻 [RadioService] Inicializando para web...');
         _webPlayer = web_audio.AudioPlayer();
         // Configurar el player para web
         await _webPlayer!.setReleaseMode(web_audio.ReleaseMode.stop);
         await _webPlayer!.setPlayerMode(web_audio.PlayerMode.mediaPlayer);
         // Aplicar volumen inicial
         await _webPlayer!.setVolume(_currentVolume);
-        print('✅ [RadioService] Inicializado para web correctamente');
+        debugLog('✅ [RadioService] Inicializado para web correctamente');
       } else {
-        print('📻 [RadioService] Ya estaba inicializado para web');
+        debugLog('📻 [RadioService] Ya estaba inicializado para web');
       }
       return;
     }
@@ -60,13 +61,13 @@ class RadioService {
 
   /// Reproducir estación de radio
   Future<void> playStation(RadioStation station) async {
-    print('🎵 [RadioService] playStation llamado para: ${station.name}');
-    print('🎵 [RadioService] URL: ${station.source}');
-    print('🎵 [RadioService] Platform.isWeb: ${PlatformUtils.isWeb}');
+    debugLog('🎵 [RadioService] playStation llamado para: ${station.name}');
+    debugLog('🎵 [RadioService] URL: ${station.source}');
+    debugLog('🎵 [RadioService] Platform.isWeb: ${PlatformUtils.isWeb}');
     
     // Siempre detener la reproducción actual antes de iniciar una nueva
     if (_isPlaying && _currentStation != null) {
-      print('🛑 [RadioService] Deteniendo reproducción anterior...');
+      debugLog('🛑 [RadioService] Deteniendo reproducción anterior...');
       await stop();
       // Esperar un momento para asegurar que se detiene completamente
       await Future.delayed(const Duration(milliseconds: 200));
@@ -74,8 +75,8 @@ class RadioService {
     
     // La URL ya viene actualizada desde el RadioProvider
     // No necesitamos verificar nada aquí, solo reproducir
-    print('🎵 [RadioService] Reproduciendo: ${station.name}');
-    print('🎵 [RadioService] URL: ${station.source}');
+    debugLog('🎵 [RadioService] Reproduciendo: ${station.name}');
+    debugLog('🎵 [RadioService] URL: ${station.source}');
     
     if (PlatformUtils.isWeb) {
       await _playStationWeb(station);
@@ -85,12 +86,12 @@ class RadioService {
   }
 
   Future<void> _playStationWeb(RadioStation station) async {
-    print('🎵 [RadioService Web] _playStationWeb llamado para: ${station.name}');
-    print('🎵 [RadioService Web] URL de la estación: ${station.source}');
+    debugLog('🎵 [RadioService Web] _playStationWeb llamado para: ${station.name}');
+    debugLog('🎵 [RadioService Web] URL de la estación: ${station.source}');
     try {
       // Si ya está reproduciendo la misma estación, no hacer nada
       if (_currentStation?.source == station.source && _isPlaying) {
-        print('ℹ️ [RadioService Web] Ya está reproduciendo la misma estación, omitiendo...');
+        debugLog('ℹ️ [RadioService Web] Ya está reproduciendo la misma estación, omitiendo...');
         return;
       }
       
@@ -128,12 +129,12 @@ class RadioService {
         if (state == web_audio.PlayerState.stopped && _isPlaying) {
           // Si se detuvo inesperadamente, marcar como error
           _isPlaying = false;
-          print('⚠️ [RadioService Web] Reproducción detenida inesperadamente');
+          debugLog('⚠️ [RadioService Web] Reproducción detenida inesperadamente');
         }
       });
       
       _webPlayer!.onLog.listen((log) {
-        print('📻 [RadioService Web] Log: $log');
+        debugLog('📻 [RadioService Web] Log: $log');
       });
       
       // En web, intentar primero con proxy si es necesario (listen2myradio.com)
@@ -144,7 +145,7 @@ class RadioService {
       
       // Si es HLS, usar hls.js en lugar de audioplayers
       if (isHLS) {
-        print('🎵 [RadioService Web] Stream HLS detectado, usando hls.js: $sourceUrl');
+        debugLog('🎵 [RadioService Web] Stream HLS detectado, usando hls.js: $sourceUrl');
         
         // Si es de Mixcloud, usar el proxy directamente (evita CORS y URLs expiradas)
         bool isMixcloud = sourceUrl.contains('mixcloud.com');
@@ -158,11 +159,11 @@ class RadioService {
             String urlForProxy = sourceUrl;
             if (urlForProxy.endsWith('.m3u') && !urlForProxy.endsWith('.m3u8')) {
               urlForProxy = urlForProxy.replaceAll(RegExp(r'\.m3u$'), '.m3u8');
-              print('📻 [RadioService Web] URL convertida de .m3u a .m3u8: $urlForProxy');
+              debugLog('📻 [RadioService Web] URL convertida de .m3u a .m3u8: $urlForProxy');
             }
             final encodedUrl = Uri.encodeComponent(urlForProxy);
             urlToPlay = 'https://mobilev1.globalchat.org/api/mixcloud_stream_proxy.php?url=$encodedUrl';
-            print('📻 [RadioService Web] Usando proxy para Mixcloud: $urlToPlay');
+            debugLog('📻 [RadioService Web] Usando proxy para Mixcloud: $urlToPlay');
           }
           
           await _playHLSStream(urlToPlay, 'hls-audio-player');
@@ -178,11 +179,11 @@ class RadioService {
             if (state != null) {
               final paused = state['paused'] ?? true;
               final volume = state['volume'] ?? 0.0;
-              print('📊 [RadioService Web] Estado HLS - Paused: $paused, Volume: $volume');
+              debugLog('📊 [RadioService Web] Estado HLS - Paused: $paused, Volume: $volume');
               html.window.console.log('📊 [RadioService Web] Estado HLS: $state');
               
               if (paused) {
-                print('⚠️ [RadioService Web] El elemento está pausado, intentando reanudar...');
+                debugLog('⚠️ [RadioService Web] El elemento está pausado, intentando reanudar...');
                 html.window.console.warn('⚠️ [RadioService Web] El elemento está pausado');
               }
             }
@@ -190,26 +191,26 @@ class RadioService {
           
           _currentStation = station;
           _isPlaying = true;
-          print('✅ [RadioService Web] Reproducción HLS iniciada correctamente');
+          debugLog('✅ [RadioService Web] Reproducción HLS iniciada correctamente');
           html.window.console.log('✅ [RadioService Web] Reproducción HLS iniciada correctamente');
           return; // Salir temprano si HLS funciona
         } catch (hlsError) {
-          print('❌ [RadioService Web] Error con HLS: $hlsError');
+          debugLog('❌ [RadioService Web] Error con HLS: $hlsError');
           html.window.console.error('❌ [RadioService Web] Error con HLS: $hlsError');
           
           // Si es Mixcloud y falló con proxy, intentar con URL directa como último recurso
           if (isMixcloud) {
             try {
-              print('🔄 [RadioService Web] Intentando con URL directa como último recurso...');
+              debugLog('🔄 [RadioService Web] Intentando con URL directa como último recurso...');
               await _playHLSStream(sourceUrl, 'hls-audio-player');
               await Future.delayed(const Duration(milliseconds: 1000));
               await setVolume(_currentVolume);
               _currentStation = station;
               _isPlaying = true;
-              print('✅ [RadioService Web] Reproducción HLS con URL directa iniciada');
+              debugLog('✅ [RadioService Web] Reproducción HLS con URL directa iniciada');
               return;
             } catch (directError) {
-              print('❌ [RadioService Web] Error también con URL directa: $directError');
+              debugLog('❌ [RadioService Web] Error también con URL directa: $directError');
             }
           }
           
@@ -224,19 +225,19 @@ class RadioService {
             if (baseHref != null && baseHref.isNotEmpty) {
               final baseUri = Uri.parse(baseHref);
               finalUrl = '${baseUri.scheme}://${baseUri.host}${baseUri.hasPort ? ':${baseUri.port}' : ''}$proxyPath';
-              print('📻 [RadioService Web] Intentando con proxy: $finalUrl');
+              debugLog('📻 [RadioService Web] Intentando con proxy: $finalUrl');
           }
         } catch (e) {
-          print('⚠️ [RadioService Web] Error construyendo proxy, usando URL directa: $e');
+          debugLog('⚠️ [RadioService Web] Error construyendo proxy, usando URL directa: $e');
           useProxy = false;
         }
       } else {
-        print('📻 [RadioService Web] Reproduciendo desde URL directa: $sourceUrl');
+        debugLog('📻 [RadioService Web] Reproduciendo desde URL directa: $sourceUrl');
       }
       
       // Intentar reproducir
       try {
-        print('📻 [RadioService Web] Iniciando reproducción de: $finalUrl');
+        debugLog('📻 [RadioService Web] Iniciando reproducción de: $finalUrl');
         // ignore: avoid_web_libraries_in_flutter
         html.window.console.log('📻 [RadioService Web] Iniciando reproducción de: $finalUrl');
         await _webPlayer!.play(web_audio.UrlSource(finalUrl));
@@ -246,29 +247,29 @@ class RadioService {
         
         // Verificar el estado del player
         final playerState = _webPlayer!.state;
-        print('📻 [RadioService Web] Estado del player después de iniciar: $playerState');
+        debugLog('📻 [RadioService Web] Estado del player después de iniciar: $playerState');
         
         // Verificar si hay errores
         _webPlayer!.onPlayerComplete.listen((_) {
-          print('📻 [RadioService Web] Reproducción completada');
+          debugLog('📻 [RadioService Web] Reproducción completada');
           _isPlaying = false;
         });
         
         // Verificar errores de reproducción
         _webPlayer!.onLog.listen((log) {
-          print('📻 [RadioService Web] Log del player: $log');
+          debugLog('📻 [RadioService Web] Log del player: $log');
         });
         
         if (playerState == web_audio.PlayerState.stopped) {
           // Si es HLS y falló la URL directa, intentar con proxy (puede ser problema de CORS)
           if (isHLS && finalUrl == sourceUrl) {
-            print('⚠️ [RadioService Web] Stream HLS falló con URL directa, intentando con proxy...');
+            debugLog('⚠️ [RadioService Web] Stream HLS falló con URL directa, intentando con proxy...');
             try {
               // Asegurar que la URL termine en .m3u8 (no .m3u)
               String urlForProxy = sourceUrl;
               if (urlForProxy.endsWith('.m3u') && !urlForProxy.endsWith('.m3u8')) {
                 urlForProxy = urlForProxy.replaceAll(RegExp(r'\.m3u$'), '.m3u8');
-                print('📻 [RadioService Web] URL convertida de .m3u a .m3u8: $urlForProxy');
+                debugLog('📻 [RadioService Web] URL convertida de .m3u a .m3u8: $urlForProxy');
               }
               final encodedUrl = Uri.encodeComponent(urlForProxy);
               final proxyUrl = 'https://mobilev1.globalchat.org/api/mixcloud_stream_proxy.php?url=$encodedUrl';
@@ -278,20 +279,20 @@ class RadioService {
               await _webPlayer!.setReleaseMode(web_audio.ReleaseMode.stop);
               await _webPlayer!.setPlayerMode(web_audio.PlayerMode.mediaPlayer);
               await _webPlayer!.setVolume(_currentVolume);
-              print('📻 [RadioService Web] Intentando con proxy: $proxyUrl');
+              debugLog('📻 [RadioService Web] Intentando con proxy: $proxyUrl');
               await _webPlayer!.play(web_audio.UrlSource(proxyUrl));
               await Future.delayed(const Duration(milliseconds: 1000));
               final retryState = _webPlayer!.state;
-              print('📻 [RadioService Web] Estado después de retry con proxy: $retryState');
+              debugLog('📻 [RadioService Web] Estado después de retry con proxy: $retryState');
               if (retryState == web_audio.PlayerState.stopped) {
                 throw Exception('No se pudo iniciar la reproducción. El servidor puede tener restricciones CORS o la URL no es válida.');
               }
             } catch (retryError) {
-              print('❌ [RadioService Web] Error en retry con proxy: $retryError');
+              debugLog('❌ [RadioService Web] Error en retry con proxy: $retryError');
               throw Exception('No se pudo iniciar la reproducción. Error: $retryError');
             }
           } else if (useProxy && finalUrl != sourceUrl) {
-            print('⚠️ [RadioService Web] Proxy falló, intentando URL directa...');
+            debugLog('⚠️ [RadioService Web] Proxy falló, intentando URL directa...');
             try {
               await _webPlayer!.stop();
               await _webPlayer!.release();
@@ -299,16 +300,16 @@ class RadioService {
               await _webPlayer!.setReleaseMode(web_audio.ReleaseMode.stop);
               await _webPlayer!.setPlayerMode(web_audio.PlayerMode.mediaPlayer);
               await _webPlayer!.setVolume(_currentVolume);
-              print('📻 [RadioService Web] Intentando URL directa: $sourceUrl');
+              debugLog('📻 [RadioService Web] Intentando URL directa: $sourceUrl');
               await _webPlayer!.play(web_audio.UrlSource(sourceUrl));
               await Future.delayed(const Duration(milliseconds: 1000));
               final retryState = _webPlayer!.state;
-              print('📻 [RadioService Web] Estado después de retry: $retryState');
+              debugLog('📻 [RadioService Web] Estado después de retry: $retryState');
               if (retryState == web_audio.PlayerState.stopped) {
                 throw Exception('No se pudo iniciar la reproducción. El servidor puede tener restricciones CORS o la URL no es válida.');
               }
             } catch (retryError) {
-              print('❌ [RadioService Web] Error en retry: $retryError');
+              debugLog('❌ [RadioService Web] Error en retry: $retryError');
               throw Exception('No se pudo iniciar la reproducción. Error: $retryError');
             }
           } else {
@@ -317,12 +318,12 @@ class RadioService {
         }
         
         // Si llegamos aquí, la reproducción debería estar funcionando
-        print('✅ [RadioService Web] Reproducción iniciada correctamente');
+        debugLog('✅ [RadioService Web] Reproducción iniciada correctamente');
       } catch (playError) {
-        print('❌ [RadioService Web] Error al reproducir: $playError');
+        debugLog('❌ [RadioService Web] Error al reproducir: $playError');
         // Si hay un error al reproducir y usamos proxy, intentar URL directa
         if (useProxy && finalUrl != sourceUrl) {
-          print('⚠️ [RadioService Web] Error con proxy, intentando URL directa...');
+          debugLog('⚠️ [RadioService Web] Error con proxy, intentando URL directa...');
           try {
             await _webPlayer!.stop();
             await _webPlayer!.release();
@@ -347,14 +348,14 @@ class RadioService {
       // Verificar una vez más que el player esté realmente reproduciendo
       await Future.delayed(const Duration(milliseconds: 500));
       final finalState = _webPlayer!.state;
-      print('📻 [RadioService Web] Estado final antes de confirmar: $finalState');
+      debugLog('📻 [RadioService Web] Estado final antes de confirmar: $finalState');
       
       if (finalState == web_audio.PlayerState.playing) {
         _currentStation = station;
         _isPlaying = true;
-        print('✅ [RadioService Web] Reproducción confirmada: ${station.name}');
+        debugLog('✅ [RadioService Web] Reproducción confirmada: ${station.name}');
       } else {
-        print('⚠️ [RadioService Web] El player no está en estado playing, estado actual: $finalState');
+        debugLog('⚠️ [RadioService Web] El player no está en estado playing, estado actual: $finalState');
         // Intentar una vez más
         if (finalState == web_audio.PlayerState.stopped || finalState == web_audio.PlayerState.paused) {
           try {
@@ -363,7 +364,7 @@ class RadioService {
             if (_webPlayer!.state == web_audio.PlayerState.playing) {
               _currentStation = station;
               _isPlaying = true;
-              print('✅ [RadioService Web] Reproducción iniciada después de resume');
+              debugLog('✅ [RadioService Web] Reproducción iniciada después de resume');
             } else {
               throw Exception('No se pudo iniciar la reproducción después de varios intentos');
             }
@@ -383,9 +384,9 @@ class RadioService {
       _webPlayer = null;
       
       // Log del error para debugging
-      print('❌ [RadioService Web] Error reproduciendo ${station.name}: $e');
-      print('❌ [RadioService Web] URL: ${station.source}');
-      print('❌ [RadioService Web] Stack: $stackTrace');
+      debugLog('❌ [RadioService Web] Error reproduciendo ${station.name}: $e');
+      debugLog('❌ [RadioService Web] URL: ${station.source}');
+      debugLog('❌ [RadioService Web] Stack: $stackTrace');
       
       rethrow; // Re-lanzar el error para que el widget pueda manejarlo
     }
@@ -394,19 +395,19 @@ class RadioService {
   /// Reproducir stream HLS usando hls.js
   Future<void> _playHLSStream(String url, String audioElementId) async {
     try {
-      print('🎵 [RadioService Web] Intentando reproducir HLS: $url');
+      debugLog('🎵 [RadioService Web] Intentando reproducir HLS: $url');
       html.window.console.log('🎵 [RadioService Web] Intentando reproducir HLS: $url');
       
       // Acceder a la función JavaScript playHLSStream usando dart:js
       final playFunction = js.context['playHLSStream'];
       if (playFunction == null) {
         final errorMsg = 'hls.js no está disponible. Asegúrate de que hls.js esté cargado en index.html';
-        print('❌ [RadioService Web] $errorMsg');
+        debugLog('❌ [RadioService Web] $errorMsg');
         html.window.console.error('❌ [RadioService Web] $errorMsg');
         throw Exception(errorMsg);
       }
       
-      print('✅ [RadioService Web] Función playHLSStream encontrada, llamando...');
+      debugLog('✅ [RadioService Web] Función playHLSStream encontrada, llamando...');
       html.window.console.log('✅ [RadioService Web] Función playHLSStream encontrada, llamando...');
       
       // Llamar a la función JavaScript
@@ -422,7 +423,7 @@ class RadioService {
       // Usar then y catch de la promesa
       promise.callMethod('then', [
         js.allowInterop((result) {
-          print('✅ [RadioService Web] Stream HLS iniciado correctamente (then)');
+          debugLog('✅ [RadioService Web] Stream HLS iniciado correctamente (then)');
           html.window.console.log('✅ [RadioService Web] Stream HLS iniciado correctamente');
           completer.complete();
         })
@@ -430,7 +431,7 @@ class RadioService {
       promise.callMethod('catch', [
         js.allowInterop((error) {
           final errorMsg = error?.toString() ?? 'Error desconocido al reproducir HLS';
-          print('❌ [RadioService Web] Error en promesa HLS: $errorMsg');
+          debugLog('❌ [RadioService Web] Error en promesa HLS: $errorMsg');
           html.window.console.error('❌ [RadioService Web] Error en promesa HLS: $error');
           completer.completeError(errorMsg);
         })
@@ -444,10 +445,10 @@ class RadioService {
         },
       );
       
-      print('✅ [RadioService Web] Stream HLS iniciado correctamente');
+      debugLog('✅ [RadioService Web] Stream HLS iniciado correctamente');
     } catch (e, stackTrace) {
-      print('❌ [RadioService Web] Error al reproducir HLS: $e');
-      print('❌ [RadioService Web] Stack: $stackTrace');
+      debugLog('❌ [RadioService Web] Error al reproducir HLS: $e');
+      debugLog('❌ [RadioService Web] Stack: $stackTrace');
       html.window.console.error('❌ [RadioService Web] Error al reproducir HLS: $e');
       html.window.console.error('❌ [RadioService Web] Stack: $stackTrace');
       rethrow;
@@ -487,11 +488,11 @@ class RadioService {
               final proxyPort = StreamProxyService.instance.port;
               if (proxyPort != null) {
                 playUrl = 'http://localhost:$proxyPort/proxy?url=${Uri.encodeComponent(station.source)}';
-                // print('🎵 [RadioService] Usando proxy local en puerto $proxyPort');
+                // debugLog('🎵 [RadioService] Usando proxy local en puerto $proxyPort');
               }
             }
           } catch (e) {
-            // print('⚠️ [RadioService] Error usando proxy: $e');
+            // debugLog('⚠️ [RadioService] Error usando proxy: $e');
           }
         }
         */
@@ -500,12 +501,12 @@ class RadioService {
         await _player!.play();
         _currentStation = station;
         _isPlaying = true;
-        // print('🎵 [RadioService] Reproduciendo: ${station.name}');
+        // debugLog('🎵 [RadioService] Reproduciendo: ${station.name}');
       }
     } catch (e) {
       _isPlaying = false;
       _currentStation = null;
-      // print('❌ [RadioService] Error reproduciendo: $e');
+      // debugLog('❌ [RadioService] Error reproduciendo: $e');
     }
   }
 
@@ -555,13 +556,13 @@ class RadioService {
         } else {
           await _webPlayer?.pause();
         }
-        // print('⏸️ [RadioService] Reproducción pausada en web');
+        // debugLog('⏸️ [RadioService] Reproducción pausada en web');
       } else {
         await _player?.pause();
       }
       _isPlaying = false;
     } catch (e) {
-      // print('❌ [RadioService] Error al pausar: $e');
+      // debugLog('❌ [RadioService] Error al pausar: $e');
     }
   }
 
@@ -573,24 +574,24 @@ class RadioService {
         if (_currentStation?.source.contains('.m3u8') ?? false) {
           final audioElement = html.document.getElementById('hls-audio-player') as html.AudioElement?;
           if (audioElement != null) {
-            print('▶️ [RadioService Web] Reanudando reproducción HLS');
+            debugLog('▶️ [RadioService Web] Reanudando reproducción HLS');
             html.window.console.log('▶️ [RadioService Web] Reanudando reproducción HLS');
             await audioElement.play();
-            print('✅ [RadioService Web] Reproducción HLS reanudada');
+            debugLog('✅ [RadioService Web] Reproducción HLS reanudada');
             html.window.console.log('✅ [RadioService Web] Reproducción HLS reanudada');
           } else {
-            print('⚠️ [RadioService Web] No se encontró el elemento de audio HLS para reanudar');
+            debugLog('⚠️ [RadioService Web] No se encontró el elemento de audio HLS para reanudar');
           }
         } else {
           await _webPlayer?.resume();
         }
-        // print('▶️ [RadioService] Reproducción reanudada en web');
+        // debugLog('▶️ [RadioService] Reproducción reanudada en web');
       } else {
         await _player?.play();
       }
       _isPlaying = true;
     } catch (e) {
-      print('❌ [RadioService Web] Error al reanudar: $e');
+      debugLog('❌ [RadioService Web] Error al reanudar: $e');
       html.window.console.error('❌ [RadioService Web] Error al reanudar: $e');
     }
   }
@@ -610,17 +611,17 @@ class RadioService {
         final setVolumeFunction = js.context['setHLSVolume'];
         if (setVolumeFunction != null) {
           setVolumeFunction.apply(['hls-audio-player', _currentVolume]);
-          print('🔊 [RadioService Web] Volumen HLS establecido a: $_currentVolume (vía JS)');
+          debugLog('🔊 [RadioService Web] Volumen HLS establecido a: $_currentVolume (vía JS)');
         } else {
           // Fallback: usar el elemento de audio directamente
           final audioElement = html.document.getElementById('hls-audio-player') as html.AudioElement?;
           if (audioElement != null) {
             // En dart:html, el volumen se establece directamente en la propiedad del elemento
             audioElement.volume = _currentVolume;
-            print('🔊 [RadioService Web] Volumen HLS establecido a: $_currentVolume (directo)');
+            debugLog('🔊 [RadioService Web] Volumen HLS establecido a: $_currentVolume (directo)');
             html.window.console.log('🔊 [RadioService Web] Volumen HLS establecido a: $_currentVolume');
           } else {
-            print('⚠️ [RadioService Web] No se encontró el elemento de audio HLS para establecer volumen');
+            debugLog('⚠️ [RadioService Web] No se encontró el elemento de audio HLS para establecer volumen');
           }
         }
       } else {

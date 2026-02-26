@@ -3,6 +3,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'irc_connection_interface.dart';
 import '../utils/platform_utils.dart';
+import '../config/debug_config.dart';
 
 /// Implementación de conexión IRC usando Socket TCP nativo (móvil/desktop)
 class IRCSocketConnection implements IRCConnection {
@@ -20,13 +21,13 @@ class IRCSocketConnection implements IRCConnection {
     }
 
     _host = host;
-    print('🔌 [IRCSocketConnection] Attempting TCP connection to $host:$port (SSL: $useSSL)');
+    debugLog('🔌 [IRCSocketConnection] Attempting TCP connection to $host:$port (SSL: $useSSL)');
     try {
       if (useSSL) {
         // Crear un SecurityContext más permisivo
         final context = SecurityContext.defaultContext;
         // Permitir certificados autofirmados y certificados con problemas de validación
-        print('🔌 [IRCSocketConnection] Connecting with SSL...');
+        debugLog('🔌 [IRCSocketConnection] Connecting with SSL...');
         _secureSocket = await SecureSocket.connect(
           host,
           port,
@@ -35,11 +36,11 @@ class IRCSocketConnection implements IRCConnection {
           onBadCertificate: (certificate) {
             // Aceptar certificados autofirmados o con problemas de validación
             // Esto es necesario para algunos servidores IRC
-            print('⚠️ [IRCSocketConnection] Certificado con problemas de validación para $host:$port, aceptando de todas formas');
+            debugLog('⚠️ [IRCSocketConnection] Certificado con problemas de validación para $host:$port, aceptando de todas formas');
             return true;
           },
         );
-        print('✅ [IRCSocketConnection] SSL connection established');
+        debugLog('✅ [IRCSocketConnection] SSL connection established');
         _subscription = _secureSocket!.listen(
           (data) {
             // Decodificar como UTF-8 para soportar emoticonos y caracteres especiales
@@ -56,9 +57,9 @@ class IRCSocketConnection implements IRCConnection {
         );
         _isConnected = true;
       } else {
-        print('🔌 [IRCSocketConnection] Connecting without SSL...');
+        debugLog('🔌 [IRCSocketConnection] Connecting without SSL...');
         _socket = await Socket.connect(host, port, timeout: const Duration(seconds: 30));
-        print('✅ [IRCSocketConnection] TCP connection established');
+        debugLog('✅ [IRCSocketConnection] TCP connection established');
         _subscription = _socket!.listen(
           (data) {
             // Decodificar como UTF-8 para soportar emoticonos y caracteres especiales
@@ -77,9 +78,9 @@ class IRCSocketConnection implements IRCConnection {
       }
     } catch (e, stackTrace) {
       _isConnected = false;
-      print('❌ [IRCSocketConnection] Connection error: $e');
-      print('❌ [IRCSocketConnection] Error type: ${e.runtimeType}');
-      print('❌ [IRCSocketConnection] Stack trace: $stackTrace');
+      debugLog('❌ [IRCSocketConnection] Connection error: $e');
+      debugLog('❌ [IRCSocketConnection] Error type: ${e.runtimeType}');
+      debugLog('❌ [IRCSocketConnection] Stack trace: $stackTrace');
       rethrow;
     }
   }

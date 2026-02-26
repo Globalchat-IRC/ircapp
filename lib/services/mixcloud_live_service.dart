@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import '../config/debug_config.dart';
 
 /// Información del stream en vivo de Mixcloud
 class MixcloudLiveStream {
@@ -68,11 +69,11 @@ class MixcloudLiveService {
           !_cachedStream!.isExpired &&
           _lastCheck != null &&
           DateTime.now().difference(_lastCheck!).inSeconds < 30) {
-        print('🎵 [MixcloudLive] Usando stream en cache para $username (menos de 30 segundos)');
+        debugLog('🎵 [MixcloudLive] Usando stream en cache para $username (menos de 30 segundos)');
         return _cachedStream;
       }
 
-      print('🎵 [MixcloudLive] Obteniendo stream en vivo para $username...');
+      debugLog('🎵 [MixcloudLive] Obteniendo stream en vivo para $username...');
       
       final url = Uri.parse('$_baseUrl/mixcloud_stream_extractor.php?username=$username');
       
@@ -84,23 +85,23 @@ class MixcloudLiveService {
       );
 
       if (response.statusCode != 200) {
-        print('⚠️ [MixcloudLive] Error HTTP ${response.statusCode}');
-        print('⚠️ [MixcloudLive] Response body: ${response.body}');
+        debugLog('⚠️ [MixcloudLive] Error HTTP ${response.statusCode}');
+        debugLog('⚠️ [MixcloudLive] Response body: ${response.body}');
         return null;
       }
 
-      print('🎵 [MixcloudLive] Response recibida (${response.body.length} bytes): ${response.body.substring(0, response.body.length > 500 ? 500 : response.body.length)}');
+      debugLog('🎵 [MixcloudLive] Response recibida (${response.body.length} bytes): ${response.body.substring(0, response.body.length > 500 ? 500 : response.body.length)}');
       
       Map<String, dynamic> json;
       try {
         json = jsonDecode(response.body) as Map<String, dynamic>;
       } catch (e) {
-        print('❌ [MixcloudLive] Error parseando JSON: $e');
-        print('❌ [MixcloudLive] Response body completo: ${response.body}');
+        debugLog('❌ [MixcloudLive] Error parseando JSON: $e');
+        debugLog('❌ [MixcloudLive] Response body completo: ${response.body}');
         return null;
       }
       
-      print('🎵 [MixcloudLive] JSON parseado - success: ${json['success']}, is_live: ${json['is_live']}, stream_url: ${json['stream_url'] ?? 'N/A'}, error: ${json['error'] ?? 'N/A'}');
+      debugLog('🎵 [MixcloudLive] JSON parseado - success: ${json['success']}, is_live: ${json['is_live']}, stream_url: ${json['stream_url'] ?? 'N/A'}, error: ${json['error'] ?? 'N/A'}');
       
       // Aceptar tanto streams en vivo como sesiones grabadas (el proxy maneja el fallback)
       if (json['success'] == true && json['stream_url'] != null && (json['stream_url'] as String).isNotEmpty) {
@@ -111,7 +112,7 @@ class MixcloudLiveService {
         // Mixcloud siempre usa .m3u8, pero por si acaso viene .m3u, lo convertimos
         if (originalUrl.isNotEmpty && originalUrl.endsWith('.m3u') && !originalUrl.endsWith('.m3u8')) {
           originalUrl = originalUrl.replaceAll(RegExp(r'\.m3u$'), '.m3u8');
-          print('🎵 [MixcloudLive] URL convertida de .m3u a .m3u8: $originalUrl');
+          debugLog('🎵 [MixcloudLive] URL convertida de .m3u a .m3u8: $originalUrl');
           // Actualizar el JSON con la URL corregida
           json['stream_url'] = originalUrl;
         }
@@ -124,25 +125,25 @@ class MixcloudLiveService {
         _lastCheck = DateTime.now();
         
         if (stream.isLive) {
-          print('✅ [MixcloudLive] Stream en vivo encontrado: $originalUrl');
+          debugLog('✅ [MixcloudLive] Stream en vivo encontrado: $originalUrl');
         } else {
-          print('✅ [MixcloudLive] Sesión grabada encontrada: $originalUrl');
+          debugLog('✅ [MixcloudLive] Sesión grabada encontrada: $originalUrl');
           if (json['cloudcast'] != null) {
             final cloudcast = json['cloudcast'] as Map<String, dynamic>;
-            print('🎵 [MixcloudLive] Nombre: ${cloudcast['name'] ?? 'N/A'}');
+            debugLog('🎵 [MixcloudLive] Nombre: ${cloudcast['name'] ?? 'N/A'}');
           }
         }
-        print('🎵 [MixcloudLive] Info: ${stream.info}');
+        debugLog('🎵 [MixcloudLive] Info: ${stream.info}');
         
         return stream;
       } else {
-        print('ℹ️ [MixcloudLive] No hay stream disponible (ni en vivo ni grabado) para $username');
-        print('ℹ️ [MixcloudLive] Razón: success=${json['success']}, is_live=${json['is_live']}, stream_url=${json['stream_url'] ?? 'N/A'}');
+        debugLog('ℹ️ [MixcloudLive] No hay stream disponible (ni en vivo ni grabado) para $username');
+        debugLog('ℹ️ [MixcloudLive] Razón: success=${json['success']}, is_live=${json['is_live']}, stream_url=${json['stream_url'] ?? 'N/A'}');
         if (json['error'] != null) {
-          print('⚠️ [MixcloudLive] Error del backend: ${json['error']}');
+          debugLog('⚠️ [MixcloudLive] Error del backend: ${json['error']}');
         }
         if (json['message'] != null) {
-          print('ℹ️ [MixcloudLive] Mensaje del backend: ${json['message']}');
+          debugLog('ℹ️ [MixcloudLive] Mensaje del backend: ${json['message']}');
         }
         _cachedStream = null;
         _lastCheck = DateTime.now();
@@ -150,8 +151,8 @@ class MixcloudLiveService {
       }
       
     } catch (e, stackTrace) {
-      print('❌ [MixcloudLive] Error obteniendo stream: $e');
-      print('❌ [MixcloudLive] Stack: $stackTrace');
+      debugLog('❌ [MixcloudLive] Error obteniendo stream: $e');
+      debugLog('❌ [MixcloudLive] Stack: $stackTrace');
       return null;
     }
   }

@@ -7,6 +7,7 @@ import '../models/radio_station.dart';
 import '../services/radio_service.dart';
 import '../services/mixcloud_live_service.dart';
 import '../utils/platform_utils.dart';
+import '../config/debug_config.dart';
 
 class RadioState {
   final List<RadioStation> stations;
@@ -58,7 +59,7 @@ class RadioNotifier extends Notifier<RadioState> {
 
   @override
   RadioState build() {
-    // print('📻 RadioNotifier inicializado');
+    // debugLog('📻 RadioNotifier inicializado');
     _loadSettings();
     _startNowPlayingRefresh();
     _startLiveStreamCheck();
@@ -67,13 +68,13 @@ class RadioNotifier extends Notifier<RadioState> {
 
   Future<void> _loadSettings() async {
     try {
-      // print('📻 _loadSettings iniciado');
+      // debugLog('📻 _loadSettings iniciado');
       final prefs = await SharedPreferences.getInstance();
       final volume = prefs.getDouble('radio_volume') ?? 0.1;
       final starredJson = prefs.getString('radio_starred');
       final activeName = prefs.getString('radio_active');
       
-      // print('📻 Configuración cargada: volume=$volume, activeName=$activeName');
+      // debugLog('📻 Configuración cargada: volume=$volume, activeName=$activeName');
       
       List<String> starred = [];
       if (starredJson != null) {
@@ -86,12 +87,12 @@ class RadioNotifier extends Notifier<RadioState> {
       );
 
       // Cargar estaciones
-      // print('📻 Llamando a loadStations...');
+      // debugLog('📻 Llamando a loadStations...');
       await loadStations(activeName);
-      // print('📻 loadStations completado');
+      // debugLog('📻 loadStations completado');
     } catch (e, stackTrace) {
-      // print('❌ Error cargando configuración de radio: $e');
-      // print('❌ Stack trace: $stackTrace');
+      // debugLog('❌ Error cargando configuración de radio: $e');
+      // debugLog('❌ Stack trace: $stackTrace');
     }
   }
 
@@ -118,32 +119,26 @@ class RadioNotifier extends Notifier<RadioState> {
 
   Future<void> _checkLiveStreams({bool forceRefresh = false}) async {
     try {
-      // Verificar si UrbanFlow está en vivo o tiene sesión grabada
+      // Snapshot al inicio para evitar modificación concurrente con refreshNowPlaying
+      final currentStations = List<RadioStation>.from(state.stations);
+      final currentActive = state.activeStation;
       final mixcloudService = MixcloudLiveService();
-      
-      // Si se fuerza la actualización, limpiar el caché para obtener URL fresca
       if (forceRefresh) {
         mixcloudService.clearCache();
-        print('🔄 [RadioProvider] Caché limpiado, obteniendo URL fresca del stream...');
+        debugLog('🔄 [RadioProvider] Caché limpiado, obteniendo URL fresca del stream...');
       }
-      
-      // Usar el nuevo método que intenta obtener stream en vivo o sesión grabada
       final stream = await mixcloudService.getUrbanFlowStream();
-      
       if (stream != null && stream.streamUrl.isNotEmpty) {
         final isLive = stream.isLive;
         final cloudcastName = stream.info?['cloudcast_name'] ?? '';
-        
         if (isLive) {
-          print('🔴 [RadioProvider] UrbanFlow está EN VIVO');
-          print('🎵 [RadioProvider] URL del stream: ${stream.streamUrl}');
+          debugLog('🔴 [RadioProvider] UrbanFlow está EN VIVO');
+          debugLog('🎵 [RadioProvider] URL del stream: ${stream.streamUrl}');
         } else {
-          print('📼 [RadioProvider] UrbanFlow NO está en vivo, usando última sesión grabada: $cloudcastName');
-          print('🎵 [RadioProvider] URL del stream grabado: ${stream.streamUrl}');
+          debugLog('📼 [RadioProvider] UrbanFlow NO está en vivo, usando última sesión grabada: $cloudcastName');
+          debugLog('🎵 [RadioProvider] URL del stream grabado: ${stream.streamUrl}');
         }
-        
-        // Actualizar la estación UrbanFlow con la URL del stream (en vivo o grabado)
-        final updatedStations = state.stations.map((station) {
+        final updatedStations = currentStations.map((station) {
           if (station.name == 'UrbanFlow') {
             return RadioStation(
               id: station.id,
@@ -182,7 +177,7 @@ class RadioNotifier extends Notifier<RadioState> {
           activeStation: updatedActive,
         );
       } else {
-        print('ℹ️ [RadioProvider] UrbanFlow NO está disponible (ni en vivo ni grabado), usando URL por defecto');
+        debugLog('ℹ️ [RadioProvider] UrbanFlow NO está disponible (ni en vivo ni grabado), usando URL por defecto');
         
         // Restaurar la URL por defecto de Mixcloud
         final updatedStations = state.stations.map((station) {
@@ -201,78 +196,65 @@ class RadioNotifier extends Notifier<RadioState> {
           }
           return station;
         }).toList();
-        
-        // Actualizar también la estación activa si es UrbanFlow
-        RadioStation? updatedActive = state.activeStation;
-        if (state.activeStation?.name == 'UrbanFlow') {
-          updatedActive = updatedStations.firstWhere(
-            (s) => s.name == 'UrbanFlow',
-            orElse: () => state.activeStation!,
-          );
+        RadioStation? updatedActive = currentActive;
+        if (currentActive?.name == 'UrbanFlow') {
+          try {
+            updatedActive = updatedStations.firstWhere(
+              (s) => s.name == 'UrbanFlow',
+              orElse: () => currentActive!,
+            );
+          } catch (_) {
+            updatedActive = currentActive;
+          }
         }
-        
         state = state.copyWith(
           stations: updatedStations,
           activeStation: updatedActive,
         );
       }
     } catch (e) {
-      print('⚠️ [RadioProvider] Error verificando streams: $e');
+      debugLog('⚠️ [RadioProvider] Error verificando streams: $e');
     }
   }
 
   // Método público para forzar actualización de la canción actual
   Future<void> refreshNowPlaying() async {
-    if (state.stations.isEmpty) return;
+    // Snapshot de state al inicio para evitar "Concurrent modification during iteration"
+    // si otro timer (_checkLiveStreams) actualiza state mientras estamos en await
+    final currentStations = List<RadioStation>.from(state.stations);
+    final currentActive = state.activeStation;
+    if (currentStations.isEmpty) return;
 
     try {
-      // Intentar cargar desde mobilev1 primero, luego fallback a webchat
       final urls = [
         'https://mobilev1.globalchat.org/static/plugins/stations.json',
         'https://webchat.globalchat.org/static/plugins/stations.json',
       ];
-      
       http.Response? response;
-      for (final url in urls) {
+      for (var i = 0; i < urls.length; i++) {
         try {
-          response = await http
-              .get(Uri.parse(url))
-              .timeout(const Duration(seconds: 5));
-          if (response.statusCode == 200) {
-            break; // Éxito, salir del bucle
-          }
-        } catch (e) {
-          // Continuar con la siguiente URL
+          response = await http.get(Uri.parse(urls[i])).timeout(const Duration(seconds: 5));
+          if (response.statusCode == 200) break;
+        } catch (_) {
           continue;
         }
       }
 
-      if (response == null || response.statusCode != 200) {
-        // Silencioso: el archivo JSON es opcional, las estaciones ya están hardcodeadas
-        return;
-      }
+      if (response == null || response.statusCode != 200) return;
 
       final List<dynamic> jsonList = jsonDecode(response.body);
-      final allStations =
-          jsonList.map((json) => RadioStation.fromJson(json)).toList();
+      final allStations = jsonList.map((json) => RadioStation.fromJson(json)).toList();
+      final byName = <String, RadioStation>{};
+      for (var i = 0; i < allStations.length; i++) {
+        byName[allStations[i].name] = allStations[i];
+      }
 
-      // Mapear por nombre para actualizar datos actuales
-      final Map<String, RadioStation> byName = {
-        for (final s in allStations) s.name: s
-      };
-
-      print('🎵 [RadioProvider] Estaciones en JSON: ${byName.keys.toList()}');
-      print('🎵 [RadioProvider] Estación activa buscada: ${state.activeStation?.name}');
-
-      final updatedStations = state.stations.map((old) {
+      final updatedStations = currentStations.map((old) {
         final fresh = byName[old.name];
         if (fresh == null) {
-          print('⚠️ [RadioProvider] Estación "${old.name}" no encontrada en JSON');
-          // Si es la estación activa y tiene currentArtistSong actualizado, usarlo
-          if (state.activeStation?.name == old.name && 
-              state.activeStation?.currentArtistSong != null &&
-              state.activeStation!.currentArtistSong != old.currentArtistSong) {
-            print('🎵 [RadioProvider] Usando currentArtistSong de estación activa para "${old.name}"');
+          if (currentActive?.name == old.name &&
+              currentActive?.currentArtistSong != null &&
+              currentActive!.currentArtistSong != old.currentArtistSong) {
             return RadioStation(
               id: old.id,
               name: old.name,
@@ -282,14 +264,11 @@ class RadioNotifier extends Notifier<RadioState> {
               salon: old.salon,
               genre: old.genre,
               bitrate: old.bitrate,
-              currentArtistSong: state.activeStation!.currentArtistSong,
+              currentArtistSong: currentActive.currentArtistSong,
             );
           }
           return old;
         }
-        // Priorizar el valor nuevo si existe, incluso si es una cadena vacía
-        final newSong = fresh.currentArtistSong;
-        print('🎵 [RadioProvider] Estación "${old.name}": canción anterior="${old.currentArtistSong}", nueva="${newSong}"');
         return RadioStation(
           id: old.id,
           name: old.name,
@@ -299,18 +278,20 @@ class RadioNotifier extends Notifier<RadioState> {
           salon: old.salon,
           genre: fresh.genre ?? old.genre,
           bitrate: fresh.bitrate ?? old.bitrate,
-          // Usar el nuevo valor si existe (incluso si es null), solo usar el anterior si el nuevo es null
-          currentArtistSong: newSong ?? old.currentArtistSong,
+          currentArtistSong: fresh.currentArtistSong ?? old.currentArtistSong,
         );
       }).toList();
 
       RadioStation? updatedActive;
-      if (state.activeStation != null) {
-        updatedActive = updatedStations.firstWhere(
-          (s) => s.name == state.activeStation!.name,
-          orElse: () => state.activeStation!,
-        );
-        print('🎵 [RadioProvider] Canción actualizada para "${updatedActive.name}": "${updatedActive.currentArtistSong}"');
+      if (currentActive != null) {
+        try {
+          updatedActive = updatedStations.firstWhere(
+            (s) => s.name == currentActive.name,
+            orElse: () => currentActive,
+          );
+        } catch (_) {
+          updatedActive = currentActive;
+        }
       }
 
       state = state.copyWith(
@@ -318,9 +299,8 @@ class RadioNotifier extends Notifier<RadioState> {
         activeStation: updatedActive,
       );
     } catch (e, stackTrace) {
-      print('❌ [RadioProvider] Error al actualizar canción: $e');
-      print('❌ [RadioProvider] Stack: $stackTrace');
-      // Silencioso: si falla, mantenemos el último título conocido
+      debugLog('❌ [RadioProvider] Error al actualizar canción: $e');
+      debugLog('❌ [RadioProvider] Stack: $stackTrace');
     }
   }
 
@@ -333,7 +313,7 @@ class RadioNotifier extends Notifier<RadioState> {
         await prefs.setString('radio_active', state.activeStation!.name);
       }
     } catch (e) {
-      // print('Error guardando configuración de radio: $e');
+      // debugLog('Error guardando configuración de radio: $e');
     }
   }
 
@@ -397,11 +377,11 @@ class RadioNotifier extends Notifier<RadioState> {
         activeStation: active,
         hasError: false,
       );
-      // print('📻 ✅ Estaciones cargadas: ${stations.length}');
-      // print('📻 ✅ Estación activa: ${active?.name ?? "ninguna"}');
+      // debugLog('📻 ✅ Estaciones cargadas: ${stations.length}');
+      // debugLog('📻 ✅ Estación activa: ${active?.name ?? "ninguna"}');
     } catch (e, stackTrace) {
-      // print('❌ Error cargando estaciones de radio: $e');
-      // print('❌ Stack trace: $stackTrace');
+      // debugLog('❌ Error cargando estaciones de radio: $e');
+      // debugLog('❌ Stack trace: $stackTrace');
       // Usar estaciones por defecto en caso de error
       final defaultStations = _getDefaultStations();
       state = state.copyWith(
@@ -409,14 +389,14 @@ class RadioNotifier extends Notifier<RadioState> {
         activeStation: defaultStations.isNotEmpty ? defaultStations[0] : null,
         hasError: false,
       );
-      // print('📻 ✅ Usando ${defaultStations.length} estaciones por defecto');
+      // debugLog('📻 ✅ Usando ${defaultStations.length} estaciones por defecto');
     }
   }
 
   Future<void> setActiveStation(RadioStation station) async {
     // Si es UrbanFlow, verificar primero si hay stream en vivo
     if (station.name == 'UrbanFlow') {
-      print('🎵 [RadioProvider] Usuario seleccionó UrbanFlow, obteniendo URL fresca del stream...');
+      debugLog('🎵 [RadioProvider] Usuario seleccionó UrbanFlow, obteniendo URL fresca del stream...');
       // Forzar actualización para obtener URL fresca (sin caché)
       await _checkLiveStreams(forceRefresh: true);
       // Después de verificar, obtener la estación actualizada

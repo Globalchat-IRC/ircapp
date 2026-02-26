@@ -48,7 +48,6 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
   void initState() {
     super.initState();
     _lastIsRobot = widget.isRobot;
-    print('🔵 [UserAvatar] initState para "${widget.nick}", isRobot: ${widget.isRobot}');
     _loadAvatar();
     // Asegurar carga tras el primer frame (por si el setState no se aplica a tiempo en web)
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -81,7 +80,6 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
     }
     // Si cambió isRobot, recargar avatar (importante: puede cambiar la detección)
     if (oldWidget.isRobot != widget.isRobot) {
-      print('🔄 [UserAvatar] isRobot cambió para "${widget.nick}": ${oldWidget.isRobot} → ${widget.isRobot}');
       _lastIsRobot = widget.isRobot; // Actualizar inmediatamente
       _avatarLoaded = false;
       _avatarUrl = null;
@@ -152,7 +150,6 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
     
     // Si es un robot, no intentar cargar avatar de la red, usar directamente el fallback
     if (widget.isRobot) {
-      print('🤖 [UserAvatar] Robot detectado para "${widget.nick}", usando fallback: "${widget.fallbackIcon}"');
       if (mounted) {
         setState(() {
           _avatarUrl = null; // Forzar uso del fallback
@@ -162,24 +159,16 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
       return;
     }
     
-    // Usuario normal: intentar primero avatar GIF animado y luego PNG estático
-    print('👤 [UserAvatar] Usuario normal "${widget.nick}" (isRobot: ${widget.isRobot}), cargando avatar (GIF + PNG)...');
-
     final staticUrl = await AvatarService.getCorrectAvatarUrl(cleanNick);
     final gifUrl = AvatarService.getAvatarGifUrl(cleanNick);
-    
-    print('👤 [UserAvatar] URL estática para "${widget.nick}": ${staticUrl ?? "null"}');
-    print('👤 [UserAvatar] URL GIF para "${widget.nick}": $gifUrl');
-    
     if (mounted) {
       setState(() {
         _staticAvatarUrl = staticUrl;
         _gifAvatarUrl = gifUrl;
-        _avatarUrl = gifUrl; // Intentar primero el GIF animado
+        _avatarUrl = gifUrl;
         _avatarLoaded = true;
         _gifPreferred = true;
-        _triedDefaultAvatar = false; // reset al recargar
-        print('👤 [UserAvatar] Estado inicial avatar para "${widget.nick}": _avatarUrl=$_avatarUrl, _staticAvatarUrl=$_staticAvatarUrl');
+        _triedDefaultAvatar = false;
       });
     }
   }
@@ -194,14 +183,6 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
         customIcon ??
         (widget.nick.isNotEmpty ? widget.nick[0].toUpperCase() : '?');
     
-    // Debug para robots
-    if (widget.isRobot) {
-      print('🤖 [UserAvatar] Construyendo avatar para robot "${widget.nick}", fallback: "$fallback", _avatarUrl: $_avatarUrl, _avatarLoaded: $_avatarLoaded');
-    } else {
-      // Debug para usuarios normales
-      print('👤 [UserAvatar] Construyendo avatar para usuario normal "${widget.nick}", fallback: "$fallback", _avatarUrl: $_avatarUrl, _avatarLoaded: $_avatarLoaded, isRobot: ${widget.isRobot}');
-    }
-    
     // Detectar si el fallback es URL (emoticono JoyPixels), asset local o emoji/texto
     final isFallbackUrl = fallback.startsWith('http://') || fallback.startsWith('https://');
     final isFallbackAsset = fallback.startsWith('asset:');
@@ -210,10 +191,8 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
     // Incluso si _avatarLoaded es false, intentar cargar para que el errorBuilder maneje el fallback
     final shouldTryLoadAvatar = !widget.isRobot && _avatarUrl != null;
     
-    // Verificar si el usuario está en away
-    final whoisMap = ref.watch(whoisProvider);
-    final whoisInfo = whoisMap[widget.nick.toLowerCase()];
-    final isAway = whoisInfo?.isAway ?? false;
+    // Solo observar away de este nick para evitar rebuilds de todos los avatares
+    final isAway = ref.watch(whoisProvider.select((m) => m[widget.nick.toLowerCase()]?.isAway ?? false));
     
     return Stack(
       clipBehavior: Clip.none,
@@ -230,7 +209,7 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
           ),
           child: ClipOval(
             child: AnimatedSwitcher(
-          duration: const Duration(milliseconds: 300),
+          duration: const Duration(milliseconds: 120),
           transitionBuilder: (child, animation) {
             return FadeTransition(
               opacity: animation,
@@ -254,50 +233,25 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
                   // Suprimir errores de CORS en la consola no es posible desde Flutter
                   // pero el fallback visual funcionará correctamente
                   loadingBuilder: (context, child, loadingProgress) {
-                    if (loadingProgress == null) {
-                      print('✅ [UserAvatar] Avatar cargado exitosamente para "${widget.nick}"');
-                      return child;
-                    }
-                    // Mientras carga, mostrar el fallback con opacidad reducida
-                    print('⏳ [UserAvatar] Cargando avatar para "${widget.nick}": ${loadingProgress.cumulativeBytesLoaded}/${loadingProgress.expectedTotalBytes ?? 0} bytes');
+                    if (loadingProgress == null) return child;
                     return Opacity(
                       opacity: 0.5,
                       child: _buildFallback(fallback, isFallbackUrl, isFallbackAsset, key: ValueKey('${widget.nick}_loading_${widget.isRobot}')),
                     );
                   },
                   errorBuilder: (context, error, stackTrace) {
-                    // Estrategia de fallback:
-                    // 1) Si estamos intentando GIF, pasar a PNG estático (_staticAvatarUrl)
-                    // 2) Si PNG falla, intentar avatar generado por defecto del panel
-                    // 3) Si todo falla, usar fallback (emoji / inicial)
-                    print('⚠️ [UserAvatar] Error cargando avatar para "${widget.nick}": $error');
-                    print('⚠️ [UserAvatar] Stack trace: $stackTrace');
-
                     final cleanNick = widget.nick.trim();
-
                     if (_gifPreferred && _staticAvatarUrl != null) {
-                      // El GIF ha fallado: cambiar a avatar estático PNG.
                       _gifPreferred = false;
                       final nextUrl = _staticAvatarUrl!;
                       WidgetsBinding.instance.addPostFrameCallback((_) {
-                        if (mounted) {
-                          setState(() {
-                            _avatarUrl = nextUrl;
-                            print('🔄 [UserAvatar] Fallback de GIF a PNG estático para "$cleanNick": $_avatarUrl');
-                          });
-                        }
+                        if (mounted) setState(() => _avatarUrl = nextUrl);
                       });
                     } else if (!_triedDefaultAvatar) {
-                      // El avatar personalizado (GIF o PNG) ha fallado: intentar generador por defecto.
                       _triedDefaultAvatar = true;
                       final defaultUrl = AvatarService.getDefaultAvatarUrl(cleanNick);
                       WidgetsBinding.instance.addPostFrameCallback((_) {
-                        if (mounted) {
-                          setState(() {
-                            _avatarUrl = defaultUrl;
-                            print('🔄 [UserAvatar] Fallback a avatar generado por defecto para "$cleanNick": $_avatarUrl');
-                          });
-                        }
+                        if (mounted) setState(() => _avatarUrl = defaultUrl);
                       });
                     }
 

@@ -8,6 +8,7 @@ import 'package:uuid/uuid.dart';
 import '../models/user_role.dart';
 import '../models/video_report.dart';
 import '../utils/platform_utils.dart';
+import '../config/debug_config.dart';
 
 /// Servicio de base de datos para videoconferencias
 class VideoDatabaseService {
@@ -34,7 +35,7 @@ class VideoDatabaseService {
     final dbPath = await getDatabasesPath();
     final path = join(dbPath, 'video_moderation.db');
     
-    // print('📁 [VIDEO-DB] Inicializando base de datos en: $path');
+    // debugLog('📁 [VIDEO-DB] Inicializando base de datos en: $path');
     
     return await openDatabase(
       path,
@@ -46,7 +47,7 @@ class VideoDatabaseService {
   
   /// Crear tablas
   Future<void> _createTables(Database db, int version) async {
-    // print('📊 [VIDEO-DB] Creando tablas...');
+    // debugLog('📊 [VIDEO-DB] Creando tablas...');
     
     // Tabla de perfiles de usuario
     await db.execute('''
@@ -164,12 +165,12 @@ class VideoDatabaseService {
     await db.execute('CREATE INDEX idx_moderation_target ON moderation_actions (target_nick)');
     await db.execute('CREATE INDEX idx_reports_status ON video_reports (status)');
     
-    // print('✅ [VIDEO-DB] Tablas creadas exitosamente');
+    // debugLog('✅ [VIDEO-DB] Tablas creadas exitosamente');
   }
   
   /// Actualizar tablas (para futuras versiones)
   Future<void> _upgradeTables(Database db, int oldVersion, int newVersion) async {
-    // print('🔄 [VIDEO-DB] Actualizando base de datos de v$oldVersion a v$newVersion');
+    // debugLog('🔄 [VIDEO-DB] Actualizando base de datos de v$oldVersion a v$newVersion');
     
     if (oldVersion < 2) {
       // Añadir campos de perfil personal (sexo, edad, intereses)
@@ -177,9 +178,9 @@ class VideoDatabaseService {
         await db.execute('ALTER TABLE user_profiles ADD COLUMN gender TEXT');
         await db.execute('ALTER TABLE user_profiles ADD COLUMN age INTEGER');
         await db.execute('ALTER TABLE user_profiles ADD COLUMN interests TEXT');
-        // print('✅ [VIDEO-DB] Campos gender, age, interests añadidos');
+        // debugLog('✅ [VIDEO-DB] Campos gender, age, interests añadidos');
       } catch (e) {
-        // print('⚠️ [VIDEO-DB] Error al añadir columnas (puede que ya existan): $e');
+        // debugLog('⚠️ [VIDEO-DB] Error al añadir columnas (puede que ya existan): $e');
       }
     }
   }
@@ -216,7 +217,7 @@ class VideoDatabaseService {
         await prefs.setStringList('user_profiles_list', profilesList);
       }
       
-      print('💾 [VIDEO-DB] Perfil guardado en web: ${profile.nick}');
+      debugLog('💾 [VIDEO-DB] Perfil guardado en web: ${profile.nick}');
       return;
     }
     
@@ -245,7 +246,7 @@ class VideoDatabaseService {
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
     
-    // print('💾 [VIDEO-DB] Perfil guardado: ${profile.nick} (Rep: ${profile.reputation})');
+    // debugLog('💾 [VIDEO-DB] Perfil guardado: ${profile.nick} (Rep: ${profile.reputation})');
   }
   
   /// Obtener perfil de usuario
@@ -279,7 +280,7 @@ class VideoDatabaseService {
           interests: (map['interests'] as List<dynamic>?)?.map((i) => i.toString()).toList() ?? [],
         );
       } catch (e) {
-        print('⚠️ [VIDEO-DB] Error parseando perfil en web: $e');
+        debugLog('⚠️ [VIDEO-DB] Error parseando perfil en web: $e');
         return null;
       }
     }
@@ -321,7 +322,7 @@ class VideoDatabaseService {
     final profile = await getUserProfile(nick);
     
     if (profile == null) {
-      // print('⚠️ [VIDEO-DB] No se encontró perfil para $nick');
+      // debugLog('⚠️ [VIDEO-DB] No se encontró perfil para $nick');
       return;
     }
     
@@ -353,7 +354,7 @@ class VideoDatabaseService {
       'created_at': DateTime.now().toIso8601String(),
     });
     
-    // print('📊 [VIDEO-DB] Reputación actualizada: $nick $oldReputation → $clampedReputation ($reason)');
+    // debugLog('📊 [VIDEO-DB] Reputación actualizada: $nick $oldReputation → $clampedReputation ($reason)');
   }
   
   /// Incrementar reputación (buena acción)
@@ -402,7 +403,7 @@ class VideoDatabaseService {
     // Bajar reputación a 0
     await updateReputation(nick, 0, 'Baneado: $reason');
     
-    // print('🚫 [VIDEO-DB] Usuario baneado: $nick (${expiresAt != null ? "temporal" : "permanente"})');
+    // debugLog('🚫 [VIDEO-DB] Usuario baneado: $nick (${expiresAt != null ? "temporal" : "permanente"})');
   }
   
   /// Desbanear usuario
@@ -423,7 +424,7 @@ class VideoDatabaseService {
     // Restaurar reputación a 50
     await updateReputation(nick, 50, 'Desbaneado');
     
-    // print('✅ [VIDEO-DB] Usuario desbaneado: $nick');
+    // debugLog('✅ [VIDEO-DB] Usuario desbaneado: $nick');
   }
   
   // ==================== VERIFICACIÓN DE EMAIL ====================
@@ -451,9 +452,9 @@ class VideoDatabaseService {
     });
     
     // TODO: Aquí se enviaría el email real
-    // print('📧 [VIDEO-DB] Código de verificación generado para $nick: $code');
-    // print('   Email: $email');
-    // print('   Expira: ${expiresAt.toLocal()}');
+    // debugLog('📧 [VIDEO-DB] Código de verificación generado para $nick: $code');
+    // debugLog('   Email: $email');
+    // debugLog('   Expira: ${expiresAt.toLocal()}');
     
     return code;
   }
@@ -472,7 +473,7 @@ class VideoDatabaseService {
     );
     
     if (results.isEmpty) {
-      // print('❌ [VIDEO-DB] Código inválido para $nick');
+      // debugLog('❌ [VIDEO-DB] Código inválido para $nick');
       return false;
     }
     
@@ -480,7 +481,7 @@ class VideoDatabaseService {
     final expiresAt = DateTime.parse(verification['expires_at'] as String);
     
     if (now.isAfter(expiresAt)) {
-      // print('⏰ [VIDEO-DB] Código expirado para $nick');
+      // debugLog('⏰ [VIDEO-DB] Código expirado para $nick');
       return false;
     }
     
@@ -510,7 +511,7 @@ class VideoDatabaseService {
     // Aumentar reputación por verificar email
     await increaseReputation(nick, 10, 'Email verificado');
     
-    // print('✅ [VIDEO-DB] Email verificado para $nick');
+    // debugLog('✅ [VIDEO-DB] Email verificado para $nick');
     return true;
   }
   
@@ -528,7 +529,7 @@ class VideoDatabaseService {
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
     
-    // print('💾 [VIDEO-DB] Conferencia guardada: ${conferenceData['id']}');
+    // debugLog('💾 [VIDEO-DB] Conferencia guardada: ${conferenceData['id']}');
   }
   
   /// Finalizar conferencia
@@ -555,7 +556,7 @@ class VideoDatabaseService {
       whereArgs: [conferenceId],
     );
     
-    // print('⏱️ [VIDEO-DB] Conferencia finalizada: $conferenceId (${duration}s)');
+    // debugLog('⏱️ [VIDEO-DB] Conferencia finalizada: $conferenceId (${duration}s)');
   }
   
   /// Obtener historial de conferencias
@@ -601,7 +602,7 @@ class VideoDatabaseService {
       'created_at': action.timestamp.toIso8601String(),
     });
     
-    // print('💾 [VIDEO-DB] Acción de moderación guardada: ${action.action} por ${action.moderatorNick}');
+    // debugLog('💾 [VIDEO-DB] Acción de moderación guardada: ${action.action} por ${action.moderatorNick}');
   }
   
   /// Obtener historial de moderación
@@ -665,7 +666,7 @@ class VideoDatabaseService {
       WHERE nick = ?
     ''', [report.reporterNick]);
     
-    // print('💾 [VIDEO-DB] Reporte guardado: ${report.reportedNick} por ${report.type.name}');
+    // debugLog('💾 [VIDEO-DB] Reporte guardado: ${report.reportedNick} por ${report.type.name}');
   }
   
   /// Resolver reporte
@@ -683,7 +684,7 @@ class VideoDatabaseService {
       whereArgs: [reportId],
     );
     
-    // print('✅ [VIDEO-DB] Reporte resuelto: $reportId por $resolvedBy');
+    // debugLog('✅ [VIDEO-DB] Reporte resuelto: $reportId por $resolvedBy');
   }
   
   /// Obtener reportes
@@ -770,7 +771,7 @@ class VideoDatabaseService {
     await db.delete('conferences_log');
     await db.delete('moderation_actions');
     await db.delete('video_reports');
-    // print('🗑️ [VIDEO-DB] Base de datos limpiada');
+    // debugLog('🗑️ [VIDEO-DB] Base de datos limpiada');
   }
   
   /// Cerrar base de datos
@@ -778,7 +779,7 @@ class VideoDatabaseService {
     if (_database != null) {
       await _database!.close();
       _database = null;
-      // print('🔒 [VIDEO-DB] Base de datos cerrada');
+      // debugLog('🔒 [VIDEO-DB] Base de datos cerrada');
     }
   }
 }

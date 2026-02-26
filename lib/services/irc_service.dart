@@ -9,6 +9,7 @@ import '../utils/irc_color_parser.dart';
 import 'irc_connection_interface.dart';
 import 'irc_connection_factory.dart';
 import '../utils/platform_utils.dart';
+import '../config/debug_config.dart';
 
 class IRCService {
   IRCConnection? _connection;
@@ -83,7 +84,7 @@ class IRCService {
   /// de la URL `joinchanneloficial=false`.
   void setAutoJoinOfficialGlobalChat(bool value) {
     _autoJoinOfficialGlobalChat = value;
-    print('🌐 [IRC] Configuración autoJoinOfficialGlobalChat = $value');
+    debugLog('🌐 [IRC] Configuración autoJoinOfficialGlobalChat = $value');
   }
 
   /// Obtiene el host del servidor conectado
@@ -102,9 +103,9 @@ class IRCService {
       _currentHost = host;
       // Limpiar el nick antes de asignarlo (eliminar espacios y guiones al final)
       final cleanNick = nickname.trim();
-      print('📡 [IRCService.connect] Connecting to $host:$port as $cleanNick (SSL: $useSSL)');
-      print('📡 [IRCService.connect] Platform: ${PlatformUtils.isWeb ? "Web" : "Native"}');
-      print('📡 [IRCService.connect] Nick original: "$nickname" -> Limpio: "$cleanNick"');
+      debugLog('📡 [IRCService.connect] Connecting to $host:$port as $cleanNick (SSL: $useSSL)');
+      debugLog('📡 [IRCService.connect] Platform: ${PlatformUtils.isWeb ? "Web" : "Native"}');
+      debugLog('📡 [IRCService.connect] Nick original: "$nickname" -> Limpio: "$cleanNick"');
       _nickname = cleanNick;
       _originalNickname = cleanNick; // Guardar el nick original
       _nickAttempts = 0; // Resetear contador de intentos
@@ -113,9 +114,9 @@ class IRCService {
       
       // Crear conexión apropiada para la plataforma
       _connection = IRCConnectionFactory.create();
-      print('📡 [IRCService] Connection type: ${_connection.runtimeType}');
-      print('📡 [IRCService] PlatformUtils.canUseNativeSockets: ${PlatformUtils.canUseNativeSockets}');
-      print('📡 [IRCService] PlatformUtils.mustUseWebSocket: ${PlatformUtils.mustUseWebSocket}');
+      debugLog('📡 [IRCService] Connection type: ${_connection.runtimeType}');
+      debugLog('📡 [IRCService] PlatformUtils.canUseNativeSockets: ${PlatformUtils.canUseNativeSockets}');
+      debugLog('📡 [IRCService] PlatformUtils.mustUseWebSocket: ${PlatformUtils.mustUseWebSocket}');
       
       // Host de respaldo si falla el servidor elegido (todos los nodos detrás)
       const String fallbackHost = 'irc.globalchat.org';
@@ -124,14 +125,14 @@ class IRCService {
       // Conectar usando la interfaz abstracta; si falla, intentar irc.globalchat.org
       try {
         await _connection!.connect(host, port, useSSL: useSSL);
-        print('✅ [IRCService] Connection established to $host:$port using ${_connection.runtimeType}');
+        debugLog('✅ [IRCService] Connection established to $host:$port using ${_connection.runtimeType}');
       } catch (e, stackTrace) {
-        print('❌ [IRCService] Connection failed to $host:$port: $e');
+        debugLog('❌ [IRCService] Connection failed to $host:$port: $e');
         if (host == fallbackHost) {
-          print('❌ [IRCService] Fallback host also failed.');
+          debugLog('❌ [IRCService] Fallback host also failed.');
           rethrow;
         }
-        print('🔄 [IRCService] Retrying with $fallbackHost:$fallbackPort...');
+        debugLog('🔄 [IRCService] Retrying with $fallbackHost:$fallbackPort...');
         try {
           _connection?.disconnect();
         } catch (_) {}
@@ -139,9 +140,9 @@ class IRCService {
         _currentHost = fallbackHost;
         try {
           await _connection!.connect(fallbackHost, fallbackPort, useSSL: true);
-          print('✅ [IRCService] Connection established to $fallbackHost:$fallbackPort (fallback)');
+          debugLog('✅ [IRCService] Connection established to $fallbackHost:$fallbackPort (fallback)');
         } catch (e2, st2) {
-          print('❌ [IRCService] Fallback connection also failed: $e2');
+          debugLog('❌ [IRCService] Fallback connection also failed: $e2');
           rethrow;
         }
       }
@@ -153,18 +154,18 @@ class IRCService {
           _handleData(data);
         },
         onDone: () {
-          // print('⛔ [IRCService] Connection closed');
+          // debugLog('⛔ [IRCService] Connection closed');
           _onDisconnect();
         },
         onError: (error) {
-          // print('❌ [IRCService] Connection error: $error');
+          // debugLog('❌ [IRCService] Connection error: $error');
           _onDisconnect();
         },
       );
 
       // Send initial IRC commands
       // Usar el nick limpio (ya está en _nickname)
-      print('📡 [IRCService] Enviando NICK con nick limpio: "$_nickname"');
+      debugLog('📡 [IRCService] Enviando NICK con nick limpio: "$_nickname"');
       _sendCommand('NICK $_nickname');
       
       // Comando USER con formato correcto: USER username hostname servername :realname
@@ -188,8 +189,8 @@ class IRCService {
       final realname = '${_nickname} - IRC App';
       _sendCommand('USER $cleanUsername 0 * :$realname');
       
-      print('✅ [IRCService] Commands sent: NICK $_nickname, USER $cleanUsername 0 * :$realname');
-      // print('✅ [IRCService] Listener registered');
+      debugLog('✅ [IRCService] Commands sent: NICK $_nickname, USER $cleanUsername 0 * :$realname');
+      // debugLog('✅ [IRCService] Listener registered');
       
       // Set connection as established
       _isConnected = true;
@@ -198,14 +199,14 @@ class IRCService {
       _startAwayStatusUpdateTimer();
       
       // Notify listeners
-      // print('📢 [IRCService] Notifying listeners');
+      // debugLog('📢 [IRCService] Notifying listeners');
       for (var listener in _connectionListeners) {
         listener();
       }
       
-      // print('✅ [IRCService.connect] Connection completed and returned');
+      // debugLog('✅ [IRCService.connect] Connection completed and returned');
     } catch (e) {
-      // print('❌ [IRCService] Fatal connection error: $e');
+      // debugLog('❌ [IRCService] Fatal connection error: $e');
       _isConnected = false;
       rethrow;
     }
@@ -263,7 +264,7 @@ class IRCService {
     
     // Validación final: debe empezar con # y no tener : después
     if (!normalized.startsWith('#') || normalized.contains(':#')) {
-      // print('🔍 [DEBUG] ⚠️  Invalid channel name after normalization: "$normalized" (original: "$channelName")');
+      // debugLog('🔍 [DEBUG] ⚠️  Invalid channel name after normalization: "$normalized" (original: "$channelName")');
       // Intentar limpiar más agresivamente
       var cleaned = normalized.replaceAll(':#', '#').replaceAll('::', ':');
       if (cleaned.startsWith(':')) {
@@ -290,18 +291,18 @@ class IRCService {
     // Normalizar el nombre del canal
     final normalized = _normalizeChannelName(channelName);
     
-    // print('🔍 [DEBUG] joinChannel called with: "$channelName" -> normalized: "$normalized"');
-    // print('🔍 [DEBUG] User registered status: $_isRegistered');
+    // debugLog('🔍 [DEBUG] joinChannel called with: "$channelName" -> normalized: "$normalized"');
+    // debugLog('🔍 [DEBUG] User registered status: $_isRegistered');
     
     // Si el usuario no está registrado todavía, esperar un poco más
     if (!_isRegistered) {
-      // print('🔍 [DEBUG] ⚠️  User not registered yet, waiting for 001 message...');
+      // debugLog('🔍 [DEBUG] ⚠️  User not registered yet, waiting for 001 message...');
       Future.delayed(const Duration(milliseconds: 2000), () {
         if (_isRegistered) {
-          // print('🔍 [DEBUG] ✅ User now registered, joining channel');
+          // debugLog('🔍 [DEBUG] ✅ User now registered, joining channel');
           _doJoinChannel(normalized);
         } else {
-          // print('🔍 [DEBUG] ⚠️  Still not registered, trying anyway...');
+          // debugLog('🔍 [DEBUG] ⚠️  Still not registered, trying anyway...');
           _doJoinChannel(normalized);
         }
       });
@@ -311,45 +312,45 @@ class IRCService {
   }
   
   void _doJoinChannel(String normalized) {
-    print('🚪 [IRC] Intentando unirse al canal: $normalized');
-    print('🚪 [IRC] Estado: isRegistered=$_isRegistered, isConnected=$_isConnected');
+    debugLog('🚪 [IRC] Intentando unirse al canal: $normalized');
+    debugLog('🚪 [IRC] Estado: isRegistered=$_isRegistered, isConnected=$_isConnected');
     _currentChannel = normalized;
     _sendCommand('JOIN $normalized');
-    print('🚪 [IRC] Comando JOIN enviado: JOIN $normalized');
+    debugLog('🚪 [IRC] Comando JOIN enviado: JOIN $normalized');
     
     // Initialize channel if not exists (usar nombre normalizado)
     if (!channels.containsKey(normalized)) {
       channels[normalized] = IRCChannel(name: normalized);
-      // print('🔍 [DEBUG] Created new channel entry: $normalized');
+      // debugLog('🔍 [DEBUG] Created new channel entry: $normalized');
     } else {
-      // print('🔍 [DEBUG] Channel already exists: $normalized');
+      // debugLog('🔍 [DEBUG] Channel already exists: $normalized');
     }
     
     // Solicitar la lista de usuarios y el TOPIC después de unirse
     // Usar múltiples intentos para asegurar que se reciba la lista
     Future.delayed(const Duration(milliseconds: 500), () {
       if (_isConnected && _hasActiveConnection) {
-        // print('🔍 [DEBUG] Requesting NAMES for $normalized (first attempt)');
+        // debugLog('🔍 [DEBUG] Requesting NAMES for $normalized (first attempt)');
         _sendCommand('NAMES $normalized');
-        // print('🔍 [DEBUG] Requesting TOPIC for $normalized (first attempt)');
+        // debugLog('🔍 [DEBUG] Requesting TOPIC for $normalized (first attempt)');
         _sendCommand('TOPIC $normalized');
       }
     });
     
     Future.delayed(const Duration(milliseconds: 1500), () {
       if (_isConnected && _hasActiveConnection) {
-        // print('🔍 [DEBUG] Requesting NAMES for $normalized (second attempt)');
+        // debugLog('🔍 [DEBUG] Requesting NAMES for $normalized (second attempt)');
         _sendCommand('NAMES $normalized');
-        // print('🔍 [DEBUG] Requesting TOPIC for $normalized (second attempt)');
+        // debugLog('🔍 [DEBUG] Requesting TOPIC for $normalized (second attempt)');
         _sendCommand('TOPIC $normalized');
       }
     });
     
     Future.delayed(const Duration(milliseconds: 3000), () {
       if (_isConnected && _hasActiveConnection) {
-        // print('🔍 [DEBUG] Requesting NAMES for $normalized (third attempt)');
+        // debugLog('🔍 [DEBUG] Requesting NAMES for $normalized (third attempt)');
         _sendCommand('NAMES $normalized');
-        // print('🔍 [DEBUG] Requesting TOPIC for $normalized (third attempt)');
+        // debugLog('🔍 [DEBUG] Requesting TOPIC for $normalized (third attempt)');
         _sendCommand('TOPIC $normalized');
       }
     });
@@ -366,7 +367,7 @@ class IRCService {
     // Si el usuario cierra #globalchat manualmente, marcarlo para no volver a abrirlo automáticamente
     if (normalized.toLowerCase() == '#globalchat') {
       _manuallyClosedChannels.add(normalized.toLowerCase());
-      print('🌐 [IRC] #globalchat cerrado manualmente, no se volverá a abrir automáticamente');
+      debugLog('🌐 [IRC] #globalchat cerrado manualmente, no se volverá a abrir automáticamente');
     }
   }
 
@@ -392,13 +393,13 @@ class IRCService {
       );
       channels[normalized]!.addMessage(msg);
       _notifyMessageListeners(msg);
-      // print('📤 [IRCService] Mensaje marcado como PENDIENTE: $pendingId (delay: ${delaySeconds}s)');
+      // debugLog('📤 [IRCService] Mensaje marcado como PENDIENTE: $pendingId (delay: ${delaySeconds}s)');
       
       // Programar el envío después del delay
       if (delaySeconds > 0) {
-        // print('⏱️  [IRCService] Programando envío de mensaje $pendingId en ${delaySeconds}s');
+        // debugLog('⏱️  [IRCService] Programando envío de mensaje $pendingId en ${delaySeconds}s');
         final timer = Timer(Duration(seconds: delaySeconds), () {
-          // print('⏱️  [IRCService] Timer ejecutado, enviando mensaje $pendingId');
+          // debugLog('⏱️  [IRCService] Timer ejecutado, enviando mensaje $pendingId');
     // Dividir el mensaje en líneas y enviar cada línea como un PRIVMSG separado
     final lines = message.split('\n');
     for (int i = 0; i < lines.length; i++) {
@@ -409,11 +410,11 @@ class IRCService {
         if (i == 0 && replyToMessageId != null) {
           line = '$line [reply:$replyToMessageId]';
         }
-              // print('📤 [IRCService] Enviando línea: $line');
+              // debugLog('📤 [IRCService] Enviando línea: $line');
         _sendCommand('PRIVMSG $normalized :$line');
       }
     }
-          // print('📤 [IRCService] Mensaje enviado al servidor después de delay: $pendingId');
+          // debugLog('📤 [IRCService] Mensaje enviado al servidor después de delay: $pendingId');
           // Eliminar el timer del mapa después de ejecutarse
           _pendingMessageTimers.remove(pendingId);
           
@@ -423,7 +424,7 @@ class IRCService {
             if (channelObj != null) {
               final currentPendingMessages = channelObj.messages.where((m) => m.isPending && m.pendingId == pendingId).toList();
               if (currentPendingMessages.isNotEmpty) {
-                // print('⚠️  [IRCService] Mensaje con delay $pendingId aún pendiente después de 500ms, auto-confirmando.');
+                // debugLog('⚠️  [IRCService] Mensaje con delay $pendingId aún pendiente después de 500ms, auto-confirmando.');
                 confirmPendingMessage(normalized, message, DateTime.now());
               }
             }
@@ -432,7 +433,7 @@ class IRCService {
         _pendingMessageTimers[pendingId] = timer;
       } else {
         // Sin delay, enviar inmediatamente
-        // print('📤 [IRCService] Enviando mensaje sin delay inmediatamente: $pendingId');
+        // debugLog('📤 [IRCService] Enviando mensaje sin delay inmediatamente: $pendingId');
         final lines = message.split('\n');
         for (int i = 0; i < lines.length; i++) {
           var line = lines[i].trim();
@@ -442,11 +443,11 @@ class IRCService {
             if (i == 0 && replyToMessageId != null) {
               line = '$line [reply:$replyToMessageId]';
             }
-            // print('📤 [IRCService] Enviando línea sin delay: $line');
+            // debugLog('📤 [IRCService] Enviando línea sin delay: $line');
             _sendCommand('PRIVMSG $normalized :$line');
           }
         }
-        // print('✅ [IRCService] Mensaje sin delay enviado, esperando confirmación del servidor (pendingId: $pendingId)');
+        // debugLog('✅ [IRCService] Mensaje sin delay enviado, esperando confirmación del servidor (pendingId: $pendingId)');
         
         // Si el servidor no devuelve el PRIVMSG como eco, confirmar automáticamente después de un breve delay
         // Esto es necesario porque algunos servidores IRC no devuelven el PRIVMSG como eco
@@ -466,15 +467,15 @@ class IRCService {
             
             // Si el mensaje aún está pendiente, confirmarlo automáticamente
             if (pendingMsg.isPending && pendingMsg.pendingId == pendingId) {
-              // print('⏰ [IRCService] Servidor no devolvió PRIVMSG, confirmando automáticamente después de 500ms');
+              // debugLog('⏰ [IRCService] Servidor no devolvió PRIVMSG, confirmando automáticamente después de 500ms');
               final confirmed = confirmPendingMessage(normalized, message, DateTime.now());
               if (confirmed) {
-                // print('✅ [IRCService] Mensaje confirmado automáticamente: $pendingId');
+                // debugLog('✅ [IRCService] Mensaje confirmado automáticamente: $pendingId');
               } else {
-                // print('⚠️  [IRCService] No se pudo confirmar automáticamente el mensaje: $pendingId');
+                // debugLog('⚠️  [IRCService] No se pudo confirmar automáticamente el mensaje: $pendingId');
               }
             } else {
-              // print('✅ [IRCService] Mensaje ya fue confirmado por el servidor: $pendingId');
+              // debugLog('✅ [IRCService] Mensaje ya fue confirmado por el servidor: $pendingId');
             }
           }
         });
@@ -493,7 +494,7 @@ class IRCService {
     final timer = _pendingMessageTimers.remove(pendingId);
     if (timer != null) {
       timer.cancel();
-      // print('⏱️  [IRCService] Timer cancelado para mensaje: $pendingId');
+      // debugLog('⏱️  [IRCService] Timer cancelado para mensaje: $pendingId');
     }
     
     final channelObj = channels[normalized]!;
@@ -503,7 +504,7 @@ class IRCService {
     
     if (index != -1) {
       channelObj.messages.removeAt(index);
-      // print('🗑️  [IRCService] Mensaje pendiente eliminado: $pendingId');
+      // debugLog('🗑️  [IRCService] Mensaje pendiente eliminado: $pendingId');
       // Notificar a los listeners para actualizar la UI
       _notifyMessageListeners(channelObj.messages.isNotEmpty 
           ? channelObj.messages.last 
@@ -531,7 +532,7 @@ class IRCService {
     // Buscar el mensaje pendiente más reciente
     final pendingMessages = channelObj.messages.where((msg) => msg.isPending && msg.pendingId != null).toList();
     if (pendingMessages.isEmpty) {
-      // print('⚠️  [IRCService] No hay mensajes pendientes para forzar envío');
+      // debugLog('⚠️  [IRCService] No hay mensajes pendientes para forzar envío');
       return false;
     }
     
@@ -540,13 +541,13 @@ class IRCService {
     final pendingMsg = pendingMessages.first;
     final pendingId = pendingMsg.pendingId!;
     
-    // print('⚡ [IRCService] Forzando envío inmediato del mensaje: $pendingId');
+    // debugLog('⚡ [IRCService] Forzando envío inmediato del mensaje: $pendingId');
     
     // Cancelar el timer si existe
     final timer = _pendingMessageTimers.remove(pendingId);
     if (timer != null) {
       timer.cancel();
-      // print('⏱️  [IRCService] Timer cancelado para forzar envío: $pendingId');
+      // debugLog('⏱️  [IRCService] Timer cancelado para forzar envío: $pendingId');
     }
     
     // Enviar el mensaje inmediatamente
@@ -555,14 +556,14 @@ class IRCService {
     for (var line in lines) {
       line = line.trim();
       if (line.isNotEmpty) {
-        // print('📤 [IRCService] Enviando línea inmediatamente: $line');
+        // debugLog('📤 [IRCService] Enviando línea inmediatamente: $line');
         _sendCommand('PRIVMSG $normalized :$line');
       }
     }
     
     // NO confirmar aquí - esperar a que el servidor devuelva el PRIVMSG
     // confirmPendingMessage(normalized, message, DateTime.now());
-    // print('✅ [IRCService] Mensaje enviado inmediatamente: $pendingId (esperando confirmación del servidor)');
+    // debugLog('✅ [IRCService] Mensaje enviado inmediatamente: $pendingId (esperando confirmación del servidor)');
     return true;
   }
   
@@ -577,7 +578,7 @@ class IRCService {
     // Buscar el mensaje pendiente más reciente
     final pendingMessages = channelObj.messages.where((msg) => msg.isPending && msg.pendingId != null).toList();
     if (pendingMessages.isEmpty) {
-      // print('⚠️  [IRCService] No hay mensajes privados pendientes para forzar envío');
+      // debugLog('⚠️  [IRCService] No hay mensajes privados pendientes para forzar envío');
       return false;
     }
     
@@ -586,13 +587,13 @@ class IRCService {
     final pendingMsg = pendingMessages.first;
     final pendingId = pendingMsg.pendingId!;
     
-    // print('⚡ [IRCService] Forzando envío inmediato del mensaje privado: $pendingId');
+    // debugLog('⚡ [IRCService] Forzando envío inmediato del mensaje privado: $pendingId');
     
     // Cancelar el timer si existe
     final timer = _pendingMessageTimers.remove(pendingId);
     if (timer != null) {
       timer.cancel();
-      // print('⏱️  [IRCService] Timer cancelado para forzar envío privado: $pendingId');
+      // debugLog('⏱️  [IRCService] Timer cancelado para forzar envío privado: $pendingId');
     }
     
     // Enviar el mensaje inmediatamente
@@ -601,14 +602,14 @@ class IRCService {
     for (var line in lines) {
       line = line.trim();
       if (line.isNotEmpty) {
-        // print('📤 [IRCService] Enviando línea privada inmediatamente: $line');
+        // debugLog('📤 [IRCService] Enviando línea privada inmediatamente: $line');
         _sendCommand('PRIVMSG $normalized :$line');
       }
     }
     
     // Confirmar el mensaje inmediatamente
     confirmPendingMessage(normalized, message, DateTime.now());
-    // print('✅ [IRCService] Mensaje privado enviado inmediatamente: $pendingId');
+    // debugLog('✅ [IRCService] Mensaje privado enviado inmediatamente: $pendingId');
     return true;
   }
   
@@ -621,7 +622,7 @@ class IRCService {
         ? _normalizeChannelName(channel)
         : channel.trim().toLowerCase();
     if (!channels.containsKey(normalized)) {
-      // print('⚠️  [IRCService] Canal no existe para confirmar: $normalized');
+      // debugLog('⚠️  [IRCService] Canal no existe para confirmar: $normalized');
       return false;
     }
     
@@ -629,8 +630,8 @@ class IRCService {
     // Buscar mensaje pendiente que coincida (mismo canal, mismo mensaje, mismo timestamp aproximado)
     // Comparar mensajes normalizados (sin espacios extra, case-insensitive para el contenido)
     final normalizedReceivedMessage = message.trim();
-    // print('🔍 [IRCService] Buscando mensaje pendiente para confirmar: "$normalizedReceivedMessage" en canal $normalized');
-    // print('🔍 [IRCService] Total mensajes en canal: ${channelObj.messages.length}');
+    // debugLog('🔍 [IRCService] Buscando mensaje pendiente para confirmar: "$normalizedReceivedMessage" en canal $normalized');
+    // debugLog('🔍 [IRCService] Total mensajes en canal: ${channelObj.messages.length}');
     
     // Buscar desde el final (más reciente) hacia el principio para encontrar el mensaje más reciente primero
     for (var i = channelObj.messages.length - 1; i >= 0; i--) {
@@ -638,7 +639,7 @@ class IRCService {
       if (msg.isPending && msg.channel == normalized) {
         // Comparar mensajes normalizados (trim y comparar)
         final normalizedPendingMessage = msg.message.trim();
-        // print('🔍 [IRCService] Comparando pendiente[$i]: "$normalizedPendingMessage" con recibido: "$normalizedReceivedMessage"');
+        // debugLog('🔍 [IRCService] Comparando pendiente[$i]: "$normalizedPendingMessage" con recibido: "$normalizedReceivedMessage"');
         // También verificar si el mensaje recibido contiene el mensaje pendiente o viceversa
         // (por si hay diferencias menores en el formato)
         if (normalizedPendingMessage == normalizedReceivedMessage ||
@@ -651,7 +652,7 @@ class IRCService {
             // Preservar replyToMessageId y otros campos
           );
           channelObj.messages[i] = confirmedMsg;
-          // print('✅ [IRCService] Mensaje confirmado en índice $i: ${msg.pendingId}');
+          // debugLog('✅ [IRCService] Mensaje confirmado en índice $i: ${msg.pendingId}');
           // Notificar a los listeners de mensajes para actualizar la UI
           _notifyMessageListeners(confirmedMsg);
           // También notificar a los listeners de lista de usuarios para forzar actualización del provider
@@ -660,12 +661,12 @@ class IRCService {
         }
       }
     }
-    // print('⚠️  [IRCService] No se encontró mensaje pendiente para confirmar: "$normalizedReceivedMessage" en canal $normalized');
+    // debugLog('⚠️  [IRCService] No se encontró mensaje pendiente para confirmar: "$normalizedReceivedMessage" en canal $normalized');
     // Listar todos los mensajes pendientes para debug
     final pendingMessages = channelObj.messages.where((m) => m.isPending).toList();
-    // print('🔍 [IRCService] Mensajes pendientes en canal: ${pendingMessages.length}');
+    // debugLog('🔍 [IRCService] Mensajes pendientes en canal: ${pendingMessages.length}');
     for (var pending in pendingMessages) {
-      // print('🔍 [IRCService]   - Pending: "${pending.message}" (ID: ${pending.pendingId})');
+      // debugLog('🔍 [IRCService]   - Pending: "${pending.message}" (ID: ${pending.pendingId})');
     }
     return false;
   }
@@ -675,27 +676,27 @@ class IRCService {
     // Los servicios IRC no usan #, solo el nombre del servicio
     final serviceName = service.trim();
     _sendCommand('PRIVMSG $serviceName :$message');
-    // print('📤 [IRCService] Enviando mensaje a servicio $serviceName: $message');
+    // debugLog('📤 [IRCService] Enviando mensaje a servicio $serviceName: $message');
   }
 
   // Identificar el nick con el bot "nick" usando IDENTIFY
   void identifyNick(String password) {
     if (_nickname == null || _nickname!.isEmpty) {
-      // print('⚠️ [IRCService] No hay nick para identificar');
+      // debugLog('⚠️ [IRCService] No hay nick para identificar');
       return;
     }
     
     final trimmedPassword = password.trim();
     if (trimmedPassword.isEmpty) {
-      // print('⚠️ [IRCService] La contraseña está vacía');
+      // debugLog('⚠️ [IRCService] La contraseña está vacía');
       return;
     }
     
     // Enviar IDENTIFY al bot "nick" (equivale a /msg nick identify password)
     // Formato: PRIVMSG nick :identify password (el bot identifica por el nick actual)
     final command = 'PRIVMSG nick :identify $trimmedPassword';
-    // print('🔐 [IRCService] Identificando nick ${_nickname} con bot "nick"');
-    // print('🔐 [IRCService] Comando completo: $command');
+    // debugLog('🔐 [IRCService] Identificando nick ${_nickname} con bot "nick"');
+    // debugLog('🔐 [IRCService] Comando completo: $command');
     _sendCommand(command);
   }
 
@@ -711,19 +712,19 @@ class IRCService {
         // Enviar comando STATUS al bot "nick" (no "NickServ")
         // Formato: PRIVMSG nick :STATUS nick
         _sendCommand('PRIVMSG nick :STATUS $nick');
-        // print('📋 [IRCService] Verificando status del nick: $nick');
-        // print('📋 [IRCService] Comando enviado: PRIVMSG nick :STATUS $nick');
+        // debugLog('📋 [IRCService] Verificando status del nick: $nick');
+        // debugLog('📋 [IRCService] Comando enviado: PRIVMSG nick :STATUS $nick');
     
     // Timeout después de 10 segundos (aumentado para dar más tiempo al servidor)
     Timer(const Duration(seconds: 10), () {
       // Verificar si el completer todavía existe y no está completado
       final existingCompleter = _statusCheckCompleters[normalizedNick];
       if (existingCompleter != null && existingCompleter == completer && !completer.isCompleted) {
-        // print('⏱️  [IRCService] Timeout verificando status del nick: $nick');
+        // debugLog('⏱️  [IRCService] Timeout verificando status del nick: $nick');
         _statusCheckCompleters.remove(normalizedNick);
         completer.complete(null);
       } else if (completer.isCompleted) {
-        // print('✅ [IRCService] Status ya recibido para nick: $nick (timeout ignorado)');
+        // debugLog('✅ [IRCService] Status ya recibido para nick: $nick (timeout ignorado)');
       }
     });
     
@@ -739,7 +740,7 @@ class IRCService {
   void sendWho(String channel) {
     final normalized = _normalizeChannelName(channel);
     _sendCommand('WHO $normalized');
-    // print('👤 [IRCService] Solicitando información de usuarios en $normalized');
+    // debugLog('👤 [IRCService] Solicitando información de usuarios en $normalized');
   }
 
   void sendList([String? pattern]) {
@@ -748,13 +749,13 @@ class IRCService {
     } else {
       _sendCommand('LIST');
     }
-    // print('📋 [IRCService] Solicitando lista de canales${pattern != null ? " (patrón: $pattern)" : ""}');
+    // debugLog('📋 [IRCService] Solicitando lista de canales${pattern != null ? " (patrón: $pattern)" : ""}');
   }
 
   void sendNames(String channel) {
     final normalized = _normalizeChannelName(channel);
         _sendCommand('NAMES $normalized');
-        print('👥 [IRCService] Solicitando lista de usuarios de $normalized');
+        debugLog('👥 [IRCService] Solicitando lista de usuarios de $normalized');
   }
 
   // Comandos de gestión
@@ -778,23 +779,23 @@ class IRCService {
       shouldSetAway = false;
       finalMessage = null;
       _sendCommand('AWAY');
-      // print('✅ [IRCService] Quitando modo away');
+      // debugLog('✅ [IRCService] Quitando modo away');
     } else if (message.isEmpty && _defaultAwayMessage != null && _defaultAwayMessage!.isNotEmpty) {
       // Mensaje vacío pero hay mensaje por defecto, usar el por defecto
       finalMessage = _defaultAwayMessage;
       _sendCommand('AWAY :$_defaultAwayMessage');
-      // print('🚶 [IRCService] Estableciendo mensaje de ausencia (por defecto): $_defaultAwayMessage');
+      // debugLog('🚶 [IRCService] Estableciendo mensaje de ausencia (por defecto): $_defaultAwayMessage');
     } else if (message.isNotEmpty) {
       // Usar el mensaje proporcionado
       finalMessage = message;
       _sendCommand('AWAY :$message');
-      // print('🚶 [IRCService] Estableciendo mensaje de ausencia: $message');
+      // debugLog('🚶 [IRCService] Estableciendo mensaje de ausencia: $message');
     } else {
       // Mensaje vacío y no hay mensaje por defecto, quitar away
       shouldSetAway = false;
       finalMessage = null;
       _sendCommand('AWAY');
-      // print('✅ [IRCService] Quitando modo away (sin mensaje)');
+      // debugLog('✅ [IRCService] Quitando modo away (sin mensaje)');
     }
     
     // Actualizar estado local inmediatamente para feedback instantáneo
@@ -826,7 +827,7 @@ class IRCService {
 
   void sendBack() {
     _sendCommand('AWAY');
-    // print('✅ [IRCService] Volviendo de ausencia');
+    // debugLog('✅ [IRCService] Volviendo de ausencia');
   }
   
   // Obtener mensaje de away por defecto (se implementará con SharedPreferences)
@@ -851,7 +852,7 @@ class IRCService {
 
   void sendMe(String channel, String action) {
     if (!_hasActiveConnection) {
-      print('⚠️ [IRCService] No se puede enviar /me: conexión no activa');
+      debugLog('⚠️ [IRCService] No se puede enviar /me: conexión no activa');
       return;
     }
     final normalized = _normalizeChannelName(channel);
@@ -872,14 +873,14 @@ class IRCService {
     
     // Enviar el comando ACTION como NOTICE al canal
     final command = 'NOTICE $normalized :\x01ACTION $action\x01';
-    print('🎭 [IRCService] Enviando acción /me como NOTICE en $normalized: $action');
-    print('🎭 [IRCService] Comando completo: $command');
+    debugLog('🎭 [IRCService] Enviando acción /me como NOTICE en $normalized: $action');
+    debugLog('🎭 [IRCService] Comando completo: $command');
     _sendCommand(command);
   }
 
   void sendNotice(String target, String message) {
     _sendCommand('NOTICE $target :$message');
-    // print('📢 [IRCService] Enviando NOTICE a $target: $message');
+    // debugLog('📢 [IRCService] Enviando NOTICE a $target: $message');
   }
 
   void sendPrivateNotice(String nick, String message, {int delaySeconds = 0}) {
@@ -890,7 +891,7 @@ class IRCService {
     final queryChannel = normalizedNick.toLowerCase();
     if (!channels.containsKey(queryChannel)) {
       channels[queryChannel] = IRCChannel(name: queryChannel);
-      // print('📤 [IRCService] Creado canal privado para: $queryChannel');
+      // debugLog('📤 [IRCService] Creado canal privado para: $queryChannel');
     }
     
     // Generar un ID único para este mensaje pendiente
@@ -966,7 +967,7 @@ class IRCService {
     } else {
       _sendCommand('KICK $normalized $nick');
     }
-    // print('👢 [IRCService] Expulsando $nick de $normalized${reason != null ? " (razón: $reason)" : ""}');
+    // debugLog('👢 [IRCService] Expulsando $nick de $normalized${reason != null ? " (razón: $reason)" : ""}');
     
     // Actualizar la lista de usuarios inmediatamente (optimización)
     // El servidor enviará el evento KICK que también actualizará la lista
@@ -979,13 +980,13 @@ class IRCService {
   void banUser(String channel, String nick, [String? reason]) {
     final normalized = _normalizeChannelName(channel);
     _sendCommand('MODE $normalized +b $nick');
-    // print('🚫 [IRCService] Baneando $nick en $normalized');
+    // debugLog('🚫 [IRCService] Baneando $nick en $normalized');
   }
 
   void unbanUser(String channel, String nick) {
     final normalized = _normalizeChannelName(channel);
     _sendCommand('MODE $normalized -b $nick');
-    // print('✅ [IRCService] Desbaneando $nick en $normalized');
+    // debugLog('✅ [IRCService] Desbaneando $nick en $normalized');
   }
 
   void setChannelMode(String channel, String modes, [String? target]) {
@@ -995,13 +996,13 @@ class IRCService {
     } else {
       _sendCommand('MODE $normalized $modes');
     }
-    // print('⚙️  [IRCService] Cambiando modo de $normalized: $modes${target != null ? " $target" : ""}');
+    // debugLog('⚙️  [IRCService] Cambiando modo de $normalized: $modes${target != null ? " $target" : ""}');
   }
 
   void setChannelTopic(String channel, String topic) {
     final normalized = _normalizeChannelName(channel);
     _sendCommand('TOPIC $normalized :$topic');
-    // print('📌 [IRCService] Cambiando topic de $normalized: $topic');
+    // debugLog('📌 [IRCService] Cambiando topic de $normalized: $topic');
   }
 
   // ========== COMANDOS DE IRCOP (UnrealIRCd) ==========
@@ -1009,7 +1010,7 @@ class IRCService {
   // OPER: Autenticarse como operador IRC
   void oper(String nick, String password) {
     _sendCommand('OPER $nick $password');
-    // print('🔐 [IRCService] Intentando autenticarse como operador: $nick');
+    // debugLog('🔐 [IRCService] Intentando autenticarse como operador: $nick');
   }
   
   // KILL: Desconectar a un usuario del servidor
@@ -1019,7 +1020,7 @@ class IRCService {
     } else {
       _sendCommand('KILL $nick');
     }
-    // print('💀 [IRCService] KILL: Desconectando $nick${reason != null ? " (razón: $reason)" : ""}');
+    // debugLog('💀 [IRCService] KILL: Desconectando $nick${reason != null ? " (razón: $reason)" : ""}');
   }
 
   // GLINE: Prohibir a un usuario o rango de IPs conectarse al servidor
@@ -1032,7 +1033,7 @@ class IRCService {
       command += ' :$reason';
     }
     _sendCommand(command);
-    // print('🚫 [IRCService] GLINE: $userhost${duration != null ? " por $duration" : ""}${reason != null ? " (razón: $reason)" : ""}');
+    // debugLog('🚫 [IRCService] GLINE: $userhost${duration != null ? " por $duration" : ""}${reason != null ? " (razón: $reason)" : ""}');
   }
 
   // KLINE: Similar a GLINE pero solo para el servidor local
@@ -1045,7 +1046,7 @@ class IRCService {
       command += ' :$reason';
     }
     _sendCommand(command);
-    // print('🚫 [IRCService] KLINE: $userhost${duration != null ? " por $duration" : ""}${reason != null ? " (razón: $reason)" : ""}');
+    // debugLog('🚫 [IRCService] KLINE: $userhost${duration != null ? " por $duration" : ""}${reason != null ? " (razón: $reason)" : ""}');
   }
 
   // ZLINE: Banear una IP específica
@@ -1058,7 +1059,7 @@ class IRCService {
       command += ' :$reason';
     }
     _sendCommand(command);
-    // print('🚫 [IRCService] ZLINE: $ip${duration != null ? " por $duration" : ""}${reason != null ? " (razón: $reason)" : ""}');
+    // debugLog('🚫 [IRCService] ZLINE: $ip${duration != null ? " por $duration" : ""}${reason != null ? " (razón: $reason)" : ""}');
   }
 
   // SHUN: Silenciar a un usuario
@@ -1071,21 +1072,21 @@ class IRCService {
       command += ' :$reason';
     }
     _sendCommand(command);
-    // print('🔇 [IRCService] SHUN: $userhost${duration != null ? " por $duration" : ""}${reason != null ? " (razón: $reason)" : ""}');
+    // debugLog('🔇 [IRCService] SHUN: $userhost${duration != null ? " por $duration" : ""}${reason != null ? " (razón: $reason)" : ""}');
   }
 
   // SAJOIN: Forzar a un usuario a unirse a un canal
   void sajoinUser(String nick, String channel) {
     final normalized = _normalizeChannelName(channel);
     _sendCommand('SAJOIN $nick $normalized');
-    // print('➡️ [IRCService] SAJOIN: Forzando a $nick a unirse a $normalized');
+    // debugLog('➡️ [IRCService] SAJOIN: Forzando a $nick a unirse a $normalized');
   }
 
   // SAPART: Forzar a un usuario a salir de un canal
   void sapartUser(String nick, String channel) {
     final normalized = _normalizeChannelName(channel);
     sendPrivateMessage('ircop', 'SAPART $nick $normalized');
-    // print('⬅️ [IRCService] SAPART: Forzando a $nick a salir de $normalized');
+    // debugLog('⬅️ [IRCService] SAPART: Forzando a $nick a salir de $normalized');
   }
 
   // SAMODE: Cambiar los modos de un canal sin ser operador
@@ -1096,19 +1097,19 @@ class IRCService {
     } else {
       sendPrivateMessage('ircop', 'SAMODE $normalized $modes');
     }
-    // print('⚙️ [IRCService] SAMODE: Cambiando modo de $normalized: $modes${target != null ? " $target" : ""}');
+    // debugLog('⚙️ [IRCService] SAMODE: Cambiando modo de $normalized: $modes${target != null ? " $target" : ""}');
   }
 
   // SVSNICK: Cambiar el nick de un usuario
   void svsnickUser(String nick, String newNick) {
     sendPrivateMessage('ircop', 'SVSNICK $nick $newNick');
-    // print('👤 [IRCService] SVSNICK: Cambiando nick de $nick a $newNick');
+    // debugLog('👤 [IRCService] SVSNICK: Cambiando nick de $nick a $newNick');
   }
 
   // SAPRIVMSG: Enviar mensaje privado como servicio
   void saprivmsgUser(String nick, String message) {
     sendPrivateMessage('ircop', 'SAPRIVMSG $nick :$message');
-    // print('📨 [IRCService] SAPRIVMSG: Enviando mensaje a $nick: $message');
+    // debugLog('📨 [IRCService] SAPRIVMSG: Enviando mensaje a $nick: $message');
   }
 
   // SQUIT: Desconectar un servidor de la red
@@ -1120,7 +1121,7 @@ class IRCService {
     _ircopCommandTimer = Timer(const Duration(seconds: 3), () {
       if (_currentIRCOpCommand == 'SQUIT') {
         _notifyIRCOpCommandListeners(_ircopCommandResults);
-        // print('📋 [IRCOp] Fin de SQUIT (${_ircopCommandResults.length} líneas)');
+        // debugLog('📋 [IRCOp] Fin de SQUIT (${_ircopCommandResults.length} líneas)');
         _ircopCommandResults.clear();
         _currentIRCOpCommand = null;
         _currentIRCOpEndCode = null;
@@ -1132,7 +1133,7 @@ class IRCService {
     } else {
       _sendCommand('SQUIT $server');
     }
-    // print('🔌 [IRCService] SQUIT: Desconectando servidor $server${reason != null ? " (razón: $reason)" : ""}');
+    // debugLog('🔌 [IRCService] SQUIT: Desconectando servidor $server${reason != null ? " (razón: $reason)" : ""}');
   }
 
   // REHASH: Recargar la configuración del servidor
@@ -1146,7 +1147,7 @@ class IRCService {
     _ircopCommandTimer = Timer(const Duration(seconds: 3), () {
       if (_currentIRCOpCommand == 'REHASH') {
         _notifyIRCOpCommandListeners(_ircopCommandResults);
-        // print('📋 [IRCOp] Fin de REHASH (${_ircopCommandResults.length} líneas)');
+        // debugLog('📋 [IRCOp] Fin de REHASH (${_ircopCommandResults.length} líneas)');
         _ircopCommandResults.clear();
         _currentIRCOpCommand = null;
         _currentIRCOpEndCode = null;
@@ -1154,7 +1155,7 @@ class IRCService {
       }
     });
     _sendCommand('REHASH');
-    // print('🔄 [IRCService] REHASH: Recargando configuración del servidor');
+    // debugLog('🔄 [IRCService] REHASH: Recargando configuración del servidor');
   }
 
   // RESTART: Reiniciar el servidor
@@ -1166,7 +1167,7 @@ class IRCService {
     _ircopCommandTimer = Timer(const Duration(seconds: 3), () {
       if (_currentIRCOpCommand == 'RESTART') {
         _notifyIRCOpCommandListeners(_ircopCommandResults);
-        // print('📋 [IRCOp] Fin de RESTART (${_ircopCommandResults.length} líneas)');
+        // debugLog('📋 [IRCOp] Fin de RESTART (${_ircopCommandResults.length} líneas)');
         _ircopCommandResults.clear();
         _currentIRCOpCommand = null;
         _currentIRCOpEndCode = null;
@@ -1178,7 +1179,7 @@ class IRCService {
     } else {
       _sendCommand('RESTART');
     }
-    // print('🔄 [IRCService] RESTART: Reiniciando servidor${reason != null ? " (razón: $reason)" : ""}');
+    // debugLog('🔄 [IRCService] RESTART: Reiniciando servidor${reason != null ? " (razón: $reason)" : ""}');
   }
 
   // DIE: Apagar el servidor
@@ -1190,7 +1191,7 @@ class IRCService {
     _ircopCommandTimer = Timer(const Duration(seconds: 3), () {
       if (_currentIRCOpCommand == 'DIE') {
         _notifyIRCOpCommandListeners(_ircopCommandResults);
-        // print('📋 [IRCOp] Fin de DIE (${_ircopCommandResults.length} líneas)');
+        // debugLog('📋 [IRCOp] Fin de DIE (${_ircopCommandResults.length} líneas)');
         _ircopCommandResults.clear();
         _currentIRCOpCommand = null;
         _currentIRCOpEndCode = null;
@@ -1202,7 +1203,7 @@ class IRCService {
     } else {
       _sendCommand('DIE');
     }
-    // print('💀 [IRCService] DIE: Apagando servidor${reason != null ? " (razón: $reason)" : ""}');
+    // debugLog('💀 [IRCService] DIE: Apagando servidor${reason != null ? " (razón: $reason)" : ""}');
   }
 
   // CONNECT: Conectar un servidor a la red
@@ -1214,7 +1215,7 @@ class IRCService {
     _ircopCommandTimer = Timer(const Duration(seconds: 5), () {
       if (_currentIRCOpCommand == 'CONNECT') {
         _notifyIRCOpCommandListeners(_ircopCommandResults);
-        // print('📋 [IRCOp] Fin de CONNECT (${_ircopCommandResults.length} líneas)');
+        // debugLog('📋 [IRCOp] Fin de CONNECT (${_ircopCommandResults.length} líneas)');
         _ircopCommandResults.clear();
         _currentIRCOpCommand = null;
         _currentIRCOpEndCode = null;
@@ -1226,31 +1227,31 @@ class IRCService {
       command += ' $password';
     }
     _sendCommand(command);
-    // print('🔗 [IRCService] CONNECT: Conectando servidor $server:$port');
+    // debugLog('🔗 [IRCService] CONNECT: Conectando servidor $server:$port');
   }
 
   // DCCDENY: Denegar DCC de un usuario
   void dccdenyUser(String nick) {
     _sendCommand('DCCDENY $nick');
-    // print('🚫 [IRCService] DCCDENY: Denegando DCC de $nick');
+    // debugLog('🚫 [IRCService] DCCDENY: Denegando DCC de $nick');
   }
 
   // UNDCCDENY: Permitir DCC de un usuario
   void undccdenyUser(String nick) {
     _sendCommand('UNDCCDENY $nick');
-    // print('✅ [IRCService] UNDCCDENY: Permitiendo DCC de $nick');
+    // debugLog('✅ [IRCService] UNDCCDENY: Permitiendo DCC de $nick');
   }
 
   // TSCTL: Comandos de control de timestamp
   void tsctlCommand(String command) {
     _sendCommand('TSCTL $command');
-    // print('⏰ [IRCService] TSCTL: $command');
+    // debugLog('⏰ [IRCService] TSCTL: $command');
   }
 
   // MKPASSWD: Generar hash de contraseña
   void mkpasswd(String password) {
     _sendCommand('MKPASSWD $password');
-    // print('🔐 [IRCService] MKPASSWD: Generando hash de contraseña');
+    // debugLog('🔐 [IRCService] MKPASSWD: Generando hash de contraseña');
   }
 
   // STATS: Obtener estadísticas del servidor
@@ -1259,7 +1260,7 @@ class IRCService {
     _currentIRCOpCommand = 'STATS';
     _currentIRCOpEndCode = '219';
     _sendCommand('STATS $type');
-    // print('📊 [IRCService] STATS: Solicitando estadísticas tipo $type');
+    // debugLog('📊 [IRCService] STATS: Solicitando estadísticas tipo $type');
   }
 
   // TRACE: Rastrear la ruta de un usuario o servidor
@@ -1268,7 +1269,7 @@ class IRCService {
     _currentIRCOpCommand = 'TRACE';
     _currentIRCOpEndCode = '262';
     _sendCommand('TRACE $target');
-    // print('🔍 [IRCService] TRACE: Rastreando $target');
+    // debugLog('🔍 [IRCService] TRACE: Rastreando $target');
   }
 
   // LINKS: Listar servidores conectados
@@ -1277,7 +1278,7 @@ class IRCService {
     _currentIRCOpCommand = 'LINKS';
     _currentIRCOpEndCode = '365';
     _sendCommand('LINKS');
-    // print('🔗 [IRCService] LINKS: Solicitando lista de servidores');
+    // debugLog('🔗 [IRCService] LINKS: Solicitando lista de servidores');
   }
 
   // MAP: Mapa de la red
@@ -1286,7 +1287,7 @@ class IRCService {
     _currentIRCOpCommand = 'MAP';
     _currentIRCOpEndCode = '007';
     _sendCommand('MAP');
-    // print('🗺️ [IRCService] MAP: Solicitando mapa de la red');
+    // debugLog('🗺️ [IRCService] MAP: Solicitando mapa de la red');
   }
 
   // MOTD: Mensaje del día
@@ -1295,7 +1296,7 @@ class IRCService {
     _currentIRCOpCommand = 'MOTD';
     _currentIRCOpEndCode = '376';
     _sendCommand('MOTD');
-    // print('📝 [IRCService] MOTD: Solicitando mensaje del día');
+    // debugLog('📝 [IRCService] MOTD: Solicitando mensaje del día');
   }
 
   // VERSION: Versión del servidor
@@ -1307,7 +1308,7 @@ class IRCService {
     _ircopCommandTimer = Timer(const Duration(seconds: 3), () {
       if (_currentIRCOpCommand == 'VERSION') {
         _notifyIRCOpCommandListeners(_ircopCommandResults);
-        // print('📋 [IRCOp] Fin de VERSION (${_ircopCommandResults.length} líneas)');
+        // debugLog('📋 [IRCOp] Fin de VERSION (${_ircopCommandResults.length} líneas)');
         _ircopCommandResults.clear();
         _currentIRCOpCommand = null;
         _currentIRCOpEndCode = null;
@@ -1315,7 +1316,7 @@ class IRCService {
       }
     });
     _sendCommand('VERSION');
-    // print('ℹ️ [IRCService] VERSION: Solicitando versión del servidor');
+    // debugLog('ℹ️ [IRCService] VERSION: Solicitando versión del servidor');
   }
 
   // ADMIN: Información de administración
@@ -1327,7 +1328,7 @@ class IRCService {
     _ircopCommandTimer = Timer(const Duration(seconds: 3), () {
       if (_currentIRCOpCommand == 'ADMIN') {
         _notifyIRCOpCommandListeners(_ircopCommandResults);
-        // print('📋 [IRCOp] Fin de ADMIN (${_ircopCommandResults.length} líneas)');
+        // debugLog('📋 [IRCOp] Fin de ADMIN (${_ircopCommandResults.length} líneas)');
         _ircopCommandResults.clear();
         _currentIRCOpCommand = null;
         _currentIRCOpEndCode = null;
@@ -1335,7 +1336,7 @@ class IRCService {
       }
     });
     _sendCommand('ADMIN');
-    // print('👨‍💼 [IRCService] ADMIN: Solicitando información de administración');
+    // debugLog('👨‍💼 [IRCService] ADMIN: Solicitando información de administración');
   }
 
   // LUSERS: Estadísticas de usuarios
@@ -1347,7 +1348,7 @@ class IRCService {
     _ircopCommandTimer = Timer(const Duration(seconds: 3), () {
       if (_currentIRCOpCommand == 'LUSERS') {
         _notifyIRCOpCommandListeners(_ircopCommandResults);
-        // print('📋 [IRCOp] Fin de LUSERS (${_ircopCommandResults.length} líneas)');
+        // debugLog('📋 [IRCOp] Fin de LUSERS (${_ircopCommandResults.length} líneas)');
         _ircopCommandResults.clear();
         _currentIRCOpCommand = null;
         _currentIRCOpEndCode = null;
@@ -1355,7 +1356,7 @@ class IRCService {
       }
     });
     _sendCommand('LUSERS');
-    // print('👥 [IRCService] LUSERS: Solicitando estadísticas de usuarios');
+    // debugLog('👥 [IRCService] LUSERS: Solicitando estadísticas de usuarios');
   }
 
   // TIME: Hora del servidor
@@ -1367,7 +1368,7 @@ class IRCService {
     _ircopCommandTimer = Timer(const Duration(seconds: 3), () {
       if (_currentIRCOpCommand == 'TIME') {
         _notifyIRCOpCommandListeners(_ircopCommandResults);
-        // print('📋 [IRCOp] Fin de TIME (${_ircopCommandResults.length} líneas)');
+        // debugLog('📋 [IRCOp] Fin de TIME (${_ircopCommandResults.length} líneas)');
         _ircopCommandResults.clear();
         _currentIRCOpCommand = null;
         _currentIRCOpEndCode = null;
@@ -1375,31 +1376,31 @@ class IRCService {
       }
     });
     _sendCommand('TIME');
-    // print('🕐 [IRCService] TIME: Solicitando hora del servidor');
+    // debugLog('🕐 [IRCService] TIME: Solicitando hora del servidor');
   }
 
   // WALLOPS: Mensaje a todos los operadores
   void wallops(String message) {
     sendPrivateMessage('ircop', 'WALLOPS :$message');
-    // print('📢 [IRCService] WALLOPS: $message');
+    // debugLog('📢 [IRCService] WALLOPS: $message');
   }
 
   // GLOBOPS: Mensaje global a todos los operadores
   void globops(String message) {
     sendPrivateMessage('ircop', 'GLOBOPS :$message');
-    // print('🌍 [IRCService] GLOBOPS: $message');
+    // debugLog('🌍 [IRCService] GLOBOPS: $message');
   }
 
   // ADMIND: Mensaje a administradores
   void admind(String message) {
     sendPrivateMessage('ircop', 'ADMIND :$message');
-    // print('👨‍💼 [IRCService] ADMIND: $message');
+    // debugLog('👨‍💼 [IRCService] ADMIND: $message');
   }
 
   // LOCOPS: Mensaje a operadores locales
   void locops(String message) {
     sendPrivateMessage('ircop', 'LOCOPS :$message');
-    // print('🏠 [IRCService] LOCOPS: $message');
+    // debugLog('🏠 [IRCService] LOCOPS: $message');
   }
 
   void sendIgnore(String nick) {
@@ -1408,7 +1409,7 @@ class IRCService {
     
     // Añadir a la lista local de ignorados
     _ignoredUsers.add(normalizedNick);
-    // print('🚫 [IRCService] Usuario añadido a lista de ignorados: $normalizedNick');
+    // debugLog('🚫 [IRCService] Usuario añadido a lista de ignorados: $normalizedNick');
     
     _sendCommand('MODE $nick +b'); // Ignorar usando modo ban (depende del servidor IRC)
     // Alternativa: algunos servidores usan /ignore directamente
@@ -1421,7 +1422,7 @@ class IRCService {
     
     // Remover de la lista local de ignorados
     _ignoredUsers.remove(normalizedNick);
-    // print('✅ [IRCService] Usuario removido de lista de ignorados: $normalizedNick');
+    // debugLog('✅ [IRCService] Usuario removido de lista de ignorados: $normalizedNick');
     
     _sendCommand('MODE $nick -b'); // Designorar usando modo ban
     // Alternativa: algunos servidores usan /unignore directamente
@@ -1474,7 +1475,7 @@ class IRCService {
       fullCommand = '$command $normalized';
     }
     sendPrivateMessage('ChanServ', fullCommand);
-    // print('🔧 [IRCService] Comando ChanServ enviado: $fullCommand');
+    // debugLog('🔧 [IRCService] Comando ChanServ enviado: $fullCommand');
   }
 
   void sendPrivateMessage(String nick, String message, {int delaySeconds = 0}) {
@@ -1485,7 +1486,7 @@ class IRCService {
     final queryChannel = normalizedNick.toLowerCase();
     if (!channels.containsKey(queryChannel)) {
       channels[queryChannel] = IRCChannel(name: queryChannel);
-      // print('📤 [IRCService] Creado canal privado para: $queryChannel');
+      // debugLog('📤 [IRCService] Creado canal privado para: $queryChannel');
     }
     
     // Generar un ID único para este mensaje pendiente
@@ -1505,23 +1506,23 @@ class IRCService {
     channels[queryChannel]!.addMessage(msg);
       _notifyMessageListeners(msg);
     
-    // print('📤 [IRCService] Mensaje privado marcado como PENDIENTE: $pendingId (delay: ${delaySeconds}s)');
+    // debugLog('📤 [IRCService] Mensaje privado marcado como PENDIENTE: $pendingId (delay: ${delaySeconds}s)');
     
     // Programar el envío después del delay
     if (delaySeconds > 0) {
-      // print('⏱️  [IRCService] Programando envío de mensaje privado $pendingId en ${delaySeconds}s');
+      // debugLog('⏱️  [IRCService] Programando envío de mensaje privado $pendingId en ${delaySeconds}s');
       final timer = Timer(Duration(seconds: delaySeconds), () {
-        // print('⏱️  [IRCService] Timer ejecutado, enviando mensaje privado $pendingId');
+        // debugLog('⏱️  [IRCService] Timer ejecutado, enviando mensaje privado $pendingId');
         // Enviar el mensaje
         final lines = message.split('\n');
         for (var line in lines) {
           line = line.trim();
           if (line.isNotEmpty) {
-            // print('📤 [IRCService] Enviando línea privada: $line');
+            // debugLog('📤 [IRCService] Enviando línea privada: $line');
             _sendCommand('PRIVMSG $normalizedNick :$line');
           }
         }
-        // print('📤 [IRCService] Mensaje privado enviado al servidor después de delay: $pendingId');
+        // debugLog('📤 [IRCService] Mensaje privado enviado al servidor después de delay: $pendingId');
         // Eliminar el timer del mapa después de ejecutarse
         _pendingMessageTimers.remove(pendingId);
         
@@ -1531,7 +1532,7 @@ class IRCService {
           if (channelObj != null) {
             final currentPendingMessages = channelObj.messages.where((m) => m.isPending && m.pendingId == pendingId).toList();
             if (currentPendingMessages.isNotEmpty) {
-              // print('⚠️  [IRCService] Mensaje privado con delay $pendingId aún pendiente después de 500ms, auto-confirmando.');
+              // debugLog('⚠️  [IRCService] Mensaje privado con delay $pendingId aún pendiente después de 500ms, auto-confirmando.');
               confirmPendingMessage(queryChannel, message, DateTime.now());
             }
           }
@@ -1540,16 +1541,16 @@ class IRCService {
       _pendingMessageTimers[pendingId] = timer;
     } else {
       // Sin delay, enviar inmediatamente
-      // print('📤 [IRCService] Enviando mensaje privado sin delay inmediatamente: $pendingId');
+      // debugLog('📤 [IRCService] Enviando mensaje privado sin delay inmediatamente: $pendingId');
       final lines = message.split('\n');
       for (var line in lines) {
         line = line.trim();
         if (line.isNotEmpty) {
-          // print('📤 [IRCService] Enviando línea privada sin delay: $line');
+          // debugLog('📤 [IRCService] Enviando línea privada sin delay: $line');
           _sendCommand('PRIVMSG $normalizedNick :$line');
         }
       }
-      // print('✅ [IRCService] Mensaje privado sin delay enviado, esperando confirmación del servidor (pendingId: $pendingId)');
+      // debugLog('✅ [IRCService] Mensaje privado sin delay enviado, esperando confirmación del servidor (pendingId: $pendingId)');
       
       // Auto-confirmar después de 500ms si el servidor no hace eco
       Timer(const Duration(milliseconds: 500), () {
@@ -1557,7 +1558,7 @@ class IRCService {
         if (channelObj != null) {
           final currentPendingMessages = channelObj.messages.where((m) => m.isPending && m.pendingId == pendingId).toList();
           if (currentPendingMessages.isNotEmpty) {
-            // print('⚠️  [IRCService] Mensaje privado $pendingId aún pendiente después de 500ms, auto-confirmando.');
+            // debugLog('⚠️  [IRCService] Mensaje privado $pendingId aún pendiente después de 500ms, auto-confirmando.');
             confirmPendingMessage(queryChannel, message, DateTime.now());
           }
         }
@@ -1568,22 +1569,22 @@ class IRCService {
   // Cambiar el nickname
   void changeNick(String newNick) {
     if (!_hasActiveConnection) {
-      print('⚠️ [IRCService] No se puede cambiar nick: conexión no activa');
+      debugLog('⚠️ [IRCService] No se puede cambiar nick: conexión no activa');
       return;
     }
     
     final trimmedNick = newNick.trim();
     if (trimmedNick.isEmpty) {
-      print('⚠️  [IRCService] No se puede cambiar a un nick vacío');
+      debugLog('⚠️  [IRCService] No se puede cambiar a un nick vacío');
       return;
     }
     
     if (trimmedNick == _nickname) {
-      print('ℹ️  [IRCService] Ya estás usando ese nick');
+      debugLog('ℹ️  [IRCService] Ya estás usando ese nick');
       return;
     }
     
-    print('🔄 [IRCService] Cambiando nick de "$_nickname" a "$trimmedNick"');
+    debugLog('🔄 [IRCService] Cambiando nick de "$_nickname" a "$trimmedNick"');
     _sendCommand('NICK $trimmedNick');
     // El servidor confirmará el cambio con un mensaje NICK, entonces actualizaremos _nickname
     // cuando recibamos la confirmación del servidor
@@ -1592,16 +1593,16 @@ class IRCService {
   // Enviar acción /me a todos los canales donde estás presente
   void sendAme(String action) {
     if (!_hasActiveConnection) {
-      print('⚠️ [IRCService] No se puede enviar /ame: conexión no activa');
+      debugLog('⚠️ [IRCService] No se puede enviar /ame: conexión no activa');
       return;
     }
     
     if (action.trim().isEmpty) {
-      print('⚠️ [IRCService] No se puede enviar /ame: acción vacía');
+      debugLog('⚠️ [IRCService] No se puede enviar /ame: acción vacía');
       return;
     }
     
-    print('🎭 [IRCService] Enviando acción /ame como NOTICE a todos los canales: $action');
+    debugLog('🎭 [IRCService] Enviando acción /ame como NOTICE a todos los canales: $action');
     
     // Enviar a todos los canales donde estás presente
     for (final channelEntry in channels.entries) {
@@ -1626,7 +1627,7 @@ class IRCService {
         
         // Enviar el comando ACTION como NOTICE al servidor
         final command = 'NOTICE $normalized :\x01ACTION $action\x01';
-        print('🎭 [IRCService] Enviando /ame como NOTICE a $normalized: $action');
+        debugLog('🎭 [IRCService] Enviando /ame como NOTICE a $normalized: $action');
         _sendCommand(command);
       }
     }
@@ -1634,12 +1635,12 @@ class IRCService {
 
   void _sendCommand(String command) {
     if (_connection != null && _connection!.isConnected) {
-      print('🔍 [DEBUG] Sending command: $command');
+      debugLog('🔍 [DEBUG] Sending command: $command');
       // Agregar \r\n para compatibilidad IRC
       final ircCommand = command.endsWith('\r\n') ? command : '$command\r\n';
       _connection!.send(ircCommand);
     } else {
-      print('🔍 [DEBUG] ⚠️  Cannot send command "$command": connection is null or not connected');
+      debugLog('🔍 [DEBUG] ⚠️  Cannot send command "$command": connection is null or not connected');
     }
   }
 
@@ -1676,7 +1677,7 @@ class IRCService {
       try {
         listener(channel);
       } catch (e) {
-        print('❌ [IRC] Error en listener de canal de ayuda: $e');
+        debugLog('❌ [IRC] Error en listener de canal de ayuda: $e');
       }
     }
   }
@@ -1695,7 +1696,7 @@ class IRCService {
       try {
         listener(channel);
       } catch (e) {
-        print('❌ [IRC] Error en listener de canal #werewolf: $e');
+        debugLog('❌ [IRC] Error en listener de canal #werewolf: $e');
       }
     }
   }
@@ -1709,24 +1710,21 @@ class IRCService {
     for (var line in lines) {
       if (line.isEmpty) continue;
       
-      // LOG TODOS LOS MENSAJES DEL SERVIDOR para diagnóstico
-      print('📥 [IRC] Mensaje recibido: $line');
-      
       // Log especial para comandos JOIN, 353, 366, 332 (TOPIC), NICK
       if (line.contains(' JOIN ') || line.contains(' 353 ') || line.contains(' 366 ') || line.contains(' 332 ') || line.contains(' NICK ')) {
-        // print('🔍 [DEBUG] ⭐ Important IRC message: $line');
+        // debugLog('🔍 [DEBUG] ⭐ Important IRC message: $line');
       }
       
       // Log específico para TOPIC
       if (line.contains(' 332 ')) {
-        // print('🔍 [DEBUG] 📌📌📌 RAW TOPIC MESSAGE RECEIVED: $line');
-        // print('🔍 [DEBUG] 📌📌📌 Full raw line length: ${line.length}');
-        // print('🔍 [DEBUG] 📌📌📌 Line bytes: ${line.codeUnits}');
+        // debugLog('🔍 [DEBUG] 📌📌📌 RAW TOPIC MESSAGE RECEIVED: $line');
+        // debugLog('🔍 [DEBUG] 📌📌📌 Full raw line length: ${line.length}');
+        // debugLog('🔍 [DEBUG] 📌📌📌 Line bytes: ${line.codeUnits}');
       }
       
       // Log específico para NICK
       if (line.contains(' NICK ')) {
-        // print('🔄 [DEBUG] 🔄🔴 RAW NICK MESSAGE RECEIVED: $line');
+        // debugLog('🔄 [DEBUG] 🔄🔴 RAW NICK MESSAGE RECEIVED: $line');
       }
       
       _parseIRCMessage(line);
@@ -1769,7 +1767,7 @@ class IRCService {
         _notifyLagListeners(lagMs);
         _lastPingSent = null;
         _lastPingToken = null;
-        // print('📊 [IRCService] Lag medido: ${lagMs}ms');
+        // debugLog('📊 [IRCService] Lag medido: ${lagMs}ms');
       }
       return;
     }
@@ -1794,16 +1792,16 @@ class IRCService {
       
       // Log todos los comandos numéricos (353, 366, etc.) para debug
       if (RegExp(r'^\d{3}$').hasMatch(command)) {
-        // print('🔍 [DEBUG] Received numeric command: $command (line: $line)');
+        // debugLog('🔍 [DEBUG] Received numeric command: $command (line: $line)');
         // Log específico para comandos whois
         if (['311', '312', '313', '317', '318', '319', '301'].contains(command)) {
-          // print('🔍 [WHOIS DEBUG] Command: $command, Args: $args');
+          // debugLog('🔍 [WHOIS DEBUG] Command: $command, Args: $args');
         }
       }
       
       // Log si el mensaje contiene nuestro nickname
       if (_nickname != null && line.contains(_nickname!)) {
-        // print('🔍 [DEBUG] ⭐ Message contains our nickname "$_nickname": $line');
+        // debugLog('🔍 [DEBUG] ⭐ Message contains our nickname "$_nickname": $line');
       }
 
       switch (command) {
@@ -1821,9 +1819,9 @@ class IRCService {
             confirmedNick = _nickname; // Fallback al nick que enviamos
           }
           
-          print('✅ [IRC] Welcome message received (001) - connected as $confirmedNick to $_currentHost');
-          print('✅ [IRC] Usuario registrado correctamente, listo para JOIN');
-          // print('🔍 [DEBUG] ✅✅✅ User is now fully registered! Ready for JOIN commands ✅✅✅');
+          debugLog('✅ [IRC] Welcome message received (001) - connected as $confirmedNick to $_currentHost');
+          debugLog('✅ [IRC] Usuario registrado correctamente, listo para JOIN');
+          // debugLog('🔍 [DEBUG] ✅✅✅ User is now fully registered! Ready for JOIN commands ✅✅✅');
           _isRegistered = true; // Marcar que el usuario está registrado
           // Actualizar el nickname con el confirmado por el servidor (puede tener guion si fue rechazado)
           if (confirmedNick != null && confirmedNick.isNotEmpty && confirmedNick != _nickname) {
@@ -1849,7 +1847,7 @@ class IRCService {
           
           // Permitir desactivar el autojoin al canal oficial mediante configuración
           if (!_autoJoinOfficialGlobalChat) {
-            print('🌐 [IRC] Autojoin a #globalchat desactivado por configuración (joinchanneloficial=false)');
+            debugLog('🌐 [IRC] Autojoin a #globalchat desactivado por configuración (joinchanneloficial=false)');
             break;
           }
           
@@ -1873,36 +1871,36 @@ class IRCService {
                 final stillManuallyClosed = _manuallyClosedChannels.contains(globalChatLower);
                 
                 if (_isConnected && _hasActiveConnection && stillNotInGlobalChat && _nickname != null && !stillManuallyClosed) {
-                  print('🌐 [IRC] ✅ Auto-uniéndose al canal oficial #globalchat (después de registro 001)');
+                  debugLog('🌐 [IRC] ✅ Auto-uniéndose al canal oficial #globalchat (después de registro 001)');
                   _sendCommand('JOIN $globalChatChannel');
                   // Crear el canal en el mapa si no existe
                   if (!channels.containsKey(globalChatChannel)) {
                     channels[globalChatChannel] = IRCChannel(name: globalChatChannel);
                   }
                 } else if (stillManuallyClosed) {
-                  print('🌐 [IRC] ⚠️ #globalchat fue cerrado manualmente, no se volverá a abrir');
+                  debugLog('🌐 [IRC] ⚠️ #globalchat fue cerrado manualmente, no se volverá a abrir');
                 }
               });
             } else {
               _hasAutoJoinedGlobalChat = true; // Ya estamos dentro, marcar como hecho
-              print('🌐 [IRC] ✅ Ya estamos en #globalchat, no es necesario autojoin');
+              debugLog('🌐 [IRC] ✅ Ya estamos en #globalchat, no es necesario autojoin');
             }
           } else if (wasManuallyClosed) {
-            print('🌐 [IRC] ⚠️ #globalchat fue cerrado manualmente anteriormente, no se volverá a abrir');
+            debugLog('🌐 [IRC] ⚠️ #globalchat fue cerrado manualmente anteriormente, no se volverá a abrir');
           } else if (_hasAutoJoinedGlobalChat) {
-            print('🌐 [IRC] ⚠️ Autojoin a #globalchat ya se hizo, no se repetirá');
+            debugLog('🌐 [IRC] ⚠️ Autojoin a #globalchat ya se hizo, no se repetirá');
           }
           break;
         
         case '332': // TOPIC
-          // print('🔍 [DEBUG] 📌📌📌 TOPIC command received! Raw line: $line');
-          // print('🔍 [DEBUG] 📌📌📌 Full line breakdown:');
-          // print('🔍 [DEBUG] 📌📌📌   - Line length: ${line.length}');
-          // print('🔍 [DEBUG] 📌📌📌   - Parts count: ${parts.length}');
-          // print('🔍 [DEBUG] 📌📌📌   - Args count: ${args.length}');
-          // print('🔍 [DEBUG] 📌📌📌   - Args: $args');
-          // print('🔍 [DEBUG] 📌📌📌   - Source: $source');
-          // print('🔍 [DEBUG] 📌📌📌   - Command: $command');
+          // debugLog('🔍 [DEBUG] 📌📌📌 TOPIC command received! Raw line: $line');
+          // debugLog('🔍 [DEBUG] 📌📌📌 Full line breakdown:');
+          // debugLog('🔍 [DEBUG] 📌📌📌   - Line length: ${line.length}');
+          // debugLog('🔍 [DEBUG] 📌📌📌   - Parts count: ${parts.length}');
+          // debugLog('🔍 [DEBUG] 📌📌📌   - Args count: ${args.length}');
+          // debugLog('🔍 [DEBUG] 📌📌📌   - Args: $args');
+          // debugLog('🔍 [DEBUG] 📌📌📌   - Source: $source');
+          // debugLog('🔍 [DEBUG] 📌📌📌   - Command: $command');
           
           // El formato típico es: :server 332 nick #channel :topic text
           // Pero también puede ser: :server 332 #channel :topic text (sin nick)
@@ -1919,11 +1917,11 @@ class IRCService {
               potentialChannel = args[0];
             }
             
-            // print('🔍 [DEBUG] 📌📌📌 Potential channel from args: "$potentialChannel"');
+            // debugLog('🔍 [DEBUG] 📌📌📌 Potential channel from args: "$potentialChannel"');
             // Guardar el canal original antes de normalizar para buscarlo en la línea
             final originalChannelInLine = potentialChannel;
             channel = _normalizeChannelName(potentialChannel);
-            // print('🔍 [DEBUG] 📌📌📌 Normalized channel: "$channel"');
+            // debugLog('🔍 [DEBUG] 📌📌📌 Normalized channel: "$channel"');
             
             // Extraer el topic: el formato es :server 332 nick #channel :topic
             // Necesitamos encontrar el ':' que viene después del nombre del canal
@@ -1932,20 +1930,20 @@ class IRCService {
             if (channelIndex != -1) {
               // Buscar el ':' que viene después del nombre del canal
               final colonIndex = line.indexOf(':', channelIndex + originalChannelInLine.length);
-              // print('🔍 [DEBUG] 📌📌📌 Channel index: $channelIndex, Colon index after channel: $colonIndex');
+              // debugLog('🔍 [DEBUG] 📌📌📌 Channel index: $channelIndex, Colon index after channel: $colonIndex');
               
               if (colonIndex != -1 && colonIndex < line.length - 1) {
                 final rawTopic = line.substring(colonIndex + 1).trim();
                 // Limpiar códigos de formato IRC (colores, subrayado, etc.) para que se vean bien en el topic
                 topicText = IRCColorParser.stripIRCFormatting(rawTopic);
-                // print('🔍 [DEBUG] 📌📌📌 Topic text extracted (raw): "$rawTopic"');
-                // print('🔍 [DEBUG] 📌📌📌 Topic text cleaned: "$topicText"');
-                // print('🔍 [DEBUG] 📌📌📌 Topic text length: ${topicText.length}');
+                // debugLog('🔍 [DEBUG] 📌📌📌 Topic text extracted (raw): "$rawTopic"');
+                // debugLog('🔍 [DEBUG] 📌📌📌 Topic text cleaned: "$topicText"');
+                // debugLog('🔍 [DEBUG] 📌📌📌 Topic text length: ${topicText.length}');
               } else {
-                // print('🔍 [DEBUG] 📌📌📌 ⚠️  No colon found after channel name');
+                // debugLog('🔍 [DEBUG] 📌📌📌 ⚠️  No colon found after channel name');
               }
             } else {
-              // print('🔍 [DEBUG] 📌📌📌 ⚠️  Channel not found in line (searched for: "$originalChannelInLine")');
+              // debugLog('🔍 [DEBUG] 📌📌📌 ⚠️  Channel not found in line (searched for: "$originalChannelInLine")');
             }
           }
           
@@ -1956,14 +1954,14 @@ class IRCService {
             // Buscar el canal en el mapa (case-insensitive)
             String? actualChannelKey = finalChannel;
             if (!channels.containsKey(finalChannel)) {
-              // print('🔍 [DEBUG] 📌📌📌 Channel "$finalChannel" not found, searching case-insensitive...');
-              // print('🔍 [DEBUG] 📌📌📌 Available channels: ${channels.keys.toList()}');
+              // debugLog('🔍 [DEBUG] 📌📌📌 Channel "$finalChannel" not found, searching case-insensitive...');
+              // debugLog('🔍 [DEBUG] 📌📌📌 Available channels: ${channels.keys.toList()}');
               // Buscar case-insensitive
               for (var existingKey in channels.keys) {
                 if (existingKey.toLowerCase() == finalChannel.toLowerCase()) {
                   actualChannelKey = existingKey;
                   finalChannel = existingKey;
-                  // print('🔍 [DEBUG] 📌📌📌 Found channel case-insensitive: "$finalChannel"');
+                  // debugLog('🔍 [DEBUG] 📌📌📌 Found channel case-insensitive: "$finalChannel"');
                   break;
                 }
               }
@@ -1973,32 +1971,32 @@ class IRCService {
             if (channels.containsKey(finalChannel)) {
               if (topicText != null) {
                 channels[finalChannel]!.setTopic(topicText);
-                // print('🔍 [DEBUG] 📌📌📌 ✅✅✅ Topic set for existing channel: $finalChannel');
-                // print('🔍 [DEBUG] 📌📌📌 ✅✅✅ Topic value: "${channels[finalChannel]!.topic}"');
+                // debugLog('🔍 [DEBUG] 📌📌📌 ✅✅✅ Topic set for existing channel: $finalChannel');
+                // debugLog('🔍 [DEBUG] 📌📌📌 ✅✅✅ Topic value: "${channels[finalChannel]!.topic}"');
               } else {
                 // Si no hay topic, establecer como vacío
                 channels[finalChannel]!.setTopic('');
-                // print('🔍 [DEBUG] 📌📌📌 ✅✅✅ Topic cleared for channel: $finalChannel');
+                // debugLog('🔍 [DEBUG] 📌📌📌 ✅✅✅ Topic cleared for channel: $finalChannel');
               }
               // Notificar cambio de topic
               _notifyTopicListeners(finalChannel);
-              // print('🔍 [DEBUG] 📌📌📌 ✅✅✅ Topic listeners notified');
+              // debugLog('🔍 [DEBUG] 📌📌📌 ✅✅✅ Topic listeners notified');
             } else {
               // Crear el canal si no existe
               channels[finalChannel] = IRCChannel(name: finalChannel, topic: topicText ?? '');
-              // print('🔍 [DEBUG] 📌📌📌 ✅✅✅ Topic set for new channel: $finalChannel');
-              // print('🔍 [DEBUG] 📌📌📌 ✅✅✅ Topic value: "${channels[finalChannel]!.topic}"');
+              // debugLog('🔍 [DEBUG] 📌📌📌 ✅✅✅ Topic set for new channel: $finalChannel');
+              // debugLog('🔍 [DEBUG] 📌📌📌 ✅✅✅ Topic value: "${channels[finalChannel]!.topic}"');
               _notifyTopicListeners(finalChannel);
             }
           } else {
-            // print('🔍 [DEBUG] 📌📌📌 ⚠️  ⚠️  ⚠️  Invalid channel in TOPIC command: $channel');
-            // print('🔍 [DEBUG] 📌📌📌 ⚠️  ⚠️  ⚠️  Full line for inspection: $line');
+            // debugLog('🔍 [DEBUG] 📌📌📌 ⚠️  ⚠️  ⚠️  Invalid channel in TOPIC command: $channel');
+            // debugLog('🔍 [DEBUG] 📌📌📌 ⚠️  ⚠️  ⚠️  Full line for inspection: $line');
           }
           break;
         
         case '433': // Nickname in use - try alternative
-          print('⚠️ [IRCService] Error 433 recibido - Nickname in use: $_nickname');
-          print('⚠️ [IRCService] Línea completa: $line');
+          debugLog('⚠️ [IRCService] Error 433 recibido - Nickname in use: $_nickname');
+          debugLog('⚠️ [IRCService] Línea completa: $line');
           
             // Verificar que el mensaje realmente dice que el nick está en uso
             final lineLower = line.toLowerCase();
@@ -2007,12 +2005,12 @@ class IRCService {
                              lineLower.contains('nickname already in use');
           
           if (!isNickInUse) {
-            print('⚠️ [IRCService] Error 433 recibido pero el mensaje no indica que el nick esté en uso. Ignorando.');
+            debugLog('⚠️ [IRCService] Error 433 recibido pero el mensaje no indica que el nick esté en uso. Ignorando.');
             break;
           }
           
           if (_nickname == null) {
-            print('⚠️ [IRCService] Nick es null, no se puede buscar alternativa.');
+            debugLog('⚠️ [IRCService] Nick es null, no se puede buscar alternativa.');
             break;
           }
           
@@ -2022,20 +2020,20 @@ class IRCService {
             // Intentar con números: nick1, nick2, nick3, etc.
             _nickAttempts++;
             newNick = '$_originalNickname$_nickAttempts';
-            print('⚠️ [IRCService] Nick en uso, intentando alternativa $_nickAttempts: $_nickname -> $newNick');
+            debugLog('⚠️ [IRCService] Nick en uso, intentando alternativa $_nickAttempts: $_nickname -> $newNick');
           } else if (_nickname != null && !_nickname!.endsWith('_')) {
             // Si ya probamos números o no hay nick original, usar guion
             newNick = '${_nickname}_';
-            print('⚠️ [IRCService] Nick en uso, añadiendo guion: $_nickname -> $newNick');
+            debugLog('⚠️ [IRCService] Nick en uso, añadiendo guion: $_nickname -> $newNick');
           } else if (_nickname != null) {
             // Si ya termina en guion, añadir otro
             newNick = '${_nickname}_';
-            print('⚠️ [IRCService] Nick en uso, añadiendo otro guion: $_nickname -> $newNick');
+            debugLog('⚠️ [IRCService] Nick en uso, añadiendo otro guion: $_nickname -> $newNick');
           } else {
             // Fallback si _nickname es null (no debería pasar, pero por seguridad)
             newNick = 'user${_nickAttempts + 1}';
             _nickAttempts++;
-            print('⚠️ [IRCService] Nick es null, usando fallback: $newNick');
+            debugLog('⚠️ [IRCService] Nick es null, usando fallback: $newNick');
           }
           
               _nickname = newNick;
@@ -2052,37 +2050,19 @@ class IRCService {
           break;
         
         case '353': // Names reply (users in channel)
-          print('🔍 [DEBUG] 📋 Received user list (353) from server');
-          print('🔍 [DEBUG] Raw line: $line');
-          print('🔍 [DEBUG] 📋 Args count: ${args.length}, Args: $args');
-          
           // Método más simple y robusto: buscar cualquier palabra que empiece con # en la línea
           String? channel;
           
           // Primero intentar con regex para encontrar cualquier #canal en la línea
           final channelMatch = RegExp(r'(#\S+)').firstMatch(line);
-          if (channelMatch != null) {
-            channel = channelMatch.group(1);
-            print('🔍 [DEBUG] 📋 Found channel with regex: "$channel"');
-          }
-          
-          // Si no se encontró, intentar con args
+          if (channelMatch != null) channel = channelMatch.group(1);
           if (channel == null || !channel.startsWith('#')) {
-            // Buscar en todos los args el que empiece con #
             for (var arg in args) {
-              if (arg.startsWith('#')) {
-                channel = arg;
-                print('🔍 [DEBUG] 📋 Found channel in args: "$channel"');
-                break;
-              }
+              if (arg.startsWith('#')) { channel = arg; break; }
             }
           }
-          
-          // Si todavía no se encontró, intentar métodos alternativos
           if (channel == null || !channel.startsWith('#')) {
             if (args.length >= 3) {
-              // Formato típico: 353 nick = #channel :users
-              // args[1] podría ser '=' y args[2] el canal
               if (args[1] == '=' || args[1] == '@' || args[1] == '&' || args[1] == '*') {
                 channel = args[2];
               } else if (args[1].startsWith('#')) {
@@ -2090,26 +2070,13 @@ class IRCService {
               } else if (args[2].startsWith('#')) {
                 channel = args[2];
               }
-              print('🔍 [DEBUG] 📋 Channel from args (method 2): "$channel"');
             } else if (args.length >= 2) {
               channel = args[1];
-              print('🔍 [DEBUG] 📋 Channel from args[1]: "$channel"');
             }
           }
-          
-          if (channel == null || channel.isEmpty || !channel.startsWith('#')) {
-            print('🔍 [DEBUG] ⚠️  ⚠️  ⚠️  Could not extract channel from 353 command');
-            print('🔍 [DEBUG] Full line was: $line');
-            print('🔍 [DEBUG] Args were: $args');
-            break;
-          }
-          
-          // Normalizar el nombre del canal
+          if (channel == null || channel.isEmpty || !channel.startsWith('#')) break;
           String originalChannel = channel;
           channel = _normalizeChannelName(channel);
-          
-          print('🔍 [DEBUG] 📋 Normalized channel: "$channel" (from "$originalChannel")');
-          print('🔍 [DEBUG] 📋 Available channels in map: ${channels.keys.toList()}');
           
           // En este punto, channel no puede ser null (ya validado arriba)
           final validChannel = channel;
@@ -2121,10 +2088,9 @@ class IRCService {
             final channelWithoutHash = validChannel.toLowerCase().replaceFirst('#', '');
             
             // Verificar si el canal es igual al nickname (con o sin #)
-            if (channelWithoutHash == normalizedNick || 
+            if (channelWithoutHash == normalizedNick ||
                 validChannel.toLowerCase() == '#$normalizedNick' ||
                 originalChannel.toLowerCase() == normalizedNick) {
-              print('🔍 [DEBUG] ⚠️  ⚠️  ⚠️  BLOCKING 353: channel "$validChannel" matches nickname "$_nickname" - SKIPPING');
               break;
             }
           }
@@ -2135,24 +2101,13 @@ class IRCService {
           
           // Buscar el canal con el mismo nombre normalizado (case-insensitive)
           if (!channels.containsKey(validChannel)) {
-            print('🔍 [DEBUG] ⚠️  Channel "$validChannel" not found with exact name, searching case-insensitive...');
-            print('🔍 [DEBUG] Available channels: ${channels.keys.map((k) => '"$k"').join(", ")}');
-            
             for (var existingKey in channels.keys) {
               if (existingKey.toLowerCase() == validChannel.toLowerCase()) {
                 finalChannel = existingKey;
-                print('🔍 [DEBUG] ✅ Found matching channel: "$existingKey" (normalized matches "$validChannel")');
                 break;
               }
             }
-            
-            // Si no se encontró, no crear: puede ser un 353 tardío tras PART (evitar que el canal "vuelva a aparecer")
-            if (!channels.containsKey(finalChannel)) {
-              print('🔍 [DEBUG] ⚠️  Ignoring 353 for channel not in map (stale after PART?): $finalChannel');
-              break;
-            }
-          } else {
-            print('🔍 [DEBUG] ✅ Channel found with exact name: $validChannel');
+            if (!channels.containsKey(finalChannel)) break;
           }
           
           // Find the position of ':' to get the users list
@@ -2160,19 +2115,14 @@ class IRCService {
           if (colonIndex != -1) {
               final usersList = line.substring(colonIndex + 1).trim();
               final users = usersList.split(' ').where((u) => u.isNotEmpty).toList();
-              
-            print('🔍 [DEBUG] Channel: $finalChannel');
-            print('🔍 [DEBUG] Raw users string: "$usersList"');
-            print('🔍 [DEBUG] Parsed users count: ${users.length}');
-            print('🔍 [DEBUG] Parsed users list: $users');
             
             // Create channel if it doesn't exist (usar nombre normalizado)
             if (!channels.containsKey(finalChannel)) {
-              // print('🔍 [DEBUG] ℹ️  Channel not in map, creating it: $finalChannel');
+              // debugLog('🔍 [DEBUG] ℹ️  Channel not in map, creating it: $finalChannel');
               channels[finalChannel] = IRCChannel(name: finalChannel);
             } else {
-              // print('🔍 [DEBUG] ✅ Channel already exists: $finalChannel');
-              // print('🔍 [DEBUG] Current users in channel before update: ${channels[finalChannel]!.users}');
+              // debugLog('🔍 [DEBUG] ✅ Channel already exists: $finalChannel');
+              // debugLog('🔍 [DEBUG] Current users in channel before update: ${channels[finalChannel]!.users}');
             }
             
             int addedCount = 0;
@@ -2209,7 +2159,7 @@ class IRCService {
                   cleanUser = cleanUser.substring(1).trim();
                 }
                 
-                // print('🔍 [DEBUG] Processing user: "$user" -> mode: "$userMode", cleaned: "$cleanUser"');
+                // debugLog('🔍 [DEBUG] Processing user: "$user" -> mode: "$userMode", cleaned: "$cleanUser"');
                 
                 // Validar que no sea un servidor/host (excluir nombres con múltiples puntos o que parezcan dominios)
                 final isServerHost = cleanUser.contains('.') && 
@@ -2240,12 +2190,12 @@ class IRCService {
                     if (userMode != null) {
                       channels[finalChannel]!.addUser(existingUser, mode: userMode);
                       updatedCount++;
-                      print('🔍 [DEBUG] ✅ Updated mode for existing user: "$existingUser" -> "$userMode"');
+                      debugLog('🔍 [DEBUG] ✅ Updated mode for existing user: "$existingUser" -> "$userMode"');
                     }
                     // Si no tiene modo en este mensaje NAMES, NO hacer nada - mantener el modo existente
                     // (no limpiar el modo si el usuario viene sin prefijo en algún mensaje)
                   } else {
-                    print('🔍 [DEBUG] ➕ Adding new user: "$cleanUser" with mode: "$userMode"');
+                    debugLog('🔍 [DEBUG] ➕ Adding new user: "$cleanUser" with mode: "$userMode"');
                     channels[finalChannel]!.addUser(cleanUser, mode: userMode);
                   addedCount++;
                     
@@ -2266,49 +2216,41 @@ class IRCService {
                 }
               } else {
                 if (isServerHost) {
-                  // print('🔍 [DEBUG] ❌ Skipping server/host name: "$cleanUser"');
+                  // debugLog('🔍 [DEBUG] ❌ Skipping server/host name: "$cleanUser"');
                 } else {
-                  // print('🔍 [DEBUG] ❌ Skipping invalid user: "$cleanUser"');
+                  // debugLog('🔍 [DEBUG] ❌ Skipping invalid user: "$cleanUser"');
                 }
               }
             }
             
-            print('🔍 [DEBUG] Added $addedCount new users, updated $updatedCount existing users');
-            print('🔍 [DEBUG] Total users in channel now: ${channels[finalChannel]!.users.length}');
-            print('🔍 [DEBUG] Users list: ${channels[finalChannel]!.users}');
+            debugLog('🔍 [DEBUG] Added $addedCount new users, updated $updatedCount existing users');
+            debugLog('🔍 [DEBUG] Total users in channel now: ${channels[finalChannel]!.users.length}');
+            debugLog('🔍 [DEBUG] Users list: ${channels[finalChannel]!.users}');
             // Debug: mostrar modos de todos los usuarios
-            print('🔍 [DEBUG] User modes after NAMES processing:');
+            debugLog('🔍 [DEBUG] User modes after NAMES processing:');
             for (var u in channels[finalChannel]!.users) {
               final mode = channels[finalChannel]!.getUserMode(u);
-              print('🔍 [DEBUG] User "$u" -> mode: "$mode" (stored modes: ${channels[finalChannel]!.userModes})');
             }
             
             // Notificar que la lista de usuarios se actualizó
-            // print('🔍 [DEBUG] Notifying user list listeners for channel: $finalChannel');
+            // debugLog('🔍 [DEBUG] Notifying user list listeners for channel: $finalChannel');
             _notifyUserListListeners(finalChannel);
-            // print('🔍 [DEBUG] ✅ User list updated for $channel with ${channels[channel]!.users.length} users');
+            // debugLog('🔍 [DEBUG] ✅ User list updated for $channel with ${channels[channel]!.users.length} users');
           } else {
-            print('🔍 [DEBUG] ⚠️  No colon found in line, cannot parse users');
+            debugLog('🔍 [DEBUG] ⚠️  No colon found in line, cannot parse users');
           }
           break;
         
         case '366': // End of NAMES list
-          print('📋 End of NAMES list (366)');
+          debugLog('📋 End of NAMES list (366)');
           if (args.length >= 2) {
             var channel = args[1];
             channel = _normalizeChannelName(channel);
-            print('  ✅ Finished receiving user list for $channel');
-            // Notificar una vez más para asegurar que la UI se actualice
             if (channels.containsKey(channel)) {
               _notifyUserListListeners(channel);
-              // Solicitar información WHO para obtener hosts de usuarios (especialmente robots)
-              // Esto se hace después de recibir la lista de usuarios para detectar robots
               Future.delayed(const Duration(milliseconds: 500), () {
-                if (channels.containsKey(channel)) {
-                  sendWho(channel);
-                }
+                if (channels.containsKey(channel)) sendWho(channel);
               });
-              print('  ✅ Final user count for $channel: ${channels[channel]!.users.length}');
             }
           }
           break;
@@ -2317,10 +2259,10 @@ class IRCService {
           // El servidor confirma el cambio de nick
           // Formato: :oldnick!user@host NICK :newnick
           // O: :oldnick NICK :newnick
-          // print('🔄 [IRCService] 🔴🔴🔴 NICK command received - Full line: $line');
-          // print('🔄 [IRCService] NICK command - source: $source, command: $command, args: $args');
-          // print('🔄 [IRCService] NICK command - parts: $parts');
-          // print('🔄 [IRCService] NICK command - nick from source: $nick');
+          // debugLog('🔄 [IRCService] 🔴🔴🔴 NICK command received - Full line: $line');
+          // debugLog('🔄 [IRCService] NICK command - source: $source, command: $command, args: $args');
+          // debugLog('🔄 [IRCService] NICK command - parts: $parts');
+          // debugLog('🔄 [IRCService] NICK command - nick from source: $nick');
           
           if (args.isNotEmpty) {
             // El nuevo nick puede estar en args[0] con o sin ':'
@@ -2333,18 +2275,18 @@ class IRCService {
             // El oldNick viene del source (antes del !)
             final oldNick = nick;
             
-            // print('🔄 [IRCService] NICK parsed - oldNick="$oldNick", newNick="$newNick", our nickname="$_nickname"');
-            // print('🔄 [IRCService] Comparación: oldNick.toLowerCase()="${oldNick?.toLowerCase()}" == _nickname.toLowerCase()="${_nickname?.toLowerCase()}"');
-            // print('🔄 [IRCService] ¿Son iguales?: ${oldNick != null && _nickname != null && oldNick.toLowerCase() == _nickname!.toLowerCase()}');
+            // debugLog('🔄 [IRCService] NICK parsed - oldNick="$oldNick", newNick="$newNick", our nickname="$_nickname"');
+            // debugLog('🔄 [IRCService] Comparación: oldNick.toLowerCase()="${oldNick?.toLowerCase()}" == _nickname.toLowerCase()="${_nickname?.toLowerCase()}"');
+            // debugLog('🔄 [IRCService] ¿Son iguales?: ${oldNick != null && _nickname != null && oldNick.toLowerCase() == _nickname!.toLowerCase()}');
             
             // Si es nuestro propio cambio de nick
             if (oldNick != null && _nickname != null && oldNick.toLowerCase() == _nickname!.toLowerCase()) {
-              // print('🔄 [IRCService] ✅✅✅ Nuestro nick cambió de "$oldNick" a "$newNick"');
+              // debugLog('🔄 [IRCService] ✅✅✅ Nuestro nick cambió de "$oldNick" a "$newNick"');
               _nickname = newNick;
-              // print('🔄 [IRCService] _nickname actualizado a: "$_nickname"');
+              // debugLog('🔄 [IRCService] _nickname actualizado a: "$_nickname"');
               
               // Actualizar el nick en todos los canales donde aparezca nuestro nick antiguo
-              // print('🔄 [IRCService] Actualizando nick en canales...');
+              // debugLog('🔄 [IRCService] Actualizando nick en canales...');
               final oldNickLower = oldNick.toLowerCase();
               for (var channel in channels.values) {
                 // Buscar el usuario de forma case-insensitive
@@ -2380,23 +2322,23 @@ class IRCService {
                   }
                   
                   _notifyUserListListeners(channel.name);
-                  // print('🔄 [IRCService] Actualizando nick en canal "${channel.name}": "$existingNick" -> "$newNick"');
+                  // debugLog('🔄 [IRCService] Actualizando nick en canal "${channel.name}": "$existingNick" -> "$newNick"');
                 }
               }
               
-              // print('🔄 [IRCService] Notificando ${_nickChangeListeners.length} listeners...');
+              // debugLog('🔄 [IRCService] Notificando ${_nickChangeListeners.length} listeners...');
               // Notificar a los listeners del cambio de nick
               for (var i = 0; i < _nickChangeListeners.length; i++) {
                 try {
-                  // print('🔄 [IRCService] Llamando listener $i con: "$newNick"');
+                  // debugLog('🔄 [IRCService] Llamando listener $i con: "$newNick"');
                   _nickChangeListeners[i](newNick);
-                  // print('🔄 [IRCService] Listener $i llamado exitosamente');
+                  // debugLog('🔄 [IRCService] Listener $i llamado exitosamente');
                 } catch (e, stackTrace) {
-                  // print('⚠️  [IRCService] Error en listener $i de cambio de nick: $e');
-                  // print('⚠️  [IRCService] Stack trace: $stackTrace');
+                  // debugLog('⚠️  [IRCService] Error en listener $i de cambio de nick: $e');
+                  // debugLog('⚠️  [IRCService] Stack trace: $stackTrace');
                 }
               }
-              // print('🔄 [IRCService] ✅ Todos los listeners notificados');
+              // debugLog('🔄 [IRCService] ✅ Todos los listeners notificados');
               
               // Nota: En IRC estándar, cuando cambias tu nick NO te expulsan de los canales.
               // El servidor simplemente actualiza tu nick en todos los canales donde estás.
@@ -2404,7 +2346,7 @@ class IRCService {
               // Si el servidor realmente te expulsa, recibiremos mensajes PART o KICK y los manejaremos entonces.
             } else {
               // Es el cambio de nick de otro usuario
-              // print('🔄 [IRCService] Usuario "$oldNick" cambió su nick a "$newNick" (no es nuestro)');
+              // debugLog('🔄 [IRCService] Usuario "$oldNick" cambió su nick a "$newNick" (no es nuestro)');
               // Actualizar el nick en todos los canales donde aparezca (case-insensitive)
               final oldNickLower = oldNick.toLowerCase();
               for (var channel in channels.values) {
@@ -2441,17 +2383,17 @@ class IRCService {
                   }
                   
                   _notifyUserListListeners(channel.name);
-                  print('🔄 [IRCService] Nick actualizado en ${channel.name}: "$existingNick" -> "$newNick"');
+                  debugLog('🔄 [IRCService] Nick actualizado en ${channel.name}: "$existingNick" -> "$newNick"');
                 }
               }
             }
           } else {
-            // print('⚠️  [IRCService] NICK command sin argumentos: $line');
+            // debugLog('⚠️  [IRCService] NICK command sin argumentos: $line');
           }
           break;
         
         case 'JOIN':
-          print('🚪 [IRC] JOIN recibido: $nick se unió a ${args.isNotEmpty ? args[0] : "canal desconocido"}');
+          debugLog('🚪 [IRC] JOIN recibido: $nick se unió a ${args.isNotEmpty ? args[0] : "canal desconocido"}');
           
           if (args.isNotEmpty) {
             var channel = args[0];
@@ -2459,18 +2401,18 @@ class IRCService {
             
             // Solo procesar si es un canal válido
             if (!channel.startsWith('#')) {
-              print('⚠️ [IRC] Invalid channel name in JOIN: $channel');
+              debugLog('⚠️ [IRC] Invalid channel name in JOIN: $channel');
               break;
             }
             
             if (!channels.containsKey(channel)) {
               channels[channel] = IRCChannel(name: channel);
-              print('✅ [IRC] Canal creado: $channel');
+              debugLog('✅ [IRC] Canal creado: $channel');
             }
             
             // Si somos nosotros los que nos unimos
             if (nick == _nickname) {
-              print('✅ [IRC] ¡Nos unimos exitosamente al canal: $channel!');
+              debugLog('✅ [IRC] ¡Nos unimos exitosamente al canal: $channel!');
               _currentChannel = channel;
             }
             
@@ -2493,7 +2435,7 @@ class IRCService {
               
               if (!userExists) {
               channels[channel]!.addUser(nick, host: host);
-              // print('🔍 [DEBUG] Added user "$nick" to channel "$channel" with host: ${host ?? "unknown"}');
+              // debugLog('🔍 [DEBUG] Added user "$nick" to channel "$channel" with host: ${host ?? "unknown"}');
                 
                 // Hacer WHOIS automático para detectar estado away (con delay para evitar spam)
                 Future.delayed(const Duration(seconds: 2), () {
@@ -2514,7 +2456,7 @@ class IRCService {
               // Notificar cambio en la lista de usuarios
               _notifyUserListListeners(channel);
             } else {
-              // print('🔍 [DEBUG] ❌ Skipping server/host name in JOIN: "$nick"');
+              // debugLog('🔍 [DEBUG] ❌ Skipping server/host name in JOIN: "$nick"');
             }
             
             final msg = IRCMessage(
@@ -2530,27 +2472,27 @@ class IRCService {
             
             // Si es nuestro propio JOIN, solicitar la lista de usuarios
             final isOurJoin = nick == _nickname;
-            // print('🔍 [DEBUG] JOIN check: nick="$nick" == nickname="$_nickname" ? $isOurJoin');
+            // debugLog('🔍 [DEBUG] JOIN check: nick="$nick" == nickname="$_nickname" ? $isOurJoin');
             
             if (isOurJoin) {
-              print('🔍 [DEBUG] ✅✅✅ Our own JOIN detected! ✅✅✅');
-              print('🔍 [DEBUG] Requesting NAMES for $channel (immediate)');
+              debugLog('🔍 [DEBUG] ✅✅✅ Our own JOIN detected! ✅✅✅');
+              debugLog('🔍 [DEBUG] Requesting NAMES for $channel (immediate)');
               _sendCommand('NAMES $channel');
               
               // Solicitar el TOPIC del canal
-              // print('🔍 [DEBUG] Requesting TOPIC for $channel (immediate)');
+              // debugLog('🔍 [DEBUG] Requesting TOPIC for $channel (immediate)');
               _sendCommand('TOPIC $channel');
               
               // Detectar si es un canal especial de ayuda (#ayuda, #cau) o juego (#werewolf)
               final channelLower = channel.toLowerCase();
               if (channelLower == '#ayuda' || channelLower == '#cau') {
-                print('🤖 [IRC] Detectado canal de ayuda: $channel');
+                debugLog('🤖 [IRC] Detectado canal de ayuda: $channel');
                 // Notificar a los listeners después de un pequeño delay para asegurar que el canal está listo
                 Future.delayed(const Duration(milliseconds: 500), () {
                   _notifyHelpChannelJoinListeners(channel);
                 });
               } else if (channelLower == '#werewolf') {
-                print('🐺 [IRC] Detectado canal de juego Werewolf: $channel');
+                debugLog('🐺 [IRC] Detectado canal de juego Werewolf: $channel');
                 Future.delayed(const Duration(milliseconds: 500), () {
                   _notifyWerewolfChannelJoinListeners(channel);
                 });
@@ -2559,35 +2501,35 @@ class IRCService {
               // También solicitar después de delays
               Future.delayed(const Duration(milliseconds: 500), () {
                 if (_isConnected && _hasActiveConnection) {
-                  // print('🔍 [DEBUG] Requesting NAMES for $channel (delayed 500ms)');
+                  // debugLog('🔍 [DEBUG] Requesting NAMES for $channel (delayed 500ms)');
                   _sendCommand('NAMES $channel');
-                  // print('🔍 [DEBUG] Requesting TOPIC for $channel (delayed 500ms)');
+                  // debugLog('🔍 [DEBUG] Requesting TOPIC for $channel (delayed 500ms)');
                   _sendCommand('TOPIC $channel');
                 }
               });
               
               Future.delayed(const Duration(milliseconds: 1500), () {
                 if (_isConnected && _hasActiveConnection) {
-                  // print('🔍 [DEBUG] Requesting NAMES for $channel (delayed 1500ms)');
+                  // debugLog('🔍 [DEBUG] Requesting NAMES for $channel (delayed 1500ms)');
                   _sendCommand('NAMES $channel');
-                  // print('🔍 [DEBUG] Requesting TOPIC for $channel (delayed 1500ms)');
+                  // debugLog('🔍 [DEBUG] Requesting TOPIC for $channel (delayed 1500ms)');
                   _sendCommand('TOPIC $channel');
                 }
               });
               
               Future.delayed(const Duration(milliseconds: 3000), () {
                 if (_isConnected && _hasActiveConnection) {
-                  // print('🔍 [DEBUG] Requesting NAMES for $channel (delayed 3000ms)');
+                  // debugLog('🔍 [DEBUG] Requesting NAMES for $channel (delayed 3000ms)');
                   _sendCommand('NAMES $channel');
-                  // print('🔍 [DEBUG] Requesting TOPIC for $channel (delayed 3000ms)');
+                  // debugLog('🔍 [DEBUG] Requesting TOPIC for $channel (delayed 3000ms)');
                   _sendCommand('TOPIC $channel');
                 }
               });
             } else {
-              // print('🔍 [DEBUG] ❌ Not our JOIN: nick="$nick" != nickname="$_nickname"');
+              // debugLog('🔍 [DEBUG] ❌ Not our JOIN: nick="$nick" != nickname="$_nickname"');
             }
           } else {
-            // print('🔍 [DEBUG] ⚠️  JOIN command with no args');
+            // debugLog('🔍 [DEBUG] ⚠️  JOIN command with no args');
           }
           break;
         
@@ -2618,7 +2560,7 @@ class IRCService {
               if (isOurPart) {
                 if (isGlobalChat) {
                   _manuallyClosedChannels.add(channel.toLowerCase());
-                  print('🌐 [IRC] #globalchat cerrado manualmente (PART detectado), no se volverá a abrir automáticamente');
+                  debugLog('🌐 [IRC] #globalchat cerrado manualmente (PART detectado), no se volverá a abrir automáticamente');
                 }
                 // Al salir nosotros, quitar el canal del mapa para que no siga en la lista y no "vuelva a meter" al tocarlo
                 channels.remove(channel);
@@ -2658,7 +2600,7 @@ class IRCService {
               _notifyMessageListeners(msg);
               // Notificar cambio en la lista de usuarios
               _notifyUserListListeners(channel);
-              // print('👢 [IRCService] Usuario $kickedNick expulsado de $channel');
+              // debugLog('👢 [IRCService] Usuario $kickedNick expulsado de $channel');
               
               // Si somos nosotros los expulsados, cerrar el canal y notificar
               if (_nickname != null && kickedNick.toLowerCase() == _nickname!.toLowerCase()) {
@@ -2674,12 +2616,57 @@ class IRCService {
                   try {
                     listener(channel, reason ?? '');
                   } catch (e) {
-                    print('⚠️ [IRCService] Error en listener de KICK: $e');
+                    debugLog('⚠️ [IRCService] Error en listener de KICK: $e');
                   }
                 }
-                print('👢 [IRCService] Fuiste expulsado de $channel, canal cerrado');
+                debugLog('👢 [IRCService] Fuiste expulsado de $channel, canal cerrado');
               }
             }
+          }
+          break;
+        
+        case 'MODE':
+          // Formato: :source MODE #channel (+|-)(v|o|h|a|q) nick [nick ...]
+          // Actualizar userModes en tiempo real cuando dan +v, -v, @, etc.
+          if (args.length >= 3 && args[0].startsWith('#')) {
+            var channel = _normalizeChannelName(args[0]);
+            final modeStr = args[1];
+            final nicks = args.sublist(2);
+            if (!channels.containsKey(channel) || modeStr.isEmpty || nicks.isEmpty) break;
+            final channelObj = channels[channel]!;
+            // Mapeo modo IRC -> prefijo UI: v=+, o=@, h=%, a=!, q=&
+            const addMap = {'v': '+', 'o': '@', 'h': '%', 'a': '!', 'q': '&'};
+            const removeMap = {'v': '+', 'o': '@', 'h': '%', 'a': '!', 'q': '&'};
+            bool adding = true;
+            int nickIndex = 0;
+            for (int i = 0; i < modeStr.length && nickIndex < nicks.length; i++) {
+              final c = modeStr[i];
+              if (c == '+') { adding = true; continue; }
+              if (c == '-') { adding = false; continue; }
+              final prefix = adding ? addMap[c] : removeMap[c];
+              if (prefix == null) continue;
+              final targetNick = nicks[nickIndex].replaceFirst(':', '');
+              nickIndex++;
+              final nickLower = targetNick.toLowerCase();
+              String? existingKey;
+              for (var u in channelObj.users) {
+                if (u.toLowerCase() == nickLower) { existingKey = u; break; }
+              }
+              if (existingKey == null) continue;
+              if (adding) {
+                channelObj.addUser(existingKey, mode: prefix);
+              } else {
+                final current = channelObj.getUserMode(existingKey);
+                if (current == prefix) {
+                  String? keyToRemove;
+                  for (var k in channelObj.userModes.keys) {
+                    if (k.toLowerCase() == nickLower) { keyToRemove = k; break; }
+                  }
+                  if (keyToRemove != null) channelObj.userModes.remove(keyToRemove);
+                }
+              }
+            }
+            _notifyUserListListeners(channel);
           }
           break;
         
@@ -2721,7 +2708,7 @@ class IRCService {
             for (var channel in affectedChannels) {
               _notifyUserListListeners(channel);
             }
-            // print('🔍 [WHOIS] 311 - User info for $targetNick: $username@$host ($realName)');
+            // debugLog('🔍 [WHOIS] 311 - User info for $targetNick: $username@$host ($realName)');
           }
           break;
         
@@ -2743,7 +2730,7 @@ class IRCService {
                 serverInfo: serverInfo,
               );
             }
-            // print('🔍 [WHOIS] 312 - Server info for $targetNick: $server ($serverInfo)');
+            // debugLog('🔍 [WHOIS] 312 - Server info for $targetNick: $server ($serverInfo)');
           }
           break;
         
@@ -2771,20 +2758,20 @@ class IRCService {
               _isIRCOp = true;
             }
             
-            // print('🔍 [WHOIS] 313 - $targetNick staff: ${_pendingWhois[targetNick]!.staffRole}');
+            // debugLog('🔍 [WHOIS] 313 - $targetNick staff: ${_pendingWhois[targetNick]!.staffRole}');
           }
           break;
         
         case '381': // RPL_YOUREOPER: :server 381 nick :You are now an IRC Operator
           // El código 381 siempre es para el usuario que ejecutó OPER
           // Formato típico: :server 381 nick :You are now an IRC Operator
-          // print('🔍 [IRCService] Código 381 recibido, línea completa: $line');
-          // print('🔍 [IRCService] Args: $args, nuestro nick: $_nickname');
+          // debugLog('🔍 [IRCService] Código 381 recibido, línea completa: $line');
+          // debugLog('🔍 [IRCService] Args: $args, nuestro nick: $_nickname');
           
           // El código 381 siempre es para nosotros si lo recibimos
           // No necesitamos verificar el nick
           _isIRCOp = true;
-          // print('✅ [IRCService] Identificado como IRCop exitosamente (código 381)');
+          // debugLog('✅ [IRCService] Identificado como IRCop exitosamente (código 381)');
           
           // Notificar a los listeners de IRCop
           for (var listener in _ircopListeners) {
@@ -2796,7 +2783,7 @@ class IRCService {
           if (args.length >= 2) {
             final targetNick = args[1];
             if (targetNick.toLowerCase() == _nickname?.toLowerCase()) {
-              // print('❌ [IRCService] Error: No tienes permisos de operador para este host');
+              // debugLog('❌ [IRCService] Error: No tienes permisos de operador para este host');
             }
           }
           break;
@@ -2822,7 +2809,7 @@ class IRCService {
                 signonTime: signonTime,
               );
             }
-            // print('🔍 [WHOIS] 317 - Idle/signon for $targetNick: ${idleSeconds}s idle, signed on: $signonTime');
+            // debugLog('🔍 [WHOIS] 317 - Idle/signon for $targetNick: ${idleSeconds}s idle, signed on: $signonTime');
           }
           break;
         
@@ -2837,11 +2824,11 @@ class IRCService {
               _pendingWhois.remove(targetNick);
               // Actualizar timestamp de última verificación
               _lastWhoisCheck[targetNickLower] = DateTime.now();
-              // print('🔍 [WHOIS] 318 - End of WHOIS for $targetNick');
+              // debugLog('🔍 [WHOIS] 318 - End of WHOIS for $targetNick');
             } else {
               // Si no hay información pendiente, crear una entrada básica para notificar
               // Esto puede pasar si el servidor envía 318 sin enviar otros códigos
-              // print('⚠️  [WHOIS] 318 recibido pero no hay información pendiente para $targetNick');
+              // debugLog('⚠️  [WHOIS] 318 recibido pero no hay información pendiente para $targetNick');
               final basicInfo = WhoisInfo(nick: targetNick);
               _whoisCache[targetNickLower] = basicInfo;
               _notifyWhoisListeners(basicInfo);
@@ -2853,7 +2840,7 @@ class IRCService {
         
         case '321': // RPL_LISTSTART: Inicio de lista de canales
           _listResults.clear();
-          // print('📋 [LIST] Iniciando lista de canales');
+          // debugLog('📋 [LIST] Iniciando lista de canales');
           break;
         
         case '322': // RPL_LIST: Información de un canal
@@ -2868,13 +2855,13 @@ class IRCService {
               'users': userCount,
               'topic': topic,
             });
-            // print('📋 [LIST] Canal: $channel, Usuarios: $userCount, Topic: $topic');
+            // debugLog('📋 [LIST] Canal: $channel, Usuarios: $userCount, Topic: $topic');
           }
           break;
         
         case '323': // RPL_LISTEND: Fin de lista de canales
           _notifyListListeners(_listResults);
-          // print('📋 [LIST] Fin de lista (${_listResults.length} canales)');
+          // debugLog('📋 [LIST] Fin de lista (${_listResults.length} canales)');
           break;
         
         case '352': // RPL_WHOREPLY: Información de un usuario en WHO
@@ -2905,7 +2892,7 @@ class IRCService {
               // Notificar cambio en la lista de usuarios para actualizar la UI
               _notifyUserListListeners(normalizedChannel);
             }
-            // print('👤 [WHO] Usuario: $nick ($username@$host) en $channel, estado: $status');
+            // debugLog('👤 [WHO] Usuario: $nick ($username@$host) en $channel, estado: $status');
           }
           break;
         
@@ -2921,7 +2908,7 @@ class IRCService {
               }
             }
           }
-          // print('👤 [WHO] Fin de WHO (${_whoResults.length} usuarios)');
+          // debugLog('👤 [WHO] Fin de WHO (${_whoResults.length} usuarios)');
           _whoResults.clear(); // Limpiar después de notificar
           break;
         
@@ -2954,7 +2941,7 @@ class IRCService {
             final message = args.length > 1 ? args.sublist(1).join(' ').replaceFirst(':', '').trim() : '';
             if (message.isNotEmpty) {
               _ircopCommandResults.add(message);
-              // print('📋 [IRCOp] Respuesta de $_currentIRCOpCommand: $message');
+              // debugLog('📋 [IRCOp] Respuesta de $_currentIRCOpCommand: $message');
             }
           }
           break;
@@ -2968,7 +2955,7 @@ class IRCService {
           // Fin de comandos IRCop
           if (_currentIRCOpCommand != null) {
             _notifyIRCOpCommandListeners(_ircopCommandResults);
-            // print('📋 [IRCOp] Fin de $_currentIRCOpCommand (${_ircopCommandResults.length} líneas)');
+            // debugLog('📋 [IRCOp] Fin de $_currentIRCOpCommand (${_ircopCommandResults.length} líneas)');
             _ircopCommandResults.clear();
             _currentIRCOpCommand = null;
             _currentIRCOpEndCode = null;
@@ -2978,7 +2965,7 @@ class IRCService {
         case '401': // ERR_NOSUCHNICK: :server 401 nick target :No such nick/channel
           if (args.length >= 2) {
             final targetNick = args[1];
-            // print('⚠️  [WHOIS] 401 - No such nick: $targetNick');
+            // debugLog('⚠️  [WHOIS] 401 - No such nick: $targetNick');
             // Notificar que el nick no existe
             final errorInfo = WhoisInfo(nick: targetNick);
             _whoisCache[targetNick.toLowerCase()] = errorInfo;
@@ -3003,7 +2990,7 @@ class IRCService {
                 channels: channelsList,
               );
             }
-            // print('🔍 [WHOIS] 319 - Channels for $targetNick: $channelsList');
+            // debugLog('🔍 [WHOIS] 319 - Channels for $targetNick: $channelsList');
           }
           break;
 
@@ -3020,7 +3007,7 @@ class IRCService {
                 isSecureConnection: true,
               );
             }
-            // print('🔍 [WHOIS] 671 - $targetNick is using a secure connection (SSL/TLS)');
+            // debugLog('🔍 [WHOIS] 671 - $targetNick is using a secure connection (SSL/TLS)');
           }
           break;
         
@@ -3068,12 +3055,12 @@ class IRCService {
               // Actualizar timestamp de última verificación
               _lastWhoisCheck[targetNickLower] = DateTime.now();
             }
-            // print('🔍 [WHOIS] 301 - $targetNick is away: $awayMessage');
+            // debugLog('🔍 [WHOIS] 301 - $targetNick is away: $awayMessage');
           }
           break;
         
         case '305': // RPL_UNAWAY: Usuario ya no está en away
-          // print('✅ [IRCService] Ya no estás en away');
+          // debugLog('✅ [IRCService] Ya no estás en away');
           _notifyAwayStatusListeners(false, null);
           
           // Actualizar también el caché de whois para que el avatar no muestre el indicador
@@ -3100,7 +3087,7 @@ class IRCService {
           final finalAwayMessage = (awayMessage != null && awayMessage.isNotEmpty) 
               ? awayMessage 
               : (_whoisCache[_nickname?.toLowerCase() ?? '']?.awayMessage);
-          // print('🚶 [IRCService] Ahora estás en away${finalAwayMessage != null ? ": $finalAwayMessage" : ""}');
+          // debugLog('🚶 [IRCService] Ahora estás en away${finalAwayMessage != null ? ": $finalAwayMessage" : ""}');
           _notifyAwayStatusListeners(true, finalAwayMessage);
           
           // Actualizar también el caché de whois
@@ -3125,12 +3112,12 @@ class IRCService {
             if (privmsgSenderLower == 'statserv' || privmsgSenderLower == 'global') {
               break;
             }
-            // print('🔍🔍🔍 [DEBUG PRIVMSG] 📨 PRIVMSG recibido - Raw line: $line');
-            // print('🔍🔍🔍 [DEBUG PRIVMSG] 📨 PRIVMSG - nick del source: "$nick", args: $args');
+            // debugLog('🔍🔍🔍 [DEBUG PRIVMSG] 📨 PRIVMSG recibido - Raw line: $line');
+            // debugLog('🔍🔍🔍 [DEBUG PRIVMSG] 📨 PRIVMSG - nick del source: "$nick", args: $args');
             
             var target = args[0];
-            // print('🔍🔍🔍 [DEBUG PRIVMSG] 📨 PRIVMSG - target original: "$target"');
-            // print('🔍🔍🔍 [DEBUG PRIVMSG] 📨 PRIVMSG - nuestro nickname: "$_nickname"');
+            // debugLog('🔍🔍🔍 [DEBUG PRIVMSG] 📨 PRIVMSG - target original: "$target"');
+            // debugLog('🔍🔍🔍 [DEBUG PRIVMSG] 📨 PRIVMSG - nuestro nickname: "$_nickname"');
             
             var targetChannel = _normalizeChannelName(target);
             
@@ -3139,16 +3126,16 @@ class IRCService {
             String channelKey;
             bool isPrivateMessageToUs = false;
             
-            // print('🔍 [DEBUG] 📨 PRIVMSG - isChannel: $isChannel');
+            // debugLog('🔍 [DEBUG] 📨 PRIVMSG - isChannel: $isChannel');
             
             if (isChannel) {
               // Es un canal, usar el nombre del canal normalizado
               channelKey = targetChannel;
-              // print('🔍 [DEBUG] 📨 PRIVMSG - Es un mensaje de canal: $channelKey');
+              // debugLog('🔍 [DEBUG] 📨 PRIVMSG - Es un mensaje de canal: $channelKey');
             } else {
               // Es un mensaje privado
-              // print('🔍 [DEBUG] 📨 PRIVMSG - Es un mensaje privado (target no empieza con #)');
-              // print('🔍 [DEBUG] 📨 PRIVMSG - Comparando target "$target" (lowercase: ${target.toLowerCase()}) con nickname "$_nickname" (lowercase: ${_nickname?.toLowerCase()})');
+              // debugLog('🔍 [DEBUG] 📨 PRIVMSG - Es un mensaje privado (target no empieza con #)');
+              // debugLog('🔍 [DEBUG] 📨 PRIVMSG - Comparando target "$target" (lowercase: ${target.toLowerCase()}) con nickname "$_nickname" (lowercase: ${_nickname?.toLowerCase()})');
               
               // Si el target es nuestro nickname, es un mensaje que NOS ENVIAN
               // En ese caso, usar el nick del remitente como channelKey
@@ -3159,23 +3146,23 @@ class IRCService {
               final cleanTarget = target.trim();
               final cleanNickname = _nickname?.trim();
               
-              // print('🔍 [DEBUG] 📨 PRIVMSG - Comparación detallada:');
-              // print('🔍 [DEBUG] 📨 PRIVMSG - target limpio: "$cleanTarget" (length: ${cleanTarget.length})');
-              // print('🔍 [DEBUG] 📨 PRIVMSG - nickname limpio: "$cleanNickname" (length: ${cleanNickname?.length ?? 0})');
-              // print('🔍 [DEBUG] 📨 PRIVMSG - target.toLowerCase(): "${cleanTarget.toLowerCase()}"');
-              // print('🔍 [DEBUG] 📨 PRIVMSG - nickname.toLowerCase(): "${cleanNickname?.toLowerCase() ?? "null"}"');
-              // print('🔍 [DEBUG] 📨 PRIVMSG - ¿Son iguales?: ${cleanNickname != null && cleanTarget.toLowerCase() == cleanNickname.toLowerCase()}');
+              // debugLog('🔍 [DEBUG] 📨 PRIVMSG - Comparación detallada:');
+              // debugLog('🔍 [DEBUG] 📨 PRIVMSG - target limpio: "$cleanTarget" (length: ${cleanTarget.length})');
+              // debugLog('🔍 [DEBUG] 📨 PRIVMSG - nickname limpio: "$cleanNickname" (length: ${cleanNickname?.length ?? 0})');
+              // debugLog('🔍 [DEBUG] 📨 PRIVMSG - target.toLowerCase(): "${cleanTarget.toLowerCase()}"');
+              // debugLog('🔍 [DEBUG] 📨 PRIVMSG - nickname.toLowerCase(): "${cleanNickname?.toLowerCase() ?? "null"}"');
+              // debugLog('🔍 [DEBUG] 📨 PRIVMSG - ¿Son iguales?: ${cleanNickname != null && cleanTarget.toLowerCase() == cleanNickname.toLowerCase()}');
               
               if (cleanNickname != null && cleanTarget.toLowerCase() == cleanNickname.toLowerCase()) {
                 // Mensaje privado que nos envían, usar el nick del remitente
                 isPrivateMessageToUs = true;
                 channelKey = nick.toLowerCase();
-                // print('🔍 [DEBUG] 📨 PRIVMSG: ✅✅✅ Mensaje privado RECIBIDO de "$nick", usando channelKey="$channelKey" ✅✅✅');
+                // debugLog('🔍 [DEBUG] 📨 PRIVMSG: ✅✅✅ Mensaje privado RECIBIDO de "$nick", usando channelKey="$channelKey" ✅✅✅');
                 
                 // Verificar si el remitente está en la lista de ignorados (solo para mensajes que nos envían)
                 final senderNick = nick.toLowerCase();
                 if (_ignoredUsers.contains(senderNick)) {
-                  // print('🚫 [IRCService] Mensaje privado ignorado de usuario: $nick (en lista de ignorados: $_ignoredUsers)');
+                  // debugLog('🚫 [IRCService] Mensaje privado ignorado de usuario: $nick (en lista de ignorados: $_ignoredUsers)');
                   
                   // Verificar si NO es un robot antes de enviar respuesta automática
                   final isBot = _isBotByHostOrNick(nick, host);
@@ -3187,12 +3174,12 @@ class IRCService {
                   
                   break; // Ignorar el mensaje completamente
                 }
-                // print('✅ [IRCService] Mensaje privado de "$nick" NO está en lista de ignorados. Lista actual: $_ignoredUsers');
-                // print('✅ [IRCService] Procediendo a procesar mensaje privado de "$nick"');
+                // debugLog('✅ [IRCService] Mensaje privado de "$nick" NO está en lista de ignorados. Lista actual: $_ignoredUsers');
+                // debugLog('✅ [IRCService] Procediendo a procesar mensaje privado de "$nick"');
               } else {
                 // Mensaje privado que enviamos, usar el target
                 channelKey = cleanTarget.toLowerCase();
-                // print('🔍 [DEBUG] 📨 PRIVMSG: Mensaje privado ENVIADO a "$cleanTarget", usando channelKey="$channelKey"');
+                // debugLog('🔍 [DEBUG] 📨 PRIVMSG: Mensaje privado ENVIADO a "$cleanTarget", usando channelKey="$channelKey"');
               }
             }
             
@@ -3200,7 +3187,7 @@ class IRCService {
             if (isChannel) {
               final senderNick = nick.toLowerCase();
               if (_ignoredUsers.contains(senderNick)) {
-                // print('🚫 [IRCService] Mensaje de canal ignorado de usuario: $nick en $target');
+                // debugLog('🚫 [IRCService] Mensaje de canal ignorado de usuario: $nick en $target');
                 break; // Ignorar el mensaje completamente
               }
             }
@@ -3209,7 +3196,7 @@ class IRCService {
             final isNewChannel = !channels.containsKey(channelKey);
             if (isNewChannel) {
               channels[channelKey] = IRCChannel(name: channelKey);
-              // print('🔍 [DEBUG] Creado ${isChannel ? "canal" : "query"}: $channelKey');
+              // debugLog('🔍 [DEBUG] Creado ${isChannel ? "canal" : "query"}: $channelKey');
             }
             
             // Agregar el usuario a la lista del canal si es un mensaje de canal
@@ -3231,7 +3218,7 @@ class IRCService {
                 channelObj.addUser(nick, host: host);
                 // Notificar cambio en la lista de usuarios
                 _notifyUserListListeners(channelKey);
-                // print('🔍 [DEBUG] Usuario "$nick" agregado a la lista del canal "$channelKey" desde PRIVMSG');
+                // debugLog('🔍 [DEBUG] Usuario "$nick" agregado a la lista del canal "$channelKey" desde PRIVMSG');
               } else if (host != null) {
                 // Si el usuario ya está en la lista pero tenemos un host nuevo, actualizarlo
                 channelObj.addUser(nick, host: host);
@@ -3285,7 +3272,7 @@ class IRCService {
                   }
                   
                   messageContent = actionText; // Usar el texto de la acción como mensaje
-                  // print('🎭 [IRCService] Mensaje ACTION detectado: "$actionText"');
+                  // debugLog('🎭 [IRCService] Mensaje ACTION detectado: "$actionText"');
                 }
                 
                 // Verificar si es una respuesta de STATUS de NickServ (viene como NOTICE pero se procesa como PRIVMSG)
@@ -3297,7 +3284,7 @@ class IRCService {
                   if (match != null) {
                     final checkedNick = match.group(1)!.toLowerCase();
                     final status = int.tryParse(match.group(2)!);
-                    // print('📋 [IRCService] Status recibido para nick "$checkedNick": $status');
+                    // debugLog('📋 [IRCService] Status recibido para nick "$checkedNick": $status');
                     final completer = _statusCheckCompleters.remove(checkedNick);
                     if (completer != null && !completer.isCompleted) {
                       completer.complete(status);
@@ -3320,11 +3307,11 @@ class IRCService {
                     nick.toLowerCase() == _nickname!.toLowerCase() &&
                     target.toLowerCase() == 'nick' &&
                     messageContent.toUpperCase().startsWith('IDENTIFY')) {
-                  // print('🔐 [IRCService] Ignorando PRIVMSG IDENTIFY que enviamos al bot \"nick\" (no debe aparecer en el chat)');
+                  // debugLog('🔐 [IRCService] Ignorando PRIVMSG IDENTIFY que enviamos al bot \"nick\" (no debe aparecer en el chat)');
                   return;
                 }
                 
-                // print('🔍🔍🔍 [DEBUG PRIVMSG] PRIVMSG parsed: nick="$nick", target="$target", channelKey="$channelKey", message="$messageContent"');
+                // debugLog('🔍🔍🔍 [DEBUG PRIVMSG] PRIVMSG parsed: nick="$nick", target="$target", channelKey="$channelKey", message="$messageContent"');
             
                 // Verificar si es nuestro propio mensaje (confirmación del servidor)
                 // - Para mensajes de canal: el nick del remitente debe ser nuestro nick
@@ -3333,22 +3320,22 @@ class IRCService {
                 final isOurOwnMessage = _nickname != null &&
                     nick.toLowerCase() == _nickname!.toLowerCase();
                 
-                // print('🔍🔍🔍 [DEBUG PRIVMSG] Verificando si es nuestro mensaje:');
-                // print('  - nick del source: "$nick"');
-                // print('  - nuestro nickname: "$_nickname"');
-                // print('  - isChannel: $isChannel');
-                // print('  - Comparación: "${nick.toLowerCase()}" == "${_nickname?.toLowerCase()}" = $isOurOwnMessage');
-                // print('  - Mensaje recibido: "$messageContent"');
-                // print('  - Canal: "$channelKey"');
+                // debugLog('🔍🔍🔍 [DEBUG PRIVMSG] Verificando si es nuestro mensaje:');
+                // debugLog('  - nick del source: "$nick"');
+                // debugLog('  - nuestro nickname: "$_nickname"');
+                // debugLog('  - isChannel: $isChannel');
+                // debugLog('  - Comparación: "${nick.toLowerCase()}" == "${_nickname?.toLowerCase()}" = $isOurOwnMessage');
+                // debugLog('  - Mensaje recibido: "$messageContent"');
+                // debugLog('  - Canal: "$channelKey"');
                 
                 if (isOurOwnMessage) {
                   // Es nuestro propio mensaje, verificar si hay un mensaje pendiente
-                  // print('✅✅✅ [DEBUG PRIVMSG] Mensaje propio detectado: "$messageContent" en canal "$channelKey"');
+                  // debugLog('✅✅✅ [DEBUG PRIVMSG] Mensaje propio detectado: "$messageContent" en canal "$channelKey"');
                   
                   // Buscar mensaje pendiente que coincida
                   if (!channels.containsKey(channelKey)) {
-                    // print('❌❌❌ [DEBUG PRIVMSG] ERROR: Canal "$channelKey" no existe en channels!');
-                    // print('❌❌❌ [DEBUG PRIVMSG] Canales disponibles: ${channels.keys.toList()}');
+                    // debugLog('❌❌❌ [DEBUG PRIVMSG] ERROR: Canal "$channelKey" no existe en channels!');
+                    // debugLog('❌❌❌ [DEBUG PRIVMSG] Canales disponibles: ${channels.keys.toList()}');
                     return;
                   }
                   
@@ -3359,7 +3346,7 @@ class IRCService {
                   IRCMessage? pendingMsg;
                   
                   // Buscar desde el final (más reciente) hacia el principio
-                  // print('🔍🔍🔍 [DEBUG PRIVMSG] Buscando mensaje pendiente. Total mensajes: ${channelObj.messages.length}');
+                  // debugLog('🔍🔍🔍 [DEBUG PRIVMSG] Buscando mensaje pendiente. Total mensajes: ${channelObj.messages.length}');
                   for (int i = channelObj.messages.length - 1; i >= 0; i--) {
                     final msg = channelObj.messages[i];
                     if (msg.isPending && 
@@ -3371,13 +3358,13 @@ class IRCService {
                       final receivedContent = (isAction && actionText != null) ? actionText.trim() : messageContent.trim();
                       // También verificar si ambos son mensajes ACTION
                       if (msg.isAction == isAction) {
-                        // print('🔍 [IRCService] Comparando pendiente[$i]: "$msgContent" con recibido: "$receivedContent" (isAction: $isAction)');
+                        // debugLog('🔍 [IRCService] Comparando pendiente[$i]: "$msgContent" con recibido: "$receivedContent" (isAction: $isAction)');
                       if (msgContent == receivedContent ||
                           receivedContent.contains(msgContent) ||
                           msgContent.contains(receivedContent)) {
                         pendingMsgIndex = i;
                         pendingMsg = msg;
-                        // print('✅ [IRCService] Mensaje pendiente encontrado en índice $i: "${msg.message}" (pendingId: ${msg.pendingId})');
+                        // debugLog('✅ [IRCService] Mensaje pendiente encontrado en índice $i: "${msg.message}" (pendingId: ${msg.pendingId})');
                         break;
                         }
                       }
@@ -3385,11 +3372,11 @@ class IRCService {
                   }
                   
                   if (pendingMsgIndex == -1) {
-                    // print('⚠️  [IRCService] No se encontró mensaje pendiente. Listando todos los pendientes:');
+                    // debugLog('⚠️  [IRCService] No se encontró mensaje pendiente. Listando todos los pendientes:');
                     for (int i = 0; i < channelObj.messages.length; i++) {
                       final msg = channelObj.messages[i];
                       if (msg.isPending && msg.channel == channelKey && msg.nick == _nickname) {
-                        // print('  - [$i] "${msg.message}" (pendingId: ${msg.pendingId})');
+                        // debugLog('  - [$i] "${msg.message}" (pendingId: ${msg.pendingId})');
                       }
                     }
                   }
@@ -3402,24 +3389,24 @@ class IRCService {
                     if (hasActiveTimer) {
                       // El timer aún está activo, el mensaje aún no se ha enviado
                       // El servidor está respondiendo a un mensaje anterior o hay un problema
-                      // print('⏱️  [IRCService] Mensaje pendiente aún tiene timer activo (delay en curso), ignorando confirmación temprana del servidor');
+                      // debugLog('⏱️  [IRCService] Mensaje pendiente aún tiene timer activo (delay en curso), ignorando confirmación temprana del servidor');
                       return; // Ignorar la confirmación temprana del servidor
                     } else {
                       // El timer ya se ejecutó o no había timer (envío inmediato), confirmar el mensaje
-                      // print('✅ [IRCService] Timer ya ejecutado o sin delay, confirmando mensaje pendiente');
+                      // debugLog('✅ [IRCService] Timer ya ejecutado o sin delay, confirmando mensaje pendiente');
                       // Para mensajes ACTION, usar actionText en lugar de messageContent
                       final contentToConfirm = (isAction && actionText != null) ? actionText : messageContent;
                       final confirmed = confirmPendingMessage(channelKey, contentToConfirm, DateTime.now());
                       if (confirmed) {
-                        // print('✅ [IRCService] Mensaje pendiente confirmado, no se añadirá duplicado');
+                        // debugLog('✅ [IRCService] Mensaje pendiente confirmado, no se añadirá duplicado');
                         return; // Salir temprano para evitar añadir un mensaje duplicado
                       } else {
-                        // print('⚠️  [IRCService] No se pudo confirmar el mensaje pendiente, pero es nuestro mensaje, no añadir duplicado');
+                        // debugLog('⚠️  [IRCService] No se pudo confirmar el mensaje pendiente, pero es nuestro mensaje, no añadir duplicado');
                         return; // No añadir duplicado aunque no se confirmó
                       }
                     }
                   } else {
-                    // print('⚠️  [IRCService] No se encontró mensaje pendiente para confirmar, puede ser un mensaje ya confirmado o de otro usuario');
+                    // debugLog('⚠️  [IRCService] No se encontró mensaje pendiente para confirmar, puede ser un mensaje ya confirmado o de otro usuario');
                     // Si es nuestro mensaje pero no hay pendiente, no añadir duplicado
                     return; // No añadir duplicado
                   }
@@ -3437,10 +3424,10 @@ class IRCService {
               replyToMessageId: extractedReplyToMessageId,
             );
                 
-                // print('🔍 [DEBUG] ✅ Añadiendo mensaje al canal/query: $channelKey');
-                // print('🔍 [DEBUG] ✅ Canal existe en mapa: ${channels.containsKey(channelKey)}');
+                // debugLog('🔍 [DEBUG] ✅ Añadiendo mensaje al canal/query: $channelKey');
+                // debugLog('🔍 [DEBUG] ✅ Canal existe en mapa: ${channels.containsKey(channelKey)}');
                 channels[channelKey]!.addMessage(msg);
-                // print('🔍 [DEBUG] ✅ Mensaje añadido. Total mensajes en canal: ${channels[channelKey]!.messages.length}');
+                // debugLog('🔍 [DEBUG] ✅ Mensaje añadido. Total mensajes en canal: ${channels[channelKey]!.messages.length}');
                 
                 // Guardar en historial local (no bloquear el hilo principal)
                 // Usamos el host actual como identificador de servidor
@@ -3456,19 +3443,19 @@ class IRCService {
                 // Notificar a los listeners de mensajes
             _notifyMessageListeners(msg);
                 }
-                // print('🔍 [DEBUG] ✅ Listeners notificados. Total listeners: ${_messageListeners.length}');
+                // debugLog('🔍 [DEBUG] ✅ Listeners notificados. Total listeners: ${_messageListeners.length}');
                 
                 // Si es un nuevo canal/query, notificar también a los listeners de lista de usuarios
                 // para que el provider se actualice y muestre el nuevo canal en la UI
                 if (isNewChannel) {
-                  // print('🔍 [DEBUG] 🔄 Nuevo canal/query creado, notificando userListListeners para actualizar UI');
+                  // debugLog('🔍 [DEBUG] 🔄 Nuevo canal/query creado, notificando userListListeners para actualizar UI');
                   _notifyUserListListeners(channelKey);
                 }
               } else {
-                // print('🔍 [DEBUG] ⚠️  PRIVMSG: No colon found after target');
+                // debugLog('🔍 [DEBUG] ⚠️  PRIVMSG: No colon found after target');
               }
             } else {
-              // print('🔍 [DEBUG] ⚠️  PRIVMSG: PRIVMSG keyword not found in line');
+              // debugLog('🔍 [DEBUG] ⚠️  PRIVMSG: PRIVMSG keyword not found in line');
             }
           }
           break;
@@ -3497,17 +3484,17 @@ class IRCService {
                   if (match != null) {
                     final checkedNick = match.group(1)!.toLowerCase();
                     final status = int.tryParse(match.group(2)!);
-                    // print('📋 [IRCService] Status recibido (NOTICE) para nick "$checkedNick": $status');
-                    // print('📋 [IRCService] Mensaje completo: $messageContent');
+                    // debugLog('📋 [IRCService] Status recibido (NOTICE) para nick "$checkedNick": $status');
+                    // debugLog('📋 [IRCService] Mensaje completo: $messageContent');
                     final completer =
                         _statusCheckCompleters.remove(checkedNick);
                     if (completer != null && !completer.isCompleted) {
                       completer.complete(status);
-                      // print('✅ [IRCService] Completer completado con status: $status');
+                      // debugLog('✅ [IRCService] Completer completado con status: $status');
                     } else if (completer != null && completer.isCompleted) {
-                      // print('⚠️  [IRCService] Completer ya estaba completado para nick: $checkedNick');
+                      // debugLog('⚠️  [IRCService] Completer ya estaba completado para nick: $checkedNick');
                     } else {
-                      // print('⚠️  [IRCService] No se encontró completer para nick: $checkedNick');
+                      // debugLog('⚠️  [IRCService] No se encontró completer para nick: $checkedNick');
                     }
                     // No procesar como mensaje normal si es una respuesta de STATUS
                     break;
@@ -3528,14 +3515,14 @@ class IRCService {
                   
                   if (isToUs || isFromServer) {
                     _ircopCommandResults.add(messageContent);
-                    // print('📋 [IRCOp] NOTICE capturado para $_currentIRCOpCommand: $messageContent');
+                    // debugLog('📋 [IRCOp] NOTICE capturado para $_currentIRCOpCommand: $messageContent');
                     // Si el mensaje indica que el comando terminó, finalizar inmediatamente
                     if (messageContent.toLowerCase().contains('completed') ||
                         messageContent.toLowerCase().contains('error') ||
                         messageContent.toLowerCase().contains('failed')) {
                       _ircopCommandTimer?.cancel();
                       _notifyIRCOpCommandListeners(_ircopCommandResults);
-                      // print('📋 [IRCOp] Fin de $_currentIRCOpCommand (completado)');
+                      // debugLog('📋 [IRCOp] Fin de $_currentIRCOpCommand (completado)');
                       _ircopCommandResults.clear();
                       _currentIRCOpCommand = null;
                       _currentIRCOpEndCode = null;
@@ -3586,7 +3573,7 @@ class IRCService {
                   );
                   channels[channelKey]!.addMessage(msg);
                   _notifyMessageListeners(msg);
-                  // print('📥 [IRCService] NOTICE del bot "nick" añadido al query: "$messageContent"');
+                  // debugLog('📥 [IRCService] NOTICE del bot "nick" añadido al query: "$messageContent"');
                 } else {
                   // 5) Procesar NOTICE de otros usuarios (similar a PRIVMSG)
                   
@@ -3600,7 +3587,7 @@ class IRCService {
                   
                   // No mostrar NOTICE del servidor o mensajes del sistema
                   if (isServerMessage || isSystemMessage) {
-                    // print('🚫 [IRCService] NOTICE del sistema ignorado: $nick -> $messageContent');
+                    // debugLog('🚫 [IRCService] NOTICE del sistema ignorado: $nick -> $messageContent');
                     break;
                   }
                   
@@ -3613,7 +3600,7 @@ class IRCService {
                     // Extraer el texto de la acción (sin \x01ACTION y sin el \x01 final)
                     actionText = messageContent.substring(8, messageContent.length - 1).trim();
                     finalMessage = actionText; // Usar el texto de la acción como mensaje
-                    // print('🎭 [IRCService] Mensaje ACTION detectado en NOTICE: "$actionText"');
+                    // debugLog('🎭 [IRCService] Mensaje ACTION detectado en NOTICE: "$actionText"');
                   }
                   
                   // Determinar si es un canal (#) o un mensaje privado (nick)
@@ -3694,7 +3681,7 @@ class IRCService {
                   
                   channels[channelKey]!.addMessage(msg);
                   _notifyMessageListeners(msg);
-                  // print('📢 [IRCService] NOTICE añadido: $nick -> $channelKey: $messageContent (isAction: $isAction)');
+                  // debugLog('📢 [IRCService] NOTICE añadido: $nick -> $channelKey: $messageContent (isAction: $isAction)');
                 }
               }
             }
@@ -3728,7 +3715,7 @@ class IRCService {
           break;
       }
     } catch (e) {
-      // print('Error parsing IRC message: $e');
+      // debugLog('Error parsing IRC message: $e');
     }
   }
 
@@ -3880,7 +3867,7 @@ class IRCService {
       try {
         listener(lagMs);
       } catch (e) {
-        // print('❌ Error notificando lag listener: $e');
+        // debugLog('❌ Error notificando lag listener: $e');
       }
     }
   }
@@ -3893,7 +3880,7 @@ class IRCService {
       _lastPingToken = DateTime.now().millisecondsSinceEpoch.toString();
       _lastPingSent = DateTime.now();
       _sendCommand('PING $_lastPingToken');
-      // print('📊 [IRCService] Enviando PING inicial para medir lag: $_lastPingToken');
+      // debugLog('📊 [IRCService] Enviando PING inicial para medir lag: $_lastPingToken');
     }
     
     // Enviar PING cada 3 segundos para medición en tiempo real
@@ -3905,7 +3892,7 @@ class IRCService {
           _lastPingToken = DateTime.now().millisecondsSinceEpoch.toString();
           _lastPingSent = DateTime.now();
           _sendCommand('PING $_lastPingToken');
-          // print('📊 [IRCService] Enviando PING para medir lag: $_lastPingToken');
+          // debugLog('📊 [IRCService] Enviando PING para medir lag: $_lastPingToken');
         }
       } else {
         timer.cancel();
@@ -4018,14 +4005,14 @@ class IRCService {
   }
 
   void _notifyUserListListeners(String channel) {
-    // print('🔔 _notifyUserListListeners: channel=$channel, listeners=${_userListListeners.length}');
+    // debugLog('🔔 _notifyUserListListeners: channel=$channel, listeners=${_userListListeners.length}');
     for (var listener in _userListListeners) {
       listener(channel);
     }
   }
 
   void _notifyTopicListeners(String channel) {
-    // print('🔔 _notifyTopicListeners: channel=$channel, listeners=${_topicListeners.length}');
+    // debugLog('🔔 _notifyTopicListeners: channel=$channel, listeners=${_topicListeners.length}');
     for (var listener in _topicListeners) {
       listener(channel);
     }
@@ -4056,7 +4043,7 @@ class IRCService {
       final oldTimer = _pendingMessageTimers.remove(pendingId);
       if (oldTimer != null) {
         oldTimer.cancel();
-        // print('⏱️  [IRCService] Timer cancelado para editar mensaje pendiente: $pendingId');
+        // debugLog('⏱️  [IRCService] Timer cancelado para editar mensaje pendiente: $pendingId');
       }
       
       // Actualizar el mensaje pendiente con el nuevo contenido
@@ -4075,16 +4062,16 @@ class IRCService {
       // Esto ocurre cuando se fuerza el envío y luego se edita
       if (!hasActiveTimer) {
         // El mensaje ya fue enviado, pero ahora tiene contenido nuevo, enviarlo inmediatamente
-        // print('📤 [IRCService] Mensaje ya fue enviado (fuerza envío), enviando contenido editado inmediatamente');
+        // debugLog('📤 [IRCService] Mensaje ya fue enviado (fuerza envío), enviando contenido editado inmediatamente');
         final lines = newMessage.split('\n');
         for (var line in lines) {
           line = line.trim();
           if (line.isNotEmpty) {
-            // print('📤 [IRCService] Enviando línea editada: $line');
+            // debugLog('📤 [IRCService] Enviando línea editada: $line');
             _sendCommand('PRIVMSG $normalized :$line');
           }
         }
-        // print('✅ [IRCService] Mensaje editado enviado inmediatamente (mensaje ya estaba enviado)');
+        // debugLog('✅ [IRCService] Mensaje editado enviado inmediatamente (mensaje ya estaba enviado)');
         
         // Auto-confirmar después de 500ms si el servidor no hace eco
         Timer(const Duration(milliseconds: 500), () {
@@ -4092,7 +4079,7 @@ class IRCService {
           if (channelObj != null) {
             final currentPendingMessages = channelObj.messages.where((m) => m.isPending && m.pendingId == pendingId).toList();
             if (currentPendingMessages.isNotEmpty) {
-              // print('⚠️  [IRCService] Mensaje editado (forzado) $pendingId aún pendiente después de 500ms, auto-confirmando.');
+              // debugLog('⚠️  [IRCService] Mensaje editado (forzado) $pendingId aún pendiente después de 500ms, auto-confirmando.');
               confirmPendingMessage(normalized, newMessage, DateTime.now());
             }
           }
@@ -4102,18 +4089,18 @@ class IRCService {
         // Si hay un delay configurado, crear un nuevo timer con el mensaje actualizado
         if (updatedMessage.delaySeconds != null && updatedMessage.delaySeconds! > 0) {
           final delaySeconds = updatedMessage.delaySeconds!;
-          // print('⏱️  [IRCService] Programando envío de mensaje editado $pendingId en ${delaySeconds}s');
+          // debugLog('⏱️  [IRCService] Programando envío de mensaje editado $pendingId en ${delaySeconds}s');
           final timer = Timer(Duration(seconds: delaySeconds), () {
-            // print('⏱️  [IRCService] Timer ejecutado, enviando mensaje editado $pendingId');
+            // debugLog('⏱️  [IRCService] Timer ejecutado, enviando mensaje editado $pendingId');
             final lines = newMessage.split('\n');
             for (var line in lines) {
               line = line.trim();
               if (line.isNotEmpty) {
-                // print('📤 [IRCService] Enviando línea editada: $line');
+                // debugLog('📤 [IRCService] Enviando línea editada: $line');
                 _sendCommand('PRIVMSG $normalized :$line');
               }
             }
-            // print('📤 [IRCService] Mensaje editado enviado al servidor después de delay: $pendingId');
+            // debugLog('📤 [IRCService] Mensaje editado enviado al servidor después de delay: $pendingId');
             _pendingMessageTimers.remove(pendingId);
             
             // Auto-confirmar después de 500ms si el servidor no hace eco
@@ -4122,26 +4109,26 @@ class IRCService {
               if (channelObj != null) {
                 final currentPendingMessages = channelObj.messages.where((m) => m.isPending && m.pendingId == pendingId).toList();
                 if (currentPendingMessages.isNotEmpty) {
-                  // print('⚠️  [IRCService] Mensaje editado con delay $pendingId aún pendiente después de 500ms, auto-confirmando.');
+                  // debugLog('⚠️  [IRCService] Mensaje editado con delay $pendingId aún pendiente después de 500ms, auto-confirmando.');
                   confirmPendingMessage(normalized, newMessage, DateTime.now());
                 }
               }
             });
           });
           _pendingMessageTimers[pendingId] = timer;
-          // print('✅ [IRCService] Timer creado para mensaje editado, se enviará en ${delaySeconds}s');
+          // debugLog('✅ [IRCService] Timer creado para mensaje editado, se enviará en ${delaySeconds}s');
         } else {
           // Sin delay, enviar inmediatamente
-          // print('📤 [IRCService] Enviando mensaje editado inmediatamente (sin delay)');
+          // debugLog('📤 [IRCService] Enviando mensaje editado inmediatamente (sin delay)');
           final lines = newMessage.split('\n');
           for (var line in lines) {
             line = line.trim();
             if (line.isNotEmpty) {
-              // print('📤 [IRCService] Enviando línea editada: $line');
+              // debugLog('📤 [IRCService] Enviando línea editada: $line');
               _sendCommand('PRIVMSG $normalized :$line');
             }
           }
-          // print('✅ [IRCService] Mensaje editado enviado inmediatamente');
+          // debugLog('✅ [IRCService] Mensaje editado enviado inmediatamente');
           
           // Auto-confirmar después de 500ms si el servidor no hace eco
           Timer(const Duration(milliseconds: 500), () {
@@ -4149,7 +4136,7 @@ class IRCService {
             if (channelObj != null) {
               final currentPendingMessages = channelObj.messages.where((m) => m.isPending && m.pendingId == pendingId).toList();
               if (currentPendingMessages.isNotEmpty) {
-                // print('⚠️  [IRCService] Mensaje editado sin delay $pendingId aún pendiente después de 500ms, auto-confirmando.');
+                // debugLog('⚠️  [IRCService] Mensaje editado sin delay $pendingId aún pendiente después de 500ms, auto-confirmando.');
                 confirmPendingMessage(normalized, newMessage, DateTime.now());
               }
             }
@@ -4157,7 +4144,7 @@ class IRCService {
         }
       }
       
-      // print('✏️  [IRCService] Mensaje pendiente editado: $messageId en $normalized');
+      // debugLog('✏️  [IRCService] Mensaje pendiente editado: $messageId en $normalized');
       return true;
     } else {
       // Mensaje ya enviado, solo actualizar el contenido localmente
@@ -4173,7 +4160,7 @@ class IRCService {
       // Enviar comando de edición al servidor (si el servidor lo soporta)
       // Nota: IRC no tiene un comando estándar para editar mensajes
       // Esto es una funcionalidad del cliente
-      // print('✏️  [IRCService] Mensaje confirmado editado: $messageId en $normalized');
+      // debugLog('✏️  [IRCService] Mensaje confirmado editado: $messageId en $normalized');
       return true;
     }
   }
@@ -4233,7 +4220,7 @@ class IRCService {
       _sendCommand('PRIVMSG $normalized :\x01ACTION $reactionCommand\x01');
     }
     
-    // print('👍 [IRCService] Reacción añadida: $emoji a mensaje $messageId');
+    // debugLog('👍 [IRCService] Reacción añadida: $emoji a mensaje $messageId');
     return true;
   }
   
@@ -4284,7 +4271,7 @@ class IRCService {
     channelObj.messages[messageIndex] = updatedMessage;
     _notifyMessageListeners(updatedMessage);
     
-    // print('👍 [IRCService] Reacción recibida de $reactorNick: $emoji a mensaje $messageId');
+    // debugLog('👍 [IRCService] Reacción recibida de $reactorNick: $emoji a mensaje $messageId');
   }
   
   // Responder a un mensaje específico
@@ -4294,7 +4281,7 @@ class IRCService {
     // Enviar el mensaje directamente con la referencia al mensaje original
     sendMessage(normalized, message, delaySeconds: delaySeconds, replyToMessageId: replyToMessageId);
     
-    // print('💬 [IRCService] Respondiendo a mensaje $replyToMessageId en $normalized');
+    // debugLog('💬 [IRCService] Respondiendo a mensaje $replyToMessageId en $normalized');
   }
   
   // Obtener un mensaje por su ID

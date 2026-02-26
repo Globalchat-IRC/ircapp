@@ -212,7 +212,6 @@ class IRCChannel {
     // Esto asegura que los modos se actualicen correctamente cuando se procesa NAMES
     if (mode != null) {
       userModes[existingNick] = mode;
-      print('🔍 [addUser] Guardado modo "$mode" para usuario "$existingNick" (userModes ahora: $userModes)');
     }
     // Si mode es null, NO limpiar el modo existente - mantenerlo
   }
@@ -242,19 +241,6 @@ class IRCChannel {
 
   bool isRobot(String nick, {List<Map<String, dynamic>>? customRobots}) {
     final nickLower = nick.toLowerCase().trim();
-    
-    // Debug: imprimir información de entrada
-    print('🤖 [isRobot] Verificando "$nick" (lower: "$nickLower"), customRobots: ${customRobots?.length ?? 0}');
-    
-    // PRIORIDAD 1: Verificar primero robots personalizados (lista explícita)
-    // Esta es la fuente de verdad principal
-    if (customRobots != null && customRobots.isNotEmpty) {
-      print('🤖 [isRobot] Lista de robots personalizados: ${customRobots.map((r) => r['nick']).toList()}');
-    } else {
-      print('🤖 [isRobot] No hay robots personalizados (customRobots es null o vacío)');
-    }
-    
-    // Solo verificar robots personalizados si la lista no está vacía
     if (customRobots != null && customRobots.isNotEmpty) {
       // Buscar el host del usuario (case-insensitive)
       String? host;
@@ -270,24 +256,11 @@ class IRCChannel {
         final robotNick = (robotData['nick'] as String?)?.toLowerCase();
         final robotHost = robotData['host'] as String?;
         
-        // Verificar por nick (coincidencia exacta, case-insensitive)
         if (robotNick == nickLower) {
-          // Si tiene host especificado, verificar que coincida
           if (robotHost != null && robotHost.isNotEmpty) {
-            if (host.isNotEmpty && host.toLowerCase().contains(robotHost.toLowerCase())) {
-              print('🤖 [isRobot] ✅ Detectado "$nick" como robot personalizado (nick y host coinciden)');
-              return true;
-            } else {
-              // Si el host no coincide pero el nick está en la lista, aún así es robot
-              // (el host puede cambiar o no estar disponible aún)
-              print('🤖 [isRobot] ✅ Detectado "$nick" como robot personalizado (nick en lista, host no coincide pero se acepta)');
-              return true;
-            }
-          } else {
-            // Si no tiene host especificado, el nick en la lista es suficiente
-            print('🤖 [isRobot] ✅ Detectado "$nick" como robot personalizado (nick en lista)');
-            return true;
+            if (host.isNotEmpty && host.toLowerCase().contains(robotHost.toLowerCase())) return true;
           }
+          return true;
         }
         
         // NO verificar por host si el nick no está en la lista
@@ -322,27 +295,14 @@ class IRCChannel {
         }
       }
     }
-    // Solo usar +b si el nick TERMINA en "bot" (muy específico)
-    if (userMode == '+b' && nickLower.endsWith('bot')) {
-      print('🤖 [isRobot] ✅ Detectado "$nick" como robot (modo +b y nick termina en bot)');
-      return true;
-    }
+    if (userMode == '+b' && nickLower.endsWith('bot')) return true;
     
     // Verificar si el nick contiene indicadores MUY específicos de bot
     // Ser EXTREMADAMENTE restrictivo: solo si TERMINA en "bot" o EMPIEZA con "radio"
     final isBotByNick = nickLower.endsWith('bot') ||
                         nickLower.startsWith('radio');
     
-    // Si el host está vacío, solo confiar en el nick si es MUY específico
-    if (host.isEmpty) {
-      if (isBotByNick) {
-        print('🤖 [isRobot] ✅ Detectado "$nick" como robot por nick específico (sin host)');
-        return true;
-      } else {
-        print('🤖 [isRobot] ❌ "$nick" NO es robot (host vacío y nick no es específico de bot)');
-        return false;
-      }
-    }
+    if (host.isEmpty) return isBotByNick;
     
     // Verificar host SOLO si es específicamente de robots de GlobalChat
     final hostLower = host.toLowerCase();
@@ -350,14 +310,7 @@ class IRCChannel {
                         hostLower.endsWith('.robot.globalchat.org') ||
                         (hostLower.startsWith('robot.') && hostLower.contains('globalchat.org') && !hostLower.contains('netadmin') && !hostLower.contains('admin'));
     
-    // Retornar true SOLO si el nick claramente indica bot O el host es específicamente de robots
-    final result = isBotByNick || isBotByHost;
-    if (result) {
-      print('🤖 [isRobot] ✅ Detectado "$nick" como robot (nick: $isBotByNick, host: $isBotByHost, host: "$host")');
-    } else {
-      print('🤖 [isRobot] ❌ "$nick" NO es robot (nick: $isBotByNick, host: $isBotByHost, host: "$host")');
-    }
-    return result;
+    return isBotByNick || isBotByHost;
   }
   
   // Método auxiliar para debug: verificar si un nick está en la lista de robots personalizados
@@ -374,24 +327,11 @@ class IRCChannel {
   // Obtener el modo del usuario (prefijo IRC)
   // Buscar de forma case-insensitive para encontrar el modo correcto
   String? getUserMode(String nick) {
-    // Primero intentar con el nick exacto
-    if (userModes.containsKey(nick)) {
-      final mode = userModes[nick];
-      print('🔍 [getUserMode] Encontrado modo "$mode" para "$nick" (búsqueda exacta)');
-      return mode;
-    }
-    
-    // Si no se encuentra, buscar de forma case-insensitive
+    if (userModes.containsKey(nick)) return userModes[nick];
     final nickLower = nick.toLowerCase();
     for (var entry in userModes.entries) {
-      if (entry.key.toLowerCase() == nickLower) {
-        final mode = entry.value;
-        print('🔍 [getUserMode] Encontrado modo "$mode" para "$nick" (búsqueda case-insensitive, key original: "${entry.key}")');
-        return mode;
-      }
+      if (entry.key.toLowerCase() == nickLower) return entry.value;
     }
-    
-    print('🔍 [getUserMode] NO encontrado modo para "$nick" (userModes keys: ${userModes.keys.toList()})');
     return null;
   }
 }

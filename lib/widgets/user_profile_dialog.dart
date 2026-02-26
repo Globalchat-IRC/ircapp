@@ -65,7 +65,7 @@ class _UserProfileDialogState extends ConsumerState<UserProfileDialog> with Sing
         _isLoading = false;
       });
     } catch (e) {
-      // print('❌ Error al cargar perfil: $e');
+      // debugLog('❌ Error al cargar perfil: $e');
       setState(() => _isLoading = false);
     }
   }
@@ -365,7 +365,7 @@ class _UserProfileDialogState extends ConsumerState<UserProfileDialog> with Sing
                   currentNick.toLowerCase() == widget.nick.toLowerCase();
               
               // Debug logs
-              print('🎵 [DIALOGO] isOwnProfile: $isOwnProfile, currentNick: $currentNick, widget.nick: ${widget.nick}');
+              debugLog('🎵 [DIALOGO] isOwnProfile: $isOwnProfile, currentNick: $currentNick, widget.nick: ${widget.nick}');
               
               if (!isOwnProfile) {
                 return const SizedBox.shrink();
@@ -376,7 +376,7 @@ class _UserProfileDialogState extends ConsumerState<UserProfileDialog> with Sing
               final activeStation = radioState.activeStation;
               
               // Debug logs
-              print('🎵 [DIALOGO] Radio state - isPlaying: $isPlaying, activeStation: ${activeStation?.name ?? "null"}');
+              debugLog('🎵 [DIALOGO] Radio state - isPlaying: $isPlaying, activeStation: ${activeStation?.name ?? "null"}');
               
               // Mostrar siempre la sección de radio, pero con diferentes contenidos según el estado
               return Column(

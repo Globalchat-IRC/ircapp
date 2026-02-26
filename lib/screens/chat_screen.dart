@@ -27,6 +27,7 @@ import '../services/irc_service.dart';
 import '../services/chat_history_service.dart';
 import '../services/sound_service.dart';
 import '../services/translation_service.dart';
+import '../config/debug_config.dart';
 import 'login_screen.dart';
 import 'user_profile_screen.dart';
 import 'emoji_config_screen.dart';
@@ -359,8 +360,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     super.initState();
     _ircService = ref.read(ircServiceProvider);
     
-    // print('🎬 [ChatScreen] Initialized');
-    // print('🎬 [ChatScreen] isConnected=${_ircService.isConnected}');
+    // debugLog('🎬 [ChatScreen] Initialized');
+    // debugLog('🎬 [ChatScreen] isConnected=${_ircService.isConnected}');
     
     // Inicializar servicios v2.0.0
     if (!PlatformUtils.isWeb && PlatformUtils.isMacOS) {
@@ -433,7 +434,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     
     // Listener para cuando entramos a canales de ayuda (#ayuda o #cau)
     _helpChannelJoinListener = (channel) {
-      print('🤖 [ChatScreen] Detectado canal de ayuda: $channel');
+      debugLog('🤖 [ChatScreen] Detectado canal de ayuda: $channel');
       // Mostrar automáticamente el diálogo del asistente después de un pequeño delay
       Future.delayed(const Duration(milliseconds: 1000), () {
         if (mounted) {
@@ -445,7 +446,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     
     // Listener para cuando entramos a #werewolf (mostrar intro del juego)
     _werewolfChannelJoinListener = (channel) {
-      print('🐺 [ChatScreen] Detectado canal de juego Werewolf: $channel');
+      debugLog('🐺 [ChatScreen] Detectado canal de juego Werewolf: $channel');
       Future.delayed(const Duration(milliseconds: 800), () {
         if (mounted) {
           _showWerewolfIntroDialog();
@@ -477,19 +478,19 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     
     // Get the channel from provider (was set in LoginScreen)
     final channel = ref.read(currentChannelProvider);
-    // print('🎬 [ChatScreen] Got channel from provider: $channel');
+    // debugLog('🎬 [ChatScreen] Got channel from provider: $channel');
     
     // Únete después del primer frame y esperar a que el servidor termine de registrar al usuario
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final targetChannel = (channel != null && channel.isNotEmpty) ? channel : '#general';
       if (channel == null || channel.isEmpty) {
-      // print('⚠️  [ChatScreen] No channel specified, using #general');
+      // debugLog('⚠️  [ChatScreen] No channel specified, using #general');
       }
       
       // Esperar un poco más para asegurar que el servidor haya terminado de registrar al usuario
       // El servidor envía el 001 (Welcome) cuando el usuario está registrado
-      // print('📍 [ChatScreen] Waiting for server registration before joining initial channels');
+      // debugLog('📍 [ChatScreen] Waiting for server registration before joining initial channels');
       Future.delayed(const Duration(milliseconds: 1500), () async {
         if (!mounted) return;
         if (_initialJoinDone) return;
@@ -501,74 +502,74 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           final dynamic notifier = favoritesNotifier;
           if (notifier.runtimeType.toString().contains('FavoritesNotifier')) {
             await notifier.waitForInitialization();
-            // print('✅ [ChatScreen] Favoritos inicializados completamente');
+            // debugLog('✅ [ChatScreen] Favoritos inicializados completamente');
           }
         } catch (e) {
-          // print('⚠️  [ChatScreen] Error esperando inicialización de favoritos: $e');
+          // debugLog('⚠️  [ChatScreen] Error esperando inicialización de favoritos: $e');
         }
         
         // Esperar un poco más para asegurar que los favoritos se hayan cargado completamente
         await Future.delayed(const Duration(milliseconds: 300));
         
         final favoritesNow = ref.read(favoritesProvider).toList();
-        // print('📍 [ChatScreen] ========== AUTOJOIN DE CANALES ==========');
-        // print('📍 [ChatScreen] Favoritos cargados del provider: $favoritesNow');
-        // print('📍 [ChatScreen] Total de favoritos: ${favoritesNow.length}');
+        // debugLog('📍 [ChatScreen] ========== AUTOJOIN DE CANALES ==========');
+        // debugLog('📍 [ChatScreen] Favoritos cargados del provider: $favoritesNow');
+        // debugLog('📍 [ChatScreen] Total de favoritos: ${favoritesNow.length}');
         
         // Filtrar solo canales válidos (que empiecen con #)
         final validFavorites = favoritesNow.where((fav) => fav.startsWith('#')).toList();
-        // print('📍 [ChatScreen] Favoritos válidos (que empiezan con #): $validFavorites');
-        // print('📍 [ChatScreen] Total de favoritos válidos: ${validFavorites.length}');
+        // debugLog('📍 [ChatScreen] Favoritos válidos (que empiezan con #): $validFavorites');
+        // debugLog('📍 [ChatScreen] Total de favoritos válidos: ${validFavorites.length}');
         
         // TEMPORALMENTE DESHABILITADO: Autojoin de favoritos
         // El usuario puede unirse manualmente a los canales que quiera
         // Esto evita que canales no deseados se unan automáticamente
         _initialJoinDone = true;
-        // print('📍 [ChatScreen] ✅ Autojoin de favoritos DESHABILITADO. Uniéndose solo a canal por defecto: $targetChannel');
-        // print('📍 [ChatScreen] ℹ️  Si quieres unirte a favoritos, hazlo manualmente desde el menú');
+        // debugLog('📍 [ChatScreen] ✅ Autojoin de favoritos DESHABILITADO. Uniéndose solo a canal por defecto: $targetChannel');
+        // debugLog('📍 [ChatScreen] ℹ️  Si quieres unirte a favoritos, hazlo manualmente desde el menú');
         _joinChannel(targetChannel);
         
         // CÓDIGO ORIGINAL (comentado para debugging):
         // if (validFavorites.isNotEmpty) {
         //   _initialJoinDone = true;
-        //   print('📍 [ChatScreen] ⚠️  AUTOJOIN: Uniéndose a canales favoritos válidos: $validFavorites');
+        //   debugLog('📍 [ChatScreen] ⚠️  AUTOJOIN: Uniéndose a canales favoritos válidos: $validFavorites');
         //   for (final fav in validFavorites) {
-        //     print('📍 [ChatScreen]   → Auto-uniéndose a: $fav');
+        //     debugLog('📍 [ChatScreen]   → Auto-uniéndose a: $fav');
         //     _joinChannel(fav);
         //   }
         // } else {
         //   _initialJoinDone = true;
-        //   print('📍 [ChatScreen] ✅ No hay favoritos válidos, uniéndose solo a canal por defecto: $targetChannel');
+        //   debugLog('📍 [ChatScreen] ✅ No hay favoritos válidos, uniéndose solo a canal por defecto: $targetChannel');
         //   _joinChannel(targetChannel);
         // }
-        // print('📍 [ChatScreen] ===========================================');
+        // debugLog('📍 [ChatScreen] ===========================================');
       });
     });
   }
 
   void _onUserListChanged(String channel) {
-    // print('👥 _onUserListChanged called for: $channel');
+    // debugLog('👥 _onUserListChanged called for: $channel');
     if (mounted) {
-      // print('  🔄 Scheduling Riverpod update post-frame');
+      // debugLog('  🔄 Scheduling Riverpod update post-frame');
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
       ref.read(channelsProvider.notifier).updateChannels();
         setState(() {
-          // print('  🔄 setState after post-frame');
+          // debugLog('  🔄 setState after post-frame');
         });
       });
     }
   }
 
   void _onTopicChanged(String channel) {
-    // print('📌 _onTopicChanged called for: $channel');
+    // debugLog('📌 _onTopicChanged called for: $channel');
     if (mounted) {
-      // print('  🔄 Scheduling Riverpod update post-frame for topic');
+      // debugLog('  🔄 Scheduling Riverpod update post-frame for topic');
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         ref.read(channelsProvider.notifier).updateChannels();
       setState(() {
-          // print('  🔄 setState after post-frame for topic');
+          // debugLog('  🔄 setState after post-frame for topic');
         });
       });
     }
@@ -601,21 +602,21 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   }
 
   void _onNickChanged(String newNick) {
-    // print('🔄 [ChatScreen] _onNickChanged called: $newNick');
-    // print('🔄 [ChatScreen] mounted: $mounted');
+    // debugLog('🔄 [ChatScreen] _onNickChanged called: $newNick');
+    // debugLog('🔄 [ChatScreen] mounted: $mounted');
     if (mounted) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        // print('🔄 [ChatScreen] PostFrameCallback ejecutado, mounted: $mounted');
+        // debugLog('🔄 [ChatScreen] PostFrameCallback ejecutado, mounted: $mounted');
         if (!mounted) {
-          // print('🔄 [ChatScreen] ❌ Widget no está montado, cancelando actualización');
+          // debugLog('🔄 [ChatScreen] ❌ Widget no está montado, cancelando actualización');
           return;
         }
         final oldNick = ref.read(currentNicknameProvider);
-        // print('🔄 [ChatScreen] Nick anterior en provider: $oldNick');
-        // print('🔄 [ChatScreen] Actualizando provider a: $newNick');
+        // debugLog('🔄 [ChatScreen] Nick anterior en provider: $oldNick');
+        // debugLog('🔄 [ChatScreen] Actualizando provider a: $newNick');
         ref.read(currentNicknameProvider.notifier).state = newNick;
         final updatedNick = ref.read(currentNicknameProvider);
-        // print('🔄 [ChatScreen] ✅ Provider actualizado, nuevo valor: $updatedNick');
+        // debugLog('🔄 [ChatScreen] ✅ Provider actualizado, nuevo valor: $updatedNick');
         
         // En IRC estándar, cuando cambias tu nick NO te expulsan de los canales.
         // El servidor simplemente actualiza tu nick en todos los canales donde estás.
@@ -630,7 +631,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         );
       });
     } else {
-      // print('🔄 [ChatScreen] ❌ Widget no está montado, no se puede actualizar');
+      // debugLog('🔄 [ChatScreen] ❌ Widget no está montado, no se puede actualizar');
     }
   }
   
@@ -657,13 +658,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   }
 
   void _onMessageReceived(IRCMessage message) {
-    // print('💬 _onMessageReceived: nick="${message.nick}", channel="${message.channel}"');
+    // debugLog('💬 _onMessageReceived: nick="${message.nick}", channel="${message.channel}"');
     
     if (mounted) {
       // Filtrar mensajes de usuarios bloqueados (v2.1.0)
       final privacyService = PrivacyService();
       if (privacyService.isUserBlocked(message.nick)) {
-        // print('🚫 [ChatScreen] Mensaje bloqueado de ${message.nick}');
+        // debugLog('🚫 [ChatScreen] Mensaje bloqueado de ${message.nick}');
         return; // No procesar mensajes de usuarios bloqueados
       }
       
@@ -693,7 +694,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             case MentionSound.cuack:
               // Reproducir el cuack sin bloquear
               SoundService().playMentionCuack().catchError((e) {
-                print('⚠️ [ChatScreen] Error al reproducir cuack: $e');
+                debugLog('⚠️ [ChatScreen] Error al reproducir cuack: $e');
               });
               break;
             case MentionSound.systemAlert:
@@ -760,7 +761,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       // Si no estamos en el canal donde llegó el mensaje, incrementar contador de no leídos
       if (currentChannelLower != messageChannel) {
         // Incrementar no leídos tanto para canales como para privados
-        // print('💬 📬 Mensaje no leído en $messageChannel de: ${message.nick}');
+        // debugLog('💬 📬 Mensaje no leído en $messageChannel de: ${message.nick}');
         ref
             .read(unreadMessagesProvider.notifier)
             .incrementUnread(messageChannel);
@@ -777,7 +778,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         
         if (videoUrlMatch != null) {
           final videoUrl = videoUrlMatch.group(0)!;
-          // print('🎥 [VIDEO] Invitación de videollamada privada detectada: $videoUrl');
+          // debugLog('🎥 [VIDEO] Invitación de videollamada privada detectada: $videoUrl');
           
           // Abrir la videoconferencia automáticamente después de un breve delay
           Future.delayed(const Duration(milliseconds: 500), () async {
@@ -785,9 +786,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               final uri = Uri.parse(videoUrl);
               if (await canLaunchUrl(uri)) {
                 await launchUrl(uri, mode: LaunchMode.externalApplication);
-                // print('✅ [VIDEO] Videollamada privada abierta automáticamente');
+                // debugLog('✅ [VIDEO] Videollamada privada abierta automáticamente');
               } else {
-                // print('❌ [VIDEO] No se pudo abrir la URL: $videoUrl');
+                // debugLog('❌ [VIDEO] No se pudo abrir la URL: $videoUrl');
               }
             }
           });
@@ -802,7 +803,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         
         if (audioUrlMatch != null) {
           final audioUrl = audioUrlMatch.group(0)!;
-          // print('🎙️ [AUDIO] Invitación de audiollamada privada detectada: $audioUrl');
+          // debugLog('🎙️ [AUDIO] Invitación de audiollamada privada detectada: $audioUrl');
           
           // Abrir la audioconferencia automáticamente después de un breve delay
           Future.delayed(const Duration(milliseconds: 500), () async {
@@ -810,9 +811,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               final uri = Uri.parse(audioUrl);
               if (await canLaunchUrl(uri)) {
                 await launchUrl(uri, mode: LaunchMode.externalApplication);
-                // print('✅ [AUDIO] Audiollamada privada abierta automáticamente');
+                // debugLog('✅ [AUDIO] Audiollamada privada abierta automáticamente');
               } else {
-                // print('❌ [AUDIO] No se pudo abrir la URL: $audioUrl');
+                // debugLog('❌ [AUDIO] No se pudo abrir la URL: $audioUrl');
               }
             }
           });
@@ -1079,9 +1080,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       setState(() {
         _appVersion = 'v${packageInfo.version}';
       });
-      // print('📦 [ChatScreen] App version: $_appVersion');
+      // debugLog('📦 [ChatScreen] App version: $_appVersion');
     } catch (e) {
-      // print('❌ [ChatScreen] Error loading app version: $e');
+      // debugLog('❌ [ChatScreen] Error loading app version: $e');
     }
   }
 
@@ -1091,9 +1092,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       await PrivacyService().initialize();
       await CacheService().initialize();
       await EncryptionService().initialize();
-      // print('✅ [ChatScreen] Servicios v2.1.0 inicializados');
+      // debugLog('✅ [ChatScreen] Servicios v2.1.0 inicializados');
     } catch (e) {
-      // print('❌ [ChatScreen] Error inicializando servicios v2.1.0: $e');
+      // debugLog('❌ [ChatScreen] Error inicializando servicios v2.1.0: $e');
     }
   }
 
@@ -1102,7 +1103,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     if (channel.isEmpty) return;
     
     final channelLower = channel.toLowerCase();
-    // print('📻 [ChatScreen] Verificando activación de radio para canal: $channelLower');
+    // debugLog('📻 [ChatScreen] Verificando activación de radio para canal: $channelLower');
     
     // Mapeo de canales a radios
     final channelToRadioMap = {
@@ -1113,11 +1114,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     
     final radioName = channelToRadioMap[channelLower];
     if (radioName == null) {
-      // print('📻 [ChatScreen] No hay radio asociada para el canal: $channelLower');
+      // debugLog('📻 [ChatScreen] No hay radio asociada para el canal: $channelLower');
       return;
     }
     
-    // print('📻 [ChatScreen] Activando radio: $radioName para canal: $channelLower');
+    // debugLog('📻 [ChatScreen] Activando radio: $radioName para canal: $channelLower');
     
     // Obtener el estado de radio y buscar la estación
     final radioState = ref.read(radioProvider);
@@ -1130,16 +1131,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       station = radioState.stations.firstWhere(
         (s) => s.name == radioName,
       );
-      // print('📻 [ChatScreen] ✅ Estación encontrada por nombre: ${station.name}');
+      // debugLog('📻 [ChatScreen] ✅ Estación encontrada por nombre: ${station.name}');
     } catch (e) {
       // Si no se encuentra por nombre, buscar por salon
       try {
         station = radioState.stations.firstWhere(
           (s) => s.salon?.toLowerCase() == channelLower,
         );
-        // print('📻 [ChatScreen] ✅ Estación encontrada por salon: ${station.name}');
+        // debugLog('📻 [ChatScreen] ✅ Estación encontrada por salon: ${station.name}');
       } catch (e2) {
-        // print('⚠️ [ChatScreen] No se encontró estación para: $radioName o canal: $channelLower');
+        // debugLog('⚠️ [ChatScreen] No se encontró estación para: $radioName o canal: $channelLower');
         return;
       }
     }
@@ -1150,9 +1151,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       ref.read(radioProvider.notifier).setActiveStation(station);
       radioService.playStation(station).then((_) {
         ref.read(radioProvider.notifier).setPlaying(true);
-        // print('📻 [ChatScreen] ✅ Radio $stationName activada y reproduciendo');
+        // debugLog('📻 [ChatScreen] ✅ Radio $stationName activada y reproduciendo');
       }).catchError((e) {
-        // print('❌ [ChatScreen] Error activando radio: $e');
+        // debugLog('❌ [ChatScreen] Error activando radio: $e');
         ref.read(radioProvider.notifier).setError(true);
       });
     }
@@ -1175,7 +1176,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       builder: (context) => SearchDialog(
         messages: channelMessages,
         onMessageSelected: (message) {
-          // print('Mensaje seleccionado: ${message.message}');
+          // debugLog('Mensaje seleccionado: ${message.message}');
         },
       ),
     );
@@ -1402,9 +1403,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         
         // Guardar en BD
         await db.saveUserProfile(profile);
-        // print('👤 [VIDEO] Perfil creado para: $nickname');
+        // debugLog('👤 [VIDEO] Perfil creado para: $nickname');
       } else {
-        // print('👤 [VIDEO] Perfil cargado desde BD: $nickname (Rep: ${profile.reputation})');
+        // debugLog('👤 [VIDEO] Perfil cargado desde BD: $nickname (Rep: ${profile.reputation})');
       }
       
       setState(() {
@@ -1415,7 +1416,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       ref.read(currentUserProfileProvider.notifier).state = _userProfile;
       
     } catch (e) {
-      // print('❌ [VIDEO] Error al inicializar perfil: $e');
+      // debugLog('❌ [VIDEO] Error al inicializar perfil: $e');
       // Fallback: crear perfil en memoria
       setState(() {
         _userProfile = UserProfile(
@@ -1471,13 +1472,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       String? userMode;
       final currentNick = ref.read(currentNicknameProvider);
       
-      // print('🎥 [VIDEO] Verificando permisos para iniciar conferencia en: $currentChannel');
-      // print('🎥 [VIDEO] Canal encontrado: $channelKey, Nick actual: $currentNick');
-      // print('🎥 [VIDEO] Canales disponibles: ${channels.keys.toList()}');
+      // debugLog('🎥 [VIDEO] Verificando permisos para iniciar conferencia en: $currentChannel');
+      // debugLog('🎥 [VIDEO] Canal encontrado: $channelKey, Nick actual: $currentNick');
+      // debugLog('🎥 [VIDEO] Canales disponibles: ${channels.keys.toList()}');
       
       if (channels.containsKey(channelKey) && currentNick != null) {
         final channelData = channels[channelKey];
-        // print('🎥 [VIDEO] Datos del canal: usuarios=${channelData?.users.length}, userModes=${channelData?.userModes}');
+        // debugLog('🎥 [VIDEO] Datos del canal: usuarios=${channelData?.users.length}, userModes=${channelData?.userModes}');
         
         // Buscar el nick en la lista de usuarios (case-insensitive)
         String? matchingNick;
@@ -1493,7 +1494,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           
           // Si no se encontró el modo, usar WHO para obtenerlo
           if (userMode == null) {
-            // print('🎥 [VIDEO] Modo no encontrado en userModes, usando WHO para verificar...');
+            // debugLog('🎥 [VIDEO] Modo no encontrado en userModes, usando WHO para verificar...');
             try {
               // Usar WHO para obtener el modo del usuario
               final completer = Completer<String?>();
@@ -1507,7 +1508,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   final status = result['status'] as String?;
                   if (nick != null && nick.toLowerCase() == currentNick.toLowerCase() && status != null) {
                     // El status puede contener: H (here), G (gone), * (IRCop), @ (op), + (voice), % (halfop), & (founder), ! (admin), h (halfop)
-                    // print('🎥 [VIDEO] WHO status recibido: "$status" para $nick');
+                    // debugLog('🎥 [VIDEO] WHO status recibido: "$status" para $nick');
                     if (status.contains('@')) {
                       foundMode = '@';
                     } else if (status.contains('&')) {
@@ -1548,7 +1549,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       _ircService.removeWhoListener(whoListener!);
                     });
                   }
-                  // print('🎥 [VIDEO] ⚠️ Timeout esperando respuesta de WHO');
+                  // debugLog('🎥 [VIDEO] ⚠️ Timeout esperando respuesta de WHO');
                   return null;
                 },
               );
@@ -1556,47 +1557,47 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               // Si se obtuvo el modo, actualizarlo en el canal
               if (userMode != null && matchingNick != null) {
                 channelData?.addUser(matchingNick, mode: userMode);
-                // print('🎥 [VIDEO] Modo obtenido de WHO: $userMode, actualizado en canal');
+                // debugLog('🎥 [VIDEO] Modo obtenido de WHO: $userMode, actualizado en canal');
               }
             } catch (e) {
-              // print('🎥 [VIDEO] Error al obtener modo con WHO: $e');
+              // debugLog('🎥 [VIDEO] Error al obtener modo con WHO: $e');
             }
           }
           
           // Verificar si es moderador: @ (op), & (founder/owner), % (halfop), ! (admin), h (halfop)
           isChannelModerator = userMode == '@' || userMode == '&' || userMode == '%' || userMode == '!' || userMode == 'h';
-          // print('🎥 [VIDEO] Usuario encontrado: $matchingNick, modo: $userMode, es moderador: $isChannelModerator');
+          // debugLog('🎥 [VIDEO] Usuario encontrado: $matchingNick, modo: $userMode, es moderador: $isChannelModerator');
         } else {
-          // print('🎥 [VIDEO] ⚠️ Usuario $currentNick no encontrado en la lista de usuarios del canal');
-          // print('🎥 [VIDEO] Usuarios en el canal: ${channelData?.users}');
+          // debugLog('🎥 [VIDEO] ⚠️ Usuario $currentNick no encontrado en la lista de usuarios del canal');
+          // debugLog('🎥 [VIDEO] Usuarios en el canal: ${channelData?.users}');
         }
       } else {
         if (!channels.containsKey(channelKey)) {
-          // print('🎥 [VIDEO] ⚠️ Canal $channelKey no encontrado en la lista de canales');
+          // debugLog('🎥 [VIDEO] ⚠️ Canal $channelKey no encontrado en la lista de canales');
         }
         if (currentNick == null) {
-          // print('🎥 [VIDEO] ⚠️ Nick actual es null');
+          // debugLog('🎥 [VIDEO] ⚠️ Nick actual es null');
         }
       }
       
       // Verificar si es IRCop
       final isIRCOp = _ircService.isIRCOp;
-      // print('🎥 [VIDEO] Es IRCop: $isIRCOp');
+      // debugLog('🎥 [VIDEO] Es IRCop: $isIRCOp');
       
       // Si es moderador del canal o IRCop, permitir iniciar sin restricciones
       if (isChannelModerator || isIRCOp) {
-        // print('🎥 [VIDEO] ✅ Usuario es moderador del canal (mode=$userMode) o IRCop, permitiendo inicio de conferencia sin restricciones');
+        // debugLog('🎥 [VIDEO] ✅ Usuario es moderador del canal (mode=$userMode) o IRCop, permitiendo inicio de conferencia sin restricciones');
         // Continuar con el inicio de la conferencia - saltar verificación de canStartConference
       } else {
         // Verificar restricciones solo para usuarios normales
-        // print('🎥 [VIDEO] Usuario no es moderador, verificando restricciones normales...');
-        // print('🎥 [VIDEO] canStartConference: ${_userProfile!.canStartConference}');
-        // print('🎥 [VIDEO] canEnableVideo: ${_userProfile!.canEnableVideo}');
-        // print('🎥 [VIDEO] emailVerified: ${_userProfile!.emailVerified}, daysRegistered: ${_userProfile!.daysRegistered}');
+        // debugLog('🎥 [VIDEO] Usuario no es moderador, verificando restricciones normales...');
+        // debugLog('🎥 [VIDEO] canStartConference: ${_userProfile!.canStartConference}');
+        // debugLog('🎥 [VIDEO] canEnableVideo: ${_userProfile!.canEnableVideo}');
+        // debugLog('🎥 [VIDEO] emailVerified: ${_userProfile!.emailVerified}, daysRegistered: ${_userProfile!.daysRegistered}');
         
         if (!_userProfile!.canStartConference) {
           final reason = _userProfile!.videoRestrictionReason ?? 'No tienes permisos para iniciar conferencias';
-          // print('🎥 [VIDEO] ❌ Usuario no puede iniciar conferencia: $reason');
+          // debugLog('🎥 [VIDEO] ❌ Usuario no puede iniciar conferencia: $reason');
           _mostrarMensajeError(reason);
           return;
         }
@@ -1643,9 +1644,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       // El usuario deberá ingresar su nombre manualmente en la página de pre-unión
       final videoUrl = 'https://video.globalchat.org/$roomName';
       
-      // print('🎥 [VIDEO] Construyendo URL para room: $roomName');
-      // print('🎥 [VIDEO] URL: $videoUrl');
-      // print('ℹ️ [VIDEO] URL directa de Jitsi Meet (usuario ingresará nombre manualmente)');
+      // debugLog('🎥 [VIDEO] Construyendo URL para room: $roomName');
+      // debugLog('🎥 [VIDEO] URL: $videoUrl');
+      // debugLog('ℹ️ [VIDEO] URL directa de Jitsi Meet (usuario ingresará nombre manualmente)');
       
       // Enviar mensaje al canal con la URL
       _ircService.sendMessage(
@@ -1653,11 +1654,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         '🎥 Ha iniciado una videoconferencia. ¡Únete! $videoUrl',
       );
       
-      // print('✅ [VIDEO] Videoconferencia iniciada en $currentChannel');
-      // print('✅ [VIDEO] URL: $videoUrl');
+      // debugLog('✅ [VIDEO] Videoconferencia iniciada en $currentChannel');
+      // debugLog('✅ [VIDEO] URL: $videoUrl');
       
     } catch (e) {
-      // print('❌ [VIDEO] Error al iniciar videoconferencia: $e');
+      // debugLog('❌ [VIDEO] Error al iniciar videoconferencia: $e');
       if (mounted) {
         Navigator.pop(context); // Cerrar diálogo de carga si está abierto
         _mostrarMensajeError('Error: $e');
@@ -1730,7 +1731,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         
         // Si no se encontró el modo, usar WHO para obtenerlo
         if (userMode == null || userMode.isEmpty) {
-          // print('🎙️ [AUDIO] Modo no encontrado en userModes, usando WHO para verificar...');
+          // debugLog('🎙️ [AUDIO] Modo no encontrado en userModes, usando WHO para verificar...');
           try {
             // Usar WHO para obtener el modo del usuario
             final completer = Completer<String?>();
@@ -1744,7 +1745,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 final status = result['status'] as String?;
                 if (nick != null && nick.toLowerCase() == currentNick.toLowerCase() && status != null) {
                   // El status puede contener: H (here), G (gone), * (IRCop), @ (op), + (voice), % (halfop), & (founder), ! (admin), h (halfop)
-                  // print('🎙️ [AUDIO] WHO status recibido: "$status" para $nick');
+                  // debugLog('🎙️ [AUDIO] WHO status recibido: "$status" para $nick');
                   if (status.contains('@')) {
                     foundMode = '@';
                   } else if (status.contains('&')) {
@@ -1785,7 +1786,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     _ircService.removeWhoListener(whoListener!);
                   });
                 }
-                // print('🎙️ [AUDIO] ⚠️ Timeout esperando respuesta de WHO');
+                // debugLog('🎙️ [AUDIO] ⚠️ Timeout esperando respuesta de WHO');
                 return null;
               },
             );
@@ -1793,10 +1794,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             // Si se obtuvo el modo, actualizarlo en el canal
             if (userMode != null && matchingNick != null) {
               channelData?.addUser(matchingNick, mode: userMode);
-              // print('🎙️ [AUDIO] Modo obtenido de WHO: $userMode, actualizado en canal');
+              // debugLog('🎙️ [AUDIO] Modo obtenido de WHO: $userMode, actualizado en canal');
             }
           } catch (e) {
-            // print('🎙️ [AUDIO] Error al obtener modo con WHO: $e');
+            // debugLog('🎙️ [AUDIO] Error al obtener modo con WHO: $e');
           }
         }
         
@@ -1859,8 +1860,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       // Construir URL directa de la audioconferencia
       final audioUrl = 'https://video.globalchat.org/$roomName';
       
-      // print('🎙️ [AUDIO] Construyendo URL para room: $roomName');
-      // print('🎙️ [AUDIO] URL: $audioUrl');
+      // debugLog('🎙️ [AUDIO] Construyendo URL para room: $roomName');
+      // debugLog('🎙️ [AUDIO] URL: $audioUrl');
       
       // Enviar mensaje al canal con la URL
       _ircService.sendMessage(
@@ -1868,11 +1869,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         '🎙️ Ha iniciado una audioconferencia. ¡Únete! $audioUrl',
       );
       
-      // print('✅ [AUDIO] Audioconferencia iniciada en $currentChannel');
-      // print('✅ [AUDIO] URL: $audioUrl');
+      // debugLog('✅ [AUDIO] Audioconferencia iniciada en $currentChannel');
+      // debugLog('✅ [AUDIO] URL: $audioUrl');
       
     } catch (e) {
-      // print('❌ [AUDIO] Error al iniciar audioconferencia: $e');
+      // debugLog('❌ [AUDIO] Error al iniciar audioconferencia: $e');
       if (mounted) {
         Navigator.pop(context);
         _mostrarMensajeError('Error: $e');
@@ -1965,10 +1966,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         Navigator.pop(context);
       }
       
-      // print('✅ [AUDIO] Audiollamada iniciada con $otherNick');
+      // debugLog('✅ [AUDIO] Audiollamada iniciada con $otherNick');
       
     } catch (e) {
-      // print('❌ [AUDIO] Error al iniciar audiollamada: $e');
+      // debugLog('❌ [AUDIO] Error al iniciar audiollamada: $e');
       if (mounted) {
         Navigator.pop(context);
         _mostrarMensajeError('Error: $e');
@@ -2061,10 +2062,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         Navigator.pop(context);
       }
       
-      // print('✅ [VIDEO] Videollamada iniciada con $otherNick');
+      // debugLog('✅ [VIDEO] Videollamada iniciada con $otherNick');
       
     } catch (e) {
-      // print('❌ [VIDEO] Error al iniciar videollamada: $e');
+      // debugLog('❌ [VIDEO] Error al iniciar videollamada: $e');
       if (mounted) {
         Navigator.pop(context);
         _mostrarMensajeError('Error: $e');
@@ -2222,13 +2223,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     // Normalizar a minúsculas para consistencia
     normalizedChannel = normalizedChannel.toLowerCase();
     
-    // print('🔍 [DEBUG] 🚪 Joining channel: "$channel" -> normalized: "$normalizedChannel"');
+    // debugLog('🔍 [DEBUG] 🚪 Joining channel: "$channel" -> normalized: "$normalizedChannel"');
     _ircService.joinChannel(normalizedChannel);
     // Guardar canal actual, último canal usado y añadir a recientes
     ref.read(currentChannelProvider.notifier).state = normalizedChannel;
     ref.read(lastChannelProvider.notifier).state = normalizedChannel;
     ref.read(recentChannelsProvider.notifier).addRecent(normalizedChannel);
-    // print('🔍 [DEBUG] ✅ Channel set in provider: $normalizedChannel');
+    // debugLog('🔍 [DEBUG] ✅ Channel set in provider: $normalizedChannel');
     _channelController.clear();
 
     // Activar radio automáticamente si corresponde (v2.1.0)
@@ -2240,20 +2241,20 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     _loadHistoryIfNeeded(normalizedChannel);
     
     // Force UI update
-    // print('🔍 [DEBUG] 🔄 Forcing channels provider update...');
+    // debugLog('🔍 [DEBUG] 🔄 Forcing channels provider update...');
     ref.read(channelsProvider.notifier).updateChannels();
     
     // Also update after delays to catch late responses
     Future.delayed(const Duration(milliseconds: 800), () {
       if (mounted) {
-        // print('🔍 [DEBUG] 🔄 Secondary channels update (800ms)');
+        // debugLog('🔍 [DEBUG] 🔄 Secondary channels update (800ms)');
         ref.read(channelsProvider.notifier).updateChannels();
       }
     });
     
     Future.delayed(const Duration(milliseconds: 2000), () {
       if (mounted) {
-        // print('🔍 [DEBUG] 🔄 Tertiary channels update (2000ms)');
+        // debugLog('🔍 [DEBUG] 🔄 Tertiary channels update (2000ms)');
         ref.read(channelsProvider.notifier).updateChannels();
       }
     });
@@ -2691,7 +2692,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
     // Obtener el delay configurado (0 si se fuerza envío inmediato)
     final delaySeconds = forceImmediate ? 0 : ref.read(messageSendDelayProvider);
-    // print('🔍 [ChatScreen] Delay configurado: ${delaySeconds}s ${forceImmediate ? "(forzado inmediato)" : ""}');
+    // debugLog('🔍 [ChatScreen] Delay configurado: ${delaySeconds}s ${forceImmediate ? "(forzado inmediato)" : ""}');
     
     // Normalizar el nombre del canal antes de enviar
     final normalizedChannel = channel.toLowerCase();
@@ -2805,7 +2806,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         // Asegurarse de que el query existe en los canales
         if (!_ircService.allChannels.containsKey(queryNick)) {
           _ircService.allChannels[queryNick] = IRCChannel(name: queryNick);
-          // print('📝 [Query] Creado query para: $queryNick');
+          // debugLog('📝 [Query] Creado query para: $queryNick');
         }
         
         // Cambiar al query (mensaje privado)
@@ -3506,8 +3507,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       case 'me':
         // Parsear correctamente: /me acción con espacios
         final meParsed = _parseCommandWithMessage(command, 0);
-        print('🔍 [DEBUG /me] Comando recibido: $command');
-        print('🔍 [DEBUG /me] Parsed: $meParsed');
+        debugLog('🔍 [DEBUG /me] Comando recibido: $command');
+        debugLog('🔍 [DEBUG /me] Parsed: $meParsed');
         
         if (meParsed == null || meParsed['message'] == null || meParsed['message']!.isEmpty) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -3541,15 +3542,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         }
         
         final action = meParsed['message']!;
-        print('🔍 [DEBUG /me] Enviando acción: "$action" al canal: $currentChannel');
+        debugLog('🔍 [DEBUG /me] Enviando acción: "$action" al canal: $currentChannel');
         _ircService.sendMe(currentChannel, action);
         break;
         
       case 'ame':
         // Parsear correctamente: /ame acción con espacios
         final ameParsed = _parseCommandWithMessage(command, 0);
-        print('🔍 [DEBUG /ame] Comando recibido: $command');
-        print('🔍 [DEBUG /ame] Parsed: $ameParsed');
+        debugLog('🔍 [DEBUG /ame] Comando recibido: $command');
+        debugLog('🔍 [DEBUG /ame] Parsed: $ameParsed');
         
         if (ameParsed == null || ameParsed['message'] == null || ameParsed['message']!.isEmpty) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -3572,7 +3573,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         }
         
         final action = ameParsed['message']!;
-        print('🔍 [DEBUG /ame] Enviando acción: "$action" a todos los canales');
+        debugLog('🔍 [DEBUG /ame] Enviando acción: "$action" a todos los canales');
         _ircService.sendAme(action);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -4010,7 +4011,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   // Ventana para mostrar resultados de /whois
   void _showWhoisResultsWindow(String nick) {
-    print('🔍 [WHOIS] Solicitando información de: $nick');
+    debugLog('🔍 [WHOIS] Solicitando información de: $nick');
 
     // Mostrar un modal de "cargando" inmediatamente (así el usuario ve que está funcionando)
     bool loadingDialogOpen = true;
@@ -4087,9 +4088,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     // Esperar a que llegue la información de whois
     Function(WhoisInfo)? listener;
     listener = (info) {
-      print('🔍 [WHOIS] Información recibida para: ${info.nick} (buscando: $nick)');
+      debugLog('🔍 [WHOIS] Información recibida para: ${info.nick} (buscando: $nick)');
       if (info.nick.toLowerCase() == nick.toLowerCase() && mounted) {
-        print('🔍 [WHOIS] Coincidencia encontrada, mostrando diálogo...');
+        debugLog('🔍 [WHOIS] Coincidencia encontrada, mostrando diálogo...');
         if (listener != null) {
           _ircService.removeWhoisListener(listener);
         }
@@ -4115,7 +4116,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     // También verificar si ya tenemos la información en caché
     final cachedInfo = _ircService.getWhoisInfo(nick);
     if (cachedInfo != null) {
-      print('🔍 [WHOIS] Información encontrada en caché, mostrando diálogo...');
+      debugLog('🔍 [WHOIS] Información encontrada en caché, mostrando diálogo...');
       timeoutTimer?.cancel();
       if (listener != null) {
         _ircService.removeWhoisListener(listener);
@@ -4135,7 +4136,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   }
 
   void _displayWhoisResults(WhoisInfo info) {
-    print('🔍 [WHOIS] Mostrando diálogo para: ${info.nick}');
+    debugLog('🔍 [WHOIS] Mostrando diálogo para: ${info.nick}');
     // Detectar si es un robot
     final isRobot = _isRobotUser(info);
     
@@ -4145,7 +4146,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                           currentChannel?.toLowerCase() == '#globalchat';
     
     if (!mounted) {
-      print('❌ [WHOIS] Widget no está montado, no se puede mostrar el diálogo');
+      debugLog('❌ [WHOIS] Widget no está montado, no se puede mostrar el diálogo');
       return;
     }
     
@@ -4159,9 +4160,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         isGlobalChatBot: isGlobalChatBot, // Pasar información específica
       ),
     ).then((_) {
-      print('🔍 [WHOIS] Diálogo cerrado');
+      debugLog('🔍 [WHOIS] Diálogo cerrado');
     }).catchError((error) {
-      print('❌ [WHOIS] Error al mostrar diálogo: $error');
+      debugLog('❌ [WHOIS] Error al mostrar diálogo: $error');
     });
   }
 
@@ -4815,38 +4816,38 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                           .where((channel) => channel.startsWith('#'))
                           .toList();
                       
-                      print('🔍 [SERVER_SWITCH] Guardando estado antes de cambiar servidor:');
-                      print('🔍 [SERVER_SWITCH] Nick: $currentNick');
-                      print('🔍 [SERVER_SWITCH] Canal actual: $currentChannel');
-                      print('🔍 [SERVER_SWITCH] Canales abiertos: $openChannels');
+                      debugLog('🔍 [SERVER_SWITCH] Guardando estado antes de cambiar servidor:');
+                      debugLog('🔍 [SERVER_SWITCH] Nick: $currentNick');
+                      debugLog('🔍 [SERVER_SWITCH] Canal actual: $currentChannel');
+                      debugLog('🔍 [SERVER_SWITCH] Canales abiertos: $openChannels');
                       
                       // Guardar perfil seleccionado (selected ya está verificado que no es null por el onPressed)
                       final serverToSave = selected!;
-                      print('🔍 [SERVER_SWITCH] Servidor seleccionado: ${serverToSave.name} (${serverToSave.host}:${serverToSave.port})');
+                      debugLog('🔍 [SERVER_SWITCH] Servidor seleccionado: ${serverToSave.name} (${serverToSave.host}:${serverToSave.port})');
                       ref
                           .read(currentServerProfileProvider.notifier)
                           .setServerProfile(serverToSave);
                       
                       // Verificar que se guardó correctamente
                       final savedProfile = ref.read(currentServerProfileProvider);
-                      print('🔍 [SERVER_SWITCH] Servidor guardado en provider: ${savedProfile?.name} (${savedProfile?.host}:${savedProfile?.port})');
+                      debugLog('🔍 [SERVER_SWITCH] Servidor guardado en provider: ${savedProfile?.name} (${savedProfile?.host}:${savedProfile?.port})');
                       
                       // Asegurar que el nick y canal estén guardados en los providers
                       if (currentNick != null && currentNick.isNotEmpty) {
                         ref.read(currentNicknameProvider.notifier).state = currentNick;
-                        print('🔍 [SERVER_SWITCH] ✅ Nick guardado en provider: $currentNick');
+                        debugLog('🔍 [SERVER_SWITCH] ✅ Nick guardado en provider: $currentNick');
                       }
                       
                       // Guardar todos los canales abiertos para autojoin
                       if (openChannels.isNotEmpty) {
                         ref.read(autoJoinChannelsProvider.notifier).state = openChannels;
-                        print('🔍 [SERVER_SWITCH] ✅ Canales guardados para autojoin: $openChannels');
+                        debugLog('🔍 [SERVER_SWITCH] ✅ Canales guardados para autojoin: $openChannels');
                       }
                       
                       if (currentChannel != null && currentChannel.isNotEmpty) {
                         ref.read(currentChannelProvider.notifier).state = currentChannel;
                         ref.read(lastChannelProvider.notifier).state = currentChannel;
-                        print('🔍 [SERVER_SWITCH] ✅ Canal actual guardado en provider: $currentChannel');
+                        debugLog('🔍 [SERVER_SWITCH] ✅ Canal actual guardado en provider: $currentChannel');
                       }
                       
                       Navigator.of(context).pop();
@@ -5016,7 +5017,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         throw Exception('No se pudo subir la imagen a Cloudinary');
       }
     } catch (e) {
-      // print('❌ Error al subir imagen: $e');
+      // debugLog('❌ Error al subir imagen: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).hideCurrentSnackBar();
         ScaffoldMessenger.of(context).showSnackBar(
@@ -5070,7 +5071,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         throw Exception('No se pudo subir el video a Cloudinary');
       }
     } catch (e) {
-      // print('❌ Error al subir video: $e');
+      // debugLog('❌ Error al subir video: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).hideCurrentSnackBar();
         ScaffoldMessenger.of(context).showSnackBar(
@@ -5092,7 +5093,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       
       // Verificar tamaño
       if (imageBytes.length > maxSize) {
-        print('❌ [Cloudinary] Imagen demasiado grande: ${(imageBytes.length / 1024 / 1024).toStringAsFixed(2)} MB (máximo 10MB)');
+        debugLog('❌ [Cloudinary] Imagen demasiado grande: ${(imageBytes.length / 1024 / 1024).toStringAsFixed(2)} MB (máximo 10MB)');
         throw Exception('Imagen demasiado grande (máximo 10MB)');
       }
       
@@ -5140,7 +5141,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       // Añadir el upload preset
       request.fields['upload_preset'] = uploadPreset;
       
-      print('📤 [Cloudinary] Subiendo imagen... (${(imageBytes.length / 1024).toStringAsFixed(2)} KB, tipo: $mimeType, extensión: $extension)');
+      debugLog('📤 [Cloudinary] Subiendo imagen... (${(imageBytes.length / 1024).toStringAsFixed(2)} KB, tipo: $mimeType, extensión: $extension)');
       
       final streamedResponse = await request.send().timeout(
         const Duration(seconds: 30),
@@ -5150,24 +5151,24 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       );
       final response = await http.Response.fromStream(streamedResponse);
       
-        print('📥 [Cloudinary] Respuesta: ${response.statusCode}');
+        debugLog('📥 [Cloudinary] Respuesta: ${response.statusCode}');
       
       if (response.statusCode == 200) {
         try {
           final jsonResponse = jsonDecode(response.body) as Map<String, dynamic>;
           if (jsonResponse['secure_url'] != null) {
             final imageUrl = jsonResponse['secure_url'] as String;
-            print('✅ [Cloudinary] Imagen subida: $imageUrl');
+            debugLog('✅ [Cloudinary] Imagen subida: $imageUrl');
             return imageUrl;
           } else {
             final errorMsg = jsonResponse['error']?.toString() ?? 'Error desconocido';
-            print('❌ [Cloudinary] Error en respuesta: $errorMsg');
-            print('❌ [Cloudinary] Respuesta completa: ${response.body}');
+            debugLog('❌ [Cloudinary] Error en respuesta: $errorMsg');
+            debugLog('❌ [Cloudinary] Respuesta completa: ${response.body}');
             throw Exception('Error de Cloudinary: $errorMsg');
           }
         } catch (e) {
-          print('❌ [Cloudinary] Error parseando respuesta JSON: $e');
-          print('❌ [Cloudinary] Respuesta: ${response.body}');
+          debugLog('❌ [Cloudinary] Error parseando respuesta JSON: $e');
+          debugLog('❌ [Cloudinary] Respuesta: ${response.body}');
           throw Exception('Error parseando respuesta de Cloudinary: $e');
         }
       } else {
@@ -5178,10 +5179,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         } catch (_) {
           errorMsg = response.body.isNotEmpty ? response.body : errorMsg;
         }
-        print('❌ [Cloudinary] Error HTTP: ${response.statusCode}');
-        print('❌ [Cloudinary] Mensaje: $errorMsg');
-        print('❌ [Cloudinary] Upload Preset usado: $uploadPreset');
-        print('❌ [Cloudinary] Cloud Name: $cloudName');
+        debugLog('❌ [Cloudinary] Error HTTP: ${response.statusCode}');
+        debugLog('❌ [Cloudinary] Mensaje: $errorMsg');
+        debugLog('❌ [Cloudinary] Upload Preset usado: $uploadPreset');
+        debugLog('❌ [Cloudinary] Cloud Name: $cloudName');
         
         // Mensaje más específico para error 401
         if (response.statusCode == 401) {
@@ -5191,7 +5192,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         throw Exception('Error HTTP ${response.statusCode}: $errorMsg');
       }
     } catch (e) {
-      print('❌ [Cloudinary] Excepción al subir imagen: $e');
+      debugLog('❌ [Cloudinary] Excepción al subir imagen: $e');
       rethrow; // Re-lanzar para que el error se muestre al usuario
     }
   }
@@ -5205,7 +5206,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       
       // Verificar tamaño
       if (videoBytes.length > maxSize) {
-        print('❌ [Cloudinary] Video demasiado grande: ${(videoBytes.length / 1024 / 1024).toStringAsFixed(2)} MB (máximo 100MB)');
+        debugLog('❌ [Cloudinary] Video demasiado grande: ${(videoBytes.length / 1024 / 1024).toStringAsFixed(2)} MB (máximo 100MB)');
         throw Exception('Video demasiado grande (máximo 100MB)');
       }
       
@@ -5253,7 +5254,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       // Añadir el upload preset
       request.fields['upload_preset'] = uploadPreset;
       
-      print('📤 [Cloudinary] Subiendo video... (${(videoBytes.length / 1024 / 1024).toStringAsFixed(2)} MB, tipo: $mimeType, extensión: $extension)');
+      debugLog('📤 [Cloudinary] Subiendo video... (${(videoBytes.length / 1024 / 1024).toStringAsFixed(2)} MB, tipo: $mimeType, extensión: $extension)');
       
       final streamedResponse = await request.send().timeout(
         const Duration(seconds: 120), // Más tiempo para videos
@@ -5263,24 +5264,24 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       );
       final response = await http.Response.fromStream(streamedResponse);
       
-        print('📥 [Cloudinary] Respuesta: ${response.statusCode}');
+        debugLog('📥 [Cloudinary] Respuesta: ${response.statusCode}');
       
       if (response.statusCode == 200) {
         try {
           final jsonResponse = jsonDecode(response.body) as Map<String, dynamic>;
           if (jsonResponse['secure_url'] != null) {
             final videoUrl = jsonResponse['secure_url'] as String;
-            print('✅ [Cloudinary] Video subido: $videoUrl');
+            debugLog('✅ [Cloudinary] Video subido: $videoUrl');
             return videoUrl;
           } else {
             final errorMsg = jsonResponse['error']?.toString() ?? 'Error desconocido';
-            print('❌ [Cloudinary] Error en respuesta: $errorMsg');
-            print('❌ [Cloudinary] Respuesta completa: ${response.body}');
+            debugLog('❌ [Cloudinary] Error en respuesta: $errorMsg');
+            debugLog('❌ [Cloudinary] Respuesta completa: ${response.body}');
             throw Exception('Error de Cloudinary: $errorMsg');
           }
         } catch (e) {
-          print('❌ [Cloudinary] Error parseando respuesta JSON: $e');
-          print('❌ [Cloudinary] Respuesta: ${response.body}');
+          debugLog('❌ [Cloudinary] Error parseando respuesta JSON: $e');
+          debugLog('❌ [Cloudinary] Respuesta: ${response.body}');
           throw Exception('Error parseando respuesta de Cloudinary: $e');
         }
       } else {
@@ -5291,10 +5292,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         } catch (_) {
           errorMsg = response.body.isNotEmpty ? response.body : errorMsg;
         }
-        print('❌ [Cloudinary] Error HTTP: ${response.statusCode}');
-        print('❌ [Cloudinary] Mensaje: $errorMsg');
-        print('❌ [Cloudinary] Upload Preset usado: $uploadPreset');
-        print('❌ [Cloudinary] Cloud Name: $cloudName');
+        debugLog('❌ [Cloudinary] Error HTTP: ${response.statusCode}');
+        debugLog('❌ [Cloudinary] Mensaje: $errorMsg');
+        debugLog('❌ [Cloudinary] Upload Preset usado: $uploadPreset');
+        debugLog('❌ [Cloudinary] Cloud Name: $cloudName');
         
         // Mensaje más específico para error 401
         if (response.statusCode == 401) {
@@ -5304,7 +5305,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         throw Exception('Error HTTP ${response.statusCode}: $errorMsg');
       }
     } catch (e) {
-      print('❌ [Cloudinary] Excepción al subir video: $e');
+      debugLog('❌ [Cloudinary] Excepción al subir video: $e');
       rethrow; // Re-lanzar para que el error se muestre al usuario
     }
   }
@@ -5317,32 +5318,32 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   Future<void> _pasteImageFromClipboard() async {
     // En web, esta función no está disponible
     if (PlatformUtils.isWeb) {
-      // print('ℹ️ Pegar imagen desde portapapeles no disponible en web');
+      // debugLog('ℹ️ Pegar imagen desde portapapeles no disponible en web');
       return;
     }
     
     // En nativo, deshabilitado temporalmente
-    // print('ℹ️ Función de pegar imagen desde portapapeles deshabilitada temporalmente');
+    // debugLog('ℹ️ Función de pegar imagen desde portapapeles deshabilitada temporalmente');
   }
 
   Future<void> _processAndSendImage(dynamic imageFile) async {
     // En web, esta función no está disponible
     if (PlatformUtils.isWeb) {
-      // print('ℹ️ Procesamiento de imágenes no disponible en web');
+      // debugLog('ℹ️ Procesamiento de imágenes no disponible en web');
       return;
     }
     // En nativo, deshabilitado temporalmente
-    // print('ℹ️ Procesamiento de imágenes deshabilitado temporalmente');
+    // debugLog('ℹ️ Procesamiento de imágenes deshabilitado temporalmente');
   }
 
   Future<void> _processAndSendVideo(dynamic videoFile) async {
     // En web, esta función no está disponible
     if (PlatformUtils.isWeb) {
-      // print('ℹ️ Procesamiento de videos no disponible en web');
+      // debugLog('ℹ️ Procesamiento de videos no disponible en web');
       return;
     }
     // En nativo, deshabilitado temporalmente
-    // print('ℹ️ Procesamiento de videos deshabilitado temporalmente');
+    // debugLog('ℹ️ Procesamiento de videos deshabilitado temporalmente');
   }
 
   bool _isImageUrl(String text) {
@@ -5394,9 +5395,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     // Limpiar historial de NickServ (todas las variantes) antes de desconectar
     try {
       await ref.read(messagesProvider.notifier).clearNickServHistory();
-      print('✅ [ChatScreen] Historial de NickServ eliminado al desconectar');
+      debugLog('✅ [ChatScreen] Historial de NickServ eliminado al desconectar');
     } catch (e) {
-      print('⚠️ [ChatScreen] Error al limpiar historial de NickServ: $e');
+      debugLog('⚠️ [ChatScreen] Error al limpiar historial de NickServ: $e');
     }
 
     _ircService.disconnect();
@@ -5469,8 +5470,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   Widget build(BuildContext context) {
     // Optimización: usar read donde sea posible para evitar reconstrucciones innecesarias
     final nickname = ref.watch(currentNicknameProvider);
-    // print('🔄 [ChatScreen] build() - nickname from provider: "$nickname"');
-    // print('🔄 [ChatScreen] build() - AppBar mostrará: "como $nickname"');
+    // debugLog('🔄 [ChatScreen] build() - nickname from provider: "$nickname"');
+    // debugLog('🔄 [ChatScreen] build() - AppBar mostrará: "como $nickname"');
     final currentChannel = ref.watch(currentChannelProvider);
     final messages = ref.watch(messagesProvider);
     final channels = ref.watch(channelsProvider);
@@ -5587,11 +5588,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     ];
 
     // Normalizar el nombre del canal para búsqueda (case-insensitive)
-    // print('🔍 [DEBUG] 🖼️  ChatScreen build: currentChannel=$currentChannel');
-    // print('🔍 [DEBUG] Available channels in provider: ${channels.keys.toList()}');
+    // debugLog('🔍 [DEBUG] 🖼️  ChatScreen build: currentChannel=$currentChannel');
+    // debugLog('🔍 [DEBUG] Available channels in provider: ${channels.keys.toList()}');
     
     // normalizedCurrentChannel ya está definido arriba
-    // print('🔍 [DEBUG] Normalized current channel: $normalizedCurrentChannel');
+    // debugLog('🔍 [DEBUG] Normalized current channel: $normalizedCurrentChannel');
     
     String? channelKey;
     if (normalizedCurrentChannel != null) {
@@ -5599,21 +5600,21 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         channelKey = channels.keys.firstWhere(
           (key) => key.toLowerCase() == normalizedCurrentChannel,
         );
-        // print('🔍 [DEBUG] Found channel key: $channelKey');
+        // debugLog('🔍 [DEBUG] Found channel key: $channelKey');
       } catch (e) {
-        // print('🔍 [DEBUG] ⚠️  Channel key not found: $e');
+        // debugLog('🔍 [DEBUG] ⚠️  Channel key not found: $e');
         channelKey = null;
       }
     }
     
     if (channelKey != null && channels.containsKey(channelKey)) {
-      // print('🔍 [DEBUG] Channel found in map: $channelKey');
-      // print('🔍 [DEBUG] Users in channel: ${channels[channelKey]!.users}');
-      // print('🔍 [DEBUG] Users count: ${channels[channelKey]!.users.length}');
+      // debugLog('🔍 [DEBUG] Channel found in map: $channelKey');
+      // debugLog('🔍 [DEBUG] Users in channel: ${channels[channelKey]!.users}');
+      // debugLog('🔍 [DEBUG] Users count: ${channels[channelKey]!.users.length}');
     } else {
-      // print('🔍 [DEBUG] ⚠️  Channel not found or key is null');
-      // print('🔍 [DEBUG] channelKey: $channelKey');
-      // print('🔍 [DEBUG] channels.containsKey(channelKey): ${channelKey != null ? channels.containsKey(channelKey) : 'N/A'}');
+      // debugLog('🔍 [DEBUG] ⚠️  Channel not found or key is null');
+      // debugLog('🔍 [DEBUG] channelKey: $channelKey');
+      // debugLog('🔍 [DEBUG] channels.containsKey(channelKey): ${channelKey != null ? channels.containsKey(channelKey) : 'N/A'}');
     }
     
     final channelUsers = currentChannel != null && 
@@ -5622,8 +5623,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         ? channels[channelKey]!.users
         : <String>[];
 
-    // print('🔍 [DEBUG] Final channelUsers count: ${channelUsers.length}');
-    // print('🔍 [DEBUG] Final channelUsers list: $channelUsers');
+    // debugLog('🔍 [DEBUG] Final channelUsers count: ${channelUsers.length}');
+    // debugLog('🔍 [DEBUG] Final channelUsers list: $channelUsers');
 
     // Verificar si el canal está completamente cargado
     // El canal está cargado si:
@@ -5638,12 +5639,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     // mostrar pantalla de carga (evita pantalla negra en Android durante inicialización)
     if (!isChannelLoaded && (isConnected || serviceConnected)) {
       final channelName = currentChannel ?? 'Conectando...';
-      // print('🔍 [DEBUG] 🖼️  ChatScreen: Mostrando pantalla de carga - isChannelLoaded=$isChannelLoaded, isConnected=$isConnected, serviceConnected=$serviceConnected, channelName=$channelName');
+      // debugLog('🔍 [DEBUG] 🖼️  ChatScreen: Mostrando pantalla de carga - isChannelLoaded=$isChannelLoaded, isConnected=$isConnected, serviceConnected=$serviceConnected, channelName=$channelName');
       return _buildLoadingScreen(appTheme, channelName);
     }
 
-    // print('🔍 [DEBUG] 🖼️  ChatScreen: Renderizando contenido principal - isChannelLoaded=$isChannelLoaded, currentChannel=$currentChannel, channels=${channels.keys.toList()}');
-    // print('🔍 [DEBUG] 🖼️  ChatScreen: appTheme.background=${appTheme.background}');
+    // debugLog('🔍 [DEBUG] 🖼️  ChatScreen: Renderizando contenido principal - isChannelLoaded=$isChannelLoaded, currentChannel=$currentChannel, channels=${channels.keys.toList()}');
+    // debugLog('🔍 [DEBUG] 🖼️  ChatScreen: appTheme.background=${appTheme.background}');
 
     return PopScope(
       canPop: false,
@@ -6194,7 +6195,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                       io.exit(0);
                                     } catch (e) {
                                       // Si falla, simplemente no hacer nada
-                                      print('⚠️ No se pudo cerrar la aplicación: $e');
+                                      debugLog('⚠️ No se pudo cerrar la aplicación: $e');
                                     }
                                   }
                                 },
@@ -6220,8 +6221,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           // Contenido principal
           Builder(
         builder: (context) {
-          // print('🔍 [DEBUG] 🖼️  ChatScreen body: Construyendo Row con ${channels.length} canales');
-          // print('🔍 [DEBUG] 🖼️  ChatScreen body: currentChannel=$currentChannel, isChannelLoaded=$isChannelLoaded');
+          // debugLog('🔍 [DEBUG] 🖼️  ChatScreen body: Construyendo Row con ${channels.length} canales');
+          // debugLog('🔍 [DEBUG] 🖼️  ChatScreen body: currentChannel=$currentChannel, isChannelLoaded=$isChannelLoaded');
               return Column(
           children: [
                 // Banner de actualización
@@ -6435,6 +6436,42 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                 )),
                                 const SizedBox(height: 8),
                               ],
+
+                              // Botón para cerrar todos los canales (si hay alguno abierto)
+                              if (channelList.isNotEmpty) ...[
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                                  child: TextButton.icon(
+                                    onPressed: () {
+                                      final toPart = _ircService.allChannels.keys
+                                          .where((k) => k.startsWith('#'))
+                                          .toList();
+                                      for (final ch in toPart) {
+                                        _ircService.partChannel(ch);
+                                        ref.read(recentChannelsProvider.notifier).removeRecent(ch);
+                                        ref.read(unreadMessagesProvider.notifier).markAsRead(ch);
+                                      }
+                                      ref.read(channelsProvider.notifier).updateChannels();
+                                      final cur = ref.read(currentChannelProvider);
+                                      if (cur != null && cur.startsWith('#')) {
+                                        final remaining = _ircService.allChannels.keys
+                                            .where((k) => !k.startsWith('#'))
+                                            .toList();
+                                        ref.read(currentChannelProvider.notifier).state =
+                                            remaining.isNotEmpty ? remaining.first : null;
+                                      }
+                                      if (mounted) {
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          const SnackBar(content: Text('Todos los canales cerrados')),
+                                        );
+                                      }
+                                    },
+                                    icon: Icon(Icons.tag_off, size: 18, color: appTheme.textSecondary),
+                                    label: Text('Cerrar todos los canales', style: TextStyle(fontSize: 12, color: appTheme.textSecondary)),
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                              ],
                               
                               // Sección de Mensajes Privados (no favoritos, activos)
                               if (nonFavoriteQueries.isNotEmpty) ...[
@@ -6616,7 +6653,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               flex: 3,
               child: Builder(
                 builder: (context) {
-                  // print('🔍 [DEBUG] 🖼️  ChatScreen chat area Column: currentChannel=$currentChannel');
+                  // debugLog('🔍 [DEBUG] 🖼️  ChatScreen chat area Column: currentChannel=$currentChannel');
                   return Column(
                 children: [
                       // Topic bar con animación
@@ -6626,9 +6663,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   Expanded(
                         child: Builder(
                           builder: (context) {
-                            // print('🔍 [DEBUG] 🖼️  ChatScreen messages area: currentChannel=$currentChannel');
+                            // debugLog('🔍 [DEBUG] 🖼️  ChatScreen messages area: currentChannel=$currentChannel');
                         if (currentChannel == null) {
-                          // print('🔍 [DEBUG] 🖼️  ChatScreen: Mostrando mensaje de selección de canal');
+                          // debugLog('🔍 [DEBUG] 🖼️  ChatScreen: Mostrando mensaje de selección de canal');
                           return Center(
                             child: Column(
                               mainAxisAlignment: MainAxisAlignment.center,
@@ -6650,8 +6687,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                             ),
                           );
                         }
-                        // print('🔍 [DEBUG] 🖼️  ChatScreen: Construyendo Stack con fondo ASCII para canal $currentChannel');
-                        // print('🔍 [DEBUG] 🖼️  ChatScreen: Construyendo Stack con ${allMessages.length} mensajes');
+                        // debugLog('🔍 [DEBUG] 🖼️  ChatScreen: Construyendo Stack con fondo ASCII para canal $currentChannel');
+                        // debugLog('🔍 [DEBUG] 🖼️  ChatScreen: Construyendo Stack con ${allMessages.length} mensajes');
                         
                         // Mostrar búsqueda si está activa
                         if (_showSearch) {
@@ -7293,7 +7330,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                           // Botón para enviar inmediatamente (sin delay)
                           FloatingActionButton(
                             onPressed: () {
-                              // print('⚡⚡⚡ [ChatScreen] Botón de rayo presionado, enviando con forceImmediate=true');
+                              // debugLog('⚡⚡⚡ [ChatScreen] Botón de rayo presionado, enviando con forceImmediate=true');
                               _sendMessage(forceImmediate: true);
                             },
                             mini: true,
@@ -7517,30 +7554,30 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                     userMode = currentChannelData.getUserMode(user);
                                     isRobot = currentChannelData.isRobot(user, customRobots: customRobotsData);
                                     // Debug para todos los usuarios (temporal para diagnosticar)
-                                    print('🔍 [DEBUG USER LIST] Usuario: "$user", isRobot: $isRobot, userMode: $userMode, customRobots: ${customRobotsData.length}');
+                                    debugLog('🔍 [DEBUG USER LIST] Usuario: "$user", isRobot: $isRobot, userMode: $userMode, customRobots: ${customRobotsData.length}');
                                   } else if (channelKey != null && channels.containsKey(channelKey)) {
                                     final channelData = channels[channelKey]!;
                                     userMode = channelData.getUserMode(user);
                                     isRobot = channelData.isRobot(user, customRobots: customRobotsData);
                                     // Debug para todos los usuarios (temporal para diagnosticar)
-                                    print('🔍 [DEBUG USER LIST] Usuario: "$user", isRobot: $isRobot, userMode: $userMode (usando channelData), customRobots: ${customRobotsData.length}');
+                                    debugLog('🔍 [DEBUG USER LIST] Usuario: "$user", isRobot: $isRobot, userMode: $userMode (usando channelData), customRobots: ${customRobotsData.length}');
                                   } else {
                                     // Si no hay channelData, asegurarse de que isRobot sea false
                                     isRobot = false;
-                                    print('🔍 [DEBUG USER LIST] Usuario: "$user", isRobot: $isRobot (sin channelData)');
+                                    debugLog('🔍 [DEBUG USER LIST] Usuario: "$user", isRobot: $isRobot (sin channelData)');
                                   }
                                   
                                   // Debug: verificar detección de robot para "globalchat"
                                   if (user.toLowerCase() == 'globalchat' && currentChannel?.toLowerCase() == '#globalchat') {
-                                    print('🔍 [DEBUG] Usuario: $user, Canal: $currentChannel, isRobot: $isRobot, userMode: $userMode');
-                                    print('🔍 [DEBUG] currentChannelData?.name: ${currentChannelData?.name}');
+                                    debugLog('🔍 [DEBUG] Usuario: $user, Canal: $currentChannel, isRobot: $isRobot, userMode: $userMode');
+                                    debugLog('🔍 [DEBUG] currentChannelData?.name: ${currentChannelData?.name}');
                                   }
                                   
                                   final userIcon = _getUserIcon(userMode, isRobot, nick: user);
                                   
                                   // Debug adicional para robots
                                   if (isRobot && user.toLowerCase() == 'globalchat') {
-                                    print('🤖 [DEBUG] userIcon generado para robot "$user": "$userIcon"');
+                                    debugLog('🤖 [DEBUG] userIcon generado para robot "$user": "$userIcon"');
                                   }
                                   
                                   final appTheme = ref.read(themeProvider);
@@ -7836,14 +7873,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                         },
                                       ),
                                       onTap: () {
-                                        // print('🔍 [DEBUG] Tapped on user: $user (mode: $userMode)');
-                                        // print('🔍 [DEBUG] Calling _showUserContextMenu for: $user');
+                                        // debugLog('🔍 [DEBUG] Tapped on user: $user (mode: $userMode)');
+                                        // debugLog('🔍 [DEBUG] Calling _showUserContextMenu for: $user');
                                         try {
                                           _showUserContextMenu(context, user);
-                                          // print('🔍 [DEBUG] _showUserContextMenu called successfully');
+                                          // debugLog('🔍 [DEBUG] _showUserContextMenu called successfully');
                                         } catch (e, stackTrace) {
-                                          // print('🔍 [ERROR] Error showing user context menu: $e');
-                                          // print('🔍 [ERROR] Stack trace: $stackTrace');
+                                          // debugLog('🔍 [ERROR] Error showing user context menu: $e');
+                                          // debugLog('🔍 [ERROR] Stack trace: $stackTrace');
                                         }
                                       },
                                     ),
@@ -8434,7 +8471,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     
     // Debug: solo imprimir ocasionalmente para no saturar logs
     if (message.timestamp.millisecond % 100 == 0) {
-      // print('🔍 [FORMATO] Canal: ${message.channel}, isChannel: $isChannel, formato: ${selectedFormat == MessageFormat.bubble ? "burbuja" : "plano"}');
+      // debugLog('🔍 [FORMATO] Canal: ${message.channel}, isChannel: $isChannel, formato: ${selectedFormat == MessageFormat.bubble ? "burbuja" : "plano"}');
     }
     
     // Si no es formato burbuja, usar formato texto plano
@@ -12123,7 +12160,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       (r) => r.nick.toLowerCase() == nick.toLowerCase(),
                     );
                     isRobot = true;
-                    print('🤖 [PRIVADO] "$nick" detectado como robot personalizado');
+                    debugLog('🤖 [PRIVADO] "$nick" detectado como robot personalizado');
                   } catch (e) {
                     // No es robot personalizado, verificar con detección automática
                     // Usar una lógica simple basada en el nick
@@ -12133,9 +12170,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                               nickLower == 'robot' ||
                               nickLower == 'bot';
                     if (isRobot) {
-                      print('🤖 [PRIVADO] "$nick" detectado como robot (detección automática)');
+                      debugLog('🤖 [PRIVADO] "$nick" detectado como robot (detección automática)');
                     } else {
-                      print('👤 [PRIVADO] "$nick" NO es robot, debería cargar avatar personalizado');
+                      debugLog('👤 [PRIVADO] "$nick" NO es robot, debería cargar avatar personalizado');
                     }
                   }
                   
@@ -13383,10 +13420,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   }
 
   void _showUserContextMenu(BuildContext context, String nick) {
-    // print('🔍 [MENU] _showUserContextMenu called for nick: "$nick"');
+    // debugLog('🔍 [MENU] _showUserContextMenu called for nick: "$nick"');
     final appTheme = ref.read(themeProvider);
     final currentNick = ref.read(currentNicknameProvider);
-    // print('🔍 [MENU] Current nick: "$currentNick", Selected nick: "$nick"');
+    // debugLog('🔍 [MENU] Current nick: "$currentNick", Selected nick: "$nick"');
     
     final isOwnNick = currentNick != null && currentNick.toLowerCase() == nick.toLowerCase();
     
@@ -13396,7 +13433,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       return;
     }
     
-    // print('🔍 [MENU] Showing menu for nick: "$nick"');
+    // debugLog('🔍 [MENU] Showing menu for nick: "$nick"');
     
     showModalBottomSheet(
       context: context,
@@ -16785,8 +16822,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 onTap: () {
                   Navigator.pop(context);
                   final favorites = ref.read(favoritesProvider).toList();
-                  // print('🔍 [DEBUG] Favoritos actuales en el provider: $favorites');
-                  // print('🔍 [DEBUG] Total: ${favorites.length}');
+                  // debugLog('🔍 [DEBUG] Favoritos actuales en el provider: $favorites');
+                  // debugLog('🔍 [DEBUG] Total: ${favorites.length}');
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
                       content: Text('Favoritos: ${favorites.length} canales. Ver consola para detalles.'),
@@ -17709,7 +17746,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     Navigator.pop(context); // Cerrar diálogo de carga
     
     // Debug: mostrar el status recibido
-    // print('🔍 [ChatScreen] Status recibido para nick "$currentNick": $status (tipo: ${status.runtimeType})');
+    // debugLog('🔍 [ChatScreen] Status recibido para nick "$currentNick": $status (tipo: ${status.runtimeType})');
     
     // Verificar si el status es 3 (registrado)
     // Asegurarse de comparar correctamente (puede ser int o null)
@@ -18239,7 +18276,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     Navigator.pop(context); // Cerrar diálogo de carga
     
     // Debug: mostrar el status recibido
-    // print('🔍 [ChatScreen] Status recibido para nick "$currentNick": $status (tipo: ${status.runtimeType})');
+    // debugLog('🔍 [ChatScreen] Status recibido para nick "$currentNick": $status (tipo: ${status.runtimeType})');
     
     // Verificar si el status es 3 (registrado)
     // Asegurarse de comparar correctamente (puede ser int o null)
@@ -18528,10 +18565,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                           ),
                           child: ElevatedButton(
                             onPressed: _isSubmitting ? null : () async {
-                              // print('🌐 [ChatScreen] Botón de solicitar IP virtual presionado');
+                              // debugLog('🌐 [ChatScreen] Botón de solicitar IP virtual presionado');
                               
                               if (!formKey.currentState!.validate()) {
-                                // print('❌ [ChatScreen] Validación del formulario falló');
+                                // debugLog('❌ [ChatScreen] Validación del formulario falló');
                                 return;
                               }
                               
@@ -18540,26 +18577,26 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                 });
                                 
                                 final vhost = vhostController.text.trim();
-                              // print('🌐 [ChatScreen] Enviando solicitud de IP virtual: $vhost');
+                              // debugLog('🌐 [ChatScreen] Enviando solicitud de IP virtual: $vhost');
                               
                               // Enviar comando REQUEST al bot de IP virtual
                               // Intentar primero con "HostServ" (nombre estándar en IRC) y luego con "ipvirtual"
-                              // print('🌐 [ChatScreen] Intentando con HostServ (estándar IRC)...');
+                              // debugLog('🌐 [ChatScreen] Intentando con HostServ (estándar IRC)...');
                               _ircService.sendServiceMessage('HostServ', 'REQUEST $vhost');
                               
                               // También intentar con ipvirtual por si el servidor usa ese nombre
                               Future.delayed(const Duration(milliseconds: 500), () {
-                                // print('🌐 [ChatScreen] También intentando con ipvirtual...');
+                                // debugLog('🌐 [ChatScreen] También intentando con ipvirtual...');
                                 _ircService.sendServiceMessage('ipvirtual', 'REQUEST $vhost');
                               });
                               
-                              // print('🌐 [ChatScreen] Comandos enviados:');
-                              // print('🌐 [ChatScreen]   - PRIVMSG HostServ :REQUEST $vhost');
-                              // print('🌐 [ChatScreen]   - PRIVMSG ipvirtual :REQUEST $vhost');
+                              // debugLog('🌐 [ChatScreen] Comandos enviados:');
+                              // debugLog('🌐 [ChatScreen]   - PRIVMSG HostServ :REQUEST $vhost');
+                              // debugLog('🌐 [ChatScreen]   - PRIVMSG ipvirtual :REQUEST $vhost');
                                 
                                 if (context.mounted) {
                                   Navigator.pop(context);
-                                // print('🌐 [ChatScreen] Diálogo cerrado, mostrando SnackBar');
+                                // debugLog('🌐 [ChatScreen] Diálogo cerrado, mostrando SnackBar');
                                   ScaffoldMessenger.of(context).showSnackBar(
                                     SnackBar(
                                     content: Row(
@@ -18579,9 +18616,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                     behavior: SnackBarBehavior.floating,
                                     ),
                                   );
-                                // print('✅ [ChatScreen] SnackBar mostrado');
+                                // debugLog('✅ [ChatScreen] SnackBar mostrado');
                               } else {
-                                // print('⚠️  [ChatScreen] Context no está montado, no se puede mostrar SnackBar');
+                                // debugLog('⚠️  [ChatScreen] Context no está montado, no se puede mostrar SnackBar');
                               }
                             },
                             style: ElevatedButton.styleFrom(
@@ -19593,8 +19630,8 @@ class _CanalSurBackground extends StatelessWidget {
         alignment: Alignment.center,
         errorBuilder: (context, error, stackTrace) {
           // Log del error para debug
-          // print('❌ [CanalSurBackground] Error cargando logo: $error');
-          // print('❌ [CanalSurBackground] StackTrace: $stackTrace');
+          // debugLog('❌ [CanalSurBackground] Error cargando logo: $error');
+          // debugLog('❌ [CanalSurBackground] StackTrace: $stackTrace');
           // Mostrar un placeholder en lugar de ocultar
           return Container(
             color: Colors.transparent,
@@ -19605,7 +19642,7 @@ class _CanalSurBackground extends StatelessWidget {
         },
         loadingBuilder: (context, child, loadingProgress) {
           if (loadingProgress == null) {
-            // print('✅ [CanalSurBackground] Logo cargado correctamente');
+            // debugLog('✅ [CanalSurBackground] Logo cargado correctamente');
             return child;
           }
           // Mostrar un indicador de carga

@@ -8,6 +8,7 @@ import '../providers/theme_provider.dart';
 import 'radio_stations_list.dart';
 import '../utils/platform_utils.dart';
 import 'dart:html' if (dart.library.io) '../utils/html_stub.dart' as html;
+import '../config/debug_config.dart';
 
 class RadioControls extends ConsumerStatefulWidget {
   const RadioControls({Key? key}) : super(key: key);
@@ -21,19 +22,19 @@ class _RadioControlsState extends ConsumerState<RadioControls> {
   @override
   void initState() {
     super.initState();
-    // print('📻 RadioControls initState');
+    // debugLog('📻 RadioControls initState');
     // Verificar estado actual
     final currentState = ref.read(radioProvider);
-    // print('📻 Estado actual: ${currentState.stations.length} estaciones');
+    // debugLog('📻 Estado actual: ${currentState.stations.length} estaciones');
     
     // Cargar estaciones al iniciar si no hay ninguna
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final state = ref.read(radioProvider);
       if (state.stations.isEmpty) {
-        // print('📻 No hay estaciones, cargando desde RadioControls...');
+        // debugLog('📻 No hay estaciones, cargando desde RadioControls...');
         ref.read(radioProvider.notifier).loadStations();
       } else {
-        // print('📻 Ya hay ${state.stations.length} estaciones cargadas');
+        // debugLog('📻 Ya hay ${state.stations.length} estaciones cargadas');
       }
     });
   }
@@ -43,9 +44,9 @@ class _RadioControlsState extends ConsumerState<RadioControls> {
     final radioService = ref.read(radioServiceProvider);
     final stationToPlay = station ?? radioState.activeStation;
     
-    // print('📻 _playStation llamado');
-    // print('📻 Estaciones disponibles: ${radioState.stations.length}');
-    // print('📻 Estación a reproducir: ${stationToPlay?.name ?? "ninguna"}');
+    // debugLog('📻 _playStation llamado');
+    // debugLog('📻 Estaciones disponibles: ${radioState.stations.length}');
+    // debugLog('📻 Estación a reproducir: ${stationToPlay?.name ?? "ninguna"}');
     
     // Asegurar que el RadioService esté inicializado
     await radioService.initialize();
@@ -54,11 +55,11 @@ class _RadioControlsState extends ConsumerState<RadioControls> {
     await radioService.setVolume(radioState.volume);
     
     if (stationToPlay == null) {
-      // print('📻 No hay estación seleccionada');
+      // debugLog('📻 No hay estación seleccionada');
       // Si no hay estación activa, elegir la primera disponible
       if (radioState.stations.isNotEmpty) {
         final firstStation = radioState.stations.first;
-        // print('📻 Seleccionando primera estación: ${firstStation.name}');
+        // debugLog('📻 Seleccionando primera estación: ${firstStation.name}');
         await ref.read(radioProvider.notifier).setActiveStation(firstStation);
         
         // IMPORTANTE: Esperar un frame para que el estado se propague
@@ -68,17 +69,17 @@ class _RadioControlsState extends ConsumerState<RadioControls> {
         final updatedState = ref.read(radioProvider);
         final updatedStation = updatedState.activeStation;
         
-        print('🎵 [RadioControls] Estación actualizada (primera): ${updatedStation?.name}');
-        print('🎵 [RadioControls] URL a reproducir: ${updatedStation?.source}');
+        debugLog('🎵 [RadioControls] Estación actualizada (primera): ${updatedStation?.name}');
+        debugLog('🎵 [RadioControls] URL a reproducir: ${updatedStation?.source}');
         
         if (updatedStation != null) {
           try {
             await radioService.playStation(updatedStation);
-          // print('📻 Reproducción iniciada exitosamente');
+          // debugLog('📻 Reproducción iniciada exitosamente');
           ref.read(radioProvider.notifier).setPlaying(true);
           ref.read(radioProvider.notifier).setError(false);
         } catch (e) {
-          // print('❌ Error al reproducir: $e');
+          // debugLog('❌ Error al reproducir: $e');
           ref.read(radioProvider.notifier).setError(true);
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
@@ -92,7 +93,7 @@ class _RadioControlsState extends ConsumerState<RadioControls> {
           }
         }
       } else {
-        // print('❌ No hay estaciones disponibles');
+        // debugLog('❌ No hay estaciones disponibles');
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -107,7 +108,7 @@ class _RadioControlsState extends ConsumerState<RadioControls> {
       return;
     }
 
-    // print('📻 Reproduciendo: ${stationToPlay.name}');
+    // debugLog('📻 Reproduciendo: ${stationToPlay.name}');
     await ref.read(radioProvider.notifier).setActiveStation(stationToPlay);
     ref.read(radioProvider.notifier).setError(false);
     
@@ -118,8 +119,8 @@ class _RadioControlsState extends ConsumerState<RadioControls> {
     final updatedState = ref.read(radioProvider);
     final updatedStation = updatedState.activeStation;
     
-    print('🎵 [RadioControls] Estación actualizada: ${updatedStation?.name}');
-    print('🎵 [RadioControls] URL a reproducir: ${updatedStation?.source}');
+    debugLog('🎵 [RadioControls] Estación actualizada: ${updatedStation?.name}');
+    debugLog('🎵 [RadioControls] URL a reproducir: ${updatedStation?.source}');
     
     // Log también en la consola del navegador directamente
     if (PlatformUtils.isWeb) {
@@ -131,7 +132,7 @@ class _RadioControlsState extends ConsumerState<RadioControls> {
     
     if (updatedStation != null) {
       try {
-        print('🎵 [RadioControls] Llamando a radioService.playStation...');
+        debugLog('🎵 [RadioControls] Llamando a radioService.playStation...');
         // ignore: avoid_web_libraries_in_flutter
         if (PlatformUtils.isWeb) html.window.console.log('🎵 [RadioControls] Llamando playStation...');
         await radioService.playStation(updatedStation);
@@ -231,16 +232,16 @@ class _RadioControlsState extends ConsumerState<RadioControls> {
     
     // Debug: mostrar estado actual
     if (radioState.stations.isEmpty) {
-      // print('📻 [build] No hay estaciones cargadas aún');
+      // debugLog('📻 [build] No hay estaciones cargadas aún');
       // Intentar cargar si aún no se han cargado
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (ref.read(radioProvider).stations.isEmpty) {
-          // print('📻 [build] Forzando carga de estaciones...');
+          // debugLog('📻 [build] Forzando carga de estaciones...');
           ref.read(radioProvider.notifier).loadStations();
         }
       });
     } else {
-      // print('📻 [build] Estaciones: ${radioState.stations.length}, Activa: ${radioState.activeStation?.name ?? "ninguna"}, Reproduciendo: ${radioState.isPlaying}');
+      // debugLog('📻 [build] Estaciones: ${radioState.stations.length}, Activa: ${radioState.activeStation?.name ?? "ninguna"}, Reproduciendo: ${radioState.isPlaying}');
     }
 
     return Container(

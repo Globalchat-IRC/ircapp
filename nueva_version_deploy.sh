@@ -89,9 +89,9 @@ flutter pub get > /dev/null 2>&1
 echo -e "${GREEN}✅ Dependencias actualizadas${NC}"
 echo ""
 
-# [4/8] Compilar aplicación
+# [4/8] Compilar aplicación (base-href / = raíz, mobilev1.globalchat.org)
 echo -e "${BLUE}[4/8]${NC} Compilando aplicación web (puede tardar varios minutos)..."
-flutter build web --release
+flutter build web --release --base-href="/"
 if [ $? -ne 0 ]; then
     echo -e "${RED}❌ Error: Falló la compilación${NC}"
     exit 1

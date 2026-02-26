@@ -10,6 +10,7 @@ import 'package:crypto/crypto.dart';
 import 'package:pointycastle/export.dart';
 import '../utils/platform_utils.dart';
 import 'dart:html' if (dart.library.io) 'package:irc_app/utils/html_stub.dart' as html;
+import '../config/debug_config.dart';
 
 /// Servicio para exportar conversaciones y logs
 class ExportService {
@@ -53,7 +54,7 @@ class ExportService {
 
       return file.path;
     } catch (e) {
-      // print('Error exportando a texto: $e');
+      // debugLog('Error exportando a texto: $e');
       return null;
     }
   }
@@ -124,7 +125,7 @@ class ExportService {
 
       return file.path;
     } catch (e) {
-      // print('Error exportando a HTML: $e');
+      // debugLog('Error exportando a HTML: $e');
       return null;
     }
   }
@@ -281,7 +282,7 @@ class ExportService {
         return file.path;
       }
     } catch (e) {
-      print('Error exportando logs encriptados: $e');
+      debugLog('Error exportando logs encriptados: $e');
       return null;
     }
   }
@@ -354,7 +355,7 @@ class ExportService {
 
       return cipher.process(encrypted);
     } catch (e) {
-      print('Error desencriptando: $e');
+      debugLog('Error desencriptando: $e');
       return null;
     }
   }

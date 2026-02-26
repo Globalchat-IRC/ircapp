@@ -6,6 +6,7 @@ import 'dart:convert';
 import '../utils/platform_utils.dart';
 import 'web_speech_stub.dart'
     if (dart.library.html) 'web_speech.dart' as web_stt;
+import '../config/debug_config.dart';
 
 /// Servicio de asistente de voz con IA para ayudar con dudas sobre GlobalChat y Anope
 class VoiceAssistantService {
@@ -44,8 +45,8 @@ class VoiceAssistantService {
       _apiBaseUrl = 'https://api.groq.com/openai/v1';
     }
     
-    print('🔧 [VoiceAssistant] Inicializado con modelo: $_model');
-    print('🔧 [VoiceAssistant] API URL: $_apiBaseUrl');
+    debugLog('🔧 [VoiceAssistant] Inicializado con modelo: $_model');
+    debugLog('🔧 [VoiceAssistant] API URL: $_apiBaseUrl');
     
     // Configurar TTS (por defecto español)
     await _tts.setLanguage('es-ES');
@@ -59,7 +60,7 @@ class VoiceAssistantService {
     });
     
     _tts.setErrorHandler((msg) {
-      print('Error TTS: $msg');
+      debugLog('Error TTS: $msg');
       _isSpeaking = false;
     });
     
@@ -69,15 +70,15 @@ class VoiceAssistantService {
       onStatus: _onSttStatus,
     );
 
-    print('🔧 [VoiceAssistant] STT inicializado: hasSpeech=$hasSpeech');
+    debugLog('🔧 [VoiceAssistant] STT inicializado: hasSpeech=$hasSpeech');
 
     // Detectar locale del sistema para usarlo en listen()
     try {
       final systemLocale = await _speech.systemLocale();
       _localeId = systemLocale?.localeId;
-      print('🌍 [VoiceAssistant] Locale STT del sistema: $_localeId');
+      debugLog('🌍 [VoiceAssistant] Locale STT del sistema: $_localeId');
     } catch (e) {
-      print('⚠️ [VoiceAssistant] No se pudo obtener systemLocale: $e');
+      debugLog('⚠️ [VoiceAssistant] No se pudo obtener systemLocale: $e');
       _localeId ??= 'es-ES';
     }
   }
@@ -105,7 +106,7 @@ class VoiceAssistantService {
     // En web, usar la Web Speech API nativa
     if (PlatformUtils.isWeb) {
       final localeToUse = _localeId ?? 'es-ES';
-      print('🎤 [VoiceAssistant] (Web) Escuchando con locale: $localeToUse');
+      debugLog('🎤 [VoiceAssistant] (Web) Escuchando con locale: $localeToUse');
       return web_stt.startWebSpeech(localeToUse);
     }
     
@@ -113,7 +114,7 @@ class VoiceAssistantService {
     // IMPORTANTE: Estos callbacks se ejecutan cuando hay errores durante listen()
     if (_onSttError == null) {
       _onSttError = (error) {
-        print('❌ [VoiceAssistant] Error STT en listen: $error');
+        debugLog('❌ [VoiceAssistant] Error STT en listen: $error');
         if (_isListening && _transcriptionController != null && !_transcriptionController!.isClosed) {
           _isListening = false;
           try {
@@ -121,14 +122,14 @@ class VoiceAssistantService {
             _transcriptionController?.add('__ERROR__');
             Future.delayed(const Duration(milliseconds: 100), () {
               if (_transcriptionController != null && !_transcriptionController!.isClosed) {
-                print('🔒 [VoiceAssistant] Cerrando stream por error STT...');
+                debugLog('🔒 [VoiceAssistant] Cerrando stream por error STT...');
                 _transcriptionController?.close();
                 _transcriptionController = null;
-                print('✅ [VoiceAssistant] Stream cerrado después de error STT');
+                debugLog('✅ [VoiceAssistant] Stream cerrado después de error STT');
               }
             });
           } catch (e) {
-            print('⚠️ [VoiceAssistant] Error al enviar marcador de error: $e');
+            debugLog('⚠️ [VoiceAssistant] Error al enviar marcador de error: $e');
           }
         }
       };
@@ -136,24 +137,24 @@ class VoiceAssistantService {
     
     if (_onSttStatus == null) {
       _onSttStatus = (status) {
-        print('📊 [VoiceAssistant] Status STT: $status');
+        debugLog('📊 [VoiceAssistant] Status STT: $status');
         // Si el estado cambia a "done" o "notListening" sin resultado final, cerrar el stream
         if ((status == 'done' || status == 'notListening') && _isListening && _transcriptionController != null && !_transcriptionController!.isClosed) {
-          print('⚠️ [VoiceAssistant] Status cambió a $status pero aún estaba escuchando');
+          debugLog('⚠️ [VoiceAssistant] Status cambió a $status pero aún estaba escuchando');
           // Solo cerrar si no hay transcripción válida
           if (_transcription.isEmpty || _transcription.trim().isEmpty) {
-            print('⚠️ [VoiceAssistant] No hay transcripción válida, cerrando stream...');
+            debugLog('⚠️ [VoiceAssistant] No hay transcripción válida, cerrando stream...');
             _isListening = false;
             try {
               _transcriptionController?.add('__ERROR__');
             } catch (e) {
-              print('⚠️ [VoiceAssistant] Error al enviar error: $e');
+              debugLog('⚠️ [VoiceAssistant] Error al enviar error: $e');
             }
             Future.delayed(const Duration(milliseconds: 100), () {
               if (_transcriptionController != null && !_transcriptionController!.isClosed) {
                 _transcriptionController?.close();
                 _transcriptionController = null;
-                print('✅ [VoiceAssistant] Stream cerrado por cambio de status');
+                debugLog('✅ [VoiceAssistant] Stream cerrado por cambio de status');
               }
             });
           }
@@ -165,29 +166,29 @@ class VoiceAssistantService {
       _isListening = true;
       // Usar el locale detectado, con fallback a español
       final localeToUse = _localeId ?? 'es-ES';
-      print('🎤 [VoiceAssistant] Escuchando con locale: $localeToUse');
+      debugLog('🎤 [VoiceAssistant] Escuchando con locale: $localeToUse');
       _speech.listen(
         onResult: (result) {
-          print('🎤 [VoiceAssistant] Reconocido: "${result.recognizedWords}" (final: ${result.finalResult})');
+          debugLog('🎤 [VoiceAssistant] Reconocido: "${result.recognizedWords}" (final: ${result.finalResult})');
           // Guardar transcripción actual
           _transcription = result.recognizedWords;
           
           if (result.finalResult) {
             final finalText = result.recognizedWords.trim();
-            print('✅ [VoiceAssistant] Resultado final recibido: "$finalText"');
+            debugLog('✅ [VoiceAssistant] Resultado final recibido: "$finalText"');
             if (finalText.isNotEmpty) {
               _transcriptionController?.add(finalText);
             }
-            print('🛑 [VoiceAssistant] Deteniendo escucha...');
+            debugLog('🛑 [VoiceAssistant] Deteniendo escucha...');
             _speech.stop();
             _isListening = false;
             // Cerrar el stream inmediatamente después de agregar el resultado final
             Future.delayed(const Duration(milliseconds: 50), () {
               if (_transcriptionController != null && !_transcriptionController!.isClosed) {
-                print('🔒 [VoiceAssistant] Cerrando stream controller...');
+                debugLog('🔒 [VoiceAssistant] Cerrando stream controller...');
                 _transcriptionController?.close();
                 _transcriptionController = null;
-                print('✅ [VoiceAssistant] Stream cerrado correctamente');
+                debugLog('✅ [VoiceAssistant] Stream cerrado correctamente');
               }
             });
           } else {
@@ -206,7 +207,7 @@ class VoiceAssistantService {
           // Opcional: mostrar nivel de sonido
         },
       );
-      print('🎤 [VoiceAssistant] Iniciando escucha...');
+      debugLog('🎤 [VoiceAssistant] Iniciando escucha...');
     }
     
     return _transcriptionController!.stream;
@@ -231,17 +232,17 @@ class VoiceAssistantService {
   /// Obtener respuesta de la IA
   Future<String> getAIResponse(String question) async {
     try {
-      print('🤖 [VoiceAssistant] Obteniendo respuesta para: "$question"');
+      debugLog('🤖 [VoiceAssistant] Obteniendo respuesta para: "$question"');
       
       // Si no hay API key, usar respuestas predefinidas
       if (_openAiApiKey == null || _openAiApiKey!.isEmpty) {
-        print('⚠️ [VoiceAssistant] No hay API key, usando respuesta predefinida');
+        debugLog('⚠️ [VoiceAssistant] No hay API key, usando respuesta predefinida');
         return _getPredefinedResponse(question);
       }
       
       final apiUrl = '$_apiBaseUrl/chat/completions';
-      print('🌐 [VoiceAssistant] Llamando a: $apiUrl');
-      print('🤖 [VoiceAssistant] Modelo: $_model');
+      debugLog('🌐 [VoiceAssistant] Llamando a: $apiUrl');
+      debugLog('🤖 [VoiceAssistant] Modelo: $_model');
       
       // Llamar a Groq API (compatible con OpenAI)
       final response = await http.post(
@@ -271,27 +272,27 @@ class VoiceAssistantService {
         }),
       ).timeout(const Duration(seconds: 30));
       
-      print('📡 [VoiceAssistant] Respuesta recibida: ${response.statusCode}');
+      debugLog('📡 [VoiceAssistant] Respuesta recibida: ${response.statusCode}');
       
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        print('✅ [VoiceAssistant] Datos recibidos: ${data.keys}');
+        debugLog('✅ [VoiceAssistant] Datos recibidos: ${data.keys}');
         
         if (data['choices'] != null && data['choices'].isNotEmpty) {
           final content = data['choices'][0]['message']['content'] as String;
-          print('💬 [VoiceAssistant] Respuesta: "$content"');
+          debugLog('💬 [VoiceAssistant] Respuesta: "$content"');
           return content.trim();
         } else {
-          print('⚠️ [VoiceAssistant] No hay choices en la respuesta');
+          debugLog('⚠️ [VoiceAssistant] No hay choices en la respuesta');
           return _getPredefinedResponse(question);
         }
       } else {
-        print('❌ [VoiceAssistant] Error API: ${response.statusCode} - ${response.body}');
+        debugLog('❌ [VoiceAssistant] Error API: ${response.statusCode} - ${response.body}');
         return _getPredefinedResponse(question);
       }
     } catch (e, stackTrace) {
-      print('❌ [VoiceAssistant] Error obteniendo respuesta de IA: $e');
-      print('📚 [VoiceAssistant] Stack trace: $stackTrace');
+      debugLog('❌ [VoiceAssistant] Error obteniendo respuesta de IA: $e');
+      debugLog('📚 [VoiceAssistant] Stack trace: $stackTrace');
       return _getPredefinedResponse(question);
     }
   }
@@ -474,7 +475,7 @@ Responde de forma clara, concisa y en español. Si no sabes algo, admítelo y su
       
       return response;
     } catch (e) {
-      print('Error procesando pregunta: $e');
+      debugLog('Error procesando pregunta: $e');
       return 'Ocurrió un error al procesar tu pregunta. Por favor, intenta de nuevo.';
     }
   }

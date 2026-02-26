@@ -11,10 +11,11 @@ echo "📌 Versión: $VERSION"
 echo ""
 
 # 1. Limpiar y compilar
+# Base href "/" porque la app se sirve en la raíz (https://mobilev1.globalchat.org/)
 echo "📦 Paso 1: Limpiando y compilando..."
 flutter clean
 flutter pub get
-flutter build web --release
+flutter build web --release --base-href="/"
 
 # Verificar que el build existe
 if [ ! -f "build/web/main.dart.js" ]; then

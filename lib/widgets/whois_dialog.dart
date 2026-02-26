@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import '../models/whois_info.dart';
 import '../models/app_theme.dart';
 import '../providers/theme_provider.dart';
+import '../config/debug_config.dart';
 
 /// Diálogo modal para mostrar información WHOIS de un usuario
 class WhoisDialog extends ConsumerWidget {
@@ -22,7 +23,7 @@ class WhoisDialog extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final appTheme = ref.read(themeProvider);
     
-    print('🔍 [WHOIS DIALOG] Construyendo diálogo para: ${info.nick}');
+    debugLog('🔍 [WHOIS DIALOG] Construyendo diálogo para: ${info.nick}');
     
     return Dialog(
       backgroundColor: Colors.transparent,

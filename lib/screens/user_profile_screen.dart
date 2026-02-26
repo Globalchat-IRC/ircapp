@@ -13,6 +13,7 @@ import '../models/irc_message.dart';
 import '../models/whois_info.dart';
 import '../models/user_role.dart';
 import '../providers/video_provider.dart';
+import '../config/debug_config.dart';
 
 class UserProfileScreen extends ConsumerStatefulWidget {
   final String nick;
@@ -32,14 +33,14 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
     super.initState();
     // Solicitar información de whois
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      // print('🔍 [PROFILE] Requesting whois for: ${widget.nick}');
+      // debugLog('🔍 [PROFILE] Requesting whois for: ${widget.nick}');
       ref.read(whoisProvider.notifier).requestWhois(widget.nick);
       _hasRequestedWhois = true;
       
       // Verificar si ya tenemos información en caché
       final cachedInfo = ref.read(whoisProvider)[widget.nick.toLowerCase()];
       if (cachedInfo != null) {
-        // print('🔍 [PROFILE] Found cached whois info');
+        // debugLog('🔍 [PROFILE] Found cached whois info');
         if (mounted) {
           setState(() {
             _isLoading = false;
@@ -52,7 +53,7 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
           if (mounted && _isLoading) {
             final whoisInfo = ref.read(whoisProvider)[widget.nick.toLowerCase()];
             if (whoisInfo == null) {
-              // print('🔍 [PROFILE] Timeout: No whois info received after 2 seconds, showing error');
+              // debugLog('🔍 [PROFILE] Timeout: No whois info received after 2 seconds, showing error');
               setState(() {
                 _isLoading = false;
               });
@@ -82,10 +83,10 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
     
     // Debug: verificar qué hay en el mapa
     if (whoisInfo == null) {
-      // print('🔍 [PROFILE] No whois info found for ${widget.nick.toLowerCase()}');
-      // print('🔍 [PROFILE] Available whois keys: ${whoisMap.keys.toList()}');
+      // debugLog('🔍 [PROFILE] No whois info found for ${widget.nick.toLowerCase()}');
+      // debugLog('🔍 [PROFILE] Available whois keys: ${whoisMap.keys.toList()}');
     } else {
-      // print('🔍 [PROFILE] Found whois info for ${widget.nick}: ${whoisInfo.username}@${whoisInfo.host}');
+      // debugLog('🔍 [PROFILE] Found whois info for ${widget.nick}: ${whoisInfo.username}@${whoisInfo.host}');
     }
 
     return PopScope(
@@ -527,7 +528,7 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
                           final isOwnProfile = currentNick != null && 
                               currentNick.toLowerCase() == widget.nick.toLowerCase();
                           
-                          print('🔍 [PERFIL] Verificando perfil - currentNick: $currentNick, widget.nick: ${widget.nick}, isOwnProfile: $isOwnProfile');
+                          debugLog('🔍 [PERFIL] Verificando perfil - currentNick: $currentNick, widget.nick: ${widget.nick}, isOwnProfile: $isOwnProfile');
                           
                           if (!isOwnProfile) {
                             return const SizedBox.shrink();
@@ -568,7 +569,7 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
                           final isOwnProfile = currentNick != null && 
                               currentNick.toLowerCase() == widget.nick.toLowerCase();
                           
-                          print('🎵 [PERFIL] Verificando sección Radio - isOwnProfile: $isOwnProfile');
+                          debugLog('🎵 [PERFIL] Verificando sección Radio - isOwnProfile: $isOwnProfile');
                           
                           if (!isOwnProfile) {
                             return const SizedBox.shrink();
@@ -579,7 +580,7 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
                           final activeStation = radioState.activeStation;
                           
                           // Debug logs
-                          print('🎵 [PERFIL] Radio state - isPlaying: $isPlaying, activeStation: ${activeStation?.name ?? "null"}');
+                          debugLog('🎵 [PERFIL] Radio state - isPlaying: $isPlaying, activeStation: ${activeStation?.name ?? "null"}');
                           
                           // Mostrar siempre la sección de radio, pero con diferentes contenidos según el estado
                           return Column(
@@ -811,18 +812,18 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
                               final ircService = ref.read(ircServiceProvider);
                               // Enviar un mensaje de ayuda al bot de IP virtual
                               // Intentar primero con "HostServ" (nombre estándar en IRC) y luego con "ipvirtual"
-                              // print('🌐 [UserProfile] Intentando con HostServ (estándar IRC)...');
+                              // debugLog('🌐 [UserProfile] Intentando con HostServ (estándar IRC)...');
                               ircService.sendServiceMessage('HostServ', 'HELP');
                               
                               // También intentar con ipvirtual por si el servidor usa ese nombre
                               Future.delayed(const Duration(milliseconds: 500), () {
-                                // print('🌐 [UserProfile] También intentando con ipvirtual...');
+                                // debugLog('🌐 [UserProfile] También intentando con ipvirtual...');
                                 ircService.sendServiceMessage('ipvirtual', 'HELP');
                               });
                               
-                              // print('🌐 [UserProfile] Comandos enviados:');
-                              // print('🌐 [UserProfile]   - PRIVMSG HostServ :HELP');
-                              // print('🌐 [UserProfile]   - PRIVMSG ipvirtual :HELP');
+                              // debugLog('🌐 [UserProfile] Comandos enviados:');
+                              // debugLog('🌐 [UserProfile]   - PRIVMSG HostServ :HELP');
+                              // debugLog('🌐 [UserProfile]   - PRIVMSG ipvirtual :HELP');
                               ScaffoldMessenger.of(context).showSnackBar(
                                 const SnackBar(
                                   content: Text(
@@ -1746,15 +1747,15 @@ class _ChangeNickWidgetState extends ConsumerState<_ChangeNickWidget> {
   Widget build(BuildContext context) {
     // Escuchar cambios en el provider para actualizar el nick mostrado
     final currentNickFromProvider = ref.watch(currentNicknameProvider) ?? 'Usuario';
-    // print('🔄 [ChangeNickWidget] build() - currentNickFromProvider: "$currentNickFromProvider", _lastKnownNick: "$_lastKnownNick", _isEditing: $_isEditing');
+    // debugLog('🔄 [ChangeNickWidget] build() - currentNickFromProvider: "$currentNickFromProvider", _lastKnownNick: "$_lastKnownNick", _isEditing: $_isEditing');
     
     // Actualizar el controlador si el nick cambió desde el provider
     if (currentNickFromProvider != _lastKnownNick && !_isEditing) {
-      // print('🔄 [ChangeNickWidget] ✅ Actualizando controlador de "$_lastKnownNick" a "$currentNickFromProvider"');
+      // debugLog('🔄 [ChangeNickWidget] ✅ Actualizando controlador de "$_lastKnownNick" a "$currentNickFromProvider"');
       _lastKnownNick = currentNickFromProvider;
       _nickController.text = currentNickFromProvider;
     } else if (currentNickFromProvider != _lastKnownNick && _isEditing) {
-      // print('🔄 [ChangeNickWidget] ⚠️  Nick cambió pero estamos editando, no actualizamos el controlador');
+      // debugLog('🔄 [ChangeNickWidget] ⚠️  Nick cambió pero estamos editando, no actualizamos el controlador');
     }
     
     if (!_isEditing) {

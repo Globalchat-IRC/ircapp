@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../config/debug_config.dart';
 
 /// Provider para la configuración de historial de mensajes
 final historyEnabledProvider = NotifierProvider<HistoryEnabledNotifier, bool>(() {
@@ -22,7 +23,7 @@ class HistoryEnabledNotifier extends Notifier<bool> {
       final value = prefs.getBool(_prefsKey) ?? _defaultValue;
       state = value;
     } catch (e) {
-      print('Error cargando configuración de historial: $e');
+      debugLog('Error cargando configuración de historial: $e');
       state = _defaultValue;
     }
   }
@@ -33,7 +34,7 @@ class HistoryEnabledNotifier extends Notifier<bool> {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool(_prefsKey, enabled);
     } catch (e) {
-      print('Error guardando configuración de historial: $e');
+      debugLog('Error guardando configuración de historial: $e');
     }
   }
 

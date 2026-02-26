@@ -1,5 +1,6 @@
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import '../config/debug_config.dart';
 
 /// Servicio para detectar la ubicación geográfica del usuario usando GeoIP
 class GeoIPService {
@@ -67,7 +68,7 @@ class GeoIPService {
       return null;
     } catch (e) {
       // Si hay error, retornar null para usar servidor por defecto
-      print('🌎 [GEOIP] Error al obtener GeoIP: $e');
+      debugLog('🌎 [GEOIP] Error al obtener GeoIP: $e');
       return null;
     }
   }
