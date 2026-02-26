@@ -32,6 +32,8 @@ class _UserProfileDialogState extends ConsumerState<UserProfileDialog> with Sing
   List<Map<String, dynamic>> _conferences = [];
   bool _isLoading = true;
   late TabController _tabController;
+  final TextEditingController _notesController = TextEditingController();
+  bool _notesInitialized = false;
   
   @override
   void initState() {
@@ -43,6 +45,7 @@ class _UserProfileDialogState extends ConsumerState<UserProfileDialog> with Sing
   @override
   void dispose() {
     _tabController.dispose();
+    _notesController.dispose();
     super.dispose();
   }
   
@@ -352,6 +355,8 @@ class _UserProfileDialogState extends ConsumerState<UserProfileDialog> with Sing
                 ? '✅ Puede usar audio'
                 : '❌ ${_profile!.videoRestrictionReason ?? "Restricciones activas"}',
           ),
+          const Divider(height: 32),
+          _buildPrivateNotesSection(),
           // Botón para compartir canción (solo si es el propio perfil y la radio está encendida)
           Consumer(
             builder: (context, ref, _) {
@@ -387,6 +392,60 @@ class _UserProfileDialogState extends ConsumerState<UserProfileDialog> with Sing
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildPrivateNotesSection() {
+    return Consumer(
+      builder: (context, ref, _) {
+        final notesMap = ref.watch(userNotesProvider);
+        final key = widget.nick.toLowerCase();
+        final currentNote = notesMap[key] ?? '';
+
+        if (!_notesInitialized) {
+          _notesController.text = currentNote;
+          _notesInitialized = true;
+        }
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              '📝 Notas privadas',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Estas notas solo se guardan en este navegador. Úsalas para recordar quién es este usuario, roles, acuerdos, etc.',
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.grey[700],
+              ),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _notesController,
+              maxLines: 4,
+              minLines: 3,
+              decoration: InputDecoration(
+                hintText: 'Escribe aquí tus notas sobre ${widget.nick} (solo las ves tú)',
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                filled: true,
+                fillColor: Colors.grey.withOpacity(0.05),
+              ),
+              onChanged: (value) {
+                // Guardar nota en segundo plano
+                ref.read(userNotesProvider.notifier).setNote(widget.nick, value);
+              },
+            ),
+          ],
+        );
+      },
     );
   }
   

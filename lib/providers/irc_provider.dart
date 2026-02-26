@@ -246,6 +246,14 @@ final recentChannelsProvider =
   return RecentChannelsNotifier();
 });
 
+/// Lista de privados (queries) archivados.
+/// - Solo se aplica a canales que NO empiezan por # (mensajes privados).
+/// - Se almacenan como nicks en minúsculas en SharedPreferences.
+final archivedPrivatesProvider =
+    NotifierProvider<ArchivedPrivatesNotifier, Set<String>>(() {
+  return ArchivedPrivatesNotifier();
+});
+
 /// Mensajes fijados por canal (avisos, reglas, enlaces importantes)
 final pinnedMessagesProvider = NotifierProvider<PinnedMessagesNotifier,
     Map<String, List<IRCMessage>>>(() {
@@ -257,6 +265,20 @@ final notificationSettingsProvider =
     NotifierProvider<NotificationSettingsNotifier, NotificationSettings>(
         () {
   return NotificationSettingsNotifier();
+});
+
+/// Chats privados con cifrado punto a punto activado (solo cliente local).
+/// Clave: nick en minúsculas (canales que no empiezan por #).
+final encryptedPrivatesProvider =
+    NotifierProvider<EncryptedPrivatesNotifier, Set<String>>(() {
+  return EncryptedPrivatesNotifier();
+});
+
+/// Notas privadas por usuario (solo cliente local).
+/// Clave: nick en minúsculas, valor: texto libre.
+final userNotesProvider =
+    NotifierProvider<UserNotesNotifier, Map<String, String>>(() {
+  return UserNotesNotifier();
 });
 
 /// Perfil de servidor actual (para multi-servidor/multi-red)
@@ -1061,6 +1083,188 @@ class RecentChannelsNotifier extends Notifier<List<String>> {
     final key = _normalize(channel);
     _excludedChannels.remove(key);
     _saveExcludedChannels();
+  }
+}
+
+/// Notifier para privados con cifrado habilitado.
+class EncryptedPrivatesNotifier extends Notifier<Set<String>> {
+  static const _prefsKey = 'encrypted_privates_v1';
+
+  @override
+  Set<String> build() {
+    _loadFromPrefs();
+    return <String>{};
+  }
+
+  Future<void> _loadFromPrefs() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final list = prefs.getStringList(_prefsKey) ?? <String>[];
+      state = list.map((e) => e.toLowerCase()).toSet();
+    } catch (_) {
+      // Ignorar errores de carga
+    }
+  }
+
+  Future<void> _saveToPrefs() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setStringList(_prefsKey, state.toList());
+    } catch (_) {
+      // Ignorar errores de guardado
+    }
+  }
+
+  String _normalize(String nick) => nick.toLowerCase();
+
+  bool isEncrypted(String nick) => state.contains(_normalize(nick));
+
+  void enable(String nick) {
+    final key = _normalize(nick);
+    if (!state.contains(key)) {
+      state = {...state, key};
+      _saveToPrefs();
+    }
+  }
+
+  void disable(String nick) {
+    final key = _normalize(nick);
+    if (state.contains(key)) {
+      final next = Set<String>.from(state)..remove(key);
+      state = next;
+      _saveToPrefs();
+    }
+  }
+
+  void toggle(String nick) {
+    final key = _normalize(nick);
+    if (state.contains(key)) {
+      disable(key);
+    } else {
+      enable(key);
+    }
+  }
+}
+
+/// Notifier para notas privadas por usuario.
+class UserNotesNotifier extends Notifier<Map<String, String>> {
+  static const _prefsKey = 'user_private_notes_v1';
+
+  @override
+  Map<String, String> build() {
+    _loadFromPrefs();
+    return <String, String>{};
+  }
+
+  Future<void> _loadFromPrefs() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final jsonString = prefs.getString(_prefsKey);
+      if (jsonString != null && jsonString.isNotEmpty) {
+        final decoded = jsonDecode(jsonString) as Map<String, dynamic>;
+        final map = <String, String>{};
+        decoded.forEach((key, value) {
+          map[key.toLowerCase()] = value.toString();
+        });
+        state = map;
+      }
+    } catch (_) {
+      // Ignorar errores de carga
+    }
+  }
+
+  Future<void> _saveToPrefs() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_prefsKey, jsonEncode(state));
+    } catch (_) {
+      // Ignorar errores de guardado
+    }
+  }
+
+  String _normalize(String nick) => nick.toLowerCase();
+
+  String? getNote(String nick) => state[_normalize(nick)];
+
+  Future<void> setNote(String nick, String note) async {
+    final key = _normalize(nick);
+    final next = Map<String, String>.from(state);
+    if (note.trim().isEmpty) {
+      next.remove(key);
+    } else {
+      next[key] = note;
+    }
+    state = next;
+    await _saveToPrefs();
+  }
+
+  Future<void> clearNote(String nick) async {
+    final key = _normalize(nick);
+    if (state.containsKey(key)) {
+      final next = Map<String, String>.from(state)..remove(key);
+      state = next;
+      await _saveToPrefs();
+    }
+  }
+}
+
+/// Notifier para privados archivados (por nick).
+class ArchivedPrivatesNotifier extends Notifier<Set<String>> {
+  static const _prefsKey = 'archived_privates_v1';
+
+  @override
+  Set<String> build() {
+    _loadFromPrefs();
+    return <String>{};
+  }
+
+  Future<void> _loadFromPrefs() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final list = prefs.getStringList(_prefsKey) ?? <String>[];
+      state = list.map((e) => e.toLowerCase()).toSet();
+    } catch (_) {
+      // Ignorar errores de carga
+    }
+  }
+
+  Future<void> _saveToPrefs() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setStringList(_prefsKey, state.toList());
+    } catch (_) {
+      // Ignorar errores de guardado
+    }
+  }
+
+  String _normalize(String nick) => nick.toLowerCase();
+
+  bool isArchived(String nick) => state.contains(_normalize(nick));
+
+  void archive(String nick) {
+    final key = _normalize(nick);
+    if (!state.contains(key)) {
+      state = {...state, key};
+      _saveToPrefs();
+    }
+  }
+
+  void unarchive(String nick) {
+    final key = _normalize(nick);
+    if (state.contains(key)) {
+      final next = Set<String>.from(state)..remove(key);
+      state = next;
+      _saveToPrefs();
+    }
+  }
+
+  void toggle(String nick) {
+    final key = _normalize(nick);
+    if (state.contains(key)) {
+      unarchive(key);
+    } else {
+      archive(key);
+    }
   }
 }
 

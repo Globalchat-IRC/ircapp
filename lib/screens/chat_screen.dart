@@ -82,6 +82,8 @@ import '../providers/radio_provider.dart';
 import '../models/radio_station.dart';
 import '../services/radio_service.dart';
 import '../screens/privacy_settings_screen.dart';
+import '../providers/tags_provider.dart';
+import '../models/message_tag.dart';
 import 'package:flutter_highlight/themes/github.dart';
 import 'package:flutter_highlight/themes/dracula.dart';
 
@@ -2257,7 +2259,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     });
   }
 
-  void _showChannelNotificationMenu(BuildContext context, String channel) {
+  void _showChannelNotificationMenu(BuildContext context, String channel, bool isQuery) {
     final settings = ref.read(notificationSettingsProvider);
     final level = settings.levelForChannel(channel);
     showModalBottomSheet(
@@ -2362,6 +2364,61 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   ],
                 ),
               ),
+              if (!isQuery)
+                ListTile(
+                  leading: const Icon(Icons.insights),
+                  title: const Text('Ver insights del canal'),
+                  subtitle: const Text('Actividad local, usuarios más activos'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _showChannelInsightsDialog(context, channel);
+                  },
+                ),
+              if (!isQuery) ...[
+                const Divider(),
+                ListTile(
+                  leading: const Icon(Icons.campaign),
+                  title: const Text('Plantillas de moderación'),
+                  subtitle: const Text('Insertar mensajes rápidos de aviso'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _showModerationTemplatesDialog(context, channel);
+                  },
+                ),
+              ],
+              if (isQuery) const Divider(),
+              if (isQuery)
+                Builder(
+                  builder: (context) {
+                    final archivedNotifier = ref.read(archivedPrivatesProvider.notifier);
+                    final archivedSet = ref.read(archivedPrivatesProvider);
+                    final isArchived = archivedSet.contains(channel.toLowerCase());
+                    return ListTile(
+                      leading: Icon(
+                        isArchived ? Icons.unarchive : Icons.archive,
+                        color: appTheme.textPrimary,
+                      ),
+                      title: Text(isArchived ? 'Desarchivar conversación privada' : 'Archivar conversación privada'),
+                      subtitle: const Text('Mueve este privado a la sección de “Privados archivados”'),
+                      onTap: () {
+                        archivedNotifier.toggle(channel);
+                        Navigator.pop(context);
+                      },
+                    );
+                  },
+                ),
+              if (isQuery && channel.toLowerCase() == 'nick') ...[
+                const Divider(),
+                ListTile(
+                  leading: const Icon(Icons.vpn_key),
+                  title: const Text('Recover nick'),
+                  subtitle: const Text('Recuperar tu nick bloqueado con contraseña'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _showRecoverNickDialog(context);
+                  },
+                ),
+              ],
             ],
           ),
         );
@@ -2641,6 +2698,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     
     // Si el canal no empieza con #, es un query (mensaje privado)
     if (normalizedChannel.startsWith('#')) {
+      // Plantillas de moderación: permitir atajos tipo /warn, /rules, etc. ya resueltos en el input
       _ircService.sendMessage(normalizedChannel, message, delaySeconds: delaySeconds);
     } else {
       // Es un query, enviar mensaje privado o NOTICE según la configuración
@@ -6259,21 +6317,30 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                           channelList.sort((a, b) => lastActivity(b).compareTo(lastActivity(a)));
                           queryList.sort((a, b) => lastActivity(b).compareTo(lastActivity(a)));
 
-                          // Favoritos y recientes
+                          // Favoritos, archivados y recientes
                           final favorites = ref.watch(favoritesProvider);
                           final recent = ref.watch(recentChannelsProvider);
+                          final archivedPrivates = ref.watch(archivedPrivatesProvider);
+
+                          // Separar queries activos y archivados
+                          final archivedQueries = queryList
+                              .where((c) => archivedPrivates.contains(c.toLowerCase()))
+                              .toList();
+                          final activeQueries = queryList
+                              .where((c) => !archivedPrivates.contains(c.toLowerCase()))
+                              .toList();
 
                           final favoriteChannels = channelList
                               .where((c) => favorites.contains(c.toLowerCase()))
                               .toList();
-                          final favoriteQueries = queryList
+                          final favoriteQueries = activeQueries
                               .where((c) => favorites.contains(c.toLowerCase()))
                               .toList();
 
                           final nonFavoriteChannels = channelList
                               .where((c) => !favorites.contains(c.toLowerCase()))
                               .toList();
-                          final nonFavoriteQueries = queryList
+                          final nonFavoriteQueries = activeQueries
                               .where((c) => !favorites.contains(c.toLowerCase()))
                               .toList();
 
@@ -6314,11 +6381,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                 ),
                                 ...favoriteChannels.map((channel) => _buildChannelItem(
                                   context,
-                              channel,
+                                  channel,
                                   false,
                                   appTheme,
                                   currentChannel,
                                   ref,
+                                  false,
                                 )),
                                 ...favoriteQueries.map((channel) => _buildChannelItem(
                                   context,
@@ -6327,6 +6395,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                   appTheme,
                                   currentChannel,
                                   ref,
+                                  false,
                                 )),
                                 const SizedBox(height: 8),
                               ],
@@ -6362,11 +6431,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                   appTheme,
                                   currentChannel,
                                   ref,
+                                  false,
                                 )),
                                 const SizedBox(height: 8),
                               ],
                               
-                              // Sección de Mensajes Privados (no favoritos)
+                              // Sección de Mensajes Privados (no favoritos, activos)
                               if (nonFavoriteQueries.isNotEmpty) ...[
                                 Container(
                                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -6397,39 +6467,77 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                   appTheme,
                                   currentChannel,
                                   ref,
+                                  false,
                                 )),
-                                // Cerrar todos los privados
-                                if (queryList.isNotEmpty) ...[
-                                  const SizedBox(height: 8),
-                                  Padding(
-                                    padding: const EdgeInsets.symmetric(horizontal: 8),
-                                    child: TextButton.icon(
-                                      onPressed: () {
-                                        final toRemove = _ircService.allChannels.keys.where((k) => !k.startsWith('#')).toList();
-                                        for (final k in toRemove) {
-                                          _ircService.allChannels.remove(k);
-                                        }
-                                        ref.read(messagesProvider.notifier).clearPrivateMessages();
-                                        ref.read(channelsProvider.notifier).updateChannels();
-                                        for (final ch in toRemove) {
-                                          ref.read(unreadMessagesProvider.notifier).markAsRead(ch);
-                                        }
-                                        final cur = ref.read(currentChannelProvider);
-                                        if (cur != null && !cur.startsWith('#')) {
-                                          final remaining = _ircService.allChannels.keys.where((k) => k.startsWith('#')).toList();
-                                          ref.read(currentChannelProvider.notifier).state = remaining.isNotEmpty ? remaining.first : null;
-                                        }
-                                        if (mounted) {
-                                          ScaffoldMessenger.of(context).showSnackBar(
-                                            const SnackBar(content: Text('Todos los mensajes privados cerrados')),
-                                          );
-                                        }
-                                      },
-                                      icon: Icon(Icons.close_fullscreen, size: 18, color: appTheme.textSecondary),
-                                      label: Text('Cerrar todos los privados', style: TextStyle(fontSize: 12, color: appTheme.textSecondary)),
-                                    ),
+                              ],
+
+                              // Sección de Privados archivados
+                              if (archivedQueries.isNotEmpty) ...[
+                                const SizedBox(height: 8),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                  child: Row(
+                                    children: [
+                                      Icon(
+                                        Icons.archive,
+                                        size: 16,
+                                        color: appTheme.textPrimary.withOpacity(0.6),
+                                      ),
+                                      const SizedBox(width: 6),
+                                      Text(
+                                        'PRIVADOS ARCHIVADOS',
+                                        style: TextStyle(
+                                          color: appTheme.textPrimary.withOpacity(0.6),
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.bold,
+                                          letterSpacing: 1.2,
+                                        ),
+                                      ),
+                                    ],
                                   ),
-                                ],
+                                ),
+                                ...archivedQueries.map((channel) => _buildChannelItem(
+                                  context,
+                                  channel,
+                                  true,
+                                  appTheme,
+                                  currentChannel,
+                                  ref,
+                                  true,
+                                )),
+                              ],
+
+                              // Botón para cerrar todos los privados (activos y archivados)
+                              if (queryList.isNotEmpty) ...[
+                                const SizedBox(height: 8),
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                                  child: TextButton.icon(
+                                    onPressed: () {
+                                      final toRemove = _ircService.allChannels.keys.where((k) => !k.startsWith('#')).toList();
+                                      for (final k in toRemove) {
+                                        _ircService.allChannels.remove(k);
+                                      }
+                                      ref.read(messagesProvider.notifier).clearPrivateMessages();
+                                      ref.read(channelsProvider.notifier).updateChannels();
+                                      for (final ch in toRemove) {
+                                        ref.read(unreadMessagesProvider.notifier).markAsRead(ch);
+                                      }
+                                      final cur = ref.read(currentChannelProvider);
+                                      if (cur != null && !cur.startsWith('#')) {
+                                        final remaining = _ircService.allChannels.keys.where((k) => k.startsWith('#')).toList();
+                                        ref.read(currentChannelProvider.notifier).state = remaining.isNotEmpty ? remaining.first : null;
+                                      }
+                                      if (mounted) {
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          const SnackBar(content: Text('Todos los mensajes privados cerrados')),
+                                        );
+                                      }
+                                    },
+                                    icon: Icon(Icons.close_fullscreen, size: 18, color: appTheme.textSecondary),
+                                    label: Text('Cerrar todos los privados', style: TextStyle(fontSize: 12, color: appTheme.textSecondary)),
+                                  ),
+                                ),
                               ],
 
                               // Sección de Recientes cerrados
@@ -6464,6 +6572,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                   appTheme,
                                   currentChannel,
                                   ref,
+                                  false,
                                 )),
                               ],
                             ],
@@ -9605,6 +9714,17 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     ],
                   ),
                 ),
+              if (!message.isSystem && message.channel.startsWith('#') && message.messageId != null)
+                const PopupMenuItem(
+                  value: 'tag',
+                  child: Row(
+                    children: [
+                      Icon(Icons.label, size: 18),
+                      SizedBox(width: 8),
+                      Text('Etiquetas (tags)'),
+                    ],
+                  ),
+                ),
             ],
             onSelected: (value) {
               switch (value) {
@@ -9619,6 +9739,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   if (currentNick != null && message.messageId != null) {
                     _ircService.markAsRead(message.channel, message.messageId!, currentNick);
                   }
+                  break;
+                case 'tag':
+                  _showMessageTagsDialog(context, message);
                   break;
               }
             },
@@ -9677,6 +9800,142 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  void _showMessageTagsDialog(BuildContext context, IRCMessage message) {
+    final appTheme = ref.read(themeProvider);
+    final tagsState = ref.read(tagsProvider);
+    final tagsNotifier = ref.read(tagsProvider.notifier);
+    final messageId = '${message.channel}_${message.nick}_${message.timestamp.millisecondsSinceEpoch}';
+    final existingTagIds = tagsState.messageTags[messageId] ?? const <String>[];
+    final allTags = tagsState.tags;
+
+    final isChannel = message.channel.startsWith('#');
+    if (!isChannel) return;
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        final tagNameController = TextEditingController();
+        Color pickedColor = appTheme.accent;
+
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return AlertDialog(
+              backgroundColor: appTheme.surface,
+              title: Text(
+                'Etiquetas del mensaje',
+                style: TextStyle(color: appTheme.textPrimary),
+              ),
+              content: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (allTags.isEmpty)
+                      Text(
+                        'Aún no hay etiquetas creadas. Crea una nueva abajo.',
+                        style: TextStyle(color: appTheme.textSecondary, fontSize: 13),
+                      )
+                    else
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Selecciona etiquetas para este mensaje:',
+                            style: TextStyle(
+                              color: appTheme.textPrimary,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Wrap(
+                            spacing: 6,
+                            runSpacing: 6,
+                            children: allTags.map((tag) {
+                              final isSelected = existingTagIds.contains(tag.id);
+                              return FilterChip(
+                                label: Text(tag.name),
+                                selected: isSelected,
+                                onSelected: (selected) async {
+                                  if (selected) {
+                                    await tagsNotifier.tagMessage(message, tag.id);
+                                  } else {
+                                    await tagsNotifier.untagMessage(message, tag.id);
+                                  }
+                                  setState(() {});
+                                },
+                              );
+                            }).toList(),
+                          ),
+                          const SizedBox(height: 16),
+                        ],
+                      ),
+                    Text(
+                      'Crear nueva etiqueta:',
+                      style: TextStyle(
+                        color: appTheme.textPrimary,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: tagNameController,
+                      decoration: const InputDecoration(
+                        labelText: 'Nombre de la etiqueta',
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        const Text('Color:'),
+                        const SizedBox(width: 8),
+                        Container(
+                          width: 16,
+                          height: 16,
+                          decoration: BoxDecoration(
+                            color: pickedColor,
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: Text(
+                    'Cerrar',
+                    style: TextStyle(color: appTheme.textSecondary),
+                  ),
+                ),
+                TextButton(
+                  onPressed: () async {
+                    final name = tagNameController.text.trim();
+                    if (name.isEmpty) return;
+                    final newTag = MessageTag(
+                      id: '${DateTime.now().millisecondsSinceEpoch}_$name',
+                      name: name,
+                      color: '#${pickedColor.value.toRadixString(16)}',
+                      createdAt: DateTime.now(),
+                    );
+                    await tagsNotifier.createTag(newTag);
+                    await tagsNotifier.tagMessage(message, newTag.id);
+                    Navigator.pop(context);
+                  },
+                  child: Text(
+                    'Crear y asignar',
+                    style: TextStyle(color: appTheme.accent),
+                  ),
+                ),
+              ],
+            );
+          },
+        );
+      },
     );
   }
   
@@ -11766,6 +12025,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     AppTheme appTheme,
     String? currentChannel,
     WidgetRef ref,
+    bool isArchived,
   ) {
     final normalizedCurrent = currentChannel?.toLowerCase();
     final normalizedChannel = channel.toLowerCase();
@@ -11776,6 +12036,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final favorites = ref.watch(favoritesProvider);
     final isFavorite = favorites.contains(normalizedChannel);
     
+    final baseBackgroundColor = isQuery
+        ? appTheme.accent.withOpacity(hasUnread ? 0.15 : 0.05)
+        : Colors.transparent;
+    final archivedOverlayColor = isArchived
+        ? Colors.grey.withOpacity(0.15)
+        : Colors.transparent;
+
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
       decoration: BoxDecoration(
@@ -11783,9 +12050,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             ? (isQuery 
                 ? appTheme.accent.withOpacity(0.2)
                 : appTheme.accent.withOpacity(0.3))
-            : (isQuery
-                ? appTheme.accent.withOpacity(hasUnread ? 0.15 : 0.05)
-                : Colors.transparent),
+            : (baseBackgroundColor == Colors.transparent
+                ? archivedOverlayColor
+                : baseBackgroundColor.withOpacity(
+                    isArchived ? (hasUnread ? 0.18 : 0.08) : (hasUnread ? 0.15 : 0.05),
+                  )),
         borderRadius: BorderRadius.circular(10),
         border: isSelected
             ? Border.all(
@@ -11827,7 +12096,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           // _activateRadioForChannel(channel);
         },
         onLongPress: () {
-          _showChannelNotificationMenu(context, channel);
+          _showChannelNotificationMenu(context, channel, isQuery);
         },
         borderRadius: BorderRadius.circular(10),
         child: ListTile(
@@ -16609,6 +16878,153 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     );
   }
 
+  void _showChannelInsightsDialog(BuildContext context, String channel) {
+    final appTheme = ref.read(themeProvider);
+    final messages = ref.read(messagesProvider)
+        .where((m) => m.channel.toLowerCase() == channel.toLowerCase())
+        .toList();
+
+    final totalMessages = messages.length;
+    final now = DateTime.now();
+    final last24hMessages =
+        messages.where((m) => now.difference(m.timestamp).inHours < 24).length;
+
+    final messagesByNick = <String, int>{};
+    for (final m in messages) {
+      final key = m.nick.toLowerCase();
+      messagesByNick[key] = (messagesByNick[key] ?? 0) + 1;
+    }
+    final topNicks = messagesByNick.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: appTheme.surface,
+        title: Row(
+          children: [
+            const Icon(Icons.insights, color: Colors.lightBlue),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'Insights de $channel',
+                style: TextStyle(color: appTheme.textPrimary),
+              ),
+            ),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'Mensajes totales: $totalMessages',
+                style: TextStyle(color: appTheme.textPrimary),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Mensajes últimas 24h: $last24hMessages',
+                style: TextStyle(color: appTheme.textPrimary),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Top usuarios por mensajes:',
+                style: TextStyle(
+                  color: appTheme.textPrimary,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 4),
+              if (topNicks.isEmpty)
+                Text(
+                  'Sin datos suficientes todavía.',
+                  style: TextStyle(color: appTheme.textSecondary, fontSize: 13),
+                )
+              else
+                ...topNicks.take(5).map(
+                  (e) => Text(
+                    '• ${e.key} — ${e.value} mensajes',
+                    style: TextStyle(color: appTheme.textPrimary, fontSize: 13),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(
+              'Cerrar',
+              style: TextStyle(color: appTheme.textSecondary),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showModerationTemplatesDialog(BuildContext context, String channel) {
+    final appTheme = ref.read(themeProvider);
+    final currentNick = ref.read(currentNicknameProvider) ?? '';
+    final templates = <String, String>{
+      'Aviso normas básicas':
+          '⚠️ Recordamos que en $channel están prohibidos los insultos, el spam y el contenido NSFW. '
+          'Por favor, respetad las normas para mantener un buen ambiente.',
+      'Advertencia a usuario':
+          '⚠️ Esta es una advertencia pública. Si se repiten las conductas que van contra las normas de $channel '
+          'podremos tomar medidas (mute/ban).',
+      'Solo español':
+          '🌐 Por favor, usad español en $channel para que todos podamos seguir la conversación.',
+      'No mayúsculas / flood':
+          '⚠️ Evitemos escribir en MAYÚSCULAS o hacer flood en $channel. Es molesto para el resto de usuarios.',
+    };
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: appTheme.surface,
+        title: Text(
+          'Plantillas de moderación',
+          style: TextStyle(color: appTheme.textPrimary),
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: templates.entries.map((entry) {
+              return ListTile(
+                title: Text(
+                  entry.key,
+                  style: TextStyle(color: appTheme.textPrimary),
+                ),
+                subtitle: Text(
+                  entry.value,
+                  style: TextStyle(color: appTheme.textSecondary, fontSize: 12),
+                ),
+                onTap: () {
+                  Navigator.pop(context);
+                  final text = entry.value.replaceAll('\$channel', channel).replaceAll('\$nick', currentNick);
+                  _messageController.text = text;
+                  _messageController.selection = TextSelection.collapsed(offset: _messageController.text.length);
+                  _messageFocusNode.requestFocus();
+                },
+              );
+            }).toList(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(
+              'Cerrar',
+              style: TextStyle(color: appTheme.textSecondary),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _showClearPrivateHistoryDialog(BuildContext context, String nick) {
     final appTheme = ref.read(themeProvider);
     
@@ -16673,6 +17089,74 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 color: Colors.red,
                 fontWeight: FontWeight.bold,
               ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showRecoverNickDialog(BuildContext context) {
+    final appTheme = ref.read(themeProvider);
+    final currentNick = ref.read(currentNicknameProvider) ?? '';
+    final nickController = TextEditingController(text: currentNick);
+    final passwordController = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: appTheme.surface,
+        title: Text(
+          'Recover nick',
+          style: TextStyle(color: appTheme.textPrimary),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: nickController,
+              decoration: const InputDecoration(
+                labelText: 'Nick a recuperar',
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: passwordController,
+              obscureText: true,
+              decoration: const InputDecoration(
+                labelText: 'Contraseña',
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(
+              'Cancelar',
+              style: TextStyle(color: appTheme.textSecondary),
+            ),
+          ),
+          TextButton(
+            onPressed: () {
+              final nickToRecover = nickController.text.trim();
+              final password = passwordController.text.trim();
+              if (nickToRecover.isEmpty || password.isEmpty) {
+                return;
+              }
+              final command = 'recover $nickToRecover $password';
+              _ircService.sendPrivateMessage('nick', command);
+              Navigator.pop(context);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Enviando comando RECOVER para $nickToRecover...'),
+                  duration: const Duration(seconds: 2),
+                ),
+              );
+            },
+            child: Text(
+              'Enviar',
+              style: TextStyle(color: appTheme.accent),
             ),
           ),
         ],
