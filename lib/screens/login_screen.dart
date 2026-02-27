@@ -382,51 +382,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             _updateServerFields(profile);
           });
         }
-        final prefs = await SharedPreferences.getInstance();
-        final autoReconnect = prefs.getBool(_prefAutoReconnect) ?? false;
-        final autoReconnectEnabled = prefs.getBool(_prefAutoReconnectEnabled) ?? false;
-        if (autoReconnect &&
-            autoReconnectEnabled &&
-            _nickController.text.trim().isNotEmpty &&
-            _channelController.text.trim().isNotEmpty &&
-            _hostController.text.trim().isNotEmpty &&
-            !_nickHasInvalidCharacters(_nickController.text)) {
-          setState(() {
-            _confirmOver14 = true;
-            _acceptRules = true;
-            _autoConnectCountdown = 5;
-            _autoConnectCancelled = false;
-          });
-          _autoConnectTimer = Timer.periodic(const Duration(seconds: 1), (t) async {
-            if (!mounted) {
-              t.cancel();
-              _autoConnectTimer = null;
-              return;
-            }
-            if (_autoConnectCancelled) {
-              t.cancel();
-              _autoConnectTimer = null;
-              setState(() => _autoConnectCountdown = null);
-              return;
-            }
-            bool shouldConnect = false;
-            setState(() {
-              if (_autoConnectCountdown == null || _autoConnectCountdown! <= 1) {
-                _autoConnectCountdown = null;
-                _autoConnectTimer = null;
-                t.cancel();
-                shouldConnect = true;
-              } else {
-                _autoConnectCountdown = _autoConnectCountdown! - 1;
-              }
-            });
-            if (shouldConnect && mounted && !_autoConnectCancelled) {
-              final prefs = await SharedPreferences.getInstance();
-              await prefs.setBool(_prefAutoReconnect, false);
-              if (mounted) await _connect();
-            }
-          });
-        }
+        // No auto-conectar al abrir: siempre mostrar el formulario para que el usuario
+        // pueda configurar nick/canal y conectar cuando pulse "Conectar".
       }
       if (mounted) _checkServerStatus();
       

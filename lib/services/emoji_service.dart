@@ -916,6 +916,14 @@ class EmojiService {
   /// Emoticonos ASCII (:) ;) :P etc.) → código :nombre: para concordancia con animados.
   /// Orden: reemplazos más largos primero para no romper :-) con :) .
   static const Map<String, String> _asciiEmoticonToCode = {
+    // XDD y variantes (risa fuerte) — orden: más largos primero
+    'XDD': ':rofl:',
+    'xDD': ':rofl:',
+    'Xdd': ':rofl:',
+    'xdd': ':rofl:',
+    'XD': ':rofl:',
+    'xD': ':rofl:',
+    'xd': ':rofl:',
     ':-))': ':grin:',
     ':))': ':grin:',
     ':-)': ':smile:',
