@@ -59,6 +59,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   bool _urlNickProvided = false;
   /// Aceptación de reglas del canal/red (checkbox).
   bool _acceptRules = false;
+  /// Reconectar automáticamente al abrir la app (opt-in; por defecto false).
+  bool _autoReconnectEnabled = false;
   /// Estado del servidor: null = no comprobado, 'checking', 'available', 'unavailable'.
   String? _serverStatus;
   /// Si la sección "Opciones avanzadas" está expandida.
@@ -70,7 +72,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   static const _prefLastChannel = 'login_last_channel';
   static const _prefRememberIdentify = 'login_remember_identify';
   static const _prefAutoReconnect = 'login_auto_reconnect';
-  
+  /// Si el usuario ha activado "reconectar al abrir". Por defecto false: no reconectar hasta que lo active.
+  static const _prefAutoReconnectEnabled = 'login_auto_reconnect_enabled';
+  static const _prefIdentifyNick = 'login_identify_nick';
+  static const _prefIdentifyPassword = 'login_identify_password';
+
   // Lista de canales prohibidos que no se mostrarán en el combo
   static const List<String> _prohibitedChannels = ['#opers', '#services'];
 
@@ -371,7 +377,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         }
         final prefs = await SharedPreferences.getInstance();
         final autoReconnect = prefs.getBool(_prefAutoReconnect) ?? false;
+        final autoReconnectEnabled = prefs.getBool(_prefAutoReconnectEnabled) ?? false;
         if (autoReconnect &&
+            autoReconnectEnabled &&
             _nickController.text.trim().isNotEmpty &&
             _channelController.text.trim().isNotEmpty &&
             _hostController.text.trim().isNotEmpty &&
@@ -860,13 +868,28 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         _identifyWithNick = savedIdentify;
         debugLog('🔍 [LOGIN] Recordar identificar: $savedIdentify');
       }
+      // Restaurar contraseña solo si coincide el nick con el que se guardó
+      if (_identifyWithNick && savedNick != null && savedNick.trim().isNotEmpty) {
+        final savedPasswordNick = prefs.getString(_prefIdentifyNick);
+        if (savedPasswordNick != null && savedPasswordNick.trim() == savedNick.trim()) {
+          final savedPassword = prefs.getString(_prefIdentifyPassword);
+          if (savedPassword != null && savedPassword.isNotEmpty) {
+            _passwordController.text = savedPassword;
+            debugLog('🔍 [LOGIN] Contraseña de identificación restaurada para nick: $savedNick');
+          }
+        }
+      }
+      final savedAutoReconnectEnabled = prefs.getBool(_prefAutoReconnectEnabled);
+      if (savedAutoReconnectEnabled != null) {
+        _autoReconnectEnabled = savedAutoReconnectEnabled;
+      }
       if (mounted) setState(() {});
     } catch (e) {
       debugLog('🔍 [LOGIN] Error cargando preferencias: $e');
     }
   }
 
-  Future<void> _saveLoginPrefs(String nick, String channel, bool identifyWithNick) async {
+  Future<void> _saveLoginPrefs(String nick, String channel, bool identifyWithNick, {String? identifyPassword}) async {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_prefLastNick, nick.trim());
@@ -874,6 +897,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         await prefs.setString(_prefLastChannel, channel.trim());
       }
       await prefs.setBool(_prefRememberIdentify, identifyWithNick);
+      if (identifyWithNick && identifyPassword != null && identifyPassword.isNotEmpty) {
+        await prefs.setString(_prefIdentifyNick, nick.trim());
+        await prefs.setString(_prefIdentifyPassword, identifyPassword);
+        debugLog('🔍 [LOGIN] Contraseña de identificación guardada para nick: $nick');
+      } else if (!identifyWithNick) {
+        await prefs.remove(_prefIdentifyNick);
+        await prefs.remove(_prefIdentifyPassword);
+      }
     } catch (e) {
       debugLog('🔍 [LOGIN] Error guardando preferencias: $e');
     }
@@ -1232,9 +1263,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       // globalLog('🔵 [LOGIN] About to navigate to ChatScreen');
       
       if (mounted) {
-        await _saveLoginPrefs(nick, normalizedChannel, _identifyWithNick);
+        final identifyPassword = _identifyWithNick ? _passwordController.text.trim() : null;
+        await _saveLoginPrefs(nick, normalizedChannel, _identifyWithNick, identifyPassword: identifyPassword);
         final prefs = await SharedPreferences.getInstance();
-        await prefs.setBool(_prefAutoReconnect, true);
+        await prefs.setBool(_prefAutoReconnect, _autoReconnectEnabled);
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(
             builder: (_) => const ChatScreen(),
@@ -1679,6 +1711,38 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                           },
                           child: Text(
                             'Identificarse con nick registrado',
+                            style: TextStyle(
+                              color: appTheme.textPrimary,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  // Reconectar automáticamente al abrir la app (opt-in)
+                  Row(
+                    children: [
+                      Checkbox(
+                        value: _autoReconnectEnabled,
+                        onChanged: (value) async {
+                          final v = value ?? false;
+                          setState(() => _autoReconnectEnabled = v);
+                          final prefs = await SharedPreferences.getInstance();
+                          await prefs.setBool(_prefAutoReconnectEnabled, v);
+                        },
+                        activeColor: appTheme.primary,
+                      ),
+                      Expanded(
+                        child: GestureDetector(
+                          onTap: () async {
+                            final v = !_autoReconnectEnabled;
+                            setState(() => _autoReconnectEnabled = v);
+                            final prefs = await SharedPreferences.getInstance();
+                            await prefs.setBool(_prefAutoReconnectEnabled, v);
+                          },
+                          child: Text(
+                            'Reconectar automáticamente al abrir la app',
                             style: TextStyle(
                               color: appTheme.textPrimary,
                               fontSize: 14,

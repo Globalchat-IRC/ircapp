@@ -913,8 +913,68 @@ class EmojiService {
     return animatedEmojiMap.containsKey(code) || customImageEmojiMap.containsKey(code);
   }
   
+  /// Emoticonos ASCII (:) ;) :P etc.) → código :nombre: para concordancia con animados.
+  /// Orden: reemplazos más largos primero para no romper :-) con :) .
+  static const Map<String, String> _asciiEmoticonToCode = {
+    ':-))': ':grin:',
+    ':))': ':grin:',
+    ':-)': ':smile:',
+    ':)': ':smile:',
+    ';-)': ':wink:',
+    ';)': ':wink:',
+    ':-P': ':stuck_out_tongue:',
+    ':P': ':stuck_out_tongue:',
+    ':-p': ':stuck_out_tongue:',
+    ':p': ':stuck_out_tongue:',
+    ':-D': ':grin:',
+    ':D': ':grin:',
+    ':-d': ':grin:',
+    ':d': ':grin:',
+    ':-(': ':slightly_frowning:',
+    ':(': ':slightly_frowning:',
+    ":'(": ':cry:',
+    ":'-(": ':cry:',
+    ':-O': ':astonished:',
+    ':O': ':astonished:',
+    ':-o': ':astonished:',
+    ':o': ':astonished:',
+    'O:)': ':innocent:',
+    'O:-)': ':innocent:',
+    ':-/': ':unamused:',
+    ':/': ':unamused:',
+    ':-|': ':neutral_face:',
+    ':|': ':neutral_face:',
+    ':-*': ':kissing_heart:',
+    ':*': ':kissing_heart:',
+    ':-B': ':nerd_face:',
+    ':B': ':nerd_face:',
+    ':-b': ':nerd_face:',
+    ':b': ':nerd_face:',
+    '<3': ':red_heart:',
+    '</3': ':broken_heart:',
+    ':3': ':smile:', // cat-style, mostrar como smile
+    ':-3': ':smile:',
+    ':x': ':zipper_face:',
+    ':X': ':zipper_face:',
+    ':-x': ':zipper_face:',
+    ':-X': ':zipper_face:',
+  };
+
+  /// Convierte emoticonos ASCII (:) ;) :P etc.) a códigos :nombre: para que se muestren como animados.
+  static String normalizeAsciiEmoticons(String text) {
+    if (text.isEmpty) return text;
+    String result = text;
+    final entries = _asciiEmoticonToCode.entries.toList()
+      ..sort((a, b) => b.key.length.compareTo(a.key.length));
+    for (final e in entries) {
+      result = result.replaceAll(e.key, e.value);
+    }
+    return result;
+  }
+
   // Convertir texto con códigos de emoticonos a widgets
   static List<String> parseEmojiCodes(String text) {
+    text = normalizeAsciiEmoticons(text);
     final List<String> parts = [];
     // Aceptar nombres con guiones, subrayados, números, etc. hasta el próximo ':'.
     final regex = RegExp(r':([^:]+):');

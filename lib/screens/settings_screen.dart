@@ -22,6 +22,37 @@ class SettingsScreen extends ConsumerStatefulWidget {
 }
 
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
+  /// Previsualización del avatar: soporta data URL (base64) y URL remota (http/https).
+  Widget _buildAvatarPreview(String urlOrDataUrl, AppTheme appTheme) {
+    const size = 56.0;
+    final placeholder = Icon(Icons.broken_image, size: size, color: appTheme.textSecondary);
+    if (urlOrDataUrl.startsWith('data:image/gif;base64,')) {
+      try {
+        final base64Data = urlOrDataUrl.contains(',')
+            ? urlOrDataUrl.substring(urlOrDataUrl.indexOf(',') + 1)
+            : urlOrDataUrl;
+        final bytes = base64Decode(base64Data);
+        if (bytes.isEmpty) return placeholder;
+        return Image.memory(
+          bytes,
+          width: size,
+          height: size,
+          fit: BoxFit.cover,
+          errorBuilder: (_, __, ___) => placeholder,
+        );
+      } catch (_) {
+        return placeholder;
+      }
+    }
+    return Image.network(
+      urlOrDataUrl,
+      width: size,
+      height: size,
+      fit: BoxFit.cover,
+      errorBuilder: (_, __, ___) => placeholder,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final appTheme = ref.watch(themeProvider);
@@ -434,13 +465,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           if (globalGif != null && globalGif.isNotEmpty) ...[
                             ClipRRect(
                               borderRadius: BorderRadius.circular(8),
-                              child: Image.network(
-                                globalGif,
-                                width: 56,
-                                height: 56,
-                                fit: BoxFit.cover,
-                                errorBuilder: (_, __, ___) => Icon(Icons.broken_image, size: 56, color: appTheme.textSecondary),
-                              ),
+                              child: _buildAvatarPreview(globalGif, appTheme),
                             ),
                             const SizedBox(width: 12),
                           ],
