@@ -759,6 +759,145 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     ],
                   ),
                   const SizedBox(height: 24),
+                  // Escala global de texto del chat (accesibilidad)
+                  Row(
+                    children: [
+                      Icon(Icons.text_fields, color: appTheme.primary, size: 20),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Escala de texto del chat',
+                              style: TextStyle(
+                                color: appTheme.textPrimary,
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Ajusta el tamaño global del texto en los mensajes',
+                              style: TextStyle(color: appTheme.textSecondary, fontSize: 12),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Consumer(
+                    builder: (context, ref, _) {
+                      final level = ref.watch(chatFontSizeProvider);
+                      const labels = ['Pequeño', 'Normal', 'Grande', 'Muy grande'];
+                      return Row(
+                        children: List.generate(4, (i) {
+                          final selected = level == i;
+                          return Padding(
+                            padding: const EdgeInsets.only(right: 8),
+                            child: FilterChip(
+                              label: Text(labels[i]),
+                              selected: selected,
+                              onSelected: (_) {
+                                ref.read(chatFontSizeProvider.notifier).setFontSize(i);
+                              },
+                              selectedColor: appTheme.primary.withOpacity(0.3),
+                              checkmarkColor: appTheme.primary,
+                            ),
+                          );
+                        }),
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 24),
+                  // Reducir animaciones (accesibilidad)
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(Icons.motion_photos_off, color: appTheme.primary, size: 20),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Reducir animaciones',
+                                  style: TextStyle(
+                                    color: appTheme.textPrimary,
+                                    fontSize: 16,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  'Menos movimiento en la interfaz (accesibilidad)',
+                                  style: TextStyle(color: appTheme.textSecondary, fontSize: 12),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      Consumer(
+                        builder: (context, ref, _) {
+                          return Switch(
+                            value: ref.watch(reduceMotionProvider),
+                            onChanged: (v) {
+                              ref.read(reduceMotionProvider.notifier).setReduceMotion(v);
+                            },
+                            activeColor: appTheme.primary,
+                          );
+                        },
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 24),
+                  // No molestar (notificaciones)
+                  Consumer(
+                    builder: (context, ref, _) {
+                      final doNotDisturb = ref.watch(notificationSettingsProvider).doNotDisturb;
+                      return Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(Icons.notifications_off, color: appTheme.primary, size: 20),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'No molestar',
+                                      style: TextStyle(
+                                        color: appTheme.textPrimary,
+                                        fontSize: 16,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      'Desactiva sonidos y notificaciones',
+                                      style: TextStyle(color: appTheme.textSecondary, fontSize: 12),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                          Switch(
+                            value: doNotDisturb,
+                            onChanged: (v) {
+                              ref.read(notificationSettingsProvider.notifier).setDoNotDisturb(v);
+                            },
+                            activeColor: appTheme.primary,
+                          ),
+                        ],
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 24),
                   // Tipo de fuente para privados
                   Text(
                     'Tipo de fuente en Privados',
@@ -802,7 +941,171 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             ),
           ),
           const SizedBox(height: 16),
-          
+          // Estadísticas de sesión (mensajes enviados)
+          Consumer(
+            builder: (context, ref, _) {
+              final messages = ref.watch(messagesProvider);
+              final currentNick = ref.watch(currentNicknameProvider);
+              final sentCount = currentNick == null
+                  ? 0
+                  : messages.where((m) => m.nick == currentNick && !m.isSystem).length;
+              return Card(
+                color: appTheme.surface,
+                elevation: 2,
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(Icons.bar_chart, color: appTheme.primary, size: 24),
+                          const SizedBox(width: 12),
+                          Text(
+                            'Estadísticas de sesión',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: appTheme.textPrimary,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        'Mensajes enviados en esta sesión: $sentCount',
+                        style: TextStyle(fontSize: 14, color: appTheme.textPrimary),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+          const SizedBox(height: 16),
+          // Respuestas rápidas (plantillas)
+          Card(
+            color: appTheme.surface,
+            elevation: 2,
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.quickreply, color: appTheme.primary, size: 24),
+                      const SizedBox(width: 12),
+                      Text(
+                        'Respuestas rápidas',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: appTheme.textPrimary,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Frases que puedes insertar con un clic junto al campo de mensaje',
+                    style: TextStyle(fontSize: 14, color: appTheme.textSecondary),
+                  ),
+                  const SizedBox(height: 12),
+                  Consumer(
+                    builder: (context, ref, _) {
+                      final list = ref.watch(quickRepliesProvider);
+                      final notifier = ref.read(quickRepliesProvider.notifier);
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          if (list.isEmpty)
+                            Padding(
+                              padding: const EdgeInsets.all(8),
+                              child: Text(
+                                'Añade frases para usar como plantillas',
+                                style: TextStyle(color: appTheme.textSecondary, fontStyle: FontStyle.italic),
+                              ),
+                            )
+                          else
+                            ...List.generate(list.length, (i) {
+                              return ListTile(
+                                dense: true,
+                                title: Text(list[i], style: TextStyle(color: appTheme.textPrimary)),
+                                trailing: IconButton(
+                                  icon: Icon(Icons.remove_circle_outline, color: appTheme.textSecondary, size: 20),
+                                  onPressed: () => notifier.removeQuickReplyAt(i),
+                                ),
+                              );
+                            }),
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: TextField(
+                                  decoration: InputDecoration(
+                                    hintText: 'Nueva frase...',
+                                    hintStyle: TextStyle(color: appTheme.textSecondary),
+                                    border: const OutlineInputBorder(),
+                                    isDense: true,
+                                  ),
+                                  style: TextStyle(color: appTheme.textPrimary),
+                                  onSubmitted: (v) {
+                                    if (v.trim().isNotEmpty) {
+                                      notifier.addQuickReply(v.trim());
+                                    }
+                                  },
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              IconButton(
+                                icon: Icon(Icons.add_circle, color: appTheme.primary),
+                                onPressed: () {
+                                  final c = TextEditingController();
+                                  showDialog(
+                                    context: context,
+                                    builder: (ctx) => AlertDialog(
+                                      backgroundColor: appTheme.surface,
+                                      title: Text('Nueva respuesta rápida', style: TextStyle(color: appTheme.textPrimary)),
+                                      content: TextField(
+                                        controller: c,
+                                        autofocus: true,
+                                        decoration: InputDecoration(
+                                          hintText: 'Ej: ¡Hola!',
+                                          border: const OutlineInputBorder(),
+                                        ),
+                                        style: TextStyle(color: appTheme.textPrimary),
+                                      ),
+                                      actions: [
+                                        TextButton(
+                                          onPressed: () => Navigator.pop(ctx),
+                                          child: Text('Cancelar', style: TextStyle(color: appTheme.textSecondary)),
+                                        ),
+                                        TextButton(
+                                          onPressed: () {
+                                            if (c.text.trim().isNotEmpty) {
+                                              notifier.addQuickReply(c.text.trim());
+                                              Navigator.pop(ctx);
+                                            }
+                                          },
+                                          child: Text('Añadir', style: TextStyle(color: appTheme.primary)),
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                },
+                              ),
+                            ],
+                          ),
+                        ],
+                      );
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
           // Sección de Imágenes de Fondo por Canal
           Card(
             color: appTheme.surface,

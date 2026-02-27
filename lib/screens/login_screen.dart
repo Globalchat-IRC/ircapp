@@ -69,6 +69,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   static const _prefLastNick = 'login_last_nick';
   static const _prefLastChannel = 'login_last_channel';
   static const _prefRememberIdentify = 'login_remember_identify';
+  static const _prefAutoReconnect = 'login_auto_reconnect';
   
   // Lista de canales prohibidos que no se mostrarán en el combo
   static const List<String> _prohibitedChannels = ['#opers', '#services'];
@@ -359,7 +360,31 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       
       // Cargar preferencias guardadas (último nick, canal, recordar identificar)
       await _loadLoginPrefs();
-      
+      // Aplicar servidor guardado (para reconexión automática)
+      if (mounted) {
+        final profile = ref.read(currentServerProfileProvider);
+        if (profile != null) {
+          setState(() {
+            _selectedServer = profile;
+            _updateServerFields(profile);
+          });
+        }
+        final prefs = await SharedPreferences.getInstance();
+        final autoReconnect = prefs.getBool(_prefAutoReconnect) ?? false;
+        if (autoReconnect &&
+            _nickController.text.trim().isNotEmpty &&
+            _channelController.text.trim().isNotEmpty &&
+            _hostController.text.trim().isNotEmpty &&
+            !_nickHasInvalidCharacters(_nickController.text)) {
+          setState(() {
+            _confirmOver14 = true;
+            _acceptRules = true;
+          });
+          await prefs.setBool(_prefAutoReconnect, false);
+          await Future.delayed(const Duration(milliseconds: 400));
+          if (mounted) await _connect();
+        }
+      }
       if (mounted) _checkServerStatus();
       
       // En web: obtener ciudad/región/país por GeoIP y añadir join a canales de país y ciudad/región (si geolocation está activado)
@@ -1208,6 +1233,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       
       if (mounted) {
         await _saveLoginPrefs(nick, normalizedChannel, _identifyWithNick);
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setBool(_prefAutoReconnect, true);
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(
             builder: (_) => const ChatScreen(),

@@ -193,10 +193,29 @@ class MyApp extends ConsumerStatefulWidget {
 }
 
 class _MyAppState extends ConsumerState<MyApp> with WidgetsBindingObserver {
+  bool _showPwaBanner = false;
+  dynamic _pwaPromptEvent;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    if (PlatformUtils.isWeb) {
+      try {
+        final w = html.window as dynamic;
+        w.addEventListener('beforeinstallprompt', (e) {
+          if (mounted) {
+            final dismissed = w.localStorage?.getItem('pwa_install_dismissed');
+            if (dismissed != '1') {
+              setState(() {
+                _pwaPromptEvent = e;
+                _showPwaBanner = true;
+              });
+            }
+          }
+        });
+      } catch (_) {}
+    }
 
     // // TEMPORAL (comentado): Borrar historial de privados al arrancar.
     // // Si en el futuro necesitamos reactivarlo, descomentar este bloque.
@@ -324,7 +343,91 @@ class _MyAppState extends ConsumerState<MyApp> with WidgetsBindingObserver {
       theme: lightTheme,
       darkTheme: darkTheme,
       themeMode: useSystemTheme ? ThemeMode.system : ThemeMode.light,
-      home: const LoginScreen(),
+      home: _showPwaBanner
+          ? Stack(
+              fit: StackFit.expand,
+              children: [
+                const LoginScreen(),
+                Positioned(
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  child: _PwaInstallBanner(
+                    onInstall: () async {
+                      try {
+                        final e = _pwaPromptEvent;
+                        if (e != null && (e as dynamic).prompt != null) {
+                          await (e as dynamic).prompt();
+                          if (mounted) {
+                            try {
+                              (html.window as dynamic).localStorage?.setItem('pwa_install_dismissed', '1');
+                            } catch (_) {}
+                            setState(() {
+                              _showPwaBanner = false;
+                              _pwaPromptEvent = null;
+                            });
+                          }
+                        }
+                      } catch (_) {}
+                    },
+                    onDismiss: () {
+                      try {
+                        (html.window as dynamic).localStorage?.setItem('pwa_install_dismissed', '1');
+                      } catch (_) {}
+                      if (mounted) {
+                        setState(() {
+                          _showPwaBanner = false;
+                          _pwaPromptEvent = null;
+                        });
+                      }
+                    },
+                  ),
+                ),
+              ],
+            )
+          : const LoginScreen(),
+    );
+  }
+}
+
+class _PwaInstallBanner extends StatelessWidget {
+  final VoidCallback onInstall;
+  final VoidCallback onDismiss;
+
+  const _PwaInstallBanner({required this.onInstall, required this.onDismiss});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Material(
+      elevation: 4,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        color: theme.colorScheme.primaryContainer,
+        child: SafeArea(
+          bottom: false,
+          child: Row(
+            children: [
+              Icon(Icons.add_to_home_screen, color: theme.colorScheme.onPrimaryContainer),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  'Añade GlobalChat a la pantalla de inicio para usarlo como app',
+                  style: TextStyle(color: theme.colorScheme.onPrimaryContainer, fontSize: 14),
+                ),
+              ),
+              TextButton(
+                onPressed: onInstall,
+                child: const Text('Añadir'),
+              ),
+              TextButton(
+                onPressed: onDismiss,
+                child: const Text('Ahora no'),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

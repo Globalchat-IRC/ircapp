@@ -282,6 +282,117 @@ final userNotesProvider =
   return UserNotesNotifier();
 });
 
+/// Tamaño de fuente del chat: 0=pequeño, 1=normal, 2=grande, 3=muy grande
+final chatFontSizeProvider = NotifierProvider<ChatFontSizeNotifier, int>(() {
+  return ChatFontSizeNotifier();
+});
+
+class ChatFontSizeNotifier extends Notifier<int> {
+  static const _prefsKey = 'chat_font_size';
+  static const int _default = 1; // normal
+
+  @override
+  int build() {
+    _loadFromPrefs();
+    return _default;
+  }
+
+  Future<void> _loadFromPrefs() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      state = prefs.getInt(_prefsKey) ?? _default;
+    } catch (_) {}
+  }
+
+  Future<void> setFontSize(int value) async {
+    if (value < 0 || value > 3) return;
+    state = value;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt(_prefsKey, value);
+    } catch (_) {}
+  }
+}
+
+/// Reducir animaciones (accesibilidad)
+final reduceMotionProvider = NotifierProvider<ReduceMotionNotifier, bool>(() {
+  return ReduceMotionNotifier();
+});
+
+class ReduceMotionNotifier extends Notifier<bool> {
+  static const _prefsKey = 'reduce_motion';
+
+  @override
+  bool build() {
+    _loadFromPrefs();
+    return false;
+  }
+
+  Future<void> _loadFromPrefs() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      state = prefs.getBool(_prefsKey) ?? false;
+    } catch (_) {}
+  }
+
+  Future<void> setReduceMotion(bool value) async {
+    state = value;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_prefsKey, value);
+    } catch (_) {}
+  }
+}
+
+/// Plantillas / respuestas rápidas (lista de textos)
+final quickRepliesProvider = NotifierProvider<QuickRepliesNotifier, List<String>>(() {
+  return QuickRepliesNotifier();
+});
+
+class QuickRepliesNotifier extends Notifier<List<String>> {
+  static const _prefsKey = 'quick_replies';
+
+  @override
+  List<String> build() {
+    _loadFromPrefs();
+    return [];
+  }
+
+  Future<void> _loadFromPrefs() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final list = prefs.getStringList(_prefsKey);
+      state = list ?? [];
+    } catch (_) {}
+  }
+
+  Future<void> setQuickReplies(List<String> list) async {
+    state = List.from(list);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setStringList(_prefsKey, state);
+    } catch (_) {}
+  }
+
+  Future<void> addQuickReply(String text) async {
+    if (text.trim().isEmpty) return;
+    state = [...state, text.trim()];
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setStringList(_prefsKey, state);
+    } catch (_) {}
+  }
+
+  Future<void> removeQuickReplyAt(int index) async {
+    if (index < 0 || index >= state.length) return;
+    state = List.from(state)..removeAt(index);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setStringList(_prefsKey, state);
+    } catch (_) {}
+  }
+}
+
 /// Perfil de servidor actual (para multi-servidor/multi-red)
 /// Persistido en SharedPreferences para mantener el valor entre navegaciones
 final currentServerProfileProvider = NotifierProvider<CurrentServerProfileNotifier, ServerProfile?>(() {
@@ -1386,6 +1497,8 @@ class NotificationSettings {
   final bool soundForMentions;
   final Set<String> mutedUsers;
   final MentionSound mentionSound;
+  /// No molestar: no mostrar notificaciones ni sonidos.
+  final bool doNotDisturb;
 
   const NotificationSettings({
     this.channelLevels = const {},
@@ -1393,6 +1506,7 @@ class NotificationSettings {
     this.soundForMentions = true,
     this.mutedUsers = const {},
     this.mentionSound = MentionSound.cuack,
+    this.doNotDisturb = false,
   });
 
   NotificationSettings copyWith({
@@ -1401,6 +1515,7 @@ class NotificationSettings {
     bool? soundForMentions,
     Set<String>? mutedUsers,
     MentionSound? mentionSound,
+    bool? doNotDisturb,
   }) {
     return NotificationSettings(
       channelLevels: channelLevels ?? this.channelLevels,
@@ -1408,6 +1523,7 @@ class NotificationSettings {
       soundForMentions: soundForMentions ?? this.soundForMentions,
       mutedUsers: mutedUsers ?? this.mutedUsers,
       mentionSound: mentionSound ?? this.mentionSound,
+      doNotDisturb: doNotDisturb ?? this.doNotDisturb,
     );
   }
 
@@ -1428,6 +1544,7 @@ class NotificationSettingsNotifier
   static const _prefsKeyMentions = 'notification_sound_mentions';
   static const _prefsKeyMutedUsers = 'notification_muted_users_v1';
   static const _prefsKeyMentionSound = 'notification_mention_sound_v1';
+  static const _prefsKeyDoNotDisturb = 'notification_do_not_disturb_v1';
 
   @override
   NotificationSettings build() {
@@ -1466,6 +1583,7 @@ class NotificationSettingsNotifier
         'click' => MentionSound.systemClick,
         _ => MentionSound.cuack,
       };
+      final doNotDisturb = prefs.getBool(_prefsKeyDoNotDisturb) ?? false;
 
       state = NotificationSettings(
         channelLevels: levels,
@@ -1473,6 +1591,7 @@ class NotificationSettingsNotifier
         soundForMentions: mentions,
         mutedUsers: mutedList.map((e) => e.toLowerCase()).toSet(),
         mentionSound: mentionSound,
+        doNotDisturb: doNotDisturb,
       );
     } catch (_) {
       // Ignorar errores de carga
@@ -1505,6 +1624,7 @@ class NotificationSettingsNotifier
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool(_prefsKeyPrivates, state.soundForPrivates);
       await prefs.setBool(_prefsKeyMentions, state.soundForMentions);
+      await prefs.setBool(_prefsKeyDoNotDisturb, state.doNotDisturb);
       await prefs.setStringList(
         _prefsKeyMutedUsers,
         state.mutedUsers.toList(),
@@ -1531,6 +1651,11 @@ class NotificationSettingsNotifier
     newLevels[key] = level;
     state = state.copyWith(channelLevels: newLevels);
     _saveLevels();
+  }
+
+  void setDoNotDisturb(bool value) {
+    state = state.copyWith(doNotDisturb: value);
+    _saveFlags();
   }
 
   void toggleSoundForPrivates() {

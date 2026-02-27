@@ -15,6 +15,7 @@ import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:pasteboard/pasteboard.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/irc_message.dart';
 import '../providers/irc_provider.dart';
@@ -40,6 +41,7 @@ import '../widgets/moderator_menu.dart';
 import '../services/avatar_service.dart';
 import '../utils/irc_color_parser.dart';
 import '../utils/platform_utils.dart';
+import '../utils/drop_handler_web.dart' if (dart.library.io) '../utils/drop_handler_stub.dart' as drop_handler;
 import '../widgets/radio_controls.dart';
 import '../services/emoji_service.dart';
 import '../models/whois_info.dart';
@@ -281,6 +283,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   final TextEditingController _searchController = TextEditingController();
   List<IRCMessage> _searchResults = [];
   bool _showUserList = true; // Control de visibilidad de la lista de usuarios
+  late final ScrollController _chatScrollController;
+  String? _scrollToMessageId;
+  String? _scrollToMessageChannel;
+  bool _scrollScheduled = false;
   bool _showChannelsSidebar = true; // Control de visibilidad del sidebar de canales
   
   // Autocompletado de comandos
@@ -354,10 +360,31 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   Function(String)? _helpChannelJoinListener;
   // Listener para canal de juego Werewolf
   Function(String)? _werewolfChannelJoinListener;
+  // Recordatorio de inactividad (30 min sin enviar mensaje)
+  Timer? _inactivityTimer;
+  static const _inactivityDuration = Duration(minutes: 30);
+  void Function()? _webDropCleanup;
+
+  void _resetInactivityTimer() {
+    _inactivityTimer?.cancel();
+    _inactivityTimer = Timer(_inactivityDuration, _onInactivityReminder);
+  }
+
+  void _onInactivityReminder() {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Llevas un rato sin escribir. ¿Seguimos ahí?'),
+        duration: Duration(seconds: 4),
+      ),
+    );
+    _resetInactivityTimer();
+  }
 
   @override
   void initState() {
     super.initState();
+    _chatScrollController = ScrollController();
     _ircService = ref.read(ircServiceProvider);
     
     // debugLog('🎬 [ChatScreen] Initialized');
@@ -368,6 +395,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       _notificationService.initialize();
     } else if (PlatformUtils.isWeb) {
       _webNotificationService.initialize();
+      _webDropCleanup = drop_handler.setupWebDropListener((bytes, name) {
+        if (!mounted) return;
+        final channel = ref.read(currentChannelProvider);
+        if (channel == null) return;
+        _handleDroppedFileBytes(bytes, name, channel);
+      });
     }
     
     // Inicializar servicios v2.1.0
@@ -376,6 +409,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     // Inicializar el servicio de radio solo cuando se entra al chat
     RadioService().initialize();
     
+    _resetInactivityTimer();
     // Inicializar servicio de mensajes programados
     _scheduledMessagesService = ScheduledMessagesService();
     _scheduledMessagesService.onSendMessage = (channel, message) {
@@ -677,6 +711,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       
       // Notificaciones y sonidos según tipo de mensaje y reglas
       final settings = ref.read(notificationSettingsProvider);
+      if (settings.doNotDisturb) return; // No molestar: no sonidos ni notificaciones
       final level = settings.levelForChannel(messageChannel);
       final isPrivate = !messageChannel.startsWith('#');
       final currentNick = ref.read(currentNicknameProvider);
@@ -2139,6 +2174,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   @override
   void dispose() {
+    _inactivityTimer?.cancel();
+    _webDropCleanup?.call();
     // Detener la radio cuando se sale del chat
     RadioService().stop();
     
@@ -2171,7 +2208,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     _channelController.dispose();
     _messageFocusNode.dispose();
     _searchController.dispose();
+    _chatScrollController.dispose();
     super.dispose();
+  }
+
+  /// Identificador único para scroll al mensaje (messageId o channel_nick_timestamp)
+  bool _messageMatchesScrollTarget(IRCMessage m) {
+    if (_scrollToMessageId == null) return false;
+    if (m.messageId != null && m.messageId == _scrollToMessageId) return true;
+    final fallback = '${m.channel}_${m.nick}_${m.timestamp.millisecondsSinceEpoch}';
+    return fallback == _scrollToMessageId;
   }
 
   // Función para abrir un mensaje privado
@@ -2277,6 +2323,18 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
               ),
+              SwitchListTile(
+                title: const Text('No molestar'),
+                subtitle: const Text('Desactiva sonidos y notificaciones'),
+                value: settings.doNotDisturb,
+                activeColor: appTheme.accent,
+                onChanged: (_) {
+                  ref
+                      .read(notificationSettingsProvider.notifier)
+                      .setDoNotDisturb(!settings.doNotDisturb);
+                },
+              ),
+              const Divider(),
               RadioListTile<NotificationLevel>(
                 value: NotificationLevel.allMessages,
                 groupValue: level,
@@ -2677,7 +2735,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   void _sendMessage({bool forceImmediate = false}) {
     final channel = ref.read(currentChannelProvider);
     if (channel == null || _messageController.text.isEmpty) return;
-
+    _resetInactivityTimer();
     final message = _messageController.text.trim();
     _messageController.clear();
     
@@ -4966,14 +5024,35 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   }
 
   // Manejar archivos arrastrados y soltados (solo en nativo)
-  // TODO: Implementar drag & drop con imports condicionales adecuados
   Future<void> _handleDroppedFiles(List files) async {
-    // Temporalmente deshabilitado para evitar errores de compilación en web
-    // Requiere implementación con imports condicionales más robustos
     if (files.isEmpty || PlatformUtils.isWeb) return;
-    
-    // Implementación futura para nativo
-    // Por ahora, solo retornar sin hacer nada
+    // Implementación futura para nativo (desktop)
+  }
+
+  /// Llamado desde drag & drop en web cuando se suelta un archivo
+  Future<void> _handleDroppedFileBytes(Uint8List bytes, String fileName, String channel) async {
+    if (!mounted) return;
+    final normalizedChannel = channel.toLowerCase();
+    final nameLower = fileName.toLowerCase();
+    String mimeType;
+    bool isVideo = false;
+    if (nameLower.endsWith('.mp4') || nameLower.endsWith('.webm') || nameLower.endsWith('.mov')) {
+      if (nameLower.endsWith('.mp4')) mimeType = 'video/mp4';
+      else if (nameLower.endsWith('.webm')) mimeType = 'video/webm';
+      else mimeType = 'video/quicktime';
+      isVideo = true;
+    } else {
+      if (nameLower.endsWith('.jpg') || nameLower.endsWith('.jpeg')) mimeType = 'image/jpeg';
+      else if (nameLower.endsWith('.png')) mimeType = 'image/png';
+      else if (nameLower.endsWith('.gif')) mimeType = 'image/gif';
+      else if (nameLower.endsWith('.webp')) mimeType = 'image/webp';
+      else mimeType = 'image/jpeg';
+    }
+    if (isVideo) {
+      await _uploadAndSendVideoToCloudinary(bytes, mimeType, normalizedChannel);
+    } else {
+      await _uploadAndSendToCloudinary(bytes, mimeType, normalizedChannel);
+    }
   }
 
   Future<void> _uploadAndSendToCloudinary(Uint8List imageBytes, String mimeType, String channel) async {
@@ -5403,7 +5482,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     _ircService.disconnect();
     ref.read(currentNicknameProvider.notifier).state = null;
     ref.read(currentChannelProvider.notifier).state = null;
-    
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('login_auto_reconnect', false);
+    } catch (_) {}
     if (mounted) {
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(builder: (context) => const LoginScreen()),
@@ -5646,6 +5728,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     // debugLog('🔍 [DEBUG] 🖼️  ChatScreen: Renderizando contenido principal - isChannelLoaded=$isChannelLoaded, currentChannel=$currentChannel, channels=${channels.keys.toList()}');
     // debugLog('🔍 [DEBUG] 🖼️  ChatScreen: appTheme.background=${appTheme.background}');
 
+    final fontScale = [0.85, 1.0, 1.15, 1.3][ref.watch(chatFontSizeProvider)];
+
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, result) {
@@ -5653,7 +5737,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           _disconnect();
         }
       },
-      child: MacOSKeyboardShortcuts(
+      child: MediaQuery(
+        data: MediaQuery.of(context).copyWith(textScaleFactor: fontScale),
+        child: MacOSKeyboardShortcuts(
         onFind: _handleFind,
         onFindNext: _handleFindNext,
         onNewChannel: _handleNewChannel,
@@ -6706,6 +6792,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                 return Container(
                                   color: appTheme.background,
                                   child: ListView.builder(
+                                    controller: _chatScrollController,
                                     reverse: true,
                                     padding: const EdgeInsets.symmetric(vertical: 8),
                                     itemCount: allMessages.length,
@@ -6836,6 +6923,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                               builder: (context) {
                                                 try {
                                                   return ListView.builder(
+                                                    controller: _chatScrollController,
                                                     reverse: true,
                                                     padding: const EdgeInsets.symmetric(vertical: 8),
                                                     itemCount: allMessages.length,
@@ -6905,6 +6993,30 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                   _messageFocusNode.requestFocus();
                                 });
                               }
+                            },
+                          ),
+                          Consumer(
+                            builder: (context, ref, _) {
+                              final quickReplies = ref.watch(quickRepliesProvider);
+                              if (quickReplies.isEmpty) return const SizedBox.shrink();
+                              return PopupMenuButton<String>(
+                                icon: Icon(Icons.quickreply, color: appTheme.primary, size: 22),
+                                tooltip: 'Respuestas rápidas',
+                                onSelected: (value) {
+                                  final text = _messageController.text;
+                                  final pos = _messageController.selection.baseOffset.clamp(0, text.length);
+                                  final newText = text.substring(0, pos) + value + text.substring(pos);
+                                  _messageController.text = newText;
+                                  _messageController.selection = TextSelection.collapsed(offset: pos + value.length);
+                                  _messageFocusNode.requestFocus();
+                                },
+                                itemBuilder: (context) => quickReplies
+                                    .map((phrase) => PopupMenuItem(
+                                          value: phrase,
+                                          child: Text(phrase, overflow: TextOverflow.ellipsis),
+                                        ))
+                                    .toList(),
+                              );
                             },
                           ),
                           Builder(
@@ -8047,6 +8159,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         //   ),
         ),
       ),
+    ),
     );
   }
 
@@ -8179,11 +8292,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     
     return InkWell(
       onTap: () {
-        // Cerrar búsqueda y volver al chat
+        final ch = message.channel.startsWith('#') ? message.channel : '#${message.channel}';
+        ref.read(currentChannelProvider.notifier).state = ch;
+        _scrollToMessageId = message.messageId ?? '${message.channel}_${message.nick}_${message.timestamp.millisecondsSinceEpoch}';
+        _scrollToMessageChannel = message.channel;
+        _scrollScheduled = false;
         setState(() {
           _showSearch = false;
         });
-        // TODO: Scroll al mensaje en el chat
       },
       child: Container(
         margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -9762,9 +9878,23 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     ],
                   ),
                 ),
+              if (!message.isSystem && message.message.trim().length >= 3)
+                const PopupMenuItem(
+                  value: 'traducir',
+                  child: Row(
+                    children: [
+                      Icon(Icons.translate, size: 18),
+                      SizedBox(width: 8),
+                      Text('Traducir al español'),
+                    ],
+                  ),
+                ),
             ],
             onSelected: (value) {
               switch (value) {
+                case 'traducir':
+                  _showTranslateMessageDialog(context, message);
+                  break;
                 case 'temporal':
                   _showTemporaryMessageDialog(context, message);
                   break;
@@ -9788,6 +9918,78 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     );
   }
   
+  /// Diálogo para traducir el texto del mensaje al español
+  void _showTranslateMessageDialog(BuildContext context, IRCMessage message) {
+    final appTheme = ref.read(themeProvider);
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: appTheme.surface,
+        content: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(
+              width: 24,
+              height: 24,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+            const SizedBox(width: 16),
+            Text('Traduciendo...', style: TextStyle(color: appTheme.textPrimary)),
+          ],
+        ),
+      ),
+    );
+    ref.read(translationServiceProvider).translateToSpanish(message.message).then((translated) {
+      if (!context.mounted) return;
+      Navigator.of(context).pop(); // Cerrar loading
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          backgroundColor: appTheme.surface,
+          title: Row(
+            children: [
+              Icon(Icons.translate, color: appTheme.primary, size: 22),
+              const SizedBox(width: 8),
+              Text('Traducción', style: TextStyle(color: appTheme.textPrimary, fontSize: 18)),
+            ],
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Original:', style: TextStyle(color: appTheme.textSecondary, fontSize: 12)),
+                const SizedBox(height: 4),
+                Text(message.message, style: TextStyle(color: appTheme.textPrimary)),
+                const SizedBox(height: 12),
+                Text('Español:', style: TextStyle(color: appTheme.textSecondary, fontSize: 12)),
+                const SizedBox(height: 4),
+                Text(
+                  translated ?? '(No se pudo traducir)',
+                  style: TextStyle(color: appTheme.textPrimary, fontWeight: FontWeight.w500),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: Text('Cerrar', style: TextStyle(color: appTheme.primary)),
+            ),
+          ],
+        ),
+      );
+    }).catchError((_) {
+      if (context.mounted) {
+        Navigator.of(context).pop();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Error al traducir')),
+        );
+      }
+    });
+  }
+
   // Diálogo para editar un mensaje
   void _showEditMessageDialog(BuildContext context, IRCMessage message) {
     final appTheme = ref.read(themeProvider);

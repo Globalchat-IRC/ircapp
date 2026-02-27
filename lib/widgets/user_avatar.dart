@@ -98,37 +98,65 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
 
   @override
   Widget build(BuildContext context) {
-    // Observar solo el timestamp de este nick (evita reconstruir todos los avatares del canal)
-    final refreshTimestamp = ref.watch(
-      avatarRefreshProvider.select((m) => m[widget.nick.toLowerCase()]),
+    try {
+      // Observar solo el timestamp de este nick (evita reconstruir todos los avatares del canal)
+      final refreshTimestamp = ref.watch(
+        avatarRefreshProvider.select((m) => m[widget.nick.toLowerCase()]),
+      );
+
+      // Si el timestamp cambió, recargar el avatar
+      if (refreshTimestamp != null && refreshTimestamp != _lastRefreshTimestamp) {
+        _lastRefreshTimestamp = refreshTimestamp;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _loadAvatar();
+        });
+      }
+
+      // Si cambió isRobot, recargar el avatar inmediatamente
+      if (_lastIsRobot != widget.isRobot) {
+        _lastIsRobot = widget.isRobot;
+        _avatarLoaded = false;
+        _avatarUrl = null;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _loadAvatar();
+        });
+      }
+
+      return _buildAvatarWidget();
+    } catch (e, st) {
+      // Evitar que un error en avatar (p. ej. web/Image.network) rompa la lista de usuarios
+      assert(() {
+        // ignore: avoid_print
+        debugPrint('UserAvatar build error: $e');
+        return true;
+      }());
+      return _buildSafeFallback();
+    }
+  }
+
+  Widget _buildSafeFallback() {
+    final initial = widget.nick.trim().isNotEmpty ? widget.nick.trim()[0].toUpperCase() : '?';
+    return Container(
+      width: widget.size,
+      height: widget.size,
+      decoration: BoxDecoration(
+        gradient: widget.gradient,
+        color: widget.gradient == null ? (widget.backgroundColor ?? Colors.grey) : null,
+        shape: BoxShape.circle,
+        border: widget.border,
+        boxShadow: widget.boxShadow,
+      ),
+      child: Center(
+        child: Text(
+          initial,
+          style: TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
+            fontSize: widget.size * 0.4,
+          ),
+        ),
+      ),
     );
-    
-    // Si el timestamp cambió, recargar el avatar
-    if (refreshTimestamp != null && refreshTimestamp != _lastRefreshTimestamp) {
-      _lastRefreshTimestamp = refreshTimestamp;
-      // Usar post-frame callback para evitar llamar setState durante build
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
-          _loadAvatar();
-        }
-      });
-    }
-    
-    // Si cambió isRobot, recargar el avatar inmediatamente
-    if (_lastIsRobot != widget.isRobot) {
-      _lastIsRobot = widget.isRobot;
-      // Limpiar inmediatamente para forzar el cambio visual
-      _avatarLoaded = false;
-      _avatarUrl = null;
-      // Usar post-frame callback para evitar llamar setState durante build
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
-          _loadAvatar();
-        }
-      });
-    }
-    
-    return _buildAvatarWidget();
   }
 
   Future<void> _loadAvatar() async {
@@ -187,9 +215,10 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
     final isFallbackUrl = fallback.startsWith('http://') || fallback.startsWith('https://');
     final isFallbackAsset = fallback.startsWith('asset:');
     
-    // Para usuarios normales, siempre intentar cargar el avatar si tenemos una URL
-    // Incluso si _avatarLoaded es false, intentar cargar para que el errorBuilder maneje el fallback
-    final shouldTryLoadAvatar = !widget.isRobot && _avatarUrl != null;
+    // Para usuarios normales, intentar cargar el avatar solo si tenemos una URL válida (no vacía)
+    final shouldTryLoadAvatar = !widget.isRobot &&
+        _avatarUrl != null &&
+        _avatarUrl!.trim().isNotEmpty;
     
     // Solo observar away de este nick para evitar rebuilds de todos los avatares
     final isAway = ref.watch(whoisProvider.select((m) => m[widget.nick.toLowerCase()]?.isAway ?? false));
@@ -223,12 +252,9 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
                   width: widget.size,
                   height: widget.size,
                   fit: BoxFit.contain,
-                  // En web, usar WebHtmlElementStrategy.prefer para evitar problemas de CORS
-                  // Esto intenta usar elementos HTML <img> que no tienen las mismas restricciones CORS
-                  // Nota: Los errores de CORS en la consola son esperados y no afectan la funcionalidad
-                  // El navegador intentará cargar la imagen usando <img> si el fetch falla
-                  webHtmlElementStrategy: PlatformUtils.isWeb 
-                      ? WebHtmlElementStrategy.prefer 
+                  // En web: fallback (intenta fetch, si falla usa <img>) evita errores que prefer puede causar
+                  webHtmlElementStrategy: PlatformUtils.isWeb
+                      ? WebHtmlElementStrategy.fallback
                       : WebHtmlElementStrategy.never,
                   // Suprimir errores de CORS en la consola no es posible desde Flutter
                   // pero el fallback visual funcionará correctamente
