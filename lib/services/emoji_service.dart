@@ -972,9 +972,17 @@ class EmojiService {
   static String normalizeAsciiEmoticons(String text) {
     if (text.isEmpty) return text;
     String result = text;
+    // Aplicar primero xD/XDD y variantes por regex para no depender del orden del mapa
+    result = result.replaceAllMapped(
+      RegExp(r'(?<![a-zA-Z])[xX][dD]{1,2}(?![a-zA-Z])'),
+      (_) => ':rofl:',
+    );
     final entries = _asciiEmoticonToCode.entries.toList()
       ..sort((a, b) => b.key.length.compareTo(a.key.length));
     for (final e in entries) {
+      // Evitar reemplazar de nuevo las variantes xD/XDD (ya hechas arriba)
+      if (e.value == ':rofl:' && (e.key == 'xD' || e.key == 'XD' || e.key == 'xd' ||
+          e.key == 'XDD' || e.key == 'xDD' || e.key == 'Xdd' || e.key == 'xdd')) continue;
       result = result.replaceAll(e.key, e.value);
     }
     return result;
