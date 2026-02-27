@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 // Conditional import for web URL parameters
@@ -61,6 +62,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   bool _acceptRules = false;
   /// Reconectar automáticamente al abrir la app (opt-in; por defecto false).
   bool _autoReconnectEnabled = false;
+  /// Cuenta atrás para auto-conexión (segundos restantes); null = no en cuenta atrás.
+  int? _autoConnectCountdown;
+  /// Si el usuario canceló la auto-conexión en esta sesión.
+  bool _autoConnectCancelled = false;
+  /// Timer de la cuenta atrás de auto-conexión.
+  Timer? _autoConnectTimer;
   /// Estado del servidor: null = no comprobado, 'checking', 'available', 'unavailable'.
   String? _serverStatus;
   /// Si la sección "Opciones avanzadas" está expandida.
@@ -387,10 +394,38 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           setState(() {
             _confirmOver14 = true;
             _acceptRules = true;
+            _autoConnectCountdown = 5;
+            _autoConnectCancelled = false;
           });
-          await prefs.setBool(_prefAutoReconnect, false);
-          await Future.delayed(const Duration(milliseconds: 400));
-          if (mounted) await _connect();
+          _autoConnectTimer = Timer.periodic(const Duration(seconds: 1), (t) async {
+            if (!mounted) {
+              t.cancel();
+              _autoConnectTimer = null;
+              return;
+            }
+            if (_autoConnectCancelled) {
+              t.cancel();
+              _autoConnectTimer = null;
+              setState(() => _autoConnectCountdown = null);
+              return;
+            }
+            bool shouldConnect = false;
+            setState(() {
+              if (_autoConnectCountdown == null || _autoConnectCountdown! <= 1) {
+                _autoConnectCountdown = null;
+                _autoConnectTimer = null;
+                t.cancel();
+                shouldConnect = true;
+              } else {
+                _autoConnectCountdown = _autoConnectCountdown! - 1;
+              }
+            });
+            if (shouldConnect && mounted && !_autoConnectCancelled) {
+              final prefs = await SharedPreferences.getInstance();
+              await prefs.setBool(_prefAutoReconnect, false);
+              if (mounted) await _connect();
+            }
+          });
         }
       }
       if (mounted) _checkServerStatus();
@@ -1084,6 +1119,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
   @override
   void dispose() {
+    _autoConnectTimer?.cancel();
+    _autoConnectTimer = null;
     // Eliminar listener de cambio de nick si existe
     if (_nickChangeListener != null) {
       final ircService = ref.read(ircServiceProvider);
@@ -1392,8 +1429,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             stops: const [0.0, 0.3, 0.6, 1.0],
           ),
         ),
-        child: Center(
-          child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (_autoConnectCountdown != null && !_autoConnectCancelled)
+              _buildAutoConnectBanner(appTheme),
+            Expanded(
+              child: Center(
+                child: SingleChildScrollView(
             padding: const EdgeInsets.all(24),
             child: Card(
               elevation: 8,
@@ -1990,9 +2033,59 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             ),
           ),
         ),
+        ),
       ),
     ),
-    ),
+    ],
+  ),
+  ),
+  );
+  }
+
+  /// Banner de cuenta atrás antes de auto-conectar; permite cancelar para configurar.
+  Widget _buildAutoConnectBanner(AppTheme appTheme) {
+    return Material(
+      color: appTheme.primary.withOpacity(0.9),
+      child: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          child: Row(
+            children: [
+              Icon(Icons.schedule, color: appTheme.textPrimary, size: 22),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  _autoConnectCountdown != null && _autoConnectCountdown! > 0
+                      ? 'Conectando automáticamente en ${_autoConnectCountdown} s...'
+                      : 'Conectando...',
+                  style: TextStyle(
+                    color: appTheme.textPrimary,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+              TextButton(
+                onPressed: () {
+                  _autoConnectTimer?.cancel();
+                  _autoConnectTimer = null;
+                  setState(() {
+                    _autoConnectCountdown = null;
+                    _autoConnectCancelled = true;
+                  });
+                },
+                child: Text(
+                  'Cancelar',
+                  style: TextStyle(
+                    color: appTheme.textPrimary,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
