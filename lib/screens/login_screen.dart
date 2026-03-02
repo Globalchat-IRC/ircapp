@@ -16,6 +16,7 @@ import '../models/app_theme.dart';
 import '../models/channel_info.dart';
 import '../models/server_profile.dart';
 import 'chat_screen.dart';
+import 'rules_screen.dart';
 import '../main.dart' show globalLog;
 import '../utils/platform_utils.dart';
 import '../services/geoip_service.dart';
@@ -1887,7 +1888,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                           style: TextStyle(color: appTheme.textPrimary, fontSize: 14),
                         ),
                         GestureDetector(
-                          onTap: () => _launchUrl('https://globalchat.org/reglas'),
+                          onTap: () { Navigator.of(context).push(MaterialPageRoute(builder: (_) => const RulesScreen())); },
                           child: Text(
                             'reglas del canal/red',
                             style: TextStyle(
