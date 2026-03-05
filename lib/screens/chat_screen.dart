@@ -7714,7 +7714,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                       leading: UserAvatar(
                                         nick: user,
                                         size: 48,
-                                        fallbackIcon: userIcon,
+                                        fallbackIcon: isRobot ? userIcon : null,
                                         isRobot: isRobot,
                                         gradient: isRobot
                                             ? LinearGradient(

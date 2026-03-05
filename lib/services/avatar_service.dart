@@ -7,6 +7,7 @@ import '../utils/platform_utils.dart';
 class AvatarService {
   static const String _baseUrl = 'https://xmlrpc.globalchat.org';
   static const String _defaultAvatarUrl = 'https://xmlrpc.globalchat.org/avatar/generate-default-avatar.php';
+  static const int _customAvatarMinBytes = 10000;
   
   // Generar hash MD5 del nick (usando nick exacto case-sensitive como el plugin)
   static String _generateAvatarHash(String nick) {
@@ -104,6 +105,45 @@ class AvatarService {
       // print('🔍 [AVATAR] Error checking avatar for "$nick": $e');
       // En caso de error, asumir que puede existir para intentar cargarlo
       return true;
+    }
+  }
+
+  /// Comprueba si existe un GIF personalizado para el nick.
+  static Future<bool> avatarGifExists(String nick) async {
+    try {
+      final url = getAvatarGifUrl(nick);
+      final response = await http.head(Uri.parse(url)).timeout(
+        const Duration(seconds: 3),
+      );
+      return response.statusCode == 200;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Heurística para distinguir un PNG hash realmente personalizado del PNG
+  /// "por defecto" pequeño generado por xmlrpc.
+  static Future<bool> hasLikelyCustomStaticAvatar(String nick) async {
+    try {
+      final url = getAvatarUrl(nick);
+      final response = await http.head(Uri.parse(url)).timeout(
+        const Duration(seconds: 3),
+      );
+      if (response.statusCode != 200) {
+        return false;
+      }
+
+      final contentLengthHeader = response.headers['content-length'];
+      final contentLength =
+          contentLengthHeader != null ? int.tryParse(contentLengthHeader) : null;
+
+      if (contentLength == null) {
+        return true;
+      }
+
+      return contentLength >= _customAvatarMinBytes;
+    } catch (_) {
+      return false;
     }
   }
   

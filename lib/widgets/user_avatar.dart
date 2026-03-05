@@ -187,6 +187,28 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
       return;
     }
     
+    if (PlatformUtils.isWeb) {
+      final staticUrl = AvatarService.getAvatarUrl(cleanNick);
+      final gifUrl = AvatarService.getAvatarGifUrl(cleanNick);
+      final hasCustomGif = await AvatarService.avatarGifExists(cleanNick);
+      final hasCustomStatic =
+          hasCustomGif ? false : await AvatarService.hasLikelyCustomStaticAvatar(cleanNick);
+
+      if (mounted) {
+        setState(() {
+          _staticAvatarUrl = staticUrl;
+          _gifAvatarUrl = gifUrl;
+          _avatarUrl = hasCustomGif
+              ? gifUrl
+              : (hasCustomStatic ? staticUrl : null);
+          _avatarLoaded = true;
+          _gifPreferred = hasCustomGif;
+          _triedDefaultAvatar = !hasCustomGif && !hasCustomStatic;
+        });
+      }
+      return;
+    }
+
     final staticUrl = await AvatarService.getCorrectAvatarUrl(cleanNick);
     final gifUrl = AvatarService.getAvatarGifUrl(cleanNick);
     final initialUrl = PlatformUtils.isWeb ? staticUrl : gifUrl;
@@ -274,7 +296,7 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
                       WidgetsBinding.instance.addPostFrameCallback((_) {
                         if (mounted) setState(() => _avatarUrl = nextUrl);
                       });
-                    } else if (!_triedDefaultAvatar) {
+                    } else if (!_triedDefaultAvatar && !PlatformUtils.isWeb) {
                       _triedDefaultAvatar = true;
                       final defaultUrl = AvatarService.getDefaultAvatarUrl(cleanNick);
                       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -337,7 +359,7 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
               style: TextStyle(
                 color: Colors.white,
                 fontWeight: FontWeight.bold,
-                fontSize: widget.size * 0.4,
+                fontSize: widget.size * 0.6,
               ),
             ),
           );
@@ -357,7 +379,7 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
               style: TextStyle(
                 color: Colors.white,
                 fontWeight: FontWeight.bold,
-                fontSize: widget.size * 0.4,
+                fontSize: widget.size * 0.6,
               ),
             ),
           );
@@ -371,7 +393,7 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
           style: TextStyle(
             color: Colors.white,
             fontWeight: FontWeight.bold,
-            fontSize: widget.size * 0.4,
+            fontSize: widget.size * 0.6,
           ),
         ),
       );
