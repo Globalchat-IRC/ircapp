@@ -189,13 +189,14 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
     
     final staticUrl = await AvatarService.getCorrectAvatarUrl(cleanNick);
     final gifUrl = AvatarService.getAvatarGifUrl(cleanNick);
+    final initialUrl = PlatformUtils.isWeb ? staticUrl : gifUrl;
     if (mounted) {
       setState(() {
         _staticAvatarUrl = staticUrl;
         _gifAvatarUrl = gifUrl;
-        _avatarUrl = gifUrl;
+        _avatarUrl = initialUrl;
         _avatarLoaded = true;
-        _gifPreferred = true;
+        _gifPreferred = !PlatformUtils.isWeb;
         _triedDefaultAvatar = false;
       });
     }
@@ -252,9 +253,9 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
                   width: widget.size,
                   height: widget.size,
                   fit: BoxFit.contain,
-                  // En web: fallback (intenta fetch, si falla usa <img>) evita errores que prefer puede causar
+                  // En web, preferimos <img> HTML para que entren mejor los PNG hash de xmlrpc.
                   webHtmlElementStrategy: PlatformUtils.isWeb
-                      ? WebHtmlElementStrategy.fallback
+                      ? WebHtmlElementStrategy.prefer
                       : WebHtmlElementStrategy.never,
                   // Suprimir errores de CORS en la consola no es posible desde Flutter
                   // pero el fallback visual funcionará correctamente

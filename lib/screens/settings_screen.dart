@@ -279,6 +279,57 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     ],
                   ),
                   const SizedBox(height: 24),
+                  // Tamaño global de avatares
+                  Text(
+                    'Tamaño de avatares',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: appTheme.textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Slider(
+                          value: formatPrefs.avatarScale,
+                          min: 0.6,
+                          max: 1.6,
+                          divisions: 20,
+                          label: '${(formatPrefs.avatarScale * 100).toStringAsFixed(0)}%',
+                          onChanged: (value) {
+                            ref
+                                .read(messageFormatPreferencesProvider.notifier)
+                                .setAvatarScale(value);
+                          },
+                          activeColor: appTheme.primary,
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      Container(
+                        width: 70,
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: appTheme.surface,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: appTheme.primary.withOpacity(0.3),
+                          ),
+                        ),
+                        child: Text(
+                          '${(formatPrefs.avatarScale * 100).toStringAsFixed(0)}%',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: appTheme.textPrimary,
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 24),
                   // Opción para activar/desactivar hilos en canales
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,

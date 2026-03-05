@@ -23,11 +23,13 @@ if [ ! -f "build/web/main.dart.js" ]; then
     exit 1
 fi
 
-# Escribir version.json para que la web fuerce recarga cuando hay nueva versión (usuarios con caché antigua)
+# Escribir version.json para que la web fuerce recarga cuando hay nueva versión.
 echo "{\"version\": \"$VERSION\"}" > build/web/version.json
-# Hacer que el script principal tenga ?v=VERSION para evitar caché del JS en navegadores (compatible Linux/macOS)
-sed "s|main\.dart\.js|main.dart.js?v=$VERSION|g" build/web/index.html > build/web/index.html.tmp && mv build/web/index.html.tmp build/web/index.html
-echo "📌 version.json e index.html (script versionado) generados: $VERSION"
+# Flutter web arranca desde flutter_bootstrap.js, por lo que hay que versionar
+# tanto el bootstrap en index.html como la referencia a main.dart.js dentro del bootstrap.
+sed "s|flutter_bootstrap\.js|flutter_bootstrap.js?v=$VERSION|g" build/web/index.html > build/web/index.html.tmp && mv build/web/index.html.tmp build/web/index.html
+sed "s|main\.dart\.js|main.dart.js?v=$VERSION|g" build/web/flutter_bootstrap.js > build/web/flutter_bootstrap.js.tmp && mv build/web/flutter_bootstrap.js.tmp build/web/flutter_bootstrap.js
+echo "📌 version.json, index.html y flutter_bootstrap.js versionados: $VERSION"
 
 echo "✅ Compilación completada"
 echo ""

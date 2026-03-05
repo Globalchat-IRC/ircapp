@@ -5750,7 +5750,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         child: Scaffold(
         backgroundColor: appTheme.background,
         appBar: AppBar(
-          leading: nickname != null
+          leading: PlatformUtils.isWeb
+              ? null
+              : nickname != null
               ? GestureDetector(
                   onTap: () {
                     _showProfileConfigMenu(context, nickname!);

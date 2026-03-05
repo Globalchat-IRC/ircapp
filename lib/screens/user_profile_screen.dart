@@ -202,38 +202,34 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
                         ),
                         child: Row(
                           children: [
-                            Container(
-                              width: 80,
-                              height: 80,
-                              decoration: BoxDecoration(
-                                color: Colors.white.withOpacity(0.2),
-                                shape: BoxShape.circle,
-                                border: Border.all(
-                                  color: Colors.white.withOpacity(0.3),
-                                  width: 2,
-                                ),
-                              ),
-                              child: UserAvatar(
-                                nick: widget.nick,
-                                size: 80,
-                                fallbackIcon: _isRobotUser(whoisInfo) ? '🤖' : null,
-                                gradient: _isRobotUser(whoisInfo)
-                                    ? LinearGradient(
-                                        colors: [
-                                          const Color(0xFFFFD700),
-                                          const Color(0xFFFFA500),
-                                        ],
-                                        begin: Alignment.topLeft,
-                                        end: Alignment.bottomRight,
-                                      )
-                                    : null,
-                                border: _isRobotUser(whoisInfo)
-                                    ? Border.all(
-                                        color: const Color(0xFFFFD700).withOpacity(0.6),
-                                        width: 2,
-                                      )
-                                    : null,
-                              ),
+                            UserAvatar(
+                              nick: widget.nick,
+                              size: 80,
+                              fallbackIcon: _isRobotUser(whoisInfo) ? '🤖' : null,
+                              isRobot: _isRobotUser(whoisInfo),
+                              gradient: _isRobotUser(whoisInfo)
+                                  ? const LinearGradient(
+                                      colors: [
+                                        Color(0xFFFFD700),
+                                        Color(0xFFFFA500),
+                                      ],
+                                      begin: Alignment.topLeft,
+                                      end: Alignment.bottomRight,
+                                    )
+                                  : LinearGradient(
+                                      colors: [
+                                        _getUserColor(widget.nick.hashCode),
+                                        _getUserColor(widget.nick.hashCode).withOpacity(0.7),
+                                      ],
+                                      begin: Alignment.topLeft,
+                                      end: Alignment.bottomRight,
+                                    ),
+                              border: _isRobotUser(whoisInfo)
+                                  ? Border.all(
+                                      color: const Color(0xFFFFD700).withOpacity(0.6),
+                                      width: 2,
+                                    )
+                                  : null,
                             ),
                             const SizedBox(width: 20),
                             Expanded(
@@ -1462,6 +1458,23 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
                          (server.contains('robot') && server.contains('globalchat'));
     
     return isBotByNick || isBotByHost || isBotByOther;
+  }
+
+  // Misma paleta que la lista de usuarios para avatar consistente
+  Color _getUserColor(int hash) {
+    final colors = [
+      const Color(0xFFFFA500),
+      const Color(0xFFFFD700),
+      const Color(0xFFFF8C00),
+      const Color(0xFFFFE4B5),
+      Colors.orange,
+      Colors.amber,
+      const Color(0xFFFFB347),
+      const Color(0xFFFFCC00),
+      Colors.deepOrange,
+      const Color(0xFFFFE135),
+    ];
+    return colors[hash.abs() % colors.length];
   }
 }
 

@@ -11,6 +11,7 @@ import '../providers/radio_provider.dart';
 import '../services/irc_service.dart';
 import 'reputation_badge.dart';
 import 'email_verification_dialog.dart';
+import 'user_avatar.dart';
 
 /// Diálogo de perfil de usuario completo
 class UserProfileDialog extends ConsumerStatefulWidget {
@@ -128,7 +129,26 @@ class _UserProfileDialogState extends ConsumerState<UserProfileDialog> with Sing
     );
   }
   
+  static Color _getUserColor(int hash) {
+    const colors = [
+      Color(0xFFFFA500),
+      Color(0xFFFFD700),
+      Color(0xFFFF8C00),
+      Color(0xFFFFE4B5),
+      Colors.orange,
+      Colors.amber,
+      Color(0xFFFFB347),
+      Color(0xFFFFCC00),
+      Colors.deepOrange,
+      Color(0xFFFFE135),
+    ];
+    return colors[hash.abs() % colors.length];
+  }
+
   Widget _buildHeader() {
+    final nickLower = _profile!.nick.toLowerCase();
+    final isRobot = nickLower == 'globalchat' || nickLower.endsWith('bot') || nickLower == 'orion' || nickLower == 'stats';
+    final userColor = isRobot ? const Color(0xFFFFD700) : _getUserColor(_profile!.nick.hashCode);
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -141,17 +161,22 @@ class _UserProfileDialogState extends ConsumerState<UserProfileDialog> with Sing
       ),
       child: Row(
         children: [
-          CircleAvatar(
-            radius: 40,
-            backgroundColor: Colors.white.withOpacity(0.2),
-            child: Text(
-              _profile!.nick[0].toUpperCase(),
-              style: const TextStyle(
-                fontSize: 32,
-                fontWeight: FontWeight.bold,
-                color: Colors.white,
-              ),
-            ),
+          UserAvatar(
+            nick: _profile!.nick,
+            size: 80,
+            isRobot: isRobot,
+            fallbackIcon: isRobot ? '🤖' : null,
+            gradient: isRobot
+                ? const LinearGradient(
+                    colors: [Color(0xFFFFD700), Color(0xFFFFA500)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  )
+                : LinearGradient(
+                    colors: [userColor, userColor.withOpacity(0.7)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
           ),
           const SizedBox(width: 16),
           Expanded(

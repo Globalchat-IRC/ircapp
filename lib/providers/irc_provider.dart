@@ -1898,6 +1898,8 @@ class MessageFormatPreferences {
   final String channelFontFamily;
   final String privateFontFamily;
   final double emojiSize;
+  /// Factor global para escalar el tamaño de los avatares (1.0 = tamaño base).
+  final double avatarScale;
   final bool enableThreadsInChannels;
   final bool enableReactions;
   /// Controla si se permiten avatares animados (GIFs) en la interfaz.
@@ -1912,6 +1914,7 @@ class MessageFormatPreferences {
     this.channelFontFamily = 'Roboto',
     this.privateFontFamily = 'Roboto',
     this.emojiSize = 40.0,
+    this.avatarScale = 1.0,
     this.enableThreadsInChannels = true,
     this.enableReactions = true,
     this.enableAnimatedAvatars = false,
@@ -1926,6 +1929,7 @@ class MessageFormatPreferences {
     String? channelFontFamily,
     String? privateFontFamily,
     double? emojiSize,
+    double? avatarScale,
     bool? enableThreadsInChannels,
     bool? enableReactions,
     bool? enableAnimatedAvatars,
@@ -1939,6 +1943,7 @@ class MessageFormatPreferences {
       channelFontFamily: channelFontFamily ?? this.channelFontFamily,
       privateFontFamily: privateFontFamily ?? this.privateFontFamily,
       emojiSize: emojiSize ?? this.emojiSize,
+      avatarScale: avatarScale ?? this.avatarScale,
       enableThreadsInChannels: enableThreadsInChannels ?? this.enableThreadsInChannels,
       enableReactions: enableReactions ?? this.enableReactions,
       enableAnimatedAvatars:
@@ -1962,6 +1967,7 @@ class MessageFormatPreferencesNotifier
   static const _prefsKeyChannelFontFamily = 'message_channel_font_family';
   static const _prefsKeyPrivateFontFamily = 'message_private_font_family';
   static const _prefsKeyEmojiSize = 'message_emoji_size';
+  static const _prefsKeyAvatarScale = 'avatar_scale';
   static const _prefsKeyEnableThreadsInChannels = 'enable_threads_in_channels';
   static const _prefsKeyEnableReactions = 'enable_reactions';
   static const _prefsKeyEnableAnimatedAvatars =
@@ -1984,6 +1990,7 @@ class MessageFormatPreferencesNotifier
       final channelFontFamily = prefs.getString(_prefsKeyChannelFontFamily) ?? 'Roboto';
       final privateFontFamily = prefs.getString(_prefsKeyPrivateFontFamily) ?? 'Roboto';
       final emojiSize = prefs.getDouble(_prefsKeyEmojiSize) ?? 40.0;
+      final avatarScale = prefs.getDouble(_prefsKeyAvatarScale) ?? 1.0;
       final enableThreadsInChannels = prefs.getBool(_prefsKeyEnableThreadsInChannels) ?? true;
       final enableReactions = prefs.getBool(_prefsKeyEnableReactions) ?? true;
       final enableAnimatedAvatars =
@@ -2005,6 +2012,7 @@ class MessageFormatPreferencesNotifier
         channelFontFamily: channelFontFamily,
         privateFontFamily: privateFontFamily,
         emojiSize: emojiSize,
+        avatarScale: avatarScale,
         enableThreadsInChannels: enableThreadsInChannels,
         enableReactions: enableReactions,
         enableAnimatedAvatars: enableAnimatedAvatars,
@@ -2077,6 +2085,18 @@ class MessageFormatPreferencesNotifier
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setDouble(_prefsKeyEmojiSize, size);
+    } catch (_) {
+      // Ignorar errores de guardado
+    }
+  }
+
+  Future<void> setAvatarScale(double scale) async {
+    if (scale < 0.6) scale = 0.6;
+    if (scale > 1.6) scale = 1.6;
+    state = state.copyWith(avatarScale: scale);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setDouble(_prefsKeyAvatarScale, scale);
     } catch (_) {
       // Ignorar errores de guardado
     }
