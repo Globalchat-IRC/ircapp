@@ -575,7 +575,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           ],
                           ElevatedButton.icon(
                             onPressed: () async {
-                              final result = await FilePicker.pickFiles(
+                              final result = await FilePicker.platform.pickFiles(
                                 type: FileType.custom,
                                 allowedExtensions: ['gif'],
                                 withData: true,
@@ -1585,7 +1585,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
   
   Future<void> _restoreBackup(BuildContext context) async {
-    final result = await FilePicker.pickFiles(
+    final result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
       allowedExtensions: ['json'],
     );
