@@ -8,6 +8,7 @@ class AvatarService {
   static const String _baseUrl = 'https://xmlrpc.globalchat.org';
   static const String _defaultAvatarUrl = 'https://xmlrpc.globalchat.org/avatar/generate-default-avatar.php';
   static const int _customAvatarMinBytes = 10000;
+  static const String _webUploadProxyPath = '/api/avatar_upload_proxy.php';
   
   // Generar hash MD5 del nick (usando nick exacto case-sensitive como el plugin)
   static String _generateAvatarHash(String nick) {
@@ -202,7 +203,9 @@ class AvatarService {
         return const UploadAvatarResult(success: false, errorMessage: 'Hash de avatar inválido');
       }
 
-      final uri = Uri.parse('$_baseUrl/avatar/upload-custom-avatar.php');
+      final uri = PlatformUtils.isWeb
+          ? Uri.base.resolve(_webUploadProxyPath)
+          : Uri.parse('$_baseUrl/avatar/upload-custom-avatar.php');
       final request = http.MultipartRequest('POST', uri);
 
       request.fields['hash'] = hash;

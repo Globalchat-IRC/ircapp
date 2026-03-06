@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -43,6 +44,7 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
   bool _lastIsRobot = false;
   bool _triedDefaultAvatar = false;
   bool _gifPreferred = false;
+  bool _shouldTryStaticFallback = false;
 
   @override
   void initState() {
@@ -190,20 +192,18 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
     if (PlatformUtils.isWeb) {
       final staticUrl = AvatarService.getAvatarUrl(cleanNick);
       final gifUrl = AvatarService.getAvatarGifUrl(cleanNick);
-      final hasCustomGif = await AvatarService.avatarGifExists(cleanNick);
       final hasCustomStatic =
-          hasCustomGif ? false : await AvatarService.hasLikelyCustomStaticAvatar(cleanNick);
+          await AvatarService.hasLikelyCustomStaticAvatar(cleanNick);
 
       if (mounted) {
         setState(() {
           _staticAvatarUrl = staticUrl;
           _gifAvatarUrl = gifUrl;
-          _avatarUrl = hasCustomGif
-              ? gifUrl
-              : (hasCustomStatic ? staticUrl : null);
+          _avatarUrl = gifUrl;
           _avatarLoaded = true;
-          _gifPreferred = hasCustomGif;
-          _triedDefaultAvatar = !hasCustomGif && !hasCustomStatic;
+          _gifPreferred = true;
+          _shouldTryStaticFallback = hasCustomStatic;
+          _triedDefaultAvatar = !hasCustomStatic;
         });
       }
       return;
@@ -233,13 +233,24 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
     final fallback = widget.fallbackIcon ??
         customIcon ??
         (widget.nick.isNotEmpty ? widget.nick[0].toUpperCase() : '?');
+
+    final currentNick = ref.read(currentNicknameProvider);
+    final globalGif = ref.read(globalAvatarGifProvider);
+    final localOwnGif = PlatformUtils.isWeb &&
+            currentNick != null &&
+            currentNick.toLowerCase() == widget.nick.toLowerCase() &&
+            globalGif != null &&
+            globalGif.startsWith('data:image/gif;base64,')
+        ? globalGif
+        : null;
     
     // Detectar si el fallback es URL (emoticono JoyPixels), asset local o emoji/texto
     final isFallbackUrl = fallback.startsWith('http://') || fallback.startsWith('https://');
     final isFallbackAsset = fallback.startsWith('asset:');
     
     // Para usuarios normales, intentar cargar el avatar solo si tenemos una URL válida (no vacía)
-    final shouldTryLoadAvatar = !widget.isRobot &&
+    final shouldTryLoadAvatar = localOwnGif == null &&
+        !widget.isRobot &&
         _avatarUrl != null &&
         _avatarUrl!.trim().isNotEmpty;
     
@@ -268,7 +279,9 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
               child: child,
             );
           },
-          child: shouldTryLoadAvatar
+          child: localOwnGif != null
+              ? _buildDataUrlGif(localOwnGif)
+              : shouldTryLoadAvatar
               ? Image.network(
                   _avatarUrl!,
                   key: ValueKey('${widget.nick}_avatar_${widget.isRobot}_${_lastRefreshTimestamp ?? 0}'), // Incluir isRobot en la clave para forzar recarga cuando cambia
@@ -290,7 +303,9 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
                   },
                   errorBuilder: (context, error, stackTrace) {
                     final cleanNick = widget.nick.trim();
-                    if (_gifPreferred && _staticAvatarUrl != null) {
+                    if (_gifPreferred &&
+                        _shouldTryStaticFallback &&
+                        _staticAvatarUrl != null) {
                       _gifPreferred = false;
                       final nextUrl = _staticAvatarUrl!;
                       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -341,6 +356,30 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
           ),
       ],
     );
+  }
+
+  Widget _buildDataUrlGif(String dataUrl) {
+    try {
+      final base64Data = dataUrl.contains(',')
+          ? dataUrl.substring(dataUrl.indexOf(',') + 1)
+          : dataUrl;
+      final bytes = base64Decode(base64Data);
+      if (bytes.isEmpty) {
+        return const SizedBox.shrink();
+      }
+      return Image.memory(
+        Uint8List.fromList(bytes),
+        width: widget.size,
+        height: widget.size,
+        fit: BoxFit.contain,
+        gaplessPlayback: true,
+        errorBuilder: (context, error, stackTrace) {
+          return const SizedBox.shrink();
+        },
+      );
+    } catch (_) {
+      return const SizedBox.shrink();
+    }
   }
   
   Widget _buildFallback(String fallback, bool isUrl, bool isAsset, {Key? key}) {

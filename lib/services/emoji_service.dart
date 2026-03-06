@@ -928,6 +928,7 @@ class EmojiService {
     ':))': ':grin:',
     ':-)': ':smile:',
     ':)': ':smile:',
+    ';o)': ':wink:',
     ';-)': ':wink:',
     ';)': ':wink:',
     ':-P': ':stuck_out_tongue:',

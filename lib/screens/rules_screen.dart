@@ -189,7 +189,7 @@ class RulesScreen extends ConsumerWidget {
               ),
             ),
           ),
-      ),
+        ),
       ),
     );
   }

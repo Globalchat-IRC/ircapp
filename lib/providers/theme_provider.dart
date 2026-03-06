@@ -20,6 +20,8 @@ class ThemeNotifier extends Notifier<AppTheme> {
     for (int i = 0; i < withAccents.length; i++) {
       s = s.replaceAll(withAccents[i], withoutAccents[i]);
     }
+    // Permitir parámetros más cómodos en URL: sin espacios, guiones o underscores.
+    s = s.replaceAll(RegExp(r'[\s\-_]+'), '');
     return s;
   }
 
@@ -30,14 +32,41 @@ class ThemeNotifier extends Notifier<AppTheme> {
     'claro': 'Claro',
     'light': 'Claro',
     'globalchat': 'GlobalChat',
+    'sistema': 'Sistema',
+    'system': 'Sistema',
     'naranja': 'Naranja',
     'orange': 'Naranja',
     'azul': 'Azul',
     'blue': 'Azul',
     'verde': 'Verde',
     'green': 'Verde',
-    'sistema': 'Sistema',
-    'system': 'Sistema',
+    'purpura': 'Púrpura',
+    'purple': 'Púrpura',
+    'rojo': 'Rojo',
+    'red': 'Rojo',
+    'rosa': 'Rosa',
+    'pink': 'Rosa',
+    'amarillo': 'Amarillo',
+    'yellow': 'Amarillo',
+    'cyan': 'Cyan',
+    'indigo': 'Índigo',
+    'esmeralda': 'Esmeralda',
+    'emerald': 'Esmeralda',
+    'teal': 'Teal',
+    'fucsia': 'Fucsia',
+    'fuchsia': 'Fucsia',
+    'lima': 'Lima',
+    'lime': 'Lima',
+    'ambar': 'Ámbar',
+    'amber': 'Ámbar',
+    'violeta': 'Violeta',
+    'violet': 'Violeta',
+    'radioactive': 'Radioactive',
+    'semanasantasevilla': 'Semana Santa Sevilla',
+    'holyweeksevilla': 'Semana Santa Sevilla',
+    'canalsur': 'Canal Sur',
+    'nuestrasvoces': 'NuestrasVoces',
+    'mirc': 'mIRC',
   };
 
   @override
@@ -101,6 +130,36 @@ class ThemeNotifier extends Notifier<AppTheme> {
     
     // Si no hay tema en la URL o no estamos en web, cargar desde SharedPreferences
     await _loadTheme();
+  }
+
+  /// Aplica un tema recibido por parámetro URL sin guardarlo en preferencias.
+  /// Devuelve true si se reconoció y aplicó correctamente.
+  bool applyThemeParam(String? themeParam) {
+    if (themeParam == null || themeParam.trim().isEmpty) return false;
+
+    final normalizedInput = _normalizeThemeName(themeParam);
+
+    String? canonicalName = _themeParamAliases[normalizedInput];
+    if (canonicalName == null) {
+      for (final t in AppTheme.themes) {
+        if (_normalizeThemeName(t.name) == normalizedInput) {
+          canonicalName = t.name;
+          break;
+        }
+      }
+    }
+
+    if (canonicalName == null) return false;
+
+    for (final t in AppTheme.themes) {
+      if (t.name == canonicalName) {
+        state = t;
+        _themeLoaded = true;
+        return true;
+      }
+    }
+
+    return false;
   }
 
   Future<void> _loadTheme() async {

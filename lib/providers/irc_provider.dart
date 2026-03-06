@@ -1893,6 +1893,7 @@ class MessageFormatPreferences {
   final MessageFormat channelFormat;
   final MessageFormat privateFormat;
   final bool showTimestamp;
+  final bool showInlineChannelAvatar;
   final double channelFontSize;
   final double privateFontSize;
   final String channelFontFamily;
@@ -1909,6 +1910,7 @@ class MessageFormatPreferences {
     this.channelFormat = MessageFormat.plain,
     this.privateFormat = MessageFormat.plain,
     this.showTimestamp = true,
+    this.showInlineChannelAvatar = true,
     this.channelFontSize = 15.0,
     this.privateFontSize = 15.0,
     this.channelFontFamily = 'Roboto',
@@ -1924,6 +1926,7 @@ class MessageFormatPreferences {
     MessageFormat? channelFormat,
     MessageFormat? privateFormat,
     bool? showTimestamp,
+    bool? showInlineChannelAvatar,
     double? channelFontSize,
     double? privateFontSize,
     String? channelFontFamily,
@@ -1938,6 +1941,8 @@ class MessageFormatPreferences {
       channelFormat: channelFormat ?? this.channelFormat,
       privateFormat: privateFormat ?? this.privateFormat,
       showTimestamp: showTimestamp ?? this.showTimestamp,
+      showInlineChannelAvatar:
+          showInlineChannelAvatar ?? this.showInlineChannelAvatar,
       channelFontSize: channelFontSize ?? this.channelFontSize,
       privateFontSize: privateFontSize ?? this.privateFontSize,
       channelFontFamily: channelFontFamily ?? this.channelFontFamily,
@@ -1962,6 +1967,8 @@ class MessageFormatPreferencesNotifier
   static const _prefsKeyChannel = 'message_format_channel';
   static const _prefsKeyPrivate = 'message_format_private';
   static const _prefsKeyShowTimestamp = 'message_show_timestamp';
+  static const _prefsKeyShowInlineChannelAvatar =
+      'message_show_inline_channel_avatar';
   static const _prefsKeyChannelFontSize = 'message_channel_font_size';
   static const _prefsKeyPrivateFontSize = 'message_private_font_size';
   static const _prefsKeyChannelFontFamily = 'message_channel_font_family';
@@ -1985,6 +1992,8 @@ class MessageFormatPreferencesNotifier
       final channelRaw = prefs.getString(_prefsKeyChannel) ?? 'plain';
       final privateRaw = prefs.getString(_prefsKeyPrivate) ?? 'plain';
       final showTimestamp = prefs.getBool(_prefsKeyShowTimestamp) ?? true;
+      final showInlineChannelAvatar =
+          prefs.getBool(_prefsKeyShowInlineChannelAvatar) ?? true;
       final channelFontSize = prefs.getDouble(_prefsKeyChannelFontSize) ?? 15.0;
       final privateFontSize = prefs.getDouble(_prefsKeyPrivateFontSize) ?? 15.0;
       final channelFontFamily = prefs.getString(_prefsKeyChannelFontFamily) ?? 'Roboto';
@@ -2007,6 +2016,7 @@ class MessageFormatPreferencesNotifier
         channelFormat: channelFormat,
         privateFormat: privateFormat,
         showTimestamp: showTimestamp,
+        showInlineChannelAvatar: showInlineChannelAvatar,
         channelFontSize: channelFontSize,
         privateFontSize: privateFontSize,
         channelFontFamily: channelFontFamily,
@@ -2049,6 +2059,16 @@ class MessageFormatPreferencesNotifier
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool(_prefsKeyShowTimestamp, show);
+    } catch (_) {
+      // Ignorar errores de guardado
+    }
+  }
+
+  Future<void> setShowInlineChannelAvatar(bool show) async {
+    state = state.copyWith(showInlineChannelAvatar: show);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_prefsKeyShowInlineChannelAvatar, show);
     } catch (_) {
       // Ignorar errores de guardado
     }
@@ -2266,11 +2286,15 @@ class GlobalAvatarGifNotifier extends Notifier<String?> {
       AvatarService.uploadAvatarGif(nick.trim(), bytes).then((result) {
         if (result.success && result.url != null && result.url!.isNotEmpty) {
           // Sustituir la data URL local por la URL remota en el servidor
-          setGlobalAvatarGif(result.url);
+          if (!PlatformUtils.isWeb) {
+            setGlobalAvatarGif(result.url);
+          }
         } else if (!result.success) {
           // Para revisar si la subida falla: abre la consola del navegador (F12) y busca este mensaje
           debugLog('🖼️ [AVATAR] Subida automática GIF falló: ${result.errorMessage}');
         }
+      }).catchError((error) {
+        debugLog('🖼️ [AVATAR] Excepción en subida automática GIF: $error');
       });
     } catch (_) {}
   }

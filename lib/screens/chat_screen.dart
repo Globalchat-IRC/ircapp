@@ -355,6 +355,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   final WebNotificationService _webNotificationService = WebNotificationService();
   late final ScheduledMessagesService _scheduledMessagesService;
   int _unreadCount = 0;
+  bool _nickIdentifyDialogOpen = false;
+  bool _autoNickIdentifyDialogShown = false;
   
   // Listener para canales de ayuda
   Function(String)? _helpChannelJoinListener;
@@ -705,6 +707,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       final currentChannel = ref.read(currentChannelProvider);
       final messageChannel = message.channel.toLowerCase();
       final currentChannelLower = currentChannel?.toLowerCase();
+
+      if (_shouldAutoShowNickIdentifyDialog(message)) {
+        _autoNickIdentifyDialogShown = true;
+        ref.read(nickIdentifyModalAllowedProvider.notifier).state = false;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          _showNickIdentifyDialog(context);
+        });
+      }
       
       // Añadir a recientes el canal de cualquier mensaje recibido
       ref.read(recentChannelsProvider.notifier).addRecent(messageChannel);
@@ -855,6 +866,34 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         }
       }
     }
+  }
+
+  bool _shouldAutoShowNickIdentifyDialog(IRCMessage message) {
+    if (_autoNickIdentifyDialogShown || _nickIdentifyDialogOpen) {
+      return false;
+    }
+
+    final allowNickModal = ref.read(nickIdentifyModalAllowedProvider);
+    if (!allowNickModal) {
+      return false;
+    }
+
+    if (!_isNickRegistrationMessage(message)) {
+      return false;
+    }
+
+    final messageLower = message.message.toLowerCase();
+    final isNotRegistered = messageLower.contains('no está registrado') ||
+        messageLower.contains('no esta registrado') ||
+        messageLower.contains('no registrado');
+
+    if (isNotRegistered) {
+      return false;
+    }
+
+    return messageLower.contains('está registrado') ||
+        messageLower.contains('esta registrado') ||
+        (messageLower.contains('protegido') && !messageLower.contains('no'));
   }
 
   Future<void> _loadHistoryIfNeeded(String channel) async {
@@ -1408,13 +1447,107 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       _ircService.partChannel(currentChannel);
     }
   }
-  void _handlePreferences() {
-    Navigator.push(
+  Future<void> _handlePreferences() async {
+    await Navigator.push(
       context,
       MaterialPageRoute(builder: (context) => const SettingsScreen()),
     );
+    final currentNick = ref.read(currentNicknameProvider);
+    if (currentNick != null && currentNick.trim().isNotEmpty) {
+      ref.read(avatarRefreshProvider.notifier).refreshAvatar(currentNick.trim());
+      Future.delayed(const Duration(seconds: 3), () {
+        ref.read(avatarRefreshProvider.notifier).refreshAvatar(currentNick.trim());
+      });
+    }
   }
   void _handleExportLogs() => _exportCurrentChannel();
+
+  IRCChannel? _getChannelDataFor(String? channel, Map<String, IRCChannel> channels) {
+    if (channel == null) return null;
+    for (final entry in channels.entries) {
+      if (entry.key.toLowerCase() == channel.toLowerCase()) {
+        return entry.value;
+      }
+    }
+    return null;
+  }
+
+  Widget _buildCurrentUserHeaderAvatar(
+    String nickname,
+    String? currentChannel,
+    Map<String, IRCChannel> channels,
+  ) {
+    final currentChannelData = _getChannelDataFor(currentChannel, channels);
+    final customRobots = ref.read(customRobotsProvider);
+    final customRobotsData = customRobots
+        .map((r) => {
+              'nick': r.nick,
+              'icon': r.icon,
+              'host': r.host,
+            })
+        .toList();
+
+    String? userMode;
+    var isRobot = false;
+    if (currentChannelData != null) {
+      userMode = currentChannelData.getUserMode(nickname);
+      isRobot = currentChannelData.isRobot(
+        nickname,
+        customRobots: customRobotsData,
+      );
+    }
+
+    final userIcon = _getUserIcon(userMode, isRobot, nick: nickname);
+    final userColor =
+        isRobot ? const Color(0xFFFFD700) : _getUserColor(nickname.hashCode);
+
+    return GestureDetector(
+      onTap: () {
+        _showProfileConfigMenu(context, nickname);
+      },
+      child: Padding(
+        padding: const EdgeInsets.all(6.0),
+        child: UserAvatar(
+          nick: nickname,
+          size: PlatformUtils.isWeb ? 46 : 32,
+          fallbackIcon: isRobot ? userIcon : null,
+          isRobot: isRobot,
+          gradient: isRobot
+              ? LinearGradient(
+                  colors: [
+                    const Color(0xFFFFD700),
+                    const Color(0xFFFFA500),
+                  ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                )
+              : LinearGradient(
+                  colors: [
+                    userColor,
+                    userColor.withOpacity(0.7),
+                  ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+          boxShadow: [
+            BoxShadow(
+              color: isRobot
+                  ? const Color(0xFFFFD700).withOpacity(0.5)
+                  : userColor.withOpacity(0.4),
+              blurRadius: PlatformUtils.isWeb ? 6 : 4,
+              offset: const Offset(0, 1),
+            ),
+          ],
+          border: isRobot
+              ? Border.all(
+                  color: const Color(0xFFFFD700).withOpacity(0.6),
+                  width: 1.5,
+                )
+              : null,
+        ),
+      ),
+    );
+  }
   
   // Inicializar perfil de usuario para videoconferencias
   Future<void> _initializeUserProfile() async {
@@ -5750,20 +5883,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         child: Scaffold(
         backgroundColor: appTheme.background,
         appBar: AppBar(
-          leading: PlatformUtils.isWeb
-              ? null
-              : nickname != null
-              ? GestureDetector(
-                  onTap: () {
-                    _showProfileConfigMenu(context, nickname!);
-                  },
-                  child: Padding(
-                    padding: const EdgeInsets.all(8.0),
-                    child: UserAvatar(
-                      nick: nickname!,
-                      size: 32,
-                    ),
-                  ),
+          leading: nickname != null
+              ? _buildCurrentUserHeaderAvatar(
+                  nickname!,
+                  currentChannel,
+                  channels,
                 )
               : null,
           title: LayoutBuilder(
@@ -6224,13 +6348,20 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     IconButton(
                       icon: const Icon(Icons.settings),
                       tooltip: 'Ajustes Globales',
-                      onPressed: () {
-                        Navigator.push(
+                      onPressed: () async {
+                        await Navigator.push(
                           context,
                           MaterialPageRoute(
                             builder: (context) => const SettingsScreen(),
                           ),
                         );
+                        final currentNick = ref.read(currentNicknameProvider);
+                        if (currentNick != null && currentNick.trim().isNotEmpty) {
+                          ref.read(avatarRefreshProvider.notifier).refreshAvatar(currentNick.trim());
+                          Future.delayed(const Duration(seconds: 3), () {
+                            ref.read(avatarRefreshProvider.notifier).refreshAvatar(currentNick.trim());
+                          });
+                        }
                       },
                     ),
                     IconButton(
@@ -6640,6 +6771,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                   child: TextButton.icon(
                                     onPressed: () {
                                       final toRemove = _ircService.allChannels.keys.where((k) => !k.startsWith('#')).toList();
+                                      final recentPrivates = List<String>.from(ref.read(recentChannelsProvider))
+                                          .where((c) => !c.startsWith('#'))
+                                          .toList();
+                                      final robotNicks = ref
+                                          .read(customRobotsProvider)
+                                          .map((robot) => robot.nick.toLowerCase())
+                                          .toSet();
                                       for (final k in toRemove) {
                                         _ircService.allChannels.remove(k);
                                       }
@@ -6647,6 +6785,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                       ref.read(channelsProvider.notifier).updateChannels();
                                       for (final ch in toRemove) {
                                         ref.read(unreadMessagesProvider.notifier).markAsRead(ch);
+                                      }
+                                      for (final recentPrivate in recentPrivates) {
+                                        if (robotNicks.contains(recentPrivate.toLowerCase())) {
+                                          ref.read(recentChannelsProvider.notifier).removeRecent(recentPrivate);
+                                        }
                                       }
                                       final cur = ref.read(currentChannelProvider);
                                       if (cur != null && !cur.startsWith('#')) {
@@ -8423,6 +8566,25 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final appTheme = ref.read(themeProvider);
     final formatPrefs = ref.read(messageFormatPreferencesProvider);
     final showTimestamp = formatPrefs.showTimestamp;
+    final showInlineChannelAvatar = formatPrefs.showInlineChannelAvatar;
+    final isChannel = message.channel.startsWith('#');
+    final channelData = ref.read(channelsProvider)[message.channel.toLowerCase()];
+    final customRobots = ref.read(customRobotsProvider);
+    final customRobotsData = customRobots
+        .map((r) => {
+              'nick': r.nick,
+              'icon': r.icon,
+              'host': r.host,
+            })
+        .toList();
+    final isBot = channelData != null
+        ? channelData.isRobot(message.nick, customRobots: customRobotsData)
+        : customRobotsData.any(
+            (r) => (r['nick'] as String?)?.toLowerCase() == message.nick.toLowerCase(),
+          );
+    final userMode = channelData?.getUserMode(message.nick);
+    final userColor = isBot ? const Color(0xFFFFD700) : _getUserColor(message.nick.hashCode);
+    final userIcon = _getUserIcon(userMode, isBot, nick: message.nick);
     
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -8441,11 +8603,65 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           children: [
             Row(
               children: [
+                if (isChannel && showInlineChannelAvatar) ...[
+                  GestureDetector(
+                    onTap: () => _showUserContextMenu(context, message.nick),
+                    child: UserAvatar(
+                      nick: message.nick,
+                      size: 18,
+                      fallbackIcon: isBot ? userIcon : null,
+                      isRobot: isBot,
+                      gradient: isBot
+                          ? LinearGradient(
+                              colors: [
+                                const Color(0xFFFFD700),
+                                const Color(0xFFFFA500),
+                              ],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            )
+                          : LinearGradient(
+                              colors: [
+                                userColor,
+                                userColor.withOpacity(0.7),
+                              ],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: isBot
+                              ? const Color(0xFFFFD700).withOpacity(0.3)
+                              : userColor.withOpacity(0.2),
+                          blurRadius: 3,
+                          offset: const Offset(0, 1),
+                        ),
+                      ],
+                      border: isBot
+                          ? Border.all(
+                              color: const Color(0xFFFFD700).withOpacity(0.45),
+                              width: 1,
+                            )
+                          : null,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                ],
                 Text(
                   message.nick,
                   style: TextStyle(
-                    color: isOwnMessage ? appTheme.primary : appTheme.accent,
-                    fontWeight: FontWeight.bold,
+                    color: isOwnMessage
+                        ? appTheme.primary
+                        : isBot
+                            ? const Color(0xFFB8860B)
+                            : userMode == '@' || userMode == '&'
+                                ? const Color(0xFFFFD700)
+                                : userMode == '%'
+                                    ? const Color(0xFFFFA500)
+                                    : userMode == '+'
+                                        ? const Color(0xFF87CEEB)
+                                        : appTheme.accent,
+                    fontWeight: (isBot || userMode != null) ? FontWeight.w700 : FontWeight.bold,
                     fontSize: 14,
                   ),
                 ),
@@ -8722,6 +8938,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     
     // Obtener preferencia de mostrar timestamp (formatPrefs ya está declarado arriba)
     final showTimestamp = formatPrefs.showTimestamp;
+    final showInlineChannelAvatar = formatPrefs.showInlineChannelAvatar;
     
     // Obtener inicial del usuario para el avatar (o emoji para bots/modos especiales)
     final userIcon = _getUserIcon(userMode, isBot, nick: message.nick);
@@ -8735,7 +8952,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         mainAxisAlignment: isOwnMessage ? MainAxisAlignment.end : MainAxisAlignment.start,
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          if (!isOwnMessage) ...[
+          if (!isOwnMessage && !isChannel) ...[
             // Avatar moderno con gradiente (especial para bots) - clickeable
             GestureDetector(
               onTap: () => _showUserContextMenu(context, message.nick),
@@ -8858,6 +9075,47 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
+                            if (isChannel && showInlineChannelAvatar) ...[
+                              UserAvatar(
+                                nick: message.nick,
+                                size: 20,
+                                fallbackIcon: isBot ? userIcon : null,
+                                isRobot: isBot,
+                                gradient: isBot
+                                    ? LinearGradient(
+                                        colors: [
+                                          const Color(0xFFFFD700),
+                                          const Color(0xFFFFA500),
+                                        ],
+                                        begin: Alignment.topLeft,
+                                        end: Alignment.bottomRight,
+                                      )
+                                    : LinearGradient(
+                                        colors: [
+                                          userColor,
+                                          userColor.withOpacity(0.7),
+                                        ],
+                                        begin: Alignment.topLeft,
+                                        end: Alignment.bottomRight,
+                                      ),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: isBot
+                                        ? const Color(0xFFFFD700).withOpacity(0.35)
+                                        : userColor.withOpacity(0.25),
+                                    blurRadius: 3,
+                                    offset: const Offset(0, 1),
+                                  ),
+                                ],
+                                border: isBot
+                                    ? Border.all(
+                                        color: const Color(0xFFFFD700).withOpacity(0.45),
+                                        width: 1,
+                                      )
+                                    : null,
+                              ),
+                              const SizedBox(width: 6),
+                            ],
                             if (isBot || userMode != null) ...[
                               Text('$userIcon ', style: const TextStyle(fontSize: 14)),
                             ],
@@ -12349,7 +12607,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             ? Builder(
                 builder: (context) {
                   // Para mensajes privados, mostrar el avatar del usuario
-                  final nick = channel; // En queries, el channel es el nick del usuario
+                  final nick = _resolvePrivateDisplayNick(channel);
                   final customRobots = ref.read(customRobotsProvider);
                   final customRobotsData = customRobots.map((r) => {
                     'nick': r.nick,
@@ -12382,10 +12640,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   
                   // Obtener icono del usuario
                   final userIcon = _getUserIcon(null, isRobot, nick: nick);
-                  final userInitial = isRobot || userIcon != null ? userIcon : (nick.isNotEmpty 
-                      ? nick[0].toUpperCase() 
-                      : '?');
-                  
                   // Generar color para el avatar
                   final nickHash = nick.hashCode;
                   final userColor = isRobot ? const Color(0xFFFFD700) : _getUserColor(nickHash);
@@ -12393,7 +12647,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   return UserAvatar(
                     nick: nick,
                     size: 32,
-                    fallbackIcon: userInitial,
+                    fallbackIcon: isRobot ? userIcon : null,
                     isRobot: isRobot, // Asegurar que isRobot se pase correctamente (false para usuarios normales)
                     gradient: isRobot
                         ? LinearGradient(
@@ -13059,6 +13313,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   }
 
   void _showNickIdentifyDialog(BuildContext context) {
+    if (_nickIdentifyDialogOpen) return;
+    _nickIdentifyDialogOpen = true;
     final appTheme = ref.read(themeProvider);
     final currentNick = ref.read(currentNicknameProvider) ?? '';
     final passwordController = TextEditingController();
@@ -13305,7 +13561,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           ),
         ),
       ),
-    );
+    ).whenComplete(() {
+      _nickIdentifyDialogOpen = false;
+    });
   }
 
   void _showNickRegistrationDialog(BuildContext context) {
@@ -17045,6 +17303,29 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     );
   }
 
+  String _resolvePrivateDisplayNick(String queryChannel) {
+    final normalizedQuery = queryChannel.toLowerCase();
+    final channels = ref.read(channelsProvider);
+
+    for (final channelData in channels.values) {
+      for (final user in channelData.users) {
+        if (user.toLowerCase() == normalizedQuery) {
+          return user;
+        }
+      }
+    }
+
+    final messages = ref.read(messagesProvider);
+    for (final message in messages.reversed) {
+      if (message.channel.toLowerCase() == normalizedQuery &&
+          message.nick.toLowerCase() == normalizedQuery) {
+        return message.nick;
+      }
+    }
+
+    return queryChannel;
+  }
+
   void _showClearChannelHistoryDialog(BuildContext context, String channel) {
     final appTheme = ref.read(themeProvider);
     
@@ -19197,7 +19478,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                           const SizedBox(height: 12),
                           _buildAcknowledgmentItem(
                             appTheme,
-                            'weed',
+                            'error404',
                             'Por sus valiosas contribuciones y feedback',
                           ),
                           const SizedBox(height: 8),
@@ -19217,6 +19498,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                             appTheme,
                             'Mar',
                             'Por testear la aplicación y notificar fallos',
+                          ),
+                          const SizedBox(height: 8),
+                          _buildAcknowledgmentItem(
+                            appTheme,
+                            'ChiP',
+                            'Por su ayuda incansable a lo largo de los años',
                           ),
                           const SizedBox(height: 12),
                           Text(

@@ -239,8 +239,12 @@ class _MyAppState extends ConsumerState<MyApp> with WidgetsBindingObserver {
     //   }
     // });
 
-    // El tema de la URL ya se maneja en ThemeNotifier._initializeTheme()
-    // No necesitamos aplicarlo aquí para evitar conflictos
+    if (widget.initialTheme != null && widget.initialTheme!.trim().isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        ref.read(themeProvider.notifier).applyThemeParam(widget.initialTheme);
+      });
+    }
   }
 
   @override
@@ -291,30 +295,6 @@ class _MyAppState extends ConsumerState<MyApp> with WidgetsBindingObserver {
     }
   }
   
-  void _applyThemeFromUrl(String themeName) {
-    try {
-      // Buscar el tema por nombre (case-insensitive y sin espacios extra)
-      final normalizedThemeName = themeName.trim().toLowerCase();
-      AppTheme? foundTheme;
-      
-      // Buscar en todos los temas
-      for (final theme in AppTheme.themes) {
-        if (theme.name.toLowerCase().trim() == normalizedThemeName) {
-          foundTheme = theme;
-          break;
-        }
-      }
-      
-      // Solo aplicar si encontramos el tema correcto
-      if (foundTheme != null) {
-        // Aplicar el tema usando el notifier (esto también guarda en SharedPreferences)
-        ref.read(themeProvider.notifier).setTheme(foundTheme);
-      }
-    } catch (e) {
-      // Si hay error, no hacer nada (el provider ya maneja el tema)
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final appTheme = ref.watch(themeProvider);

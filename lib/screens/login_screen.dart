@@ -55,6 +55,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   bool _geolocationEnabled = false;
   /// Si true, se considera validada la edad (mayor de 18) por parámetro URL; no hace falta marcar el checkbox.
   bool _urlAge18Validated = false;
+  /// Si true, las reglas se aceptaron por parámetro URL.
+  bool _urlRulesAccepted = false;
   /// Canal leído del parámetro URL (channel=). Se usa cuando geolocation=false para autojoin y como fallback en _connect().
   String? _urlChannel;
   /// Si el nick vino por URL (para no sobrescribir con el guardado).
@@ -156,8 +158,13 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           final joinOficialParam = fullUri.queryParameters['joinchanneloficial'];
           // geolocation: true (default) = usar ciudad/país y servidor por GeoIP; false = desactivar geolocalización
           final geolocationParam = fullUri.queryParameters['geolocation'];
-          // age18: true = usuario confirma ser mayor de 18 (validación por URL, no hace falta checkbox)
-          final age18Param = fullUri.queryParameters['age18'];
+          // age18 / age: true = usuario confirma ser mayor de edad por URL.
+          // `age=true` se mantiene por compatibilidad con enlaces ya existentes.
+          final age18Param = fullUri.queryParameters['age18'] ?? fullUri.queryParameters['age'];
+          // rules / reglas / normas: acepta automáticamente las reglas del canal/red.
+          final rulesParam = fullUri.queryParameters['rules'] ??
+              fullUri.queryParameters['reglas'] ??
+              fullUri.queryParameters['normas'];
           // guest / invitado: mismo comportamiento que "Entrar como invitado" (nick Invitado+nums, #globalchat, conectar)
           final guestParam = fullUri.queryParameters['guest'] ?? fullUri.queryParameters['invitado'];
           
@@ -169,6 +176,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               _confirmOver14 = true;
               _acceptRules = true;
               _urlAge18Validated = true;
+              _urlRulesAccepted = true;
               debugLog('🔍 [URL] ✅ guest/invitado=1: entrar como invitado por parámetro');
             }
           }
@@ -222,7 +230,19 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           if (age18Param != null) {
             final v = age18Param.toLowerCase().trim();
             _urlAge18Validated = v == 'true' || v == '1' || v == 'yes';
-            if (_urlAge18Validated) _confirmOver14 = true;
+            if (_urlAge18Validated) {
+              // Compatibilidad: los enlaces con age=true deben dejar el login listo.
+              _confirmOver14 = true;
+              _acceptRules = true;
+              _urlRulesAccepted = true;
+            }
+          }
+          if (rulesParam != null) {
+            final v = rulesParam.toLowerCase().trim();
+            if (v == 'true' || v == '1' || v == 'yes') {
+              _acceptRules = true;
+              _urlRulesAccepted = true;
+            }
           }
         } else {
           // Fallback a Uri.base si location.href está vacío
@@ -235,7 +255,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           final autoJoinParam = uri.queryParameters['autojoin'];
           final joinOficialParam = uri.queryParameters['joinchanneloficial'];
           final geolocationParam = uri.queryParameters['geolocation'];
-          final age18Param = uri.queryParameters['age18'];
+          final age18Param = uri.queryParameters['age18'] ?? uri.queryParameters['age'];
+          final rulesParam = uri.queryParameters['rules'] ??
+              uri.queryParameters['reglas'] ??
+              uri.queryParameters['normas'];
           final guestParam = uri.queryParameters['guest'] ?? uri.queryParameters['invitado'];
           
           if (guestParam != null) {
@@ -246,6 +269,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               _confirmOver14 = true;
               _acceptRules = true;
               _urlAge18Validated = true;
+              _urlRulesAccepted = true;
               debugLog('🔍 [URL] ✅ guest/invitado=1 (Uri.base): entrar como invitado por parámetro');
             }
           }
@@ -292,7 +316,18 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           if (age18Param != null) {
             final v = age18Param.toLowerCase().trim();
             _urlAge18Validated = v == 'true' || v == '1' || v == 'yes';
-            if (_urlAge18Validated) _confirmOver14 = true;
+            if (_urlAge18Validated) {
+              _confirmOver14 = true;
+              _acceptRules = true;
+              _urlRulesAccepted = true;
+            }
+          }
+          if (rulesParam != null) {
+            final v = rulesParam.toLowerCase().trim();
+            if (v == 'true' || v == '1' || v == 'yes') {
+              _acceptRules = true;
+              _urlRulesAccepted = true;
+            }
           }
         }
         
@@ -300,10 +335,15 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         _urlChannel = urlChannel;
         // Debug: verificar que se leyeron los parámetros
         debugLog('🔍 [URL] Parámetros finales - nick: $urlNick, channel: $urlChannel, autojoin: $autoJoin, joinchanneloficial: $joinChannelOficialFromUrl, geolocation: $_geolocationEnabled, age18: $_urlAge18Validated, guest: $_guestFromUrl');
-        // Forzar rebuild si age18 desde URL para que el checkbox se muestre
-        if (_urlAge18Validated) {
+        // Forzar rebuild si la URL activa checks para que se reflejen visualmente.
+        if (_urlAge18Validated || _urlRulesAccepted) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted) setState(() {});
+            if (mounted) {
+              setState(() {
+                if (_urlAge18Validated) _confirmOver14 = true;
+                if (_urlAge18Validated || _urlRulesAccepted) _acceptRules = true;
+              });
+            }
           });
         }
       } catch (e) {
@@ -374,6 +414,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       
       // Cargar preferencias guardadas (último nick, canal, recordar identificar)
       await _loadLoginPrefs();
+      if (mounted && (_urlAge18Validated || _urlRulesAccepted)) {
+        setState(() {
+          if (_urlAge18Validated) _confirmOver14 = true;
+          if (_urlAge18Validated || _urlRulesAccepted) _acceptRules = true;
+        });
+      }
       // Aplicar servidor guardado (para reconexión automática)
       if (mounted) {
         final profile = ref.read(currentServerProfileProvider);

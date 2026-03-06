@@ -39,6 +39,11 @@ echo "📊 Información del build:"
 ls -lh build/web/main.dart.js
 echo ""
 
+# Rutas reales en ceres
+REMOTE_WEB_ROOT="/var/www/mobilev1.globalchat.org"
+REMOTE_API_ROOT="$REMOTE_WEB_ROOT/api"
+REMOTE_LEGACY_ROOT="/var/www/irc_app"
+
 # 3. Subir archivos
 echo "📤 Paso 2: Subiendo archivos a ceres..."
 rsync -avz --delete --progress --exclude='NOTICES' --exclude='*.md' --exclude='*.txt' --exclude='*.log' --exclude='*.yaml' --exclude='*.yml' build/web/ ceres.globalchat.org:/tmp/irc_app_build/
@@ -48,30 +53,30 @@ echo ""
 
 # 4. Mover y configurar permisos
 echo "🔐 Paso 3: Configurando permisos en ceres..."
-ssh ceres.globalchat.org "sudo rm -rf /var/www/irc_app/* && sudo cp -r /tmp/irc_app_build/* /var/www/irc_app/ && sudo chown -R www-data:www-data /var/www/irc_app && sudo chmod -R 755 /var/www/irc_app && sudo rm -f /var/www/irc_app/assets/NOTICES && rm -rf /tmp/irc_app_build"
+ssh ceres.globalchat.org "sudo mkdir -p $REMOTE_WEB_ROOT $REMOTE_LEGACY_ROOT && sudo rm -rf $REMOTE_WEB_ROOT/* && sudo cp -r /tmp/irc_app_build/* $REMOTE_WEB_ROOT/ && sudo rm -rf $REMOTE_LEGACY_ROOT/* && sudo cp -r /tmp/irc_app_build/* $REMOTE_LEGACY_ROOT/ && sudo chown -R www-data:www-data $REMOTE_WEB_ROOT $REMOTE_LEGACY_ROOT && sudo chmod -R 755 $REMOTE_WEB_ROOT $REMOTE_LEGACY_ROOT && sudo rm -f $REMOTE_WEB_ROOT/assets/NOTICES $REMOTE_LEGACY_ROOT/assets/NOTICES && rm -rf /tmp/irc_app_build"
 
 echo "✅ Permisos configurados"
 echo ""
 
 # 5. Desplegar backend (API de Mixcloud)
 echo "📡 Paso 4: Desplegando backend (API)..."
-ssh ceres.globalchat.org "sudo mkdir -p /var/www/irc_app/api"
-scp gateway/mixcloud_stream_extractor.php gateway/mixcloud_stream_proxy.php gateway/mixcloud_stream_extractor.sh gateway/mixcloud_stream_extractor_playwright.js gateway/mixcloud_recorded_extractor.php gateway/mixcloud_recorded_stream_playwright.js ceres.globalchat.org:/tmp/
-ssh ceres.globalchat.org "sudo mv /tmp/mixcloud_stream_extractor.php /tmp/mixcloud_stream_proxy.php /tmp/mixcloud_stream_extractor.sh /tmp/mixcloud_stream_extractor_playwright.js /tmp/mixcloud_recorded_extractor.php /tmp/mixcloud_recorded_stream_playwright.js /var/www/irc_app/api/ && sudo chown www-data:www-data /var/www/irc_app/api/* && sudo chmod 755 /var/www/irc_app/api/*"
+ssh ceres.globalchat.org "sudo mkdir -p $REMOTE_API_ROOT $REMOTE_LEGACY_ROOT/api"
+scp gateway/mixcloud_stream_extractor.php gateway/mixcloud_stream_proxy.php gateway/mixcloud_stream_extractor.sh gateway/mixcloud_stream_extractor_playwright.js gateway/mixcloud_recorded_extractor.php gateway/mixcloud_recorded_stream_playwright.js gateway/avatar_upload_proxy.php ceres.globalchat.org:/tmp/
+ssh ceres.globalchat.org "sudo cp /tmp/mixcloud_stream_extractor.php /tmp/mixcloud_stream_proxy.php /tmp/mixcloud_stream_extractor.sh /tmp/mixcloud_stream_extractor_playwright.js /tmp/mixcloud_recorded_extractor.php /tmp/mixcloud_recorded_stream_playwright.js /tmp/avatar_upload_proxy.php $REMOTE_API_ROOT/ && sudo cp /tmp/mixcloud_stream_extractor.php /tmp/mixcloud_stream_proxy.php /tmp/mixcloud_stream_extractor.sh /tmp/mixcloud_stream_extractor_playwright.js /tmp/mixcloud_recorded_extractor.php /tmp/mixcloud_recorded_stream_playwright.js /tmp/avatar_upload_proxy.php $REMOTE_LEGACY_ROOT/api/ && sudo rm -f /tmp/mixcloud_stream_extractor.php /tmp/mixcloud_stream_proxy.php /tmp/mixcloud_stream_extractor.sh /tmp/mixcloud_stream_extractor_playwright.js /tmp/mixcloud_recorded_extractor.php /tmp/mixcloud_recorded_stream_playwright.js /tmp/avatar_upload_proxy.php && sudo chown www-data:www-data $REMOTE_API_ROOT/* $REMOTE_LEGACY_ROOT/api/* && sudo chmod 755 $REMOTE_API_ROOT/* $REMOTE_LEGACY_ROOT/api/*"
 
 echo "📦 Instalando dependencias de Playwright..."
 # Instalar Playwright localmente en el directorio api
-ssh ceres.globalchat.org "cd /var/www/irc_app/api && sudo npm install playwright --prefix /var/www/irc_app/api 2>&1 | tail -5 || echo '⚠️  npm install failed'"
+ssh ceres.globalchat.org "cd $REMOTE_API_ROOT && sudo npm install playwright --prefix $REMOTE_API_ROOT 2>&1 | tail -5 || echo '⚠️  npm install failed'"
 # Instalar navegadores de Playwright con permisos correctos
-ssh ceres.globalchat.org "cd /var/www/irc_app/api && sudo PLAYWRIGHT_BROWSERS_PATH=/media/globalchat/tmp/.playwright node_modules/.bin/playwright install chromium 2>&1 | tail -5 || echo '⚠️  Playwright browsers installation may have failed, but continuing...'"
+ssh ceres.globalchat.org "cd $REMOTE_API_ROOT && sudo PLAYWRIGHT_BROWSERS_PATH=/media/globalchat/tmp/.playwright node_modules/.bin/playwright install chromium 2>&1 | tail -5 || echo '⚠️  Playwright browsers installation may have failed, but continuing...'"
 
 echo "✅ Backend desplegado"
 echo ""
 
 # 6. Verificar despliegue
 echo "🔍 Paso 5: Verificando despliegue..."
-ssh ceres.globalchat.org "ls -ltrha /var/www/irc_app/main.dart.js"
-ssh ceres.globalchat.org "ls -la /var/www/irc_app/api/"
+ssh ceres.globalchat.org "ls -ltrha $REMOTE_WEB_ROOT/main.dart.js $REMOTE_LEGACY_ROOT/main.dart.js"
+ssh ceres.globalchat.org "ls -la $REMOTE_API_ROOT/"
 
 echo ""
 echo "=========================================="

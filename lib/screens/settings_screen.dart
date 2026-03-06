@@ -10,6 +10,7 @@ import '../services/backup_service.dart';
 import '../services/cache_service.dart';
 import '../services/chat_history_service.dart';
 import '../services/avatar_service.dart';
+import '../utils/platform_utils.dart';
 import 'privacy_settings_screen.dart';
 import 'robots_settings_screen.dart';
 import 'package:file_picker/file_picker.dart';
@@ -552,7 +553,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                   // Si la subida ha tenido éxito, actualizar el valor guardado a la URL remota
                                   if (result.success) {
                                     final remoteUrl = result.url ?? AvatarService.getAvatarGifUrl(currentNick);
-                                    await ref.read(globalAvatarGifProvider.notifier).setGlobalAvatarGif(remoteUrl);
+                                    if (!PlatformUtils.isWeb) {
+                                      await ref.read(globalAvatarGifProvider.notifier).setGlobalAvatarGif(remoteUrl);
+                                    }
                                   }
                                   final String msg = result.success
                                       ? 'Avatar subido a xmlrpc. Los demás usuarios lo verán animado.'
@@ -688,6 +691,55 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           ref
                               .read(messageFormatPreferencesProvider.notifier)
                               .setShowTimestamp(value);
+                        },
+                        activeColor: appTheme.primary,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 24),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Row(
+                        children: [
+                          Icon(
+                            Icons.account_circle_outlined,
+                            color: appTheme.primary,
+                            size: 20,
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Mostrar avatar junto al nick en canales',
+                                  style: TextStyle(
+                                    color: appTheme.textPrimary,
+                                    fontSize: 16,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  'Activa o desactiva el avatar pequeno que aparece antes del nick en los mensajes del canal.',
+                                  style: TextStyle(
+                                    color: appTheme.textSecondary,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      Switch(
+                        value: formatPrefs.showInlineChannelAvatar,
+                        onChanged: (value) {
+                          ref
+                              .read(messageFormatPreferencesProvider.notifier)
+                              .setShowInlineChannelAvatar(value);
                         },
                         activeColor: appTheme.primary,
                       ),
