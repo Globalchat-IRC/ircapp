@@ -1262,6 +1262,17 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       // Verificar si hay canales guardados para autojoin (cuando se cambia de servidor)
       final autoJoinChannels = ref.read(autoJoinChannelsProvider);
       final currentChannelFromProvider = ref.read(currentChannelProvider);
+      final channelsToRestore = autoJoinChannels.isNotEmpty
+          ? autoJoinChannels
+          : <String>[normalizedChannel];
+      final identifyPasswordForRecovery =
+          _identifyWithNick ? _passwordController.text.trim() : null;
+
+      ircService.configureSessionRecovery(
+        autoReconnectEnabled: _autoReconnectEnabled,
+        identifyPassword: identifyPasswordForRecovery,
+        channelsToRestore: channelsToRestore,
+      );
       
       debugLog('🔍 [CONNECT] Canales para autojoin: $autoJoinChannels');
       debugLog('🔍 [CONNECT] Canal actual desde provider: $currentChannelFromProvider');

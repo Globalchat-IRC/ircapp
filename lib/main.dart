@@ -200,6 +200,7 @@ class _MyAppState extends ConsumerState<MyApp> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    ref.read(ircServiceProvider);
     if (PlatformUtils.isWeb) {
       try {
         final w = html.window as dynamic;
@@ -257,6 +258,7 @@ class _MyAppState extends ConsumerState<MyApp> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    ref.read(ircServiceProvider).handleAppLifecycleState(state);
     // Solo limpiar mensajes privados cuando la app se cierra completamente (detached)
     // NO limpiar cuando solo se pierde el foco (hidden/paused) para preservar los mensajes
     if (state == AppLifecycleState.detached) {

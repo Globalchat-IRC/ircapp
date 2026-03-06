@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/painting.dart' show WebHtmlElementStrategy;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/irc_provider.dart';
 import '../providers/theme_provider.dart';
@@ -50,6 +51,57 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       width: size,
       height: size,
       fit: BoxFit.cover,
+      gaplessPlayback: true,
+      webHtmlElementStrategy: PlatformUtils.isWeb
+          ? WebHtmlElementStrategy.prefer
+          : WebHtmlElementStrategy.never,
+      errorBuilder: (_, __, ___) => placeholder,
+    );
+  }
+
+  Widget _buildBackgroundPreview(String urlOrDataUrl, AppTheme appTheme) {
+    const size = 50.0;
+    final placeholder = Container(
+      width: size,
+      height: size,
+      color: appTheme.primary.withOpacity(0.1),
+      alignment: Alignment.center,
+      child: Icon(Icons.image, color: appTheme.primary),
+    );
+
+    if (urlOrDataUrl.trim().isEmpty) {
+      return placeholder;
+    }
+
+    if (urlOrDataUrl.startsWith('data:image/')) {
+      try {
+        final base64Data = urlOrDataUrl.contains(',')
+            ? urlOrDataUrl.substring(urlOrDataUrl.indexOf(',') + 1)
+            : urlOrDataUrl;
+        final bytes = base64Decode(base64Data);
+        if (bytes.isEmpty) return placeholder;
+        return Image.memory(
+          bytes,
+          width: size,
+          height: size,
+          fit: BoxFit.cover,
+          gaplessPlayback: true,
+          errorBuilder: (_, __, ___) => placeholder,
+        );
+      } catch (_) {
+        return placeholder;
+      }
+    }
+
+    return Image.network(
+      urlOrDataUrl,
+      width: size,
+      height: size,
+      fit: BoxFit.cover,
+      gaplessPlayback: true,
+      webHtmlElementStrategy: PlatformUtils.isWeb
+          ? WebHtmlElementStrategy.prefer
+          : WebHtmlElementStrategy.never,
       errorBuilder: (_, __, ___) => placeholder,
     );
   }
@@ -703,7 +755,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     children: [
                       Expanded(
                         child: Row(
-                        children: [
+                          children: [
                           Icon(
                             Icons.account_circle_outlined,
                             color: appTheme.primary,
@@ -732,7 +784,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                               ],
                             ),
                           ),
-                        ],
+                          ],
+                        ),
                       ),
                       Switch(
                         value: formatPrefs.showInlineChannelAvatar,
@@ -1658,21 +1711,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       margin: const EdgeInsets.only(bottom: 8),
       color: appTheme.surface,
       child: ListTile(
-        leading: Container(
-          width: 50,
-          height: 50,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(8),
-            image: DecorationImage(
-              image: NetworkImage(imageUrl),
-              fit: BoxFit.cover,
-              onError: (exception, stackTrace) {},
-            ),
-            color: appTheme.primary.withOpacity(0.1),
-          ),
-          child: imageUrl.isEmpty
-              ? Icon(Icons.image, color: appTheme.primary)
-              : null,
+        leading: ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: _buildBackgroundPreview(imageUrl, appTheme),
         ),
         title: Text(
           channel,

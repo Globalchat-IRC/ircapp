@@ -271,64 +271,53 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
             boxShadow: widget.boxShadow,
           ),
           child: ClipOval(
-            child: AnimatedSwitcher(
-          duration: const Duration(milliseconds: 120),
-          transitionBuilder: (child, animation) {
-            return FadeTransition(
-              opacity: animation,
-              child: child,
-            );
-          },
-          child: localOwnGif != null
-              ? _buildDataUrlGif(localOwnGif)
-              : shouldTryLoadAvatar
-              ? Image.network(
-                  _avatarUrl!,
-                  key: ValueKey('${widget.nick}_avatar_${widget.isRobot}_${_lastRefreshTimestamp ?? 0}'), // Incluir isRobot en la clave para forzar recarga cuando cambia
-                  width: widget.size,
-                  height: widget.size,
-                  fit: BoxFit.contain,
-                  // En web, preferimos <img> HTML para que entren mejor los PNG hash de xmlrpc.
-                  webHtmlElementStrategy: PlatformUtils.isWeb
-                      ? WebHtmlElementStrategy.prefer
-                      : WebHtmlElementStrategy.never,
-                  // Suprimir errores de CORS en la consola no es posible desde Flutter
-                  // pero el fallback visual funcionará correctamente
-                  loadingBuilder: (context, child, loadingProgress) {
-                    if (loadingProgress == null) return child;
-                    return Opacity(
-                      opacity: 0.5,
-                      child: _buildFallback(fallback, isFallbackUrl, isFallbackAsset, key: ValueKey('${widget.nick}_loading_${widget.isRobot}')),
-                    );
-                  },
-                  errorBuilder: (context, error, stackTrace) {
-                    final cleanNick = widget.nick.trim();
-                    if (_gifPreferred &&
-                        _shouldTryStaticFallback &&
-                        _staticAvatarUrl != null) {
-                      _gifPreferred = false;
-                      final nextUrl = _staticAvatarUrl!;
-                      WidgetsBinding.instance.addPostFrameCallback((_) {
-                        if (mounted) setState(() => _avatarUrl = nextUrl);
-                      });
-                    } else if (!_triedDefaultAvatar && !PlatformUtils.isWeb) {
-                      _triedDefaultAvatar = true;
-                      final defaultUrl = AvatarService.getDefaultAvatarUrl(cleanNick);
-                      WidgetsBinding.instance.addPostFrameCallback((_) {
-                        if (mounted) setState(() => _avatarUrl = defaultUrl);
-                      });
-                    }
+            child: localOwnGif != null
+                ? _buildDataUrlGif(localOwnGif)
+                : shouldTryLoadAvatar
+                    ? Image.network(
+                        _avatarUrl!,
+                        width: widget.size,
+                        height: widget.size,
+                        fit: BoxFit.contain,
+                        gaplessPlayback: true,
+                        // En web, preferimos <img> HTML para que entren mejor los PNG hash de xmlrpc.
+                        webHtmlElementStrategy: PlatformUtils.isWeb
+                            ? WebHtmlElementStrategy.prefer
+                            : WebHtmlElementStrategy.never,
+                        // Durante el refresco mantenemos la imagen anterior para evitar
+                        // parpadeos o pequeños saltos visuales en la lista y el chat.
+                        loadingBuilder: (context, child, loadingProgress) {
+                          return child;
+                        },
+                        errorBuilder: (context, error, stackTrace) {
+                          final cleanNick = widget.nick.trim();
+                          if (_gifPreferred &&
+                              _shouldTryStaticFallback &&
+                              _staticAvatarUrl != null &&
+                              _avatarUrl != _staticAvatarUrl) {
+                            _gifPreferred = false;
+                            final nextUrl = _staticAvatarUrl!;
+                            WidgetsBinding.instance.addPostFrameCallback((_) {
+                              if (mounted) setState(() => _avatarUrl = nextUrl);
+                            });
+                            return const SizedBox.expand();
+                          } else if (!_triedDefaultAvatar && !PlatformUtils.isWeb) {
+                            _triedDefaultAvatar = true;
+                            final defaultUrl = AvatarService.getDefaultAvatarUrl(cleanNick);
+                            WidgetsBinding.instance.addPostFrameCallback((_) {
+                              if (mounted) setState(() => _avatarUrl = defaultUrl);
+                            });
+                            return const SizedBox.expand();
+                          }
 
-                    return _buildFallback(
-                      fallback,
-                      isFallbackUrl,
-                      isFallbackAsset,
-                      key: ValueKey('${widget.nick}_error_${widget.isRobot}_${_triedDefaultAvatar ? "default" : "custom"}'),
-                    );
-                  },
-                )
-              : _buildFallback(fallback, isFallbackUrl, isFallbackAsset, key: ValueKey('${widget.nick}_fallback_${widget.isRobot}_${_lastRefreshTimestamp ?? 0}')), // Incluir isRobot y timestamp en la clave del fallback
-            ),
+                          return _buildFallback(
+                            fallback,
+                            isFallbackUrl,
+                            isFallbackAsset,
+                          );
+                        },
+                      )
+                    : _buildFallback(fallback, isFallbackUrl, isFallbackAsset),
           ),
         ),
         // Indicador de away

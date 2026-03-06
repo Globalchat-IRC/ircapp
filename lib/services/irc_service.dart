@@ -2,6 +2,9 @@ import 'dart:io';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
+import 'package:flutter/widgets.dart';
+import 'dart:html' if (dart.library.io) 'package:irc_app/utils/html_stub.dart'
+    as html;
 import '../models/irc_message.dart';
 import 'chat_history_service.dart';
 import '../models/whois_info.dart';
@@ -67,6 +70,31 @@ class IRCService {
   Timer? _expiredMessagesTimer; // Timer para verificar mensajes expirados periódicamente
   Timer? _awayStatusUpdateTimer; // Timer para actualizar estado away de usuarios periódicamente
   final Map<String, DateTime> _lastWhoisCheck = {}; // Última vez que se hizo WHOIS para cada usuario
+  Timer? _heartbeatWatchdogTimer;
+  Timer? _reconnectTimer;
+  StreamSubscription? _webVisibilitySubscription;
+  StreamSubscription? _webFocusSubscription;
+  StreamSubscription? _webOnlineSubscription;
+  Timer? _resumeProbeTimer;
+  DateTime? _lastServerActivityAt;
+  DateTime? _lastBackgroundedAt;
+  DateTime? _lastReconnectAt;
+  String? _sessionHost;
+  int? _sessionPort;
+  bool _sessionUseSSL = true;
+  String? _sessionNickname;
+  String? _sessionIdentifyPassword;
+  final List<String> _sessionChannels = [];
+  bool _autoReconnectEnabled = false;
+  bool _isReconnecting = false;
+  bool _manualDisconnectRequested = false;
+  int _reconnectAttempts = 0;
+
+  static const Duration _heartbeatCheckInterval = Duration(seconds: 20);
+  static const Duration _heartbeatTimeout = Duration(minutes: 3);
+  static const Duration _resumeReconnectThreshold = Duration(seconds: 90);
+  static const Duration _resumeProbeTimeout = Duration(seconds: 8);
+  static const Duration _lagPingInterval = Duration(seconds: 30);
 
   bool get isConnected => _isConnected;
   String? get currentChannel => _currentChannel;
@@ -90,7 +118,289 @@ class IRCService {
   /// Obtiene el host del servidor conectado
   String? get serverHost => _currentHost;
 
+  IRCService() {
+    _setupWebVisibilityListener();
+  }
+
   String _currentServerId(String host, int port) => '$host:$port${_useSSL ? ':ssl' : ''}';
+
+  List<String> _normalizeRestorableChannels(Iterable<String> channels) {
+    final normalized = <String>[];
+    for (final channel in channels) {
+      final trimmed = channel.trim();
+      if (trimmed.isEmpty || !trimmed.startsWith('#')) continue;
+      final key = _normalizeChannelName(trimmed);
+      if (!normalized.contains(key)) {
+        normalized.add(key);
+      }
+    }
+    return normalized;
+  }
+
+  void _trackSessionChannel(String channelName) {
+    if (!channelName.startsWith('#')) return;
+    final normalized = _normalizeChannelName(channelName);
+    _sessionChannels.removeWhere((channel) => channel == normalized);
+    _sessionChannels.add(normalized);
+  }
+
+  void _untrackSessionChannel(String channelName) {
+    if (!channelName.startsWith('#')) return;
+    final normalized = _normalizeChannelName(channelName);
+    _sessionChannels.removeWhere((channel) => channel == normalized);
+  }
+
+  void _setupWebVisibilityListener() {
+    if (!PlatformUtils.isWeb) return;
+    try {
+      _webVisibilitySubscription ??=
+          html.document.onVisibilityChange.listen((_) {
+        final isHidden = html.document.hidden == true;
+        if (isHidden) {
+          _lastBackgroundedAt = DateTime.now();
+        } else {
+          unawaited(_revalidateConnectionAfterResume('visibility_change'));
+        }
+      });
+
+      _webFocusSubscription ??= html.window.onFocus.listen((_) {
+        unawaited(_revalidateConnectionAfterResume('window_focus'));
+      });
+
+      _webOnlineSubscription ??= html.window.onOnline.listen((_) {
+        unawaited(_revalidateConnectionAfterResume('browser_online'));
+      });
+    } catch (_) {
+      // Ignorar fallos de integración con lifecycle web
+    }
+  }
+
+  void _probeConnectionThenReconnect(String source) {
+    if (_manualDisconnectRequested || !_autoReconnectEnabled) return;
+
+    final activityBeforeProbe = _lastServerActivityAt;
+    _resumeProbeTimer?.cancel();
+
+    try {
+      _lastPingToken = DateTime.now().millisecondsSinceEpoch.toString();
+      _lastPingSent = DateTime.now();
+      _sendCommand('PING $_lastPingToken');
+    } catch (_) {
+      _forceReconnect(reason: 'resume_probe_send_failed:$source');
+      return;
+    }
+
+    _resumeProbeTimer = Timer(_resumeProbeTimeout, () {
+      final latestActivity = _lastServerActivityAt;
+      final responded = latestActivity != null &&
+          (activityBeforeProbe == null || latestActivity.isAfter(activityBeforeProbe));
+
+      if (!responded && _isConnected && _hasActiveConnection) {
+        debugLog(
+          '💔 [IRCService] Sin respuesta tras revalidación $source; forzando reconexión.',
+        );
+        _forceReconnect(reason: 'resume_probe_timeout:$source');
+      }
+    });
+  }
+
+  Future<void> _revalidateConnectionAfterResume(String source) async {
+    if (_manualDisconnectRequested || !_autoReconnectEnabled) return;
+
+    final lastActivity = _lastServerActivityAt ?? _lastPingSent;
+    final isStale = lastActivity == null ||
+        DateTime.now().difference(lastActivity) > _resumeReconnectThreshold;
+
+    if (!_isConnected || !_hasActiveConnection) {
+      debugLog(
+        '🔄 [IRCService] Revalidando conexión tras $source: '
+        'isConnected=$_isConnected, active=$_hasActiveConnection, stale=$isStale',
+      );
+      _forceReconnect(reason: 'resume:$source');
+      return;
+    }
+
+    if (isStale) {
+      debugLog(
+        '🔄 [IRCService] Conexión posiblemente dormida tras $source; enviando sonda.',
+      );
+      _probeConnectionThenReconnect(source);
+      return;
+    }
+
+    _probeConnectionThenReconnect(source);
+  }
+
+  void _startHeartbeatWatchdog() {
+    _heartbeatWatchdogTimer?.cancel();
+    _heartbeatWatchdogTimer = Timer.periodic(_heartbeatCheckInterval, (_) {
+      if (!_isConnected || !_hasActiveConnection) return;
+
+      final now = DateTime.now();
+      final lastActivity = _lastServerActivityAt ?? _lastPingSent;
+      if (lastActivity != null &&
+          now.difference(lastActivity) > _heartbeatTimeout) {
+        debugLog(
+          '💔 [IRCService] Heartbeat vencido '
+          '(${now.difference(lastActivity).inSeconds}s sin actividad).',
+        );
+        _forceReconnect(reason: 'heartbeat_timeout');
+      }
+    });
+  }
+
+  void _stopHeartbeatWatchdog() {
+    _heartbeatWatchdogTimer?.cancel();
+    _heartbeatWatchdogTimer = null;
+    _resumeProbeTimer?.cancel();
+    _resumeProbeTimer = null;
+  }
+
+  void _scheduleReconnect({String reason = 'unknown'}) {
+    if (_manualDisconnectRequested ||
+        !_autoReconnectEnabled ||
+        _isReconnecting ||
+        _sessionHost == null ||
+        _sessionPort == null ||
+        _sessionNickname == null) {
+      return;
+    }
+
+    _reconnectTimer?.cancel();
+    final attempt = _reconnectAttempts + 1;
+    final delaySeconds = attempt <= 1
+        ? 2
+        : (1 << (attempt - 1)).clamp(2, 30);
+
+    debugLog(
+      '🔄 [IRCService] Programando reconexión #$attempt en ${delaySeconds}s '
+      '(motivo: $reason)',
+    );
+
+    _reconnectTimer = Timer(Duration(seconds: delaySeconds), () {
+      unawaited(_performReconnect(reason: reason));
+    });
+  }
+
+  Future<void> _performReconnect({String reason = 'unknown'}) async {
+    if (_manualDisconnectRequested ||
+        !_autoReconnectEnabled ||
+        _isReconnecting ||
+        _sessionHost == null ||
+        _sessionPort == null ||
+        _sessionNickname == null) {
+      return;
+    }
+
+    _isReconnecting = true;
+    _reconnectAttempts++;
+    _lastReconnectAt = DateTime.now();
+
+    debugLog(
+      '🔄 [IRCService] Intentando reconectar (#$_reconnectAttempts) '
+      'a $_sessionHost:$_sessionPort como $_sessionNickname '
+      '(motivo: $reason)',
+    );
+
+    try {
+      await _socketSubscription?.cancel();
+      _socketSubscription = null;
+    } catch (_) {}
+
+    try {
+      _connection?.close();
+    } catch (_) {}
+
+    _connection = null;
+    _isConnected = false;
+    _isRegistered = false;
+    _currentHost = null;
+
+    try {
+      await connect(
+        host: _sessionHost!,
+        port: _sessionPort!,
+        nickname: _sessionNickname!,
+        useSSL: _sessionUseSSL,
+      );
+
+      _reconnectAttempts = 0;
+      _isReconnecting = false;
+      _restoreSessionAfterReconnect();
+    } catch (e) {
+      _isReconnecting = false;
+      debugLog('❌ [IRCService] Falló la reconexión: $e');
+      _scheduleReconnect(reason: 'retry_after_failure');
+    }
+  }
+
+  void _restoreSessionAfterReconnect() {
+    final identifyPassword = _sessionIdentifyPassword;
+    if (identifyPassword != null && identifyPassword.isNotEmpty) {
+      Future.delayed(const Duration(milliseconds: 2500), () {
+        if (_isConnected && _hasActiveConnection) {
+          debugLog('🔐 [IRCService] Restaurando identificación NickServ tras reconexión');
+          identifyNick(identifyPassword);
+        }
+      });
+    }
+
+    final channelsToRestore = List<String>.from(_sessionChannels);
+    for (var i = 0; i < channelsToRestore.length; i++) {
+      final channel = channelsToRestore[i];
+      Future.delayed(Duration(milliseconds: 3200 + (i * 450)), () {
+        if (_isConnected && _hasActiveConnection) {
+          debugLog('🚪 [IRCService] Restaurando canal tras reconexión: $channel');
+          joinChannel(channel);
+        }
+      });
+    }
+  }
+
+  void _forceReconnect({String reason = 'unknown'}) {
+    if (_manualDisconnectRequested || !_autoReconnectEnabled) return;
+
+    try {
+      _socketSubscription?.cancel();
+      _socketSubscription = null;
+    } catch (_) {}
+
+    try {
+      _connection?.close();
+    } catch (_) {}
+
+    _onDisconnect(scheduleReconnect: true, reason: reason);
+  }
+
+  void configureSessionRecovery({
+    required bool autoReconnectEnabled,
+    String? identifyPassword,
+    List<String>? channelsToRestore,
+  }) {
+    _autoReconnectEnabled = autoReconnectEnabled;
+    _sessionIdentifyPassword = identifyPassword?.trim().isNotEmpty == true
+        ? identifyPassword!.trim()
+        : null;
+
+    if (channelsToRestore != null) {
+      _sessionChannels
+        ..clear()
+        ..addAll(_normalizeRestorableChannels(channelsToRestore));
+    }
+  }
+
+  void handleAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(_revalidateConnectionAfterResume('app_resumed'));
+      return;
+    }
+
+    if (state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive) {
+      _lastBackgroundedAt = DateTime.now();
+    }
+  }
 
   Future<void> connect({
     required String host,
@@ -99,6 +409,11 @@ class IRCService {
     bool useSSL = true,
   }) async {
     try {
+      _manualDisconnectRequested = false;
+      _reconnectTimer?.cancel();
+      _sessionHost = host;
+      _sessionPort = port;
+      _sessionUseSSL = useSSL;
       _useSSL = useSSL;
       _currentHost = host;
       // Limpiar el nick antes de asignarlo (eliminar espacios y guiones al final)
@@ -107,10 +422,12 @@ class IRCService {
       debugLog('📡 [IRCService.connect] Platform: ${PlatformUtils.isWeb ? "Web" : "Native"}');
       debugLog('📡 [IRCService.connect] Nick original: "$nickname" -> Limpio: "$cleanNick"');
       _nickname = cleanNick;
+      _sessionNickname = cleanNick;
       _originalNickname = cleanNick; // Guardar el nick original
       _nickAttempts = 0; // Resetear contador de intentos
       _isRegistered = false; // Reset registration status
       _connectionCompleter = Completer<void>(); // Reinicializar el completer
+      _lastServerActivityAt = DateTime.now();
       
       // Crear conexión apropiada para la plataforma
       _connection = IRCConnectionFactory.create();
@@ -126,6 +443,8 @@ class IRCService {
       try {
         await _connection!.connect(host, port, useSSL: useSSL);
         debugLog('✅ [IRCService] Connection established to $host:$port using ${_connection.runtimeType}');
+        _sessionHost = host;
+        _sessionPort = port;
       } catch (e, stackTrace) {
         debugLog('❌ [IRCService] Connection failed to $host:$port: $e');
         if (host == fallbackHost) {
@@ -141,6 +460,9 @@ class IRCService {
         try {
           await _connection!.connect(fallbackHost, fallbackPort, useSSL: true);
           debugLog('✅ [IRCService] Connection established to $fallbackHost:$fallbackPort (fallback)');
+          _sessionHost = fallbackHost;
+          _sessionPort = fallbackPort;
+          _sessionUseSSL = true;
         } catch (e2, st2) {
           debugLog('❌ [IRCService] Fallback connection also failed: $e2');
           rethrow;
@@ -155,11 +477,11 @@ class IRCService {
         },
         onDone: () {
           // debugLog('⛔ [IRCService] Connection closed');
-          _onDisconnect();
+          _onDisconnect(reason: 'stream_done');
         },
         onError: (error) {
           // debugLog('❌ [IRCService] Connection error: $error');
-          _onDisconnect();
+          _onDisconnect(reason: 'stream_error');
         },
       );
 
@@ -195,6 +517,7 @@ class IRCService {
       // Set connection as established
       _isConnected = true;
       _startLagPingTimer();
+      _startHeartbeatWatchdog();
       _startExpiredMessagesTimer();
       _startAwayStatusUpdateTimer();
       
@@ -213,6 +536,9 @@ class IRCService {
   }
 
   void disconnect() {
+    _manualDisconnectRequested = true;
+    _reconnectTimer?.cancel();
+    _isReconnecting = false;
     if (_connection != null && _connection!.isConnected) {
       _sendCommand('QUIT :Goodbye');
       _socketSubscription?.cancel();
@@ -226,6 +552,7 @@ class IRCService {
     }
     // Detener timers
     _stopLagPingTimer();
+    _stopHeartbeatWatchdog();
     _stopExpiredMessagesTimer();
     _stopAwayStatusUpdateTimer();
     // Resetear flags de autojoin al desconectar
@@ -235,6 +562,7 @@ class IRCService {
     _nickname = null;
     _originalNickname = null;
     _nickAttempts = 0;
+    _lastServerActivityAt = null;
   }
 
   // Normalizar nombre de canal (case-insensitive, sin espacios)
@@ -290,6 +618,7 @@ class IRCService {
     
     // Normalizar el nombre del canal
     final normalized = _normalizeChannelName(channelName);
+    _trackSessionChannel(normalized);
     
     // debugLog('🔍 [DEBUG] joinChannel called with: "$channelName" -> normalized: "$normalized"');
     // debugLog('🔍 [DEBUG] User registered status: $_isRegistered');
@@ -358,6 +687,7 @@ class IRCService {
 
   void partChannel(String channelName) {
     final normalized = _normalizeChannelName(channelName);
+    _untrackSessionChannel(normalized);
     _sendCommand('PART $normalized');
     channels.remove(normalized);
     final currentNormalized = _getChannelKey(_currentChannel);
@@ -695,6 +1025,7 @@ class IRCService {
     // Enviar IDENTIFY al bot "nick" (equivale a /msg nick identify password)
     // Formato: PRIVMSG nick :identify password (el bot identifica por el nick actual)
     final command = 'PRIVMSG nick :identify $trimmedPassword';
+    _sessionIdentifyPassword = trimmedPassword;
     // debugLog('🔐 [IRCService] Identificando nick ${_nickname} con bot "nick"');
     // debugLog('🔐 [IRCService] Comando completo: $command');
     _sendCommand(command);
@@ -1585,6 +1916,7 @@ class IRCService {
     }
     
     debugLog('🔄 [IRCService] Cambiando nick de "$_nickname" a "$trimmedNick"');
+    _sessionNickname = trimmedNick;
     _sendCommand('NICK $trimmedNick');
     // El servidor confirmará el cambio con un mensaje NICK, entonces actualizaremos _nickname
     // cuando recibamos la confirmación del servidor
@@ -1638,7 +1970,12 @@ class IRCService {
       debugLog('🔍 [DEBUG] Sending command: $command');
       // Agregar \r\n para compatibilidad IRC
       final ircCommand = command.endsWith('\r\n') ? command : '$command\r\n';
-      _connection!.send(ircCommand);
+      try {
+        _connection!.send(ircCommand);
+      } catch (e) {
+        debugLog('❌ [IRCService] Error enviando comando "$command": $e');
+        _forceReconnect(reason: 'send_command_failed');
+      }
     } else {
       debugLog('🔍 [DEBUG] ⚠️  Cannot send command "$command": connection is null or not connected');
     }
@@ -1704,6 +2041,7 @@ class IRCService {
   void _handleData(String rawData) {
     // Notificar a los listeners de debug
     _notifyDebugLog(rawData);
+    _lastServerActivityAt = DateTime.now();
     
     final lines = rawData.split('\r\n');
     
@@ -1736,6 +2074,7 @@ class IRCService {
     if (line.startsWith('PING')) {
       final pingToken = line.substring(5).trim();
       _sendCommand('PONG $pingToken');
+      _lastPingTime = DateTime.now();
       
       // Si el servidor nos envía PING, también podemos medir el lag
       // pero es mejor usar nuestro propio PING periódico
@@ -1765,6 +2104,7 @@ class IRCService {
       if (pongToken != null && _lastPingSent != null && _lastPingToken != null && pongToken == _lastPingToken) {
         final lagMs = DateTime.now().difference(_lastPingSent!).inMilliseconds;
         _notifyLagListeners(lagMs);
+        _lastServerActivityAt = DateTime.now();
         _lastPingSent = null;
         _lastPingToken = null;
         // debugLog('📊 [IRCService] Lag medido: ${lagMs}ms');
@@ -2037,6 +2377,7 @@ class IRCService {
           }
           
               _nickname = newNick;
+              _sessionNickname = newNick;
               _sendCommand('NICK $newNick');
           
               // Notificar a los listeners del cambio de nick
@@ -2283,6 +2624,7 @@ class IRCService {
             if (oldNick != null && _nickname != null && oldNick.toLowerCase() == _nickname!.toLowerCase()) {
               // debugLog('🔄 [IRCService] ✅✅✅ Nuestro nick cambió de "$oldNick" a "$newNick"');
               _nickname = newNick;
+              _sessionNickname = newNick;
               // debugLog('🔄 [IRCService] _nickname actualizado a: "$_nickname"');
               
               // Actualizar el nick en todos los canales donde aparezca nuestro nick antiguo
@@ -3719,19 +4061,34 @@ class IRCService {
     }
   }
 
-  void _onDisconnect() {
+  void _onDisconnect({bool scheduleReconnect = true, String reason = 'socket_closed'}) {
+    if (!_isConnected &&
+        _connection == null &&
+        !_hasActiveConnection &&
+        !scheduleReconnect) {
+      return;
+    }
+
     _stopLagPingTimer();
+    _stopHeartbeatWatchdog();
+    _stopExpiredMessagesTimer();
     _stopAwayStatusUpdateTimer();
     _isConnected = false;
+    _isRegistered = false;
     // Resetear el lag al desconectar
     _notifyLagListeners(0); // Notificar lag 0 para resetear
     channels.clear();
     _currentChannel = null;
     _connection = null;
     _currentHost = null;
+    _lastServerActivityAt = null;
     _lastWhoisCheck.clear(); // Limpiar timestamps de verificación
     for (var listener in _disconnectionListeners) {
       listener();
+    }
+
+    if (scheduleReconnect && !_manualDisconnectRequested) {
+      _scheduleReconnect(reason: reason);
     }
   }
 
@@ -3883,11 +4240,13 @@ class IRCService {
       // debugLog('📊 [IRCService] Enviando PING inicial para medir lag: $_lastPingToken');
     }
     
-    // Enviar PING cada 3 segundos para medición en tiempo real
-    _lagPingTimer = Timer.periodic(const Duration(seconds: 3), (timer) {
+    // Enviar PING cada cierto tiempo para mantener viva la sesión sin castigar
+    // navegadores con suspensión agresiva de timers, como Chromebook/ChromeOS.
+    _lagPingTimer = Timer.periodic(_lagPingInterval, (timer) {
       if (_isConnected && _hasActiveConnection) {
-        // Solo enviar si no hay un PING pendiente (evitar spam)
-        if (_lastPingSent == null || DateTime.now().difference(_lastPingSent!).inSeconds > 2) {
+        // Solo enviar si no hay un PING pendiente desde hace demasiado tiempo.
+        if (_lastPingSent == null ||
+            DateTime.now().difference(_lastPingSent!) > _resumeProbeTimeout) {
           // Generar un token único para este PING
           _lastPingToken = DateTime.now().millisecondsSinceEpoch.toString();
           _lastPingSent = DateTime.now();
