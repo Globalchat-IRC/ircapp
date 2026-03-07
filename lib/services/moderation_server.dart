@@ -7,7 +7,6 @@ import 'package:shelf_router/shelf_router.dart';
 import 'package:shelf_web_socket/shelf_web_socket.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:uuid/uuid.dart';
-import '../models/user_role.dart';
 import 'video_conference_service.dart';
 import '../utils/platform_utils.dart';
 
@@ -22,10 +21,6 @@ class ModerationServer {
   
   // WebSocket clientes conectados
   final List<WebSocketChannel> _wsClients = [];
-  
-  // Stream de eventos para clientes WebSocket
-  final StreamController<Map<String, dynamic>> _eventsController = 
-      StreamController<Map<String, dynamic>>.broadcast();
   
   ModerationServer(this._videoService, {this.port = 8765});
   
@@ -924,7 +919,7 @@ class ModerationServer {
                 users.forEach(user => {
                     const card = document.createElement('div');
                     card.className = 'camera-card';
-                    card.innerHTML = \`
+                    card.innerHTML = `
                         <div class="camera-video">
                             <div class="camera-placeholder">\${user.emoji}</div>
                         </div>
@@ -941,7 +936,7 @@ class ModerationServer {
                                 <button class="btn btn-mute" onclick="muteUser('\${user.nick}')">Silenciar</button>
                             </div>
                         </div>
-                    \`;
+                    `;
                     grid.appendChild(card);
                 });
 
@@ -968,7 +963,7 @@ class ModerationServer {
                 reports.forEach(report => {
                     const item = document.createElement('div');
                     item.className = 'report-item' + (report.type === 'nudity' ? ' critical' : '');
-                    item.innerHTML = \`
+                    item.innerHTML = `
                         <div class="report-header">
                             <span class="report-nick">⚠️ \${report.reportedNick}</span>
                             <span class="report-time">\${new Date(report.timestamp).toLocaleString()}</span>
@@ -982,7 +977,7 @@ class ModerationServer {
                             <button class="btn btn-kick" onclick="kickUser('\${report.reportedNick}', '\${report.conferenceId}')">Expulsar</button>
                             <button class="btn btn-ban" onclick="banUser('\${report.reportedNick}')">Banear</button>
                         </div>
-                    \`;
+                    `;
                     list.appendChild(item);
                 });
 
@@ -993,7 +988,7 @@ class ModerationServer {
 
         // Acciones de moderación
         async function kickUser(nick, conferenceId) {
-            if (!confirm(\`¿Expulsar a \${nick}?\`)) return;
+            if (!confirm(`¿Expulsar a \${nick}?`)) return;
 
             const reason = prompt('Razón de expulsión:', 'Incumplimiento de normas');
             if (!reason) return;
@@ -1011,7 +1006,7 @@ class ModerationServer {
                 const data = await response.json();
 
                 if (response.ok) {
-                    addLog(\`✅ \${nick} expulsado exitosamente\`, 'info');
+                    addLog(`✅ \${nick} expulsado exitosamente`, 'info');
                     loadData();
                 } else {
                     alert('Error: ' + data.error);
@@ -1022,7 +1017,7 @@ class ModerationServer {
         }
 
         async function banUser(nick) {
-            if (!confirm(\`¿Banear a \${nick}?\`)) return;
+            if (!confirm(`¿Banear a \${nick}?`)) return;
 
             const reason = prompt('Razón del ban:', 'Incumplimiento grave');
             if (!reason) return;
@@ -1042,7 +1037,7 @@ class ModerationServer {
                 const data = await response.json();
 
                 if (response.ok) {
-                    addLog(\`✅ \${nick} baneado exitosamente\`, 'info');
+                    addLog(`✅ \${nick} baneado exitosamente`, 'info');
                     loadData();
                 } else {
                     alert('Error: ' + data.error);
@@ -1053,7 +1048,7 @@ class ModerationServer {
         }
 
         function muteUser(nick) {
-            addLog(\`🔇 Silenciar a \${nick} (no implementado aún)\`, 'warning');
+            addLog(`🔇 Silenciar a \${nick} (no implementado aún)`, 'warning');
         }
 
         // Agregar log
@@ -1061,7 +1056,7 @@ class ModerationServer {
             const container = document.getElementById('logsContainer');
             const entry = document.createElement('div');
             entry.className = 'log-entry ' + type;
-            entry.textContent = \`[\${new Date().toLocaleTimeString()}] \${message}\`;
+            entry.textContent = `[\${new Date().toLocaleTimeString()}] \${message}`;
             container.insertBefore(entry, container.firstChild);
 
             // Limitar a 100 logs

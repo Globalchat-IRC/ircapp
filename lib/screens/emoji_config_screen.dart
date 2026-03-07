@@ -5,7 +5,7 @@ import '../providers/irc_provider.dart';
 import '../providers/theme_provider.dart';
 
 class EmojiConfigScreen extends ConsumerStatefulWidget {
-  const EmojiConfigScreen({Key? key}) : super(key: key);
+  const EmojiConfigScreen({super.key});
 
   @override
   ConsumerState<EmojiConfigScreen> createState() => _EmojiConfigScreenState();
@@ -58,7 +58,7 @@ class _EmojiConfigScreenState extends ConsumerState<EmojiConfigScreen> {
           gradient: LinearGradient(
             colors: [
               appTheme.surface,
-              appTheme.surface.withOpacity(0.95),
+              appTheme.surface.withValues(alpha: 0.95),
             ],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
@@ -132,7 +132,7 @@ class _EmojiConfigScreenState extends ConsumerState<EmojiConfigScreen> {
                       child: Container(
                         decoration: BoxDecoration(
                           color: isSelected 
-                              ? appTheme.primary.withOpacity(0.3)
+                              ? appTheme.primary.withValues(alpha: 0.3)
                               : appTheme.surface,
                           borderRadius: BorderRadius.circular(12),
                           border: Border.all(
@@ -242,7 +242,7 @@ class _EmojiConfigScreenState extends ConsumerState<EmojiConfigScreen> {
         color: appTheme.surface,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: appTheme.primary.withOpacity(0.3),
+          color: appTheme.primary.withValues(alpha: 0.3),
         ),
       ),
       child: Row(
@@ -276,10 +276,10 @@ class _EmojiConfigScreenState extends ConsumerState<EmojiConfigScreen> {
               width: 56,
               height: 56,
               decoration: BoxDecoration(
-                color: appTheme.primary.withOpacity(0.1),
+                color: appTheme.primary.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(
-                  color: appTheme.primary.withOpacity(0.3),
+                  color: appTheme.primary.withValues(alpha: 0.3),
                 ),
               ),
               child: currentEmoji != null
@@ -340,8 +340,8 @@ class _EmojiConfigScreenState extends ConsumerState<EmojiConfigScreen> {
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
             colors: [
-              appTheme.primary.withOpacity(0.1),
-              appTheme.secondary.withOpacity(0.08),
+              appTheme.primary.withValues(alpha: 0.1),
+              appTheme.secondary.withValues(alpha: 0.08),
               appTheme.background,
             ],
             stops: const [0.0, 0.5, 1.0],

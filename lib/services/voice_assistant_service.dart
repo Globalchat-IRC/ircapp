@@ -26,7 +26,7 @@ class VoiceAssistantService {
   
   // Configuración de Groq
   String? _openAiApiKey = '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';
-  String _model = 'openai/gpt-oss-120b'; // Modelo GPT-OSS 120B
+  final String _model = 'openai/gpt-oss-120b'; // Modelo GPT-OSS 120B
   String _apiBaseUrl = 'https://api.groq.com/openai/v1'; // API de Groq compatible con OpenAI
   
   // Callback para manejar errores de STT
@@ -36,14 +36,10 @@ class VoiceAssistantService {
   /// Inicializar el servicio
   Future<void> initialize() async {
     // Configurar API key de Groq si no está configurada
-    if (_openAiApiKey == null || _openAiApiKey!.isEmpty) {
-      _openAiApiKey = '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';
-    }
+    _openAiApiKey ??= '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';
     
     // Asegurar que _apiBaseUrl esté configurado
-    if (_apiBaseUrl.isEmpty) {
-      _apiBaseUrl = 'https://api.groq.com/openai/v1';
-    }
+    _apiBaseUrl = _apiBaseUrl.isEmpty ? 'https://api.groq.com/openai/v1' : _apiBaseUrl;
     
     debugLog('🔧 [VoiceAssistant] Inicializado con modelo: $_model');
     debugLog('🔧 [VoiceAssistant] API URL: $_apiBaseUrl');
@@ -112,55 +108,51 @@ class VoiceAssistantService {
     
     // Configurar callbacks de error y status si no están configurados
     // IMPORTANTE: Estos callbacks se ejecutan cuando hay errores durante listen()
-    if (_onSttError == null) {
-      _onSttError = (error) {
-        debugLog('❌ [VoiceAssistant] Error STT en listen: $error');
-        if (_isListening && _transcriptionController != null && !_transcriptionController!.isClosed) {
+    _onSttError ??= (error) {
+      debugLog('❌ [VoiceAssistant] Error STT en listen: $error');
+      if (_isListening && _transcriptionController != null && !_transcriptionController!.isClosed) {
+        _isListening = false;
+        try {
+          // Enviar un marcador especial de error al stream
+          _transcriptionController?.add('__ERROR__');
+          Future.delayed(const Duration(milliseconds: 100), () {
+            if (_transcriptionController != null && !_transcriptionController!.isClosed) {
+              debugLog('🔒 [VoiceAssistant] Cerrando stream por error STT...');
+              _transcriptionController?.close();
+              _transcriptionController = null;
+              debugLog('✅ [VoiceAssistant] Stream cerrado después de error STT');
+            }
+          });
+        } catch (e) {
+          debugLog('⚠️ [VoiceAssistant] Error al enviar marcador de error: $e');
+        }
+      }
+    };
+    
+    _onSttStatus ??= (status) {
+      debugLog('📊 [VoiceAssistant] Status STT: $status');
+      // Si el estado cambia a "done" o "notListening" sin resultado final, cerrar el stream
+      if ((status == 'done' || status == 'notListening') && _isListening && _transcriptionController != null && !_transcriptionController!.isClosed) {
+        debugLog('⚠️ [VoiceAssistant] Status cambió a $status pero aún estaba escuchando');
+        // Solo cerrar si no hay transcripción válida
+        if (_transcription.isEmpty || _transcription.trim().isEmpty) {
+          debugLog('⚠️ [VoiceAssistant] No hay transcripción válida, cerrando stream...');
           _isListening = false;
           try {
-            // Enviar un marcador especial de error al stream
             _transcriptionController?.add('__ERROR__');
-            Future.delayed(const Duration(milliseconds: 100), () {
-              if (_transcriptionController != null && !_transcriptionController!.isClosed) {
-                debugLog('🔒 [VoiceAssistant] Cerrando stream por error STT...');
-                _transcriptionController?.close();
-                _transcriptionController = null;
-                debugLog('✅ [VoiceAssistant] Stream cerrado después de error STT');
-              }
-            });
           } catch (e) {
-            debugLog('⚠️ [VoiceAssistant] Error al enviar marcador de error: $e');
+            debugLog('⚠️ [VoiceAssistant] Error al enviar error: $e');
           }
-        }
-      };
-    }
-    
-    if (_onSttStatus == null) {
-      _onSttStatus = (status) {
-        debugLog('📊 [VoiceAssistant] Status STT: $status');
-        // Si el estado cambia a "done" o "notListening" sin resultado final, cerrar el stream
-        if ((status == 'done' || status == 'notListening') && _isListening && _transcriptionController != null && !_transcriptionController!.isClosed) {
-          debugLog('⚠️ [VoiceAssistant] Status cambió a $status pero aún estaba escuchando');
-          // Solo cerrar si no hay transcripción válida
-          if (_transcription.isEmpty || _transcription.trim().isEmpty) {
-            debugLog('⚠️ [VoiceAssistant] No hay transcripción válida, cerrando stream...');
-            _isListening = false;
-            try {
-              _transcriptionController?.add('__ERROR__');
-            } catch (e) {
-              debugLog('⚠️ [VoiceAssistant] Error al enviar error: $e');
+          Future.delayed(const Duration(milliseconds: 100), () {
+            if (_transcriptionController != null && !_transcriptionController!.isClosed) {
+              _transcriptionController?.close();
+              _transcriptionController = null;
+              debugLog('✅ [VoiceAssistant] Stream cerrado por cambio de status');
             }
-            Future.delayed(const Duration(milliseconds: 100), () {
-              if (_transcriptionController != null && !_transcriptionController!.isClosed) {
-                _transcriptionController?.close();
-                _transcriptionController = null;
-                debugLog('✅ [VoiceAssistant] Stream cerrado por cambio de status');
-              }
-            });
-          }
+          });
         }
-      };
-    }
+      }
+    };
     
     if (!_isListening) {
       _isListening = true;
@@ -201,8 +193,10 @@ class VoiceAssistantService {
         listenFor: const Duration(seconds: 30),
         pauseFor: const Duration(seconds: 3),
         localeId: localeToUse,
-        cancelOnError: true,
-        partialResults: true,
+        listenOptions: stt.SpeechListenOptions(
+          cancelOnError: true,
+          partialResults: true,
+        ),
         onSoundLevelChange: (level) {
           // Opcional: mostrar nivel de sonido
         },

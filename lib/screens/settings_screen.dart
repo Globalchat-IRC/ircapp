@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:flutter/painting.dart' show WebHtmlElementStrategy;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/irc_provider.dart';
 import '../providers/theme_provider.dart';
@@ -40,7 +39,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           width: size,
           height: size,
           fit: BoxFit.cover,
-          errorBuilder: (_, __, ___) => placeholder,
+          errorBuilder: (_, error, stackTrace) => placeholder,
         );
       } catch (_) {
         return placeholder;
@@ -55,7 +54,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       webHtmlElementStrategy: PlatformUtils.isWeb
           ? WebHtmlElementStrategy.prefer
           : WebHtmlElementStrategy.never,
-      errorBuilder: (_, __, ___) => placeholder,
+      errorBuilder: (_, error, stackTrace) => placeholder,
     );
   }
 
@@ -64,7 +63,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final placeholder = Container(
       width: size,
       height: size,
-      color: appTheme.primary.withOpacity(0.1),
+      color: appTheme.primary.withValues(alpha: 0.1),
       alignment: Alignment.center,
       child: Icon(Icons.image, color: appTheme.primary),
     );
@@ -86,7 +85,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           height: size,
           fit: BoxFit.cover,
           gaplessPlayback: true,
-          errorBuilder: (_, __, ___) => placeholder,
+          errorBuilder: (_, error, stackTrace) => placeholder,
         );
       } catch (_) {
         return placeholder;
@@ -102,7 +101,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       webHtmlElementStrategy: PlatformUtils.isWeb
           ? WebHtmlElementStrategy.prefer
           : WebHtmlElementStrategy.never,
-      errorBuilder: (_, __, ___) => placeholder,
+      errorBuilder: (_, error, stackTrace) => placeholder,
     );
   }
 
@@ -276,7 +275,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         onChanged: (value) {
                           ref.read(useNoticeForPrivateProvider.notifier).setValue(value);
                         },
-                        activeColor: appTheme.primary,
+                        activeThumbColor: appTheme.primary,
                       ),
                     ],
                   ),
@@ -316,7 +315,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           color: appTheme.surface,
                           borderRadius: BorderRadius.circular(8),
                           border: Border.all(
-                            color: appTheme.primary.withOpacity(0.3),
+                            color: appTheme.primary.withValues(alpha: 0.3),
                           ),
                         ),
                         child: Text(
@@ -367,7 +366,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           color: appTheme.surface,
                           borderRadius: BorderRadius.circular(8),
                           border: Border.all(
-                            color: appTheme.primary.withOpacity(0.3),
+                            color: appTheme.primary.withValues(alpha: 0.3),
                           ),
                         ),
                         child: Text(
@@ -426,7 +425,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                               .read(messageFormatPreferencesProvider.notifier)
                               .setEnableThreadsInChannels(value);
                         },
-                        activeColor: appTheme.primary,
+                        activeThumbColor: appTheme.primary,
                       ),
                     ],
                   ),
@@ -474,7 +473,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                               .read(messageFormatPreferencesProvider.notifier)
                               .setEnableReactions(value);
                         },
-                        activeColor: appTheme.primary,
+                        activeThumbColor: appTheme.primary,
                       ),
                     ],
                   ),
@@ -522,7 +521,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                               .read(messageFormatPreferencesProvider.notifier)
                               .setEnableAnimatedAvatars(value);
                         },
-                        activeColor: appTheme.primary,
+                        activeThumbColor: appTheme.primary,
                       ),
                     ],
                   ),
@@ -601,24 +600,23 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                   await Future.delayed(const Duration(seconds: 2));
                                   result = await AvatarService.uploadAvatarGif(currentNick, bytes);
                                 }
-                                if (context.mounted) {
-                                  // Si la subida ha tenido éxito, actualizar el valor guardado a la URL remota
-                                  if (result.success) {
-                                    final remoteUrl = result.url ?? AvatarService.getAvatarGifUrl(currentNick);
-                                    if (!PlatformUtils.isWeb) {
-                                      await ref.read(globalAvatarGifProvider.notifier).setGlobalAvatarGif(remoteUrl);
-                                    }
+                                // Si la subida ha tenido éxito, actualizar el valor guardado a la URL remota
+                                if (result.success) {
+                                  final remoteUrl = result.url ?? AvatarService.getAvatarGifUrl(currentNick);
+                                  if (!PlatformUtils.isWeb) {
+                                    await ref.read(globalAvatarGifProvider.notifier).setGlobalAvatarGif(remoteUrl);
                                   }
-                                  final String msg = result.success
-                                      ? 'Avatar subido a xmlrpc. Los demás usuarios lo verán animado.'
-                                      : 'Avatar guardado aquí. No se pudo subir: ${result.errorMessage ?? "error"}. Se reintentará al conectar.';
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(
-                                      content: Text(msg),
-                                      duration: const Duration(seconds: 5),
-                                    ),
-                                  );
                                 }
+                                if (!context.mounted) return;
+                                final String msg = result.success
+                                    ? 'Avatar subido a xmlrpc. Los demás usuarios lo verán animado.'
+                                    : 'Avatar guardado aquí. No se pudo subir: ${result.errorMessage ?? "error"}. Se reintentará al conectar.';
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text(msg),
+                                    duration: const Duration(seconds: 5),
+                                  ),
+                                );
                               } else if (context.mounted) {
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   const SnackBar(content: Text('Avatar guardado. Se subirá a xmlrpc automáticamente cuando te conectes.')),
@@ -744,7 +742,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                               .read(messageFormatPreferencesProvider.notifier)
                               .setShowTimestamp(value);
                         },
-                        activeColor: appTheme.primary,
+                        activeThumbColor: appTheme.primary,
                       ),
                     ],
                   ),
@@ -794,7 +792,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                               .read(messageFormatPreferencesProvider.notifier)
                               .setShowInlineChannelAvatar(value);
                         },
-                        activeColor: appTheme.primary,
+                        activeThumbColor: appTheme.primary,
                       ),
                     ],
                   ),
@@ -834,7 +832,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           color: appTheme.surface,
                           borderRadius: BorderRadius.circular(8),
                           border: Border.all(
-                            color: appTheme.primary.withOpacity(0.3),
+                            color: appTheme.primary.withValues(alpha: 0.3),
                           ),
                         ),
                         child: Text(
@@ -861,7 +859,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   ),
                   const SizedBox(height: 12),
                   DropdownButtonFormField<String>(
-                    value: formatPrefs.channelFontFamily,
+                    initialValue: formatPrefs.channelFontFamily,
                     decoration: InputDecoration(
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
@@ -924,7 +922,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           color: appTheme.surface,
                           borderRadius: BorderRadius.circular(8),
                           border: Border.all(
-                            color: appTheme.primary.withOpacity(0.3),
+                            color: appTheme.primary.withValues(alpha: 0.3),
                           ),
                         ),
                         child: Text(
@@ -983,7 +981,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                               onSelected: (_) {
                                 ref.read(chatFontSizeProvider.notifier).setFontSize(i);
                               },
-                              selectedColor: appTheme.primary.withOpacity(0.3),
+                              selectedColor: appTheme.primary.withValues(alpha: 0.3),
                               checkmarkColor: appTheme.primary,
                             ),
                           );
@@ -1028,7 +1026,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                             onChanged: (v) {
                               ref.read(reduceMotionProvider.notifier).setReduceMotion(v);
                             },
-                            activeColor: appTheme.primary,
+                            activeThumbColor: appTheme.primary,
                           );
                         },
                       ),
@@ -1072,7 +1070,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                             onChanged: (v) {
                               ref.read(notificationSettingsProvider.notifier).setDoNotDisturb(v);
                             },
-                            activeColor: appTheme.primary,
+                            activeThumbColor: appTheme.primary,
                           ),
                         ],
                       );
@@ -1090,7 +1088,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   ),
                   const SizedBox(height: 12),
                   DropdownButtonFormField<String>(
-                    value: formatPrefs.privateFontFamily,
+                    initialValue: formatPrefs.privateFontFamily,
                     decoration: InputDecoration(
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
@@ -1424,7 +1422,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     onChanged: (value) {
                       ref.read(historyEnabledProvider.notifier).setEnabled(value);
                     },
-                    activeColor: appTheme.primary,
+                    activeThumbColor: appTheme.primary,
                   ),
                   const SizedBox(height: 16),
                   const Divider(),
@@ -1658,13 +1656,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
           color: isSelected
-              ? appTheme.primary.withOpacity(0.2)
+              ? appTheme.primary.withValues(alpha: 0.2)
               : appTheme.surface,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
             color: isSelected
                 ? appTheme.primary
-                : appTheme.textPrimary.withOpacity(0.2),
+                : appTheme.textPrimary.withValues(alpha: 0.2),
             width: isSelected ? 2 : 1,
           ),
         ),
@@ -1892,7 +1890,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     WidgetRef ref,
     AppTheme appTheme,
   ) async {
-    final confirmed = await showDialog<bool>(
+    await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: appTheme.surface,

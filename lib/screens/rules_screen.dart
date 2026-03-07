@@ -4,7 +4,7 @@ import '../models/app_theme.dart';
 import '../providers/theme_provider.dart';
 
 class RulesScreen extends ConsumerWidget {
-  const RulesScreen({Key? key}) : super(key: key);
+  const RulesScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -23,8 +23,8 @@ class RulesScreen extends ConsumerWidget {
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
             colors: [
-              appTheme.primary.withOpacity(0.08),
-              appTheme.secondary.withOpacity(0.06),
+              appTheme.primary.withValues(alpha: 0.08),
+              appTheme.secondary.withValues(alpha: 0.06),
               appTheme.background,
             ],
           ),
@@ -33,7 +33,7 @@ class RulesScreen extends ConsumerWidget {
           child: Padding(
             padding: const EdgeInsets.all(16),
             child: Card(
-              color: appTheme.surface.withOpacity(0.96),
+              color: appTheme.surface.withValues(alpha: 0.96),
               elevation: 4,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(16),

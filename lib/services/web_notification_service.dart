@@ -1,5 +1,4 @@
 import 'package:flutter/foundation.dart' show kIsWeb;
-import '../utils/platform_utils.dart';
 
 // Import condicional de dart:html solo para web
 import '../utils/html_stub.dart' as html;
@@ -32,11 +31,11 @@ class WebNotificationService {
       
       // Escuchar cambios de visibilidad de la pestaña
       html.document.onVisibilityChange.listen((event) {
-        _isTabVisible = !(html.document.hidden ?? false);
+        _isTabVisible = !html.document.hidden;
       });
       
       // Inicializar estado de visibilidad
-      _isTabVisible = !(html.document.hidden ?? false);
+      _isTabVisible = !html.document.hidden;
       
       _isInitialized = true;
     } catch (e) {
@@ -67,7 +66,7 @@ class WebNotificationService {
   /// Verifica si la pestaña está visible
   bool get isTabVisible {
     if (!kIsWeb) return true;
-    return !(html.document.hidden ?? false);
+    return !html.document.hidden;
   }
 
   /// Muestra una notificación

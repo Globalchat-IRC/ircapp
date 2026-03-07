@@ -127,7 +127,7 @@ class MacOSKeyboardShortcuts extends StatelessWidget {
   final VoidCallback? onChannelList;
 
   const MacOSKeyboardShortcuts({
-    Key? key,
+    super.key,
     required this.child,
     this.onFind,
     this.onFindNext,
@@ -136,7 +136,7 @@ class MacOSKeyboardShortcuts extends StatelessWidget {
     this.onPreferences,
     this.onExportLogs,
     this.onChannelList,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {

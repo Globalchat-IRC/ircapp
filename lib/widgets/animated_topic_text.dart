@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 class AnimatedTopicText extends StatefulWidget {
   final String topic;
 
-  const AnimatedTopicText({Key? key, required this.topic}) : super(key: key);
+  const AnimatedTopicText({super.key, required this.topic});
 
   @override
   State<AnimatedTopicText> createState() => _AnimatedTopicTextState();
@@ -14,7 +14,6 @@ class _AnimatedTopicTextState extends State<AnimatedTopicText>
   late AnimationController _controller;
   late Animation<double> _animation;
   double? _textWidth;
-  double? _containerWidth;
 
   @override
   void initState() {
@@ -82,8 +81,6 @@ class _AnimatedTopicTextState extends State<AnimatedTopicText>
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        _containerWidth = constraints.maxWidth;
-        
         if (_textWidth == null) {
           return const Center(
             child: SizedBox(

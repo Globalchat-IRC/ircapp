@@ -1,5 +1,4 @@
 import 'package:shared_preferences/shared_preferences.dart';
-import 'dart:convert';
 
 /// Servicio para gestión de privacidad y modo incógnito
 class PrivacyService {

@@ -7,8 +7,6 @@ import 'package:url_launcher/url_launcher.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
-// Conditional import for web URL parameters
-import 'dart:html' if (dart.library.io) '../utils/html_stub.dart' as html;
 import 'dart:io' if (dart.library.html) '../utils/io_stub.dart' as io;
 import '../providers/irc_provider.dart';
 import '../providers/theme_provider.dart';
@@ -17,13 +15,12 @@ import '../models/channel_info.dart';
 import '../models/server_profile.dart';
 import 'chat_screen.dart';
 import 'rules_screen.dart';
-import '../main.dart' show globalLog;
 import '../utils/platform_utils.dart';
 import '../services/geoip_service.dart';
 import '../config/debug_config.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
-  const LoginScreen({Key? key}) : super(key: key);
+  const LoginScreen({super.key});
 
   @override
   ConsumerState<LoginScreen> createState() => _LoginScreenState();
@@ -135,121 +132,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     if (PlatformUtils.isWeb) {
       debugLog('🔍 [INIT] PlatformUtils.isWeb = true, leyendo parámetros de URL');
       try {
-        // Usar dart:html directamente para leer la URL (más confiable en Flutter web)
-        final window = html.window;
-        final location = window.location;
-        final fullUrl = location.href ?? '';
-        
-        debugLog('🔍 [URL] location.href: "$fullUrl"');
-        debugLog('🔍 [URL] location.search: "${location.search}"');
-        debugLog('🔍 [URL] location.hash: "${location.hash}"');
-        
-        if (fullUrl.isNotEmpty) {
-          final fullUri = Uri.parse(fullUrl);
-          debugLog('🔍 [URL] fullUri.queryParameters: ${fullUri.queryParameters}');
-          
-          // Leer parámetros del query string
-          final nickParam = fullUri.queryParameters['nick'];
-          final channelParam = fullUri.queryParameters['channel'];
-          final autoJoinParam = fullUri.queryParameters['autojoin'];
-          // Nuevo parámetro: permite controlar el autojoin al canal oficial #globalchat
-          // Ejemplo: ?joinchanneloficial=false  -> NO autojinear a #globalchat
-          //          ?joinchanneloficial=true   -> autojinear (por defecto)
-          final joinOficialParam = fullUri.queryParameters['joinchanneloficial'];
-          // geolocation: true (default) = usar ciudad/país y servidor por GeoIP; false = desactivar geolocalización
-          final geolocationParam = fullUri.queryParameters['geolocation'];
-          // age18 / age: true = usuario confirma ser mayor de edad por URL.
-          // `age=true` se mantiene por compatibilidad con enlaces ya existentes.
-          final age18Param = fullUri.queryParameters['age18'] ?? fullUri.queryParameters['age'];
-          // rules / reglas / normas: acepta automáticamente las reglas del canal/red.
-          final rulesParam = fullUri.queryParameters['rules'] ??
-              fullUri.queryParameters['reglas'] ??
-              fullUri.queryParameters['normas'];
-          // guest / invitado: mismo comportamiento que "Entrar como invitado" (nick Invitado+nums, #globalchat, conectar)
-          final guestParam = fullUri.queryParameters['guest'] ?? fullUri.queryParameters['invitado'];
-          
-          if (guestParam != null) {
-            final v = guestParam.toLowerCase().trim();
-            if (v == 'true' || v == '1' || v == 'yes') {
-              _guestFromUrl = true;
-              urlChannel = '#globalchat';
-              _confirmOver14 = true;
-              _acceptRules = true;
-              _urlAge18Validated = true;
-              _urlRulesAccepted = true;
-              debugLog('🔍 [URL] ✅ guest/invitado=1: entrar como invitado por parámetro');
-            }
-          }
-          
-          if (nickParam != null && nickParam.trim().isNotEmpty) {
-            final sanitized = _sanitizeNick(nickParam);
-            if (sanitized.isNotEmpty) {
-              urlNick = sanitized;
-              debugLog('🔍 [URL] ✅ Nick leído: "$nickParam" -> Sanitizado: "$urlNick"');
-            } else {
-              debugLog('🔍 [URL] ⚠️ Nick inválido tras sanitizar: "$nickParam"');
-            }
-          }
-          
-          // Leer canal de query string (no sobrescribir si ya se fijó por guest/invitado)
-          if (!_guestFromUrl && channelParam != null) {
-            final trimmed = channelParam.trim();
-            if (trimmed.isNotEmpty && trimmed != '=') {
-              urlChannel = trimmed;
-              debugLog('🔍 [URL] ✅ Canal leído: "$urlChannel"');
-            } else {
-              debugLog('🔍 [URL] ⚠️ Canal vacío o solo "=", channelParam="$channelParam"');
-            }
-          } else {
-            debugLog('🔍 [URL] ⚠️ channelParam es null');
-          }
-          
-          // Leer parámetro autojoin
-          if (autoJoinParam != null) {
-            final autoJoinValue = autoJoinParam.toLowerCase().trim();
-            autoJoin = autoJoinValue == 'true' || 
-                       autoJoinValue == '1' || 
-                       autoJoinValue == 'yes';
-            debugLog('🔍 [URL] ✅ autoJoin leído: "$autoJoinParam" -> autoJoin=$autoJoin');
-          }
+        final uri = Uri.base;
+        debugLog('🔍 [URL] Uri.base: $uri');
+        debugLog('🔍 [URL] Uri.base.queryParameters: ${uri.queryParameters}');
 
-          // Leer parámetro joinchanneloficial (controla autojoin a #globalchat)
-          if (joinOficialParam != null) {
-            final value = joinOficialParam.toLowerCase().trim();
-            if (value == 'false' || value == '0' || value == 'no') {
-              joinChannelOficialFromUrl = false;
-            } else if (value == 'true' || value == '1' || value == 'yes') {
-              joinChannelOficialFromUrl = true;
-            }
-            debugLog('🔍 [URL] ✅ joinchanneloficial leído: "$joinOficialParam" -> $joinChannelOficialFromUrl');
-          }
-          if (geolocationParam != null) {
-            final v = geolocationParam.toLowerCase().trim();
-            _geolocationEnabled = v != 'false' && v != '0' && v != 'no';
-          }
-          if (age18Param != null) {
-            final v = age18Param.toLowerCase().trim();
-            _urlAge18Validated = v == 'true' || v == '1' || v == 'yes';
-            if (_urlAge18Validated) {
-              // Compatibilidad: los enlaces con age=true deben dejar el login listo.
-              _confirmOver14 = true;
-              _acceptRules = true;
-              _urlRulesAccepted = true;
-            }
-          }
-          if (rulesParam != null) {
-            final v = rulesParam.toLowerCase().trim();
-            if (v == 'true' || v == '1' || v == 'yes') {
-              _acceptRules = true;
-              _urlRulesAccepted = true;
-            }
-          }
-        } else {
-          // Fallback a Uri.base si location.href está vacío
-          final uri = Uri.base;
-          debugLog('🔍 [URL] Fallback a Uri.base: ${Uri.base}');
-          debugLog('🔍 [URL] Uri.base.queryParameters: ${uri.queryParameters}');
-          
           final nickParam = uri.queryParameters['nick'];
           final channelParam = uri.queryParameters['channel'];
           final autoJoinParam = uri.queryParameters['autojoin'];
@@ -329,8 +215,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               _urlRulesAccepted = true;
             }
           }
-        }
-        
+
         // Guardar canal de URL en instancia para usarlo en _connect() y en el callback (geolocation=false)
         _urlChannel = urlChannel;
         // Debug: verificar que se leyeron los parámetros
@@ -362,7 +247,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     final random = Random();
     final randomNumber = random.nextInt(90000) + 10000; // Número entre 10000 y 99999
     // Asegurarse de que el nick de la URL esté limpio (sin guiones al final)
-    final cleanUrlNick = urlNick != null ? urlNick.trim() : null;
+    final cleanUrlNick = urlNick?.trim();
     final defaultNick = cleanUrlNick ?? 'GlobalChat-$randomNumber';
     if (cleanUrlNick != null && cleanUrlNick.isNotEmpty) _urlNickProvided = true;
     _nickController = TextEditingController(
@@ -589,14 +474,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           debugLog('🔍 [AUTOJOIN_URL] ✅ Autojoin activado desde URL - nick: $urlNick, channel: $_urlChannel');
           
           // Asegurar que el canal esté en el controlador (prioridad: URL, luego formulario)
-          String? channelToUse = _urlChannel;
-          if (channelToUse == null || channelToUse.trim().isEmpty) {
+          var channelToUse = _urlChannel?.trim();
+          if (channelToUse == null || channelToUse.isEmpty) {
             channelToUse = _channelController.text.trim();
           }
           
-          if (channelToUse != null && channelToUse.trim().isNotEmpty) {
+          if (channelToUse.isNotEmpty) {
             // Normalizar el canal
-            String finalChannel = channelToUse.trim();
+            String finalChannel = channelToUse;
             if (!finalChannel.startsWith('#')) {
               finalChannel = '#$finalChannel';
             }
@@ -725,7 +610,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   /// América → caliope.globalchat.org
   /// Resto del mundo → otros servidores (ceres, creta, apolo)
   Future<void> _selectServerByGeoIPFromList(List<ServerProfile> sslServers) async {
-    ServerProfile? selectedServer;
+    late ServerProfile selectedServer;
     
     try {
       final isAmericas = await GeoIPService.isInAmericas();
@@ -790,7 +675,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     
     if (mounted) {
       setState(() {
-        _selectedServer = selectedServer ?? sslServers.first;
+        _selectedServer = selectedServer;
         _updateServerFields(_selectedServer!);
       });
     }
@@ -877,8 +762,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       selectedServer = sslServers[selectedIndex];
     }
     
-    _selectedServer = selectedServer ?? sslServers.first;
-    _updateServerFields(_selectedServer!);
+    _selectedServer = selectedServer;
+    _updateServerFields(selectedServer);
   }
 
   void _updateServerFields(ServerProfile profile) {
@@ -1022,9 +907,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             _loadingChannels = false;
           });
           // debugLog('🔍 [DEBUG] Canales cargados: ${_channels.length}');
-          for (var channel in _channels.take(5)) {
-            // debugLog('🔍 [DEBUG]   - ${channel.name} (${channel.users} usuarios)');
-          }
         }
       }
     } catch (e) {
@@ -1319,6 +1201,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         await _saveLoginPrefs(nick, normalizedChannel, _identifyWithNick, identifyPassword: identifyPassword);
         final prefs = await SharedPreferences.getInstance();
         await prefs.setBool(_prefAutoReconnect, _autoReconnectEnabled);
+        if (!mounted) return;
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(
             builder: (_) => const ChatScreen(),
@@ -1327,7 +1210,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       } else {
         // globalLog('❌ [LOGIN] Widget not mounted, cannot navigate');
       }
-    } catch (e, stack) {
+    } catch (e) {
       // globalLog('❌ [LOGIN] EXCEPTION: $e');
       // globalLog('❌ [LOGIN] STACK: $stack');
       String errorMessage = 'Error de conexión: $e';
@@ -1404,10 +1287,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 decoration: BoxDecoration(
-                  color: appTheme.primary.withOpacity(0.2),
+                  color: appTheme.primary.withValues(alpha: 0.2),
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(
-                    color: appTheme.textPrimary.withOpacity(0.3),
+                    color: appTheme.textPrimary.withValues(alpha: 0.3),
                     width: 1,
                   ),
                 ),
@@ -1436,9 +1319,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
             colors: [
-              appTheme.primary.withOpacity(0.15),
-              appTheme.secondary.withOpacity(0.12),
-              appTheme.accent.withOpacity(0.08),
+              appTheme.primary.withValues(alpha: 0.15),
+              appTheme.secondary.withValues(alpha: 0.12),
+              appTheme.accent.withValues(alpha: 0.08),
               appTheme.background,
             ],
             stops: const [0.0, 0.3, 0.6, 1.0],
@@ -1467,7 +1350,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     end: Alignment.bottomRight,
                     colors: [
                       appTheme.background,
-                      appTheme.background.withOpacity(0.95),
+                      appTheme.background.withValues(alpha: 0.95),
                     ],
                   ),
                 ),
@@ -1520,7 +1403,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                           borderRadius: BorderRadius.circular(12),
                           boxShadow: [
                             BoxShadow(
-                              color: appTheme.primary.withOpacity(0.4),
+                              color: appTheme.primary.withValues(alpha: 0.4),
                               blurRadius: 8,
                               offset: const Offset(0, 4),
                             ),
@@ -1549,14 +1432,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   SizedBox(
                     height: 56,
                     child: DropdownButtonFormField<ServerProfile>(
-                      value: _selectedServer,
+                      initialValue: _selectedServer,
                       isExpanded: true,
                       decoration: InputDecoration(
                         labelText: 'Servidor',
                         prefixIcon: Icon(Icons.language, color: appTheme.primary),
                         labelStyle: TextStyle(color: appTheme.primary),
                         filled: true,
-                        fillColor: appTheme.surface.withOpacity(0.9),
+                        fillColor: appTheme.surface.withValues(alpha: 0.9),
                         contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
                         focusedBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(8),
@@ -1564,11 +1447,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                         ),
                         enabledBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(8),
-                          borderSide: BorderSide(color: appTheme.primary.withOpacity(0.6), width: 1.5),
+                          borderSide: BorderSide(color: appTheme.primary.withValues(alpha: 0.6), width: 1.5),
                         ),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(8),
-                          borderSide: BorderSide(color: appTheme.primary.withOpacity(0.4), width: 1),
+                          borderSide: BorderSide(color: appTheme.primary.withValues(alpha: 0.4), width: 1),
                         ),
                       ),
                       dropdownColor: appTheme.surface,
@@ -1672,7 +1555,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                 prefixIcon: Icon(Icons.dns, color: appTheme.primary, size: 20),
                                 labelStyle: TextStyle(color: appTheme.primary),
                                 filled: true,
-                                fillColor: appTheme.surface.withOpacity(0.9),
+                                fillColor: appTheme.surface.withValues(alpha: 0.9),
                                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                               ),
                             ),
@@ -1687,7 +1570,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                 prefixIcon: Icon(Icons.numbers, color: appTheme.primary, size: 20),
                                 labelStyle: TextStyle(color: appTheme.primary),
                                 filled: true,
-                                fillColor: appTheme.surface.withOpacity(0.9),
+                                fillColor: appTheme.surface.withValues(alpha: 0.9),
                                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                               ),
                             ),
@@ -1714,18 +1597,18 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                             hintStyle: TextStyle(color: appTheme.textSecondary),
                             helperStyle: TextStyle(color: appTheme.textSecondary, fontSize: 11),
                             filled: true,
-                            fillColor: appTheme.surface.withOpacity(0.9),
+                            fillColor: appTheme.surface.withValues(alpha: 0.9),
                             focusedBorder: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(8),
                               borderSide: BorderSide(color: appTheme.primary, width: 2),
                             ),
                             enabledBorder: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(8),
-                              borderSide: BorderSide(color: appTheme.primary.withOpacity(0.6), width: 1.5),
+                              borderSide: BorderSide(color: appTheme.primary.withValues(alpha: 0.6), width: 1.5),
                             ),
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(8),
-                              borderSide: BorderSide(color: appTheme.primary.withOpacity(0.4), width: 1),
+                              borderSide: BorderSide(color: appTheme.primary.withValues(alpha: 0.4), width: 1),
                             ),
                           ),
                         ),
@@ -1824,7 +1707,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                         suffixIcon: IconButton(
                           icon: Icon(
                             _obscurePassword ? Icons.visibility : Icons.visibility_off,
-                            color: appTheme.primary.withOpacity(0.7),
+                            color: appTheme.primary.withValues(alpha: 0.7),
                           ),
                           onPressed: () {
                             setState(() {
@@ -1838,18 +1721,18 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                         helperText: 'Se identificará automáticamente con NickServ al conectar',
                         helperStyle: TextStyle(color: appTheme.textSecondary, fontSize: 11),
                         filled: true,
-                        fillColor: appTheme.surface.withOpacity(0.9),
+                        fillColor: appTheme.surface.withValues(alpha: 0.9),
                         focusedBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(8),
                           borderSide: BorderSide(color: appTheme.primary, width: 2),
                         ),
                         enabledBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(8),
-                          borderSide: BorderSide(color: appTheme.primary.withOpacity(0.6), width: 1.5),
+                          borderSide: BorderSide(color: appTheme.primary.withValues(alpha: 0.6), width: 1.5),
                         ),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(8),
-                          borderSide: BorderSide(color: appTheme.primary.withOpacity(0.4), width: 1),
+                          borderSide: BorderSide(color: appTheme.primary.withValues(alpha: 0.4), width: 1),
                         ),
                       ),
                     ),
@@ -1859,9 +1742,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     Container(
                       decoration: BoxDecoration(
                         borderRadius: BorderRadius.circular(8),
-                        color: appTheme.surface.withOpacity(0.9),
+                        color: appTheme.surface.withValues(alpha: 0.9),
                         border: Border.all(
-                          color: appTheme.primary.withOpacity(0.4),
+                          color: appTheme.primary.withValues(alpha: 0.4),
                           width: 1,
                         ),
                       ),
@@ -1880,7 +1763,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                 _clearGeoIpChannelsFromToggle();
                               }
                             },
-                            activeColor: appTheme.primary,
+                            activeThumbColor: appTheme.primary,
                           ),
                           const SizedBox(width: 8),
                           Expanded(
@@ -2060,7 +1943,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   /// Banner de cuenta atrás antes de auto-conectar; permite cancelar para configurar.
   Widget _buildAutoConnectBanner(AppTheme appTheme) {
     return Material(
-      color: appTheme.primary.withOpacity(0.9),
+      color: appTheme.primary.withValues(alpha: 0.9),
       child: SafeArea(
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -2071,7 +1954,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               Expanded(
                 child: Text(
                   _autoConnectCountdown != null && _autoConnectCountdown! > 0
-                      ? 'Conectando automáticamente en ${_autoConnectCountdown} s...'
+                      ? 'Conectando automáticamente en $_autoConnectCountdown s...'
                       : 'Conectando...',
                   style: TextStyle(
                     color: appTheme.textPrimary,
@@ -2156,14 +2039,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(
-                    color: isSelected ? theme.primary : Colors.grey.withOpacity(0.3),
+                    color: isSelected ? theme.primary : Colors.grey.withValues(alpha: 0.3),
                     width: isSelected ? 2.5 : 1,
                   ),
                   gradient: isSelected
                       ? LinearGradient(
                           colors: [
-                            theme.primary.withOpacity(0.1),
-                            theme.secondary.withOpacity(0.1),
+                            theme.primary.withValues(alpha: 0.1),
+                            theme.secondary.withValues(alpha: 0.1),
                           ],
                         )
                       : null,
@@ -2189,7 +2072,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       borderRadius: BorderRadius.circular(12),
                       boxShadow: [
                         BoxShadow(
-                          color: theme.primary.withOpacity(0.4),
+                          color: theme.primary.withValues(alpha: 0.4),
                           blurRadius: 8,
                           offset: const Offset(0, 2),
                         ),
@@ -2343,7 +2226,7 @@ class _AnimatedLogoState extends State<_AnimatedLogo>
                         ),
                         boxShadow: [
                           BoxShadow(
-                            color: widget.appTheme.primary.withOpacity(0.4),
+                            color: widget.appTheme.primary.withValues(alpha: 0.4),
                             blurRadius: 20,
                             spreadRadius: 5,
                           ),
@@ -2493,7 +2376,7 @@ class _ChannelSelectorState extends State<_ChannelSelector> {
                 width: 40,
                 height: 4,
                 decoration: BoxDecoration(
-                  color: widget.appTheme.textSecondary.withOpacity(0.3),
+                  color: widget.appTheme.textSecondary.withValues(alpha: 0.3),
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
@@ -2544,11 +2427,11 @@ class _ChannelSelectorState extends State<_ChannelSelector> {
                         fillColor: widget.appTheme.background,
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
-                          borderSide: BorderSide(color: widget.appTheme.primary.withOpacity(0.3)),
+                          borderSide: BorderSide(color: widget.appTheme.primary.withValues(alpha: 0.3)),
                         ),
                         enabledBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
-                          borderSide: BorderSide(color: widget.appTheme.primary.withOpacity(0.3)),
+                          borderSide: BorderSide(color: widget.appTheme.primary.withValues(alpha: 0.3)),
                         ),
                         focusedBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
@@ -2626,7 +2509,7 @@ class _ChannelSelectorState extends State<_ChannelSelector> {
                                     vertical: 4,
                                   ),
                                   decoration: BoxDecoration(
-                                    color: widget.appTheme.primary.withOpacity(0.2),
+                                    color: widget.appTheme.primary.withValues(alpha: 0.2),
                                     borderRadius: BorderRadius.circular(12),
                                   ),
                                   child: Text(
@@ -2712,7 +2595,7 @@ class _ChannelSelectorState extends State<_ChannelSelector> {
           labelStyle: TextStyle(color: widget.appTheme.primary),
           hintStyle: TextStyle(color: widget.appTheme.textSecondary),
           filled: true,
-          fillColor: widget.appTheme.surface.withOpacity(0.9),
+          fillColor: widget.appTheme.surface.withValues(alpha: 0.9),
           prefixIcon: widget.loadingChannels
               ? SizedBox(
                   width: 20,
@@ -2749,11 +2632,11 @@ class _ChannelSelectorState extends State<_ChannelSelector> {
           ),
           enabledBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(8),
-            borderSide: BorderSide(color: widget.appTheme.primary.withOpacity(0.6), width: 1.5),
+            borderSide: BorderSide(color: widget.appTheme.primary.withValues(alpha: 0.6), width: 1.5),
           ),
           border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(8),
-            borderSide: BorderSide(color: widget.appTheme.primary.withOpacity(0.4), width: 1),
+            borderSide: BorderSide(color: widget.appTheme.primary.withValues(alpha: 0.4), width: 1),
           ),
         ),
         onTap: () {

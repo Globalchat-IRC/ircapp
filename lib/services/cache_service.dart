@@ -10,7 +10,6 @@ class CacheService {
 
   Directory? _cacheDir;
   int _maxCacheSize = 100 * 1024 * 1024; // 100MB por defecto
-  int _avatarCacheSize = 50 * 1024 * 1024; // 50MB para avatares
 
   /// Inicializa el servicio de cache
   Future<void> initialize() async {
@@ -23,7 +22,6 @@ class CacheService {
     // Cargar configuración
     final prefs = await SharedPreferences.getInstance();
     _maxCacheSize = prefs.getInt('cache_max_size') ?? 100 * 1024 * 1024;
-    _avatarCacheSize = prefs.getInt('cache_avatar_size') ?? 50 * 1024 * 1024;
 
     // Limpiar cache antiguo al iniciar
     await _cleanOldCache();

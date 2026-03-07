@@ -313,17 +313,6 @@ class IRCChannel {
     return isBotByNick || isBotByHost;
   }
   
-  // Método auxiliar para debug: verificar si un nick está en la lista de robots personalizados
-  bool _isInCustomRobotsList(String nickLower, List<Map<String, dynamic>> customRobots) {
-    for (var robotData in customRobots) {
-      final robotNick = (robotData['nick'] as String?)?.toLowerCase();
-      if (robotNick == nickLower) {
-        return true;
-      }
-    }
-    return false;
-  }
-
   // Obtener el modo del usuario (prefijo IRC)
   // Buscar de forma case-insensitive para encontrar el modo correcto
   String? getUserMode(String nick) {

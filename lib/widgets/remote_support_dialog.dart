@@ -10,10 +10,10 @@ class RemoteSupportDialog extends StatelessWidget {
   static const String _supportUrl = 'https://remotedesktop.google.com/support';
 
   const RemoteSupportDialog({
-    Key? key,
+    super.key,
     required this.appTheme,
     this.onJoinHelpChannel,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -25,15 +25,15 @@ class RemoteSupportDialog extends StatelessWidget {
           borderRadius: BorderRadius.circular(24),
           gradient: LinearGradient(
             colors: [
-              appTheme.primary.withOpacity(0.95),
-              appTheme.secondary.withOpacity(0.95),
+              appTheme.primary.withValues(alpha: 0.95),
+              appTheme.secondary.withValues(alpha: 0.95),
             ],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.45),
+              color: Colors.black.withValues(alpha: 0.45),
               blurRadius: 24,
               offset: const Offset(0, 12),
             ),

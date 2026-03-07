@@ -2,11 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../services/privacy_service.dart';
 import '../providers/theme_provider.dart';
-import '../models/app_theme.dart';
 
 /// Pantalla de configuración de privacidad
 class PrivacySettingsScreen extends ConsumerStatefulWidget {
-  const PrivacySettingsScreen({Key? key}) : super(key: key);
+  const PrivacySettingsScreen({super.key});
 
   @override
   ConsumerState<PrivacySettingsScreen> createState() => _PrivacySettingsScreenState();
@@ -228,6 +227,7 @@ class _PrivacySettingsScreenState extends ConsumerState<PrivacySettingsScreen> {
             onPressed: () async {
               if (controller.text.isNotEmpty) {
                 await _privacyService.blockUser(controller.text);
+                if (!context.mounted) return;
                 setState(() {
                   if (!_blockedUsers.contains(controller.text.toLowerCase())) {
                     _blockedUsers.add(controller.text.toLowerCase());
@@ -265,6 +265,7 @@ class _PrivacySettingsScreenState extends ConsumerState<PrivacySettingsScreen> {
             onPressed: () async {
               if (controller.text.isNotEmpty) {
                 await _privacyService.allowUser(controller.text);
+                if (!context.mounted) return;
                 setState(() {
                   if (!_allowedUsers.contains(controller.text.toLowerCase())) {
                     _allowedUsers.add(controller.text.toLowerCase());

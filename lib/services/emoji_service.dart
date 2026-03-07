@@ -621,7 +621,6 @@ class EmojiService {
     ':pensive:': '1f614',
     ':confused:': '1f615',
     ':confounded:': '1f616',
-    ':kissing_heart:': '1f618',
     ':yum:': '1f60b',
     ':mask:': '1f637',
     ':sunglasses:': '1f60e',
@@ -752,8 +751,6 @@ class EmojiService {
     ':heart_decoration:': '1f49f',
     
     // Otros comunes
-    ':thumbsup:': '1f44d',
-    ':thumbsdown:': '1f44e',
     ':fire:': '1f525',
     ':100:': '1f4af',
     ':ok:': '1f197',
@@ -809,10 +806,10 @@ class EmojiService {
         if (isCustomAsset) {
           // Asset personalizado: intentar primero GIF, luego PNG
           // El código que carga la imagen verificará si existe
-          return '${animatedAssetBasePath}${codepoint}.gif';
+          return '$animatedAssetBasePath$codepoint.gif';
         } else {
           // Codepoint de Noto: usar formato estándar
-          return '${animatedAssetBasePath}${codepoint}.gif';
+          return '$animatedAssetBasePath$codepoint.gif';
         }
       }
       return null;
@@ -848,7 +845,7 @@ class EmojiService {
     // Si es un asset personalizado (no codepoint hexadecimal), no hay fallback a Noto CDN
     final isCustomAsset = !RegExp(r'^[0-9a-f_]+$').hasMatch(codepoint);
     if (isCustomAsset) return null;
-    return '${animatedCdnBaseUrl}${codepoint}/512.gif';
+    return '$animatedCdnBaseUrl$codepoint/512.gif';
   }
 
   /// URL (red) al GIF de Noto para un codepoint. Puede ser estático o animado según exista en Noto.
@@ -982,8 +979,16 @@ class EmojiService {
       ..sort((a, b) => b.key.length.compareTo(a.key.length));
     for (final e in entries) {
       // Evitar reemplazar de nuevo las variantes xD/XDD (ya hechas arriba)
-      if (e.value == ':rofl:' && (e.key == 'xD' || e.key == 'XD' || e.key == 'xd' ||
-          e.key == 'XDD' || e.key == 'xDD' || e.key == 'Xdd' || e.key == 'xdd')) continue;
+      if (e.value == ':rofl:' &&
+          (e.key == 'xD' ||
+              e.key == 'XD' ||
+              e.key == 'xd' ||
+              e.key == 'XDD' ||
+              e.key == 'xDD' ||
+              e.key == 'Xdd' ||
+              e.key == 'xdd')) {
+        continue;
+      }
       result = result.replaceAll(e.key, e.value);
     }
     return result;
@@ -1258,8 +1263,18 @@ class EmojiService {
       'Caras Tristes': carasTristes,
       'Caras Expresivas': carasExpresivas,
       'Gatos': gatosAnimados,
-      'Gestos': gestosAnimados,
-      'Corazones': corazonesAnimados,
+      'Gestos': [
+        ...gestosAnimados,
+        ':thumbsup:', ':thumbsdown:', ':ok_hand:', ':wave:', ':clap:',
+        ':pray:', ':point_up:', ':point_down:', ':point_left:', ':point_right:',
+        ':raised_hands:', ':muscle:', ':fist:', ':v:',
+      ],
+      'Corazones': [
+        ...corazonesAnimados,
+        ':heart:', ':broken_heart:', ':two_hearts:', ':sparkling_heart:',
+        ':heartbeat:', ':heartpulse:', ':revolving_hearts:', ':cupid:',
+        ':yellow_heart:', ':green_heart:', ':blue_heart:', ':purple_heart:',
+      ],
       'Celebración': celebracion,
       'Naturaleza': naturaleza,
       'Animales': animales,
@@ -1281,16 +1296,6 @@ class EmojiService {
         ':kissing:', ':flushed:', ':relieved:', ':stuck_out_tongue:',
         ':sunglasses:', ':sleeping:', ':dizzy_face:', ':cry:', ':sob:',
         ':rage:', ':angry:', ':neutral_face:', ':innocent:',
-      ],
-      'Gestos': [
-        ':thumbsup:', ':thumbsdown:', ':ok_hand:', ':wave:', ':clap:',
-        ':pray:', ':point_up:', ':point_down:', ':point_left:', ':point_right:',
-        ':raised_hands:', ':muscle:', ':fist:', ':v:',
-      ],
-      'Corazones': [
-        ':heart:', ':broken_heart:', ':two_hearts:', ':sparkling_heart:',
-        ':heartbeat:', ':heartpulse:', ':revolving_hearts:', ':cupid:',
-        ':yellow_heart:', ':green_heart:', ':blue_heart:', ':purple_heart:',
       ],
       'Otros': [
         ':fire:', ':100:', ':ok:', ':x:', ':o:', ':white_check_mark:',

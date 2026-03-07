@@ -121,7 +121,7 @@ class OpenGraphService {
     if (imageMatch != null) {
       image = imageMatch.group(1);
       // Convertir URL relativa a absoluta
-      if (image != null && !image!.startsWith('http')) {
+      if (image != null && !image.startsWith('http')) {
         final baseUri = Uri.parse(url);
         image = baseUri.resolve(image).toString();
       }

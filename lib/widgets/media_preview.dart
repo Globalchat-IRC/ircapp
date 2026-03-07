@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:photo_view/photo_view.dart';
 import 'package:video_player/video_player.dart';
-import 'dart:io';
 
 /// Widget para preview de medios (imágenes y videos)
 class MediaPreview extends StatefulWidget {
@@ -11,11 +10,11 @@ class MediaPreview extends StatefulWidget {
   final bool isVideo;
 
   const MediaPreview({
-    Key? key,
+    super.key,
     required this.url,
     this.thumbnailUrl,
     this.isVideo = false,
-  }) : super(key: key);
+  });
 
   @override
   State<MediaPreview> createState() => _MediaPreviewState();

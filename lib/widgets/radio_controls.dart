@@ -2,16 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/radio_provider.dart';
 import '../models/radio_station.dart';
-import '../services/radio_service.dart';
 import '../models/app_theme.dart';
 import '../providers/theme_provider.dart';
 import 'radio_stations_list.dart';
 import '../utils/platform_utils.dart';
-import 'dart:html' if (dart.library.io) '../utils/html_stub.dart' as html;
 import '../config/debug_config.dart';
 
 class RadioControls extends ConsumerStatefulWidget {
-  const RadioControls({Key? key}) : super(key: key);
+  const RadioControls({super.key});
 
   @override
   ConsumerState<RadioControls> createState() => _RadioControlsState();
@@ -23,9 +21,6 @@ class _RadioControlsState extends ConsumerState<RadioControls> {
   void initState() {
     super.initState();
     // debugLog('📻 RadioControls initState');
-    // Verificar estado actual
-    final currentState = ref.read(radioProvider);
-    // debugLog('📻 Estado actual: ${currentState.stations.length} estaciones');
     
     // Cargar estaciones al iniciar si no hay ninguna
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -125,16 +120,16 @@ class _RadioControlsState extends ConsumerState<RadioControls> {
     // Log también en la consola del navegador directamente
     if (PlatformUtils.isWeb) {
       // ignore: avoid_web_libraries_in_flutter
-      html.window.console.log('🎵 [RadioControls] Estación: ${updatedStation?.name}');
+      debugLog('🎵 [RadioControls] Estación: ${updatedStation?.name}');
       // ignore: avoid_web_libraries_in_flutter
-      html.window.console.log('🎵 [RadioControls] URL: ${updatedStation?.source}');
+      debugLog('🎵 [RadioControls] URL: ${updatedStation?.source}');
     }
     
     if (updatedStation != null) {
       try {
         debugLog('🎵 [RadioControls] Llamando a radioService.playStation...');
         // ignore: avoid_web_libraries_in_flutter
-        if (PlatformUtils.isWeb) html.window.console.log('🎵 [RadioControls] Llamando playStation...');
+        if (PlatformUtils.isWeb) debugLog('🎵 [RadioControls] Llamando playStation...');
         await radioService.playStation(updatedStation);
       ref.read(radioProvider.notifier).setPlaying(true);
       ref.read(radioProvider.notifier).setError(false);
@@ -342,7 +337,7 @@ class _RadioControlsState extends ConsumerState<RadioControls> {
               size: 18,
               color: onPressed != null 
                   ? appTheme.textPrimary 
-                  : appTheme.textPrimary.withOpacity(0.3),
+                  : appTheme.textPrimary.withValues(alpha: 0.3),
             ),
           ),
         ),

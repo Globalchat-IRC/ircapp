@@ -1,15 +1,15 @@
 import 'dart:io';
 import 'dart:convert';
+import 'dart:js_interop';
 import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:web/web.dart' as web;
 import '../models/irc_message.dart';
 import 'package:intl/intl.dart';
 import 'package:archive/archive.dart';
-import 'package:crypto/crypto.dart';
 import 'package:pointycastle/export.dart';
 import '../utils/platform_utils.dart';
-import 'dart:html' if (dart.library.io) 'package:irc_app/utils/html_stub.dart' as html;
 import '../config/debug_config.dart';
 
 /// Servicio para exportar conversaciones y logs
@@ -39,7 +39,7 @@ class ExportService {
       await file.writeAsString(buffer.toString());
 
       // Abrir diálogo para guardar
-      final savePath = await FilePicker.saveFile(
+      final savePath = await FilePicker.platform.saveFile(
         dialogTitle: 'Guardar conversación como...',
         fileName: fileName,
         type: FileType.custom,
@@ -110,7 +110,7 @@ class ExportService {
       await file.writeAsString(buffer.toString());
 
       // Abrir diálogo para guardar
-      final savePath = await FilePicker.saveFile(
+      final savePath = await FilePicker.platform.saveFile(
         dialogTitle: 'Guardar conversación como...',
         fileName: fileName,
         type: FileType.custom,
@@ -251,12 +251,13 @@ class ExportService {
       // Guardar archivo encriptado
       if (PlatformUtils.isWeb) {
         // Para web, usar descarga directa
-        final blob = html.Blob([encryptedData]);
-        final url = html.Url.createObjectUrlFromBlob(blob);
-        final anchor = html.AnchorElement(href: url)
-          ..setAttribute('download', '${channelClean}_logs_encrypted_$timestamp.enc')
+        final blob = web.Blob([encryptedData.toJS].toJS);
+        final url = web.URL.createObjectURL(blob);
+        web.HTMLAnchorElement()
+          ..href = url
+          ..download = '${channelClean}_logs_encrypted_$timestamp.enc'
           ..click();
-        html.Url.revokeObjectUrl(url);
+        web.URL.revokeObjectURL(url);
         return 'Descargado';
       } else {
         // Para nativo, guardar en disco
@@ -266,7 +267,7 @@ class ExportService {
         await file.writeAsBytes(encryptedData);
 
         // Abrir diálogo para guardar
-        final savePath = await FilePicker.saveFile(
+        final savePath = await FilePicker.platform.saveFile(
           dialogTitle: 'Guardar logs encriptados como...',
           fileName: fileName,
           type: FileType.custom,

@@ -6,10 +6,10 @@ class VideoTermsDialog extends StatefulWidget {
   final VoidCallback onReject;
   
   const VideoTermsDialog({
-    Key? key,
+    super.key,
     required this.onAccept,
     required this.onReject,
-  }) : super(key: key);
+  });
   
   @override
   State<VideoTermsDialog> createState() => _VideoTermsDialogState();

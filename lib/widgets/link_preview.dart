@@ -10,10 +10,10 @@ class LinkPreview extends StatefulWidget {
   final AppTheme appTheme;
 
   const LinkPreview({
-    Key? key,
+    super.key,
     required this.url,
     required this.appTheme,
-  }) : super(key: key);
+  });
 
   @override
   State<LinkPreview> createState() => _LinkPreviewState();
@@ -60,7 +60,7 @@ class _LinkPreviewState extends State<LinkPreview> {
         decoration: BoxDecoration(
           color: widget.appTheme.surface,
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: widget.appTheme.textSecondary.withOpacity(0.2)),
+          border: Border.all(color: widget.appTheme.textSecondary.withValues(alpha: 0.2)),
         ),
         child: Row(
           children: [
@@ -104,7 +104,7 @@ class _LinkPreviewState extends State<LinkPreview> {
         decoration: BoxDecoration(
           color: widget.appTheme.surface,
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: widget.appTheme.textSecondary.withOpacity(0.2)),
+          border: Border.all(color: widget.appTheme.textSecondary.withValues(alpha: 0.2)),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,

@@ -1,10 +1,12 @@
 import 'dart:convert';
+import 'dart:js_interop';
+import 'dart:js_interop_unsafe';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:web/web.dart' as web;
 import 'screens/login_screen.dart';
 import 'providers/theme_provider.dart';
 import 'providers/update_provider.dart';
@@ -14,8 +16,6 @@ import 'services/radio_service.dart';
 import 'services/chat_history_service.dart';
 import 'utils/platform_utils.dart';
 import 'models/app_theme.dart';
-// En web usa dart:html (reload con forceGet); en nativo usa stub
-import 'dart:html' if (dart.library.io) 'package:irc_app/utils/html_stub.dart' as html;
 
 void globalLog(String message) {
   // Logs deshabilitados para producción
@@ -87,18 +87,9 @@ void main() async {
   String? urlTheme;
   if (PlatformUtils.isWeb) {
     try {
-      final window = html.window;
-      final location = window.location;
-      final searchParams = location.search ?? '';
-      
-      if (searchParams.isNotEmpty) {
-        final queryString = searchParams.startsWith('?') ? searchParams.substring(1) : searchParams;
-        final uri = Uri(query: queryString);
-        final themeParam = uri.queryParameters['theme'];
-        
-        if (themeParam != null && themeParam.trim().isNotEmpty) {
-          urlTheme = themeParam.trim();
-        }
+      final themeParam = Uri.base.queryParameters['theme'];
+      if (themeParam != null && themeParam.trim().isNotEmpty) {
+        urlTheme = themeParam.trim();
       }
     } catch (e) {
       // Si hay error, continuar sin tema de URL
@@ -125,8 +116,8 @@ Future<bool> _checkWebVersionAndReload() async {
     final data = jsonDecode(response.body) as Map<String, dynamic>?;
     final serverVersion = data?['version'] as String?;
     if (serverVersion == null || serverVersion == currentVersion) return false;
-    // Nueva versión desplegada: recarga para cargar el nuevo JS (dart:html reload no acepta argumentos)
-    html.window.location.reload();
+    // Nueva versión desplegada: recarga para cargar el nuevo JS.
+    web.window.location.reload();
     return true;
   } catch (_) {
     return false;
@@ -139,44 +130,24 @@ void _setupWebLifecycleListeners() {
     // Solo ejecutar en web
     if (!PlatformUtils.isWeb) return;
     
-    // Detener radio y limpiar mensajes privados cuando la página se oculta o se cierra
-    // Usar dynamic para evitar errores de tipo en compilación
-    final window = html.window as dynamic;
-    
-    void cleanup() {
-      RadioService().stop();
-      // Limpiar mensajes privados usando ProviderScope
-      // Esto se hará a través del WidgetsBinding cuando la app se cierre
-    }
-    
-    // onBeforeUnload se dispara antes de cerrar la pestaña/navegador
-    // Aquí sí podemos limpiar mensajes privados ya que la app se está cerrando
-    if (window.onBeforeUnload != null) {
-      window.onBeforeUnload.listen((event) {
+    web.window.addEventListener(
+      'beforeunload',
+      ((web.Event _) {
         RadioService().stop();
-        // Limpiar mensajes privados solo cuando realmente se cierra la pestaña
-        // Nota: esto requiere acceso al ref, así que se manejará en dispose()
-      });
-    }
-    
-    // onPageHide se dispara cuando se cambia de pestaña, NO limpiar mensajes aquí
-    // Solo detener la radio cuando la página se oculta
-    if (window.onPageHide != null) {
-      window.onPageHide.listen((event) {
+      }).toJS,
+    );
+    web.window.addEventListener(
+      'pagehide',
+      ((web.Event _) {
         RadioService().stop();
-        // NO limpiar mensajes privados aquí - se perderían al cambiar de pestaña
-      });
-    }
-    
-    // Detener cuando la página se descarga (cierre de pestaña/navegador)
-    // Aquí sí podemos limpiar ya que la app se está cerrando
-    if (window.onUnload != null) {
-      window.onUnload.listen((event) {
+      }).toJS,
+    );
+    web.window.addEventListener(
+      'unload',
+      ((web.Event _) {
         RadioService().stop();
-        // Limpiar mensajes privados solo cuando realmente se cierra la pestaña
-        // Nota: esto requiere acceso al ref, así que se manejará en dispose()
-      });
-    }
+      }).toJS,
+    );
   } catch (e) {
     // Si hay algún error, simplemente continuar
     // Esto puede pasar si no estamos en web o si hay problemas con dart:html
@@ -186,7 +157,7 @@ void _setupWebLifecycleListeners() {
 class MyApp extends ConsumerStatefulWidget {
   final String? initialTheme;
   
-  const MyApp({Key? key, this.initialTheme}) : super(key: key);
+  const MyApp({super.key, this.initialTheme});
 
   @override
   ConsumerState<MyApp> createState() => _MyAppState();
@@ -194,7 +165,7 @@ class MyApp extends ConsumerStatefulWidget {
 
 class _MyAppState extends ConsumerState<MyApp> with WidgetsBindingObserver {
   bool _showPwaBanner = false;
-  dynamic _pwaPromptEvent;
+  JSObject? _pwaPromptEvent;
 
   @override
   void initState() {
@@ -203,18 +174,17 @@ class _MyAppState extends ConsumerState<MyApp> with WidgetsBindingObserver {
     ref.read(ircServiceProvider);
     if (PlatformUtils.isWeb) {
       try {
-        final w = html.window as dynamic;
-        w.addEventListener('beforeinstallprompt', (e) {
+        web.window.addEventListener('beforeinstallprompt', ((web.Event e) {
           if (mounted) {
-            final dismissed = w.localStorage?.getItem('pwa_install_dismissed');
+            final dismissed = web.window.localStorage.getItem('pwa_install_dismissed');
             if (dismissed != '1') {
               setState(() {
-                _pwaPromptEvent = e;
+                _pwaPromptEvent = e as JSObject;
                 _showPwaBanner = true;
               });
             }
           }
-        });
+        }).toJS);
       } catch (_) {}
     }
 
@@ -280,7 +250,7 @@ class _MyAppState extends ConsumerState<MyApp> with WidgetsBindingObserver {
         (m.nick.toLowerCase() == 'nick' && !m.channel.startsWith('#')) ||
         (m.nick.toLowerCase() == 'nickserv' && !m.channel.startsWith('#')))
     ).toList();
-    ref.read(messagesProvider.notifier).state = cleanedMessages;
+    ref.read(messagesProvider.notifier).replaceAll(cleanedMessages);
     
     // También limpiar de la base de datos si existe (solo en nativo)
     if (!PlatformUtils.isWeb) {
@@ -338,11 +308,11 @@ class _MyAppState extends ConsumerState<MyApp> with WidgetsBindingObserver {
                     onInstall: () async {
                       try {
                         final e = _pwaPromptEvent;
-                        if (e != null && (e as dynamic).prompt != null) {
-                          await (e as dynamic).prompt();
+                        if (e != null && e.has('prompt')) {
+                          e.callMethodVarArgs<JSAny?>('prompt'.toJS);
                           if (mounted) {
                             try {
-                              (html.window as dynamic).localStorage?.setItem('pwa_install_dismissed', '1');
+                              web.window.localStorage.setItem('pwa_install_dismissed', '1');
                             } catch (_) {}
                             setState(() {
                               _showPwaBanner = false;
@@ -354,7 +324,7 @@ class _MyAppState extends ConsumerState<MyApp> with WidgetsBindingObserver {
                     },
                     onDismiss: () {
                       try {
-                        (html.window as dynamic).localStorage?.setItem('pwa_install_dismissed', '1');
+                        web.window.localStorage.setItem('pwa_install_dismissed', '1');
                       } catch (_) {}
                       if (mounted) {
                         setState(() {

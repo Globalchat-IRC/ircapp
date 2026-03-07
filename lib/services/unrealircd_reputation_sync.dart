@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math';
 import '../services/irc_service.dart';
 import '../services/video_database_service.dart';
 import '../models/user_role.dart';
@@ -155,12 +154,8 @@ class UnrealIRCdReputationSync {
       final users = _ircService.channels[currentChannel]?.users ?? <String>[];
       // print('🔄 [REP-SYNC] Sincronizando ${users.length} usuarios...');
       
-      int synced = 0;
       for (final user in users) {
-        final profile = await syncUserReputation(user);
-        if (profile != null) {
-          synced++;
-        }
+        await syncUserReputation(user);
         
         // Pequeña pausa para no saturar el servidor
         await Future.delayed(const Duration(milliseconds: 100));

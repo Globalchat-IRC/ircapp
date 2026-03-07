@@ -12,7 +12,6 @@ class IRCSocketConnection implements IRCConnection {
   final StreamController<String> _streamController = StreamController<String>.broadcast();
   StreamSubscription? _subscription;
   bool _isConnected = false;
-  String? _host; // Guardar host para referencia
 
   @override
   Future<void> connect(String host, int port, {bool useSSL = true}) async {
@@ -20,7 +19,6 @@ class IRCSocketConnection implements IRCConnection {
       throw UnsupportedError('Socket TCP no está disponible en web. Use WebSocket.');
     }
 
-    _host = host;
     debugLog('🔌 [IRCSocketConnection] Attempting TCP connection to $host:$port (SSL: $useSSL)');
     try {
       if (useSSL) {

@@ -24,9 +24,6 @@ class IRCWebSocketConnection implements IRCConnection {
   StreamSubscription? _subscription;
   bool _isConnected = false;
   bool _handshakeComplete = false;
-  String? _targetHost;
-  int? _targetPort;
-  bool? _targetUseSSL;
   Completer<void>? _handshakeCompleter;
   bool _directMode = false;
 
@@ -39,9 +36,6 @@ class IRCWebSocketConnection implements IRCConnection {
     // Limpiar estado previo
     _isConnected = false;
     _handshakeComplete = false;
-    _targetHost = null;
-    _targetPort = null;
-    _targetUseSSL = null;
     _directMode = false;
     
     await _subscription?.cancel();
@@ -55,9 +49,6 @@ class IRCWebSocketConnection implements IRCConnection {
     _channel = null;
 
     try {
-      _targetHost = host;
-      _targetPort = port;
-      _targetUseSSL = useSSL;
       // En web, todos los nodos GlobalChat tienen 4443: conectar al nodo elegido en ese puerto (IP visible).
       _directMode = port == kUnrealIRCdWebSocketPort || _isGlobalChatHost(host);
 

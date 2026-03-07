@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import '../models/app_theme.dart';
-import '../services/emoji_service.dart';
 
 /// Widget para mostrar reacciones rápidas a mensajes
 class MessageReactions extends StatefulWidget {
@@ -10,12 +9,12 @@ class MessageReactions extends StatefulWidget {
   final Function(String emoji)? onReactionTap;
 
   const MessageReactions({
-    Key? key,
+    super.key,
     required this.messageId,
     required this.appTheme,
     this.reactions = const {},
     this.onReactionTap,
-  }) : super(key: key);
+  });
 
   @override
   State<MessageReactions> createState() => _MessageReactionsState();
@@ -41,7 +40,7 @@ class _MessageReactionsState extends State<MessageReactions> {
         child: Icon(
           Icons.add_reaction_outlined,
           size: 16,
-          color: widget.appTheme.textSecondary.withOpacity(0.5),
+          color: widget.appTheme.textSecondary.withValues(alpha: 0.5),
         ),
       );
     }
@@ -62,7 +61,7 @@ class _MessageReactionsState extends State<MessageReactions> {
                 color: widget.appTheme.surface,
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(
-                  color: widget.appTheme.textSecondary.withOpacity(0.2),
+                  color: widget.appTheme.textSecondary.withValues(alpha: 0.2),
                 ),
               ),
               child: Row(
@@ -101,7 +100,7 @@ class _MessageReactionsState extends State<MessageReactions> {
               color: widget.appTheme.surface,
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
-                color: widget.appTheme.textSecondary.withOpacity(0.2),
+                color: widget.appTheme.textSecondary.withValues(alpha: 0.2),
               ),
             ),
             child: Icon(
@@ -119,7 +118,7 @@ class _MessageReactionsState extends State<MessageReactions> {
               color: widget.appTheme.background,
               borderRadius: BorderRadius.circular(8),
               border: Border.all(
-                color: widget.appTheme.textSecondary.withOpacity(0.2),
+                color: widget.appTheme.textSecondary.withValues(alpha: 0.2),
               ),
             ),
             child: Wrap(

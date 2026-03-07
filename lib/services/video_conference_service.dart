@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'package:flutter/material.dart';
 import 'package:jitsi_meet_flutter_sdk/jitsi_meet_flutter_sdk.dart';
 import 'package:uuid/uuid.dart';
 import '../models/user_role.dart';
@@ -232,34 +231,6 @@ class VideoConferenceService {
           displayName: userNick,
           email: '', // Opcional
         ),
-      );
-      
-      // Listener de eventos de Jitsi
-      var listener = JitsiMeetEventListener(
-        conferenceJoined: (url) {
-          // print('🎥 [VIDEO] Usuario unido a conferencia: $url');
-        },
-        conferenceTerminated: (url, error) {
-          // print('🎥 [VIDEO] Conferencia terminada: $url');
-          _activeConferences.remove(roomName);
-          _conferenceEndedController.add(roomName);
-          // Remover usuario del estado de video
-          _removeUserFromVideo(userNick);
-        },
-        participantJoined: (email, name, role, participantId) {
-          final participantName = name ?? 'Unknown';
-          // print('🎥 [VIDEO] Participante unido: $participantName');
-          // Actualizar lista de participantes
-          if (!conferenceInfo.participants.contains(participantName)) {
-            final updated = conferenceInfo.copyWith(
-              participants: [...conferenceInfo.participants, participantName],
-            );
-            _activeConferences[roomName] = updated;
-          }
-        },
-        participantLeft: (participantId) {
-          // print('🎥 [VIDEO] Participante salió: $participantId');
-        },
       );
       
       // Nota: addEventListeners no disponible en esta versión del SDK

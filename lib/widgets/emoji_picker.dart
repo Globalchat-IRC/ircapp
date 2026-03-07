@@ -7,10 +7,10 @@ class EmojiPicker extends StatefulWidget {
   final AppTheme appTheme;
 
   const EmojiPicker({
-    Key? key,
+    super.key,
     required this.onEmojiSelected,
     required this.appTheme,
-  }) : super(key: key);
+  });
 
   @override
   State<EmojiPicker> createState() => _EmojiPickerState();
@@ -59,7 +59,7 @@ class _EmojiPickerState extends State<EmojiPicker> {
         borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.2),
+            color: Colors.black.withValues(alpha: 0.2),
             blurRadius: 10,
             offset: const Offset(0, -2),
           ),
@@ -74,7 +74,7 @@ class _EmojiPickerState extends State<EmojiPicker> {
               color: appTheme.background,
               border: Border(
                 bottom: BorderSide(
-                  color: appTheme.primary.withOpacity(0.2),
+                color: appTheme.primary.withValues(alpha: 0.2),
                   width: 1,
                 ),
               ),
@@ -117,14 +117,14 @@ class _EmojiPickerState extends State<EmojiPicker> {
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(8),
                   borderSide: BorderSide(
-                    color: appTheme.primary.withOpacity(0.3),
+                    color: appTheme.primary.withValues(alpha: 0.3),
                     width: 1,
                   ),
                 ),
                 enabledBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(8),
                   borderSide: BorderSide(
-                    color: appTheme.primary.withOpacity(0.3),
+                    color: appTheme.primary.withValues(alpha: 0.3),
                     width: 1,
                   ),
                 ),
@@ -146,7 +146,7 @@ class _EmojiPickerState extends State<EmojiPicker> {
               color: appTheme.background,
               border: Border(
                 bottom: BorderSide(
-                  color: appTheme.primary.withOpacity(0.2),
+                  color: appTheme.primary.withValues(alpha: 0.2),
                   width: 1,
                 ),
               ),
@@ -337,7 +337,7 @@ class _EmojiPickerState extends State<EmojiPicker> {
                             padding: const EdgeInsets.all(4),
                             decoration: BoxDecoration(
                               border: Border.all(
-                                color: appTheme.accent.withOpacity(0.3),
+                                color: appTheme.accent.withValues(alpha: 0.3),
                                 width: 1,
                               ),
                               borderRadius: BorderRadius.circular(8),
@@ -564,7 +564,7 @@ class _EmojiPickerState extends State<EmojiPicker> {
               Text(
                 'Intenta con otra búsqueda',
                 style: TextStyle(
-                  color: appTheme.textSecondary.withOpacity(0.7),
+                  color: appTheme.textSecondary.withValues(alpha: 0.7),
                   fontSize: 12,
                 ),
               ),
@@ -712,7 +712,7 @@ class _EmojiPickerState extends State<EmojiPicker> {
                 padding: const EdgeInsets.all(4),
                 decoration: BoxDecoration(
                   border: Border.all(
-                    color: appTheme.accent.withOpacity(0.3),
+                    color: appTheme.accent.withValues(alpha: 0.3),
                     width: 1,
                   ),
                   borderRadius: BorderRadius.circular(8),
@@ -835,11 +835,10 @@ class _BouncingEmoji extends StatefulWidget {
   final Color color;
   
   const _BouncingEmoji({
-    Key? key,
     required this.text,
     required this.size,
     required this.color,
-  }) : super(key: key);
+  });
   
   @override
   State<_BouncingEmoji> createState() => _BouncingEmojiState();

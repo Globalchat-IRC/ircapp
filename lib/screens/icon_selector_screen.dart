@@ -7,9 +7,9 @@ class IconSelectorScreen extends ConsumerStatefulWidget {
   final String nick;
   
   const IconSelectorScreen({
-    Key? key,
+    super.key,
     required this.nick,
-  }) : super(key: key);
+  });
 
   @override
   ConsumerState<IconSelectorScreen> createState() => _IconSelectorScreenState();
@@ -100,10 +100,10 @@ class _IconSelectorScreenState extends ConsumerState<IconSelectorScreen> {
                   width: 120,
                   height: 120,
                   decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.2),
+                    color: Colors.white.withValues(alpha: 0.2),
                     shape: BoxShape.circle,
                     border: Border.all(
-                      color: Colors.white.withOpacity(0.3),
+                      color: Colors.white.withValues(alpha: 0.3),
                       width: 3,
                     ),
                   ),
@@ -114,7 +114,7 @@ class _IconSelectorScreenState extends ConsumerState<IconSelectorScreen> {
                             width: 120,
                             height: 120,
                             fit: BoxFit.cover,
-                            errorBuilder: (_, __, ___) => Center(
+                            errorBuilder: (_, error, stackTrace) => Center(
                               child: Text(
                                 widget.nick[0].toUpperCase(),
                                 style: const TextStyle(fontSize: 60, color: Colors.white),
@@ -205,13 +205,13 @@ class _IconSelectorScreenState extends ConsumerState<IconSelectorScreen> {
                             height: 72,
                             decoration: BoxDecoration(
                               color: isSelected
-                                  ? appTheme.primary.withOpacity(0.3)
+                                  ? appTheme.primary.withValues(alpha: 0.3)
                                   : appTheme.surface,
                               borderRadius: BorderRadius.circular(12),
                               border: Border.all(
                                 color: isSelected
                                     ? appTheme.primary
-                                    : appTheme.surface.withOpacity(0.3),
+                                    : appTheme.surface.withValues(alpha: 0.3),
                                 width: isSelected ? 2 : 1,
                               ),
                             ),
@@ -220,7 +220,8 @@ class _IconSelectorScreenState extends ConsumerState<IconSelectorScreen> {
                               child: Image.asset(
                                 path,
                                 fit: BoxFit.cover,
-                                errorBuilder: (_, __, ___) => const Icon(Icons.image_not_supported, size: 32),
+                                errorBuilder: (_, error, stackTrace) =>
+                                    const Icon(Icons.image_not_supported, size: 32),
                               ),
                             ),
                           ),
@@ -270,13 +271,13 @@ class _IconSelectorScreenState extends ConsumerState<IconSelectorScreen> {
                   child: Container(
                     decoration: BoxDecoration(
                       color: isSelected
-                          ? appTheme.primary.withOpacity(0.3)
+                          ? appTheme.primary.withValues(alpha: 0.3)
                           : appTheme.surface,
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(
                         color: isSelected
                             ? appTheme.primary
-                            : appTheme.surface.withOpacity(0.3),
+                            : appTheme.surface.withValues(alpha: 0.3),
                         width: isSelected ? 2 : 1,
                       ),
                     ),

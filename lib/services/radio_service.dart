@@ -1,25 +1,18 @@
 import 'dart:async';
+import 'dart:js_interop';
+import 'dart:js_interop_unsafe';
 import 'package:just_audio/just_audio.dart';
 import 'package:audioplayers/audioplayers.dart' as web_audio;
-import 'package:audio_session/audio_session.dart' show AudioSession, AudioSessionConfiguration, AVAudioSessionCategory, AVAudioSessionCategoryOptions, AVAudioSessionMode, AVAudioSessionRouteSharingPolicy, AVAudioSessionSetActiveOptions, AndroidAudioAttributes, AndroidAudioContentType, AndroidAudioFlags, AndroidAudioUsage, AndroidAudioFocusGainType;
+import 'package:web/web.dart' as web;
 import '../models/radio_station.dart';
-import 'stream_proxy_service.dart';
-import '../main.dart' show globalLog;
 import '../utils/platform_utils.dart';
 import '../config/debug_config.dart';
-// Conditional import for Platform (native only)
-import 'dart:io' if (dart.library.html) 'dart:html' as io;
-// Conditional import for window location (web only)
-import 'dart:html' if (dart.library.io) 'package:irc_app/utils/html_stub.dart' as html;
-// Conditional import for JavaScript interop (web only)
-import 'dart:js' if (dart.library.io) 'package:irc_app/utils/js_stub.dart' as js;
 
 class RadioService {
   AudioPlayer? _player; // just_audio para nativo
   web_audio.AudioPlayer? _webPlayer; // audioplayers para web
   RadioStation? _currentStation;
   bool _isPlaying = false;
-  AudioSession? _audioSession;
   double _currentVolume = 0.7; // Volumen actual (aumentado para mejor audibilidad)
 
   static final RadioService _instance = RadioService._internal();
@@ -173,18 +166,19 @@ class RadioService {
           
           // Verificar que realmente se está reproduciendo
           await Future.delayed(const Duration(milliseconds: 500));
-          final getStateFunction = js.context['getHLSPlaybackState'];
-          if (getStateFunction != null) {
-            final state = getStateFunction.apply(['hls-audio-player']);
-            if (state != null) {
-              final paused = state['paused'] ?? true;
-              final volume = state['volume'] ?? 0.0;
+          if (web.window.has('getHLSPlaybackState')) {
+            final state = web.window.callMethodVarArgs<JSAny?>(
+              'getHLSPlaybackState'.toJS,
+              ['hls-audio-player'.toJS],
+            );
+            final stateObject = state?.dartify();
+            if (stateObject is Map) {
+              final paused = stateObject['paused'] as bool? ?? true;
+              final volume = stateObject['volume'] as num? ?? 0.0;
               debugLog('📊 [RadioService Web] Estado HLS - Paused: $paused, Volume: $volume');
-              html.window.console.log('📊 [RadioService Web] Estado HLS: $state');
               
               if (paused) {
                 debugLog('⚠️ [RadioService Web] El elemento está pausado, intentando reanudar...');
-                html.window.console.warn('⚠️ [RadioService Web] El elemento está pausado');
               }
             }
           }
@@ -192,11 +186,9 @@ class RadioService {
           _currentStation = station;
           _isPlaying = true;
           debugLog('✅ [RadioService Web] Reproducción HLS iniciada correctamente');
-          html.window.console.log('✅ [RadioService Web] Reproducción HLS iniciada correctamente');
           return; // Salir temprano si HLS funciona
         } catch (hlsError) {
           debugLog('❌ [RadioService Web] Error con HLS: $hlsError');
-          html.window.console.error('❌ [RadioService Web] Error con HLS: $hlsError');
           
           // Si es Mixcloud y falló con proxy, intentar con URL directa como último recurso
           if (isMixcloud) {
@@ -221,8 +213,8 @@ class RadioService {
           final uri = Uri.parse(sourceUrl);
             // Proxy para otros servicios
             final proxyPath = '/radio-proxy/${uri.host}${uri.path}${uri.hasQuery ? '?${uri.query}' : ''}';
-            final baseHref = html.window.location.href;
-            if (baseHref != null && baseHref.isNotEmpty) {
+            final baseHref = web.window.location.href;
+            if (baseHref.isNotEmpty) {
               final baseUri = Uri.parse(baseHref);
               finalUrl = '${baseUri.scheme}://${baseUri.host}${baseUri.hasPort ? ':${baseUri.port}' : ''}$proxyPath';
               debugLog('📻 [RadioService Web] Intentando con proxy: $finalUrl');
@@ -238,8 +230,6 @@ class RadioService {
       // Intentar reproducir
       try {
         debugLog('📻 [RadioService Web] Iniciando reproducción de: $finalUrl');
-        // ignore: avoid_web_libraries_in_flutter
-        html.window.console.log('📻 [RadioService Web] Iniciando reproducción de: $finalUrl');
         await _webPlayer!.play(web_audio.UrlSource(finalUrl));
         
         // Esperar un momento para verificar si hay errores de reproducción
@@ -335,13 +325,13 @@ class RadioService {
             await Future.delayed(const Duration(milliseconds: 800));
             final retryState = _webPlayer!.state;
             if (retryState == web_audio.PlayerState.stopped && _isPlaying == false) {
-              throw playError; // Re-lanzar el error original
+              rethrow;
             }
           } catch (retryError) {
-            throw playError; // Re-lanzar el error original
+            rethrow;
           }
         } else {
-          throw playError;
+          rethrow;
         }
       }
       
@@ -396,49 +386,21 @@ class RadioService {
   Future<void> _playHLSStream(String url, String audioElementId) async {
     try {
       debugLog('🎵 [RadioService Web] Intentando reproducir HLS: $url');
-      html.window.console.log('🎵 [RadioService Web] Intentando reproducir HLS: $url');
       
-      // Acceder a la función JavaScript playHLSStream usando dart:js
-      final playFunction = js.context['playHLSStream'];
-      if (playFunction == null) {
+      if (!web.window.has('playHLSStream')) {
         final errorMsg = 'hls.js no está disponible. Asegúrate de que hls.js esté cargado en index.html';
         debugLog('❌ [RadioService Web] $errorMsg');
-        html.window.console.error('❌ [RadioService Web] $errorMsg');
         throw Exception(errorMsg);
       }
       
       debugLog('✅ [RadioService Web] Función playHLSStream encontrada, llamando...');
-      html.window.console.log('✅ [RadioService Web] Función playHLSStream encontrada, llamando...');
       
-      // Llamar a la función JavaScript
-      final promise = playFunction.apply([url, audioElementId]);
+      final promise = web.window.callMethodVarArgs<JSPromise<JSAny?>>(
+        'playHLSStream'.toJS,
+        [url.toJS, audioElementId.toJS],
+      );
       
-      if (promise == null) {
-        throw Exception('La función playHLSStream no retornó una promesa');
-      }
-      
-      // Convertir la promesa JavaScript a Future de Dart
-      final completer = Completer<void>();
-      
-      // Usar then y catch de la promesa
-      promise.callMethod('then', [
-        js.allowInterop((result) {
-          debugLog('✅ [RadioService Web] Stream HLS iniciado correctamente (then)');
-          html.window.console.log('✅ [RadioService Web] Stream HLS iniciado correctamente');
-          completer.complete();
-        })
-      ]);
-      promise.callMethod('catch', [
-        js.allowInterop((error) {
-          final errorMsg = error?.toString() ?? 'Error desconocido al reproducir HLS';
-          debugLog('❌ [RadioService Web] Error en promesa HLS: $errorMsg');
-          html.window.console.error('❌ [RadioService Web] Error en promesa HLS: $error');
-          completer.completeError(errorMsg);
-        })
-      ]);
-      
-      // Timeout de 10 segundos
-      await completer.future.timeout(
+      await promise.toDart.timeout(
         const Duration(seconds: 10),
         onTimeout: () {
           throw Exception('Timeout al reproducir stream HLS (10 segundos)');
@@ -449,8 +411,6 @@ class RadioService {
     } catch (e, stackTrace) {
       debugLog('❌ [RadioService Web] Error al reproducir HLS: $e');
       debugLog('❌ [RadioService Web] Stack: $stackTrace');
-      html.window.console.error('❌ [RadioService Web] Error al reproducir HLS: $e');
-      html.window.console.error('❌ [RadioService Web] Stack: $stackTrace');
       rethrow;
     }
   }
@@ -516,9 +476,11 @@ class RadioService {
       if (PlatformUtils.isWeb) {
         // Si es HLS, usar la función JavaScript para detener
         if (_currentStation?.source.contains('.m3u8') ?? false) {
-          final stopFunction = js.context['stopHLSStream'];
-          if (stopFunction != null) {
-            stopFunction.apply(['hls-audio-player']);
+          if (web.window.has('stopHLSStream')) {
+            web.window.callMethodVarArgs<JSAny?>(
+              'stopHLSStream'.toJS,
+              ['hls-audio-player'.toJS],
+            );
           }
         }
         if (_webPlayer != null) {
@@ -549,7 +511,7 @@ class RadioService {
       if (PlatformUtils.isWeb) {
         // Si es HLS, pausar el elemento de audio directamente
         if (_currentStation?.source.contains('.m3u8') ?? false) {
-          final audioElement = html.document.getElementById('hls-audio-player') as html.AudioElement?;
+          final audioElement = web.document.getElementById('hls-audio-player') as web.HTMLAudioElement?;
           if (audioElement != null) {
             audioElement.pause();
           }
@@ -572,13 +534,11 @@ class RadioService {
       if (PlatformUtils.isWeb) {
         // Si es HLS, reanudar el elemento de audio directamente
         if (_currentStation?.source.contains('.m3u8') ?? false) {
-          final audioElement = html.document.getElementById('hls-audio-player') as html.AudioElement?;
+          final audioElement = web.document.getElementById('hls-audio-player') as web.HTMLAudioElement?;
           if (audioElement != null) {
             debugLog('▶️ [RadioService Web] Reanudando reproducción HLS');
-            html.window.console.log('▶️ [RadioService Web] Reanudando reproducción HLS');
-            await audioElement.play();
+            await audioElement.play().toDart;
             debugLog('✅ [RadioService Web] Reproducción HLS reanudada');
-            html.window.console.log('✅ [RadioService Web] Reproducción HLS reanudada');
           } else {
             debugLog('⚠️ [RadioService Web] No se encontró el elemento de audio HLS para reanudar');
           }
@@ -592,7 +552,6 @@ class RadioService {
       _isPlaying = true;
     } catch (e) {
       debugLog('❌ [RadioService Web] Error al reanudar: $e');
-      html.window.console.error('❌ [RadioService Web] Error al reanudar: $e');
     }
   }
 
@@ -608,18 +567,18 @@ class RadioService {
     if (PlatformUtils.isWeb) {
       // Si es HLS, actualizar el volumen del elemento de audio directamente
       if (_currentStation?.source.contains('.m3u8') ?? false) {
-        final setVolumeFunction = js.context['setHLSVolume'];
-        if (setVolumeFunction != null) {
-          setVolumeFunction.apply(['hls-audio-player', _currentVolume]);
+        if (web.window.has('setHLSVolume')) {
+          web.window.callMethodVarArgs<JSAny?>(
+            'setHLSVolume'.toJS,
+            ['hls-audio-player'.toJS, _currentVolume.toJS],
+          );
           debugLog('🔊 [RadioService Web] Volumen HLS establecido a: $_currentVolume (vía JS)');
         } else {
           // Fallback: usar el elemento de audio directamente
-          final audioElement = html.document.getElementById('hls-audio-player') as html.AudioElement?;
+          final audioElement = web.document.getElementById('hls-audio-player') as web.HTMLAudioElement?;
           if (audioElement != null) {
-            // En dart:html, el volumen se establece directamente en la propiedad del elemento
             audioElement.volume = _currentVolume;
             debugLog('🔊 [RadioService Web] Volumen HLS establecido a: $_currentVolume (directo)');
-            html.window.console.log('🔊 [RadioService Web] Volumen HLS establecido a: $_currentVolume');
           } else {
             debugLog('⚠️ [RadioService Web] No se encontró el elemento de audio HLS para establecer volumen');
           }
@@ -643,6 +602,5 @@ class RadioService {
     } else {
       await _player?.dispose();
     }
-    _audioSession = null;
   }
 }

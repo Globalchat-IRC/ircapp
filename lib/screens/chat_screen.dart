@@ -3,24 +3,21 @@ import 'dart:ui' as ui;
 import 'dart:convert';
 // Conditional import for Platform (native only)
 import 'dart:io' if (dart.library.html) 'package:irc_app/utils/html_stub.dart' as io;
-import 'dart:html' if (dart.library.io) 'package:irc_app/utils/html_stub.dart' as html;
-import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:web/web.dart' as web;
 import 'package:intl/intl.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:pasteboard/pasteboard.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/irc_message.dart';
 import '../providers/irc_provider.dart';
 import '../models/server_profile.dart';
-import '../models/custom_robot.dart';
 import '../providers/theme_provider.dart';
 import '../providers/channel_background_provider.dart';
 import '../models/app_theme.dart';
@@ -33,12 +30,10 @@ import 'login_screen.dart';
 import 'user_profile_screen.dart';
 import 'emoji_config_screen.dart';
 import 'settings_screen.dart';
-import 'icon_selector_screen.dart';
 import '../widgets/animated_topic_text.dart';
 import '../widgets/user_avatar.dart';
 import '../widgets/channel_list_dialog.dart';
 import '../widgets/moderator_menu.dart';
-import '../services/avatar_service.dart';
 import '../utils/irc_color_parser.dart';
 import '../utils/platform_utils.dart';
 import '../utils/drop_handler_web.dart' if (dart.library.io) '../utils/drop_handler_stub.dart' as drop_handler;
@@ -52,18 +47,12 @@ import '../providers/update_provider.dart';  // Provider de actualizaciones
 import 'package:package_info_plus/package_info_plus.dart';
 import '../providers/video_provider.dart';
 import '../widgets/video_terms_dialog.dart';
-import '../widgets/video_report_dialog.dart';
-import '../widgets/reputation_badge.dart';
-import '../widgets/user_profile_dialog.dart';
-import '../widgets/email_verification_dialog.dart';
 import '../models/user_role.dart';
 import '../widgets/debug_connection_window.dart';
 import '../widgets/voice_assistant_dialog.dart';
 import '../widgets/remote_support_dialog.dart';
 import '../providers/debug_log_provider.dart';
-import '../models/video_report.dart' as video_report_model;
 import '../services/video_conference_service.dart' show ConferenceType;
-import '../services/video_database_service.dart';
 import '../services/macos_notification_service.dart';
 import '../services/web_notification_service.dart';
 import '../services/export_service.dart';
@@ -73,22 +62,14 @@ import '../widgets/media_preview.dart';
 import '../widgets/markdown_message.dart';
 import '../widgets/link_preview.dart';
 import '../widgets/message_reactions.dart';
-import '../widgets/contacts_list.dart';
 import '../services/encryption_service.dart';
 import '../services/scheduled_messages_service.dart';
 import '../services/privacy_service.dart';
 import '../services/cache_service.dart';
-import '../services/backup_service.dart';
-import '../providers/contacts_provider.dart';
 import '../providers/tags_provider.dart';
 import '../providers/radio_provider.dart';
-import '../models/radio_station.dart';
 import '../services/radio_service.dart';
-import '../screens/privacy_settings_screen.dart';
-import '../providers/tags_provider.dart';
 import '../models/message_tag.dart';
-import 'package:flutter_highlight/themes/github.dart';
-import 'package:flutter_highlight/themes/dracula.dart';
 
 // Clase auxiliar para items del menú IRCop
 class _IRCOpMenuItem {
@@ -116,13 +97,13 @@ class AnimatedServiceButton extends StatefulWidget {
   final String label;
 
   const AnimatedServiceButton({
-    Key? key,
+    super.key,
     required this.onPressed,
     required this.appTheme,
     required this.tooltip,
     required this.emoji,
     required this.label,
-  }) : super(key: key);
+  });
 
   @override
   State<AnimatedServiceButton> createState() => _AnimatedServiceButtonState();
@@ -189,8 +170,8 @@ class _AnimatedServiceButtonState extends State<AnimatedServiceButton>
                               widget.appTheme.primary,
                             ]
                           : [
-                              widget.appTheme.primary.withOpacity(0.8),
-                              widget.appTheme.secondary.withOpacity(0.8),
+                              widget.appTheme.primary.withValues(alpha: 0.8),
+                              widget.appTheme.secondary.withValues(alpha: 0.8),
                             ],
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
@@ -199,7 +180,7 @@ class _AnimatedServiceButtonState extends State<AnimatedServiceButton>
                     boxShadow: _isHovered
                         ? [
                             BoxShadow(
-                              color: widget.appTheme.accent.withOpacity(0.6),
+                              color: widget.appTheme.accent.withValues(alpha: 0.6),
                               blurRadius: 12,
                               spreadRadius: 2,
                               offset: const Offset(0, 4),
@@ -207,7 +188,7 @@ class _AnimatedServiceButtonState extends State<AnimatedServiceButton>
                           ]
                         : [
                             BoxShadow(
-                              color: widget.appTheme.primary.withOpacity(0.4),
+                              color: widget.appTheme.primary.withValues(alpha: 0.4),
                               blurRadius: 6,
                               spreadRadius: 1,
                               offset: const Offset(0, 2),
@@ -237,7 +218,7 @@ class _AnimatedServiceButtonState extends State<AnimatedServiceButton>
                             letterSpacing: 1.0,
                             shadows: [
                               Shadow(
-                                color: Colors.black.withOpacity(0.3),
+                                color: Colors.black.withValues(alpha: 0.3),
                                 blurRadius: 2,
                                 offset: const Offset(0, 1),
                               ),
@@ -264,7 +245,7 @@ class PasteImageIntent extends Intent {
 }
 
 class ChatScreen extends ConsumerStatefulWidget {
-  const ChatScreen({Key? key}) : super(key: key);
+  const ChatScreen({super.key});
 
   @override
   ConsumerState<ChatScreen> createState() => _ChatScreenState();
@@ -284,9 +265,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   List<IRCMessage> _searchResults = [];
   bool _showUserList = true; // Control de visibilidad de la lista de usuarios
   late final ScrollController _chatScrollController;
-  String? _scrollToMessageId;
-  String? _scrollToMessageChannel;
-  bool _scrollScheduled = false;
   bool _showChannelsSidebar = true; // Control de visibilidad del sidebar de canales
   
   // Autocompletado de comandos
@@ -354,7 +332,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   final MacOSNotificationService _notificationService = MacOSNotificationService();
   final WebNotificationService _webNotificationService = WebNotificationService();
   late final ScheduledMessagesService _scheduledMessagesService;
-  int _unreadCount = 0;
   bool _nickIdentifyDialogOpen = false;
   bool _autoNickIdentifyDialogShown = false;
   
@@ -457,9 +434,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     
     // Listen for away status changes
     _ircService.addAwayStatusListener((isAway, awayMessage) {
-      ref.read(userAwayStatusProvider.notifier).state = isAway
-          ? UserAwayStatus(isAway: true, awayMessage: awayMessage)
-          : UserAwayStatus(isAway: false);
+      final awayNotifier = ref.read(userAwayStatusProvider.notifier);
+      if (isAway) {
+        awayNotifier.setAway(awayMessage);
+      } else {
+        awayNotifier.setBack();
+      }
     });
     
     // Registrar listener de debug logs
@@ -547,15 +527,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         // Esperar un poco más para asegurar que los favoritos se hayan cargado completamente
         await Future.delayed(const Duration(milliseconds: 300));
         
-        final favoritesNow = ref.read(favoritesProvider).toList();
         // debugLog('📍 [ChatScreen] ========== AUTOJOIN DE CANALES ==========');
-        // debugLog('📍 [ChatScreen] Favoritos cargados del provider: $favoritesNow');
-        // debugLog('📍 [ChatScreen] Total de favoritos: ${favoritesNow.length}');
+        // debugLog('📍 [ChatScreen] Favoritos cargados del provider: ${ref.read(favoritesProvider).toList()}');
         
         // Filtrar solo canales válidos (que empiecen con #)
-        final validFavorites = favoritesNow.where((fav) => fav.startsWith('#')).toList();
-        // debugLog('📍 [ChatScreen] Favoritos válidos (que empiezan con #): $validFavorites');
-        // debugLog('📍 [ChatScreen] Total de favoritos válidos: ${validFavorites.length}');
+        // debugLog('📍 [ChatScreen] Favoritos válidos (que empiezan con #): ${ref.read(favoritesProvider).where((fav) => fav.startsWith('#')).toList()}');
         
         // TEMPORALMENTE DESHABILITADO: Autojoin de favoritos
         // El usuario puede unirse manualmente a los canales que quiera
@@ -647,12 +623,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           // debugLog('🔄 [ChatScreen] ❌ Widget no está montado, cancelando actualización');
           return;
         }
-        final oldNick = ref.read(currentNicknameProvider);
-        // debugLog('🔄 [ChatScreen] Nick anterior en provider: $oldNick');
         // debugLog('🔄 [ChatScreen] Actualizando provider a: $newNick');
         ref.read(currentNicknameProvider.notifier).state = newNick;
-        final updatedNick = ref.read(currentNicknameProvider);
-        // debugLog('🔄 [ChatScreen] ✅ Provider actualizado, nuevo valor: $updatedNick');
         
         // En IRC estándar, cuando cambias tu nick NO te expulsan de los canales.
         // El servidor simplemente actualiza tu nick en todos los canales donde estás.
@@ -762,7 +734,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         final isCurrentChannel = currentChannelLower == messageChannel;
         if (!isCurrentChannel && !isFromMutedUser) {
           if (isMention || isPrivate) {
-            _unreadCount++;
             _notificationService.incrementUnread();
             _notificationService.showNotification(
               title: isMention ? 'Mencionado en $messageChannel' : 'Mensaje privado',
@@ -901,10 +872,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     if (_loadedHistoryByChannel.containsKey(normalized)) return;
 
     final socket = _ircService.isConnected
-        ? (_ircService is IRCService
-            ? (_ircService as dynamic)._secureSocket ??
-                (_ircService as dynamic)._socket
-            : null)
+        ? (_ircService as dynamic)._secureSocket ??
+            (_ircService as dynamic)._socket
         : null;
     final serverId = socket?.remoteAddress.host ?? 'unknown';
 
@@ -987,7 +956,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     
     final channels = ref.read(channelsProvider);
     final normalizedCurrentChannel = currentChannel.toLowerCase();
-    String? channelKey;
+    late final String channelKey;
     try {
       channelKey = channels.keys.firstWhere(
         (key) => key.toLowerCase() == normalizedCurrentChannel,
@@ -1001,7 +970,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       return;
     }
     
-    if (channelKey == null || !channels.containsKey(channelKey)) {
+    if (!channels.containsKey(channelKey)) {
       setState(() {
         _showNickSuggestions = false;
         _nickSuggestions = [];
@@ -1124,7 +1093,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   void _selectCommandSuggestion(int index) {
     if (index >= 0 && index < _commandSuggestions.length) {
       final command = _commandSuggestions[index]['command']!;
-      final usage = _commandSuggestions[index]['usage']!;
       
       // Reemplazar el texto actual con el comando completo
       final currentText = _messageController.text;
@@ -1172,78 +1140,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     }
   }
 
-  // Activar radio automáticamente según el canal (v2.1.0)
-  void _activateRadioForChannel(String channel) {
-    if (channel.isEmpty) return;
-    
-    final channelLower = channel.toLowerCase();
-    // debugLog('📻 [ChatScreen] Verificando activación de radio para canal: $channelLower');
-    
-    // Mapeo de canales a radios
-    final channelToRadioMap = {
-      '#nuestrasvoces': 'NuestrasVoces',
-      '#soundmusic': 'SoundMusic',
-      '#urbanflow': 'UrbanFlow',
-    };
-    
-    final radioName = channelToRadioMap[channelLower];
-    if (radioName == null) {
-      // debugLog('📻 [ChatScreen] No hay radio asociada para el canal: $channelLower');
-      return;
-    }
-    
-    // debugLog('📻 [ChatScreen] Activando radio: $radioName para canal: $channelLower');
-    
-    // Obtener el estado de radio y buscar la estación
-    final radioState = ref.read(radioProvider);
-    final radioService = ref.read(radioServiceProvider);
-    
-    // Buscar la estación por nombre o por salon
-    RadioStation? station;
-    try {
-      // Primero intentar por nombre exacto
-      station = radioState.stations.firstWhere(
-        (s) => s.name == radioName,
-      );
-      // debugLog('📻 [ChatScreen] ✅ Estación encontrada por nombre: ${station.name}');
-    } catch (e) {
-      // Si no se encuentra por nombre, buscar por salon
-      try {
-        station = radioState.stations.firstWhere(
-          (s) => s.salon?.toLowerCase() == channelLower,
-        );
-        // debugLog('📻 [ChatScreen] ✅ Estación encontrada por salon: ${station.name}');
-      } catch (e2) {
-        // debugLog('⚠️ [ChatScreen] No se encontró estación para: $radioName o canal: $channelLower');
-        return;
-      }
-    }
-    
-    // Activar y reproducir la estación
-    if (station != null) {
-      final stationName = station.name;
-      ref.read(radioProvider.notifier).setActiveStation(station);
-      radioService.playStation(station).then((_) {
-        ref.read(radioProvider.notifier).setPlaying(true);
-        // debugLog('📻 [ChatScreen] ✅ Radio $stationName activada y reproduciendo');
-      }).catchError((e) {
-        // debugLog('❌ [ChatScreen] Error activando radio: $e');
-        ref.read(radioProvider.notifier).setError(true);
-      });
-    }
-  }
-
   // Métodos v2.0.0 - Búsqueda
   void _showSearchDialogV2() {
     final currentChannel = ref.read(currentChannelProvider);
     if (currentChannel == null) return;
     
     final messages = ref.read(messagesProvider);
-    final channelMessages = currentChannel != null
-        ? messages
-            .where((m) => m.channel.toLowerCase() == currentChannel.toLowerCase())
-            .toList()
-        : <IRCMessage>[];
+    final channelMessages = messages
+        .where((m) => m.channel.toLowerCase() == currentChannel.toLowerCase())
+        .toList();
     
     showDialog(
       context: context,
@@ -1262,11 +1167,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     if (currentChannel == null) return;
     
     final messages = ref.read(messagesProvider);
-    final channelMessages = currentChannel != null
-        ? messages
-            .where((m) => m.channel.toLowerCase() == currentChannel.toLowerCase())
-            .toList()
-        : <IRCMessage>[];
+    final channelMessages = messages
+        .where((m) => m.channel.toLowerCase() == currentChannel.toLowerCase())
+        .toList();
     
     if (channelMessages.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1312,62 +1215,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       path = await ExportService.exportToHTML(channelMessages, currentChannel);
     } else if (format == 'encrypted') {
       // Pedir clave de encriptación
-      final encryptionKey = await showDialog<String>(
-        context: context,
-        builder: (context) {
-          final keyController = TextEditingController();
-          return AlertDialog(
-            title: const Text('Clave de encriptación'),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Text(
-                  'Ingresa una clave para encriptar los logs.\n'
-                  'Guarda esta clave de forma segura, ya que será necesaria para desencriptar.',
-                  style: TextStyle(fontSize: 12),
-                ),
-                const SizedBox(height: 16),
-                TextField(
-                  controller: keyController,
-                  decoration: const InputDecoration(
-                    labelText: 'Clave de encriptación',
-                    hintText: 'Mínimo 8 caracteres',
-                    border: OutlineInputBorder(),
-                  ),
-                  obscureText: true,
-                  autofocus: true,
-                  onSubmitted: (value) {
-                    if (value.length >= 8) {
-                      Navigator.pop(context, value);
-                    }
-                  },
-                ),
-              ],
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Cancelar'),
-              ),
-              TextButton(
-                onPressed: () {
-                  final key = keyController.text.trim();
-                  if (key.length >= 8) {
-                    Navigator.pop(context, key);
-                  } else {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('La clave debe tener al menos 8 caracteres'),
-                      ),
-                    );
-                  }
-                },
-                child: const Text('Exportar'),
-              ),
-            ],
-          );
-        },
-      );
+      if (!mounted) return;
+      final encryptionKey = await _showEncryptionKeyDialog();
 
       if (encryptionKey == null || encryptionKey.isEmpty) return;
 
@@ -1395,6 +1244,66 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         ),
       );
     }
+  }
+
+  Future<String?> _showEncryptionKeyDialog() async {
+    final keyController = TextEditingController();
+
+    return showDialog<String>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Clave de encriptación'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'Ingresa una clave para encriptar los logs.\n'
+                'Guarda esta clave de forma segura, ya que será necesaria para desencriptar.',
+                style: TextStyle(fontSize: 12),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: keyController,
+                decoration: const InputDecoration(
+                  labelText: 'Clave de encriptación',
+                  hintText: 'Mínimo 8 caracteres',
+                  border: OutlineInputBorder(),
+                ),
+                obscureText: true,
+                autofocus: true,
+                onSubmitted: (value) {
+                  if (value.length >= 8) {
+                    Navigator.pop(dialogContext, value);
+                  }
+                },
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancelar'),
+            ),
+            TextButton(
+              onPressed: () {
+                final key = keyController.text.trim();
+                if (key.length >= 8) {
+                  Navigator.pop(dialogContext, key);
+                } else {
+                  ScaffoldMessenger.of(dialogContext).showSnackBar(
+                    const SnackBar(
+                      content: Text('La clave debe tener al menos 8 caracteres'),
+                    ),
+                  );
+                }
+              },
+              child: const Text('Exportar'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   // Métodos v2.0.0 - Atajos de teclado
@@ -1524,7 +1433,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               : LinearGradient(
                   colors: [
                     userColor,
-                    userColor.withOpacity(0.7),
+                    userColor.withValues(alpha: 0.7),
                   ],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
@@ -1532,15 +1441,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           boxShadow: [
             BoxShadow(
               color: isRobot
-                  ? const Color(0xFFFFD700).withOpacity(0.5)
-                  : userColor.withOpacity(0.4),
+                  ? const Color(0xFFFFD700).withValues(alpha: 0.5)
+                  : userColor.withValues(alpha: 0.4),
               blurRadius: PlatformUtils.isWeb ? 6 : 4,
               offset: const Offset(0, 1),
             ),
           ],
           border: isRobot
               ? Border.all(
-                  color: const Color(0xFFFFD700).withOpacity(0.6),
+                  color: const Color(0xFFFFD700).withValues(alpha: 0.6),
                   width: 1.5,
                 )
               : null,
@@ -1723,7 +1632,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               );
               
               // Si se obtuvo el modo, actualizarlo en el canal
-              if (userMode != null && matchingNick != null) {
+              if (userMode != null) {
                 channelData?.addUser(matchingNick, mode: userMode);
                 // debugLog('🎥 [VIDEO] Modo obtenido de WHO: $userMode, actualizado en canal');
               }
@@ -2254,52 +2163,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     }
   }
   
-  // Obtener nick con emoticono de video si está en conferencia
-  String _getNickWithVideoEmoji(String nick) {
-    final videoService = ref.read(videoConferenceServiceProvider);
-    final status = videoService.getUserVideoStatus(nick);
-    if (status != null) {
-      return '${status.emoji} $nick';
-    }
-    return nick;
-  }
-  
-  // Mostrar perfil de usuario
-  void _showUserProfile(String nick) {
-    final currentChannel = ref.read(currentChannelProvider);
-    showDialog(
-      context: context,
-      builder: (context) => UserProfileDialog(
-        nick: nick,
-        currentChannel: currentChannel,
-      ),
-    );
-  }
-  
-  // Mostrar diálogo de verificación de email
-  void _showEmailVerification() {
-    final nickname = ref.read(currentNicknameProvider);
-    if (nickname == null) return;
-    
-    showDialog(
-      context: context,
-      builder: (context) => EmailVerificationDialog(
-        nick: nickname,
-        onVerified: () {
-          // Recargar perfil después de verificar
-          _initializeUserProfile();
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('✅ ¡Email verificado! Tus restricciones han sido removidas.'),
-              backgroundColor: Colors.green,
-              duration: Duration(seconds: 5),
-            ),
-          );
-        },
-      ),
-    );
-  }
-
   void _onLagUpdated(int lagMs) {
     // Actualizar el provider de lag
     ref.read(lagProvider.notifier).updateLag(lagMs);
@@ -2343,14 +2206,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     _searchController.dispose();
     _chatScrollController.dispose();
     super.dispose();
-  }
-
-  /// Identificador único para scroll al mensaje (messageId o channel_nick_timestamp)
-  bool _messageMatchesScrollTarget(IRCMessage m) {
-    if (_scrollToMessageId == null) return false;
-    if (m.messageId != null && m.messageId == _scrollToMessageId) return true;
-    final fallback = '${m.channel}_${m.nick}_${m.timestamp.millisecondsSinceEpoch}';
-    return fallback == _scrollToMessageId;
   }
 
   // Función para abrir un mensaje privado
@@ -2460,7 +2315,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 title: const Text('No molestar'),
                 subtitle: const Text('Desactiva sonidos y notificaciones'),
                 value: settings.doNotDisturb,
-                activeColor: appTheme.accent,
+                activeThumbColor: appTheme.accent,
                 onChanged: (_) {
                   ref
                       .read(notificationSettingsProvider.notifier)
@@ -2468,46 +2323,38 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 },
               ),
               const Divider(),
-              RadioListTile<NotificationLevel>(
-                value: NotificationLevel.allMessages,
+              RadioGroup<NotificationLevel>(
                 groupValue: level,
-                title: const Text('Todas las mensajes'),
-                onChanged: (v) {
+                onChanged: (value) {
+                  if (value == null) return;
                   ref
                       .read(notificationSettingsProvider.notifier)
-                      .setChannelLevel(
-                          channel, NotificationLevel.allMessages);
+                      .setChannelLevel(channel, value);
                   Navigator.pop(context);
                 },
-              ),
-              RadioListTile<NotificationLevel>(
-                value: NotificationLevel.mentionsOnly,
-                groupValue: level,
-                title: const Text('Solo menciones'),
-                onChanged: (v) {
-                  ref
-                      .read(notificationSettingsProvider.notifier)
-                      .setChannelLevel(
-                          channel, NotificationLevel.mentionsOnly);
-                  Navigator.pop(context);
-                },
-              ),
-              RadioListTile<NotificationLevel>(
-                value: NotificationLevel.muted,
-                groupValue: level,
-                title: const Text('Silenciado'),
-                onChanged: (v) {
-                  ref
-                      .read(notificationSettingsProvider.notifier)
-                      .setChannelLevel(channel, NotificationLevel.muted);
-                  Navigator.pop(context);
-                },
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: const [
+                    RadioListTile<NotificationLevel>(
+                      value: NotificationLevel.allMessages,
+                      title: Text('Todas las mensajes'),
+                    ),
+                    RadioListTile<NotificationLevel>(
+                      value: NotificationLevel.mentionsOnly,
+                      title: Text('Solo menciones'),
+                    ),
+                    RadioListTile<NotificationLevel>(
+                      value: NotificationLevel.muted,
+                      title: Text('Silenciado'),
+                    ),
+                  ],
+                ),
               ),
               const Divider(),
               SwitchListTile(
                 title: const Text('Sonido para privados'),
                 value: settings.soundForPrivates,
-                activeColor: appTheme.accent,
+                activeThumbColor: appTheme.accent,
                 onChanged: (_) {
                   ref
                       .read(notificationSettingsProvider.notifier)
@@ -2517,7 +2364,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               SwitchListTile(
                 title: const Text('Sonido para menciones'),
                 value: settings.soundForMentions,
-                activeColor: appTheme.accent,
+                activeThumbColor: appTheme.accent,
                 onChanged: (_) {
                   ref
                       .read(notificationSettingsProvider.notifier)
@@ -2763,10 +2610,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     DateTime? to,
   }) async {
     final socket = _ircService.isConnected
-        ? (_ircService is IRCService
-            ? (_ircService as dynamic)._secureSocket ??
-                (_ircService as dynamic)._socket
-            : null)
+        ? (_ircService as dynamic)._secureSocket ??
+            (_ircService as dynamic)._socket
         : null;
     final serverId = socket?.remoteAddress.host ?? 'unknown';
 
@@ -2780,7 +2625,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       limit: 300,
     );
 
-    if (!mounted) return;
+    if (!context.mounted) return;
 
     showModalBottomSheet(
       context: context,
@@ -2794,7 +2639,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             return Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: appTheme.surface.withOpacity(0.98),
+                color: appTheme.surface.withValues(alpha: 0.98),
                 borderRadius: const BorderRadius.vertical(
                   top: Radius.circular(16),
                 ),
@@ -2817,7 +2662,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       Text(
                         '${results.length} mensajes',
                         style: TextStyle(
-                          color: appTheme.textSecondary.withOpacity(0.8),
+                          color: appTheme.textSecondary.withValues(alpha: 0.8),
                         ),
                       ),
                     ],
@@ -2844,7 +2689,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                   '[${msg.channel}] ${DateFormat('dd/MM/yyyy HH:mm').format(msg.timestamp)}',
                                   style: TextStyle(
                                     color: appTheme.textSecondary
-                                        .withOpacity(0.8),
+                                        .withValues(alpha: 0.8),
                                   ),
                                 ),
                                 onTap: () {
@@ -3867,7 +3712,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           return;
         }
         
-        if (channelToPart == null || channelToPart.isEmpty) {
+        if (channelToPart.isEmpty) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               content: Text('Por favor especifica un canal o está en uno'),
@@ -4222,7 +4067,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               borderRadius: BorderRadius.circular(16),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.3),
+                  color: Colors.black.withValues(alpha: 0.3),
                   blurRadius: 20,
                   spreadRadius: 4,
                 ),
@@ -4259,8 +4104,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     });
 
     // Timeout: si no llega WHOIS, cerrar el loader y avisar
-    Timer? timeoutTimer;
-    timeoutTimer = Timer(const Duration(seconds: 8), () {
+    final timeoutTimer = Timer(const Duration(seconds: 8), () {
       if (!mounted) return;
       if (loadingDialogOpen) {
         try {
@@ -4285,7 +4129,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         if (listener != null) {
           _ircService.removeWhoisListener(listener);
         }
-        timeoutTimer?.cancel();
+        timeoutTimer.cancel();
 
         // Cerrar el loader si sigue abierto
         if (loadingDialogOpen) {
@@ -4308,10 +4152,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final cachedInfo = _ircService.getWhoisInfo(nick);
     if (cachedInfo != null) {
       debugLog('🔍 [WHOIS] Información encontrada en caché, mostrando diálogo...');
-      timeoutTimer?.cancel();
-      if (listener != null) {
-        _ircService.removeWhoisListener(listener);
-      }
+      timeoutTimer.cancel();
+      _ircService.removeWhoisListener(listener);
       if (loadingDialogOpen) {
         try {
           Navigator.of(context, rootNavigator: true).pop();
@@ -4355,39 +4197,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     }).catchError((error) {
       debugLog('❌ [WHOIS] Error al mostrar diálogo: $error');
     });
-  }
-
-  Widget _buildInfoRow(String label, String value) {
-    final appTheme = ref.read(themeProvider);
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        SizedBox(
-          width: 120,
-          child: Text(
-            '$label:',
-            style: TextStyle(
-              color: appTheme.textSecondary,
-              fontWeight: FontWeight.bold,
-              fontSize: 12,
-            ),
-          ),
-        ),
-        Expanded(
-          child: Text(
-            value,
-            style: TextStyle(
-              color: appTheme.textPrimary,
-              fontSize: 12,
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  String _formatDateTime(DateTime dateTime) {
-    return '${dateTime.day}/${dateTime.month}/${dateTime.year} ${dateTime.hour}:${dateTime.minute.toString().padLeft(2, '0')}';
   }
 
   // Ventana para mostrar resultados de /list
@@ -4454,7 +4263,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       trailing: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                         decoration: BoxDecoration(
-                          color: appTheme.primary.withOpacity(0.2),
+                          color: appTheme.primary.withValues(alpha: 0.2),
                           borderRadius: BorderRadius.circular(12),
                         ),
                         child: Text(
@@ -4640,7 +4449,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                           ? Container(
                               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                               decoration: BoxDecoration(
-                                color: _getModeColor(mode).withOpacity(0.2),
+                                color: _getModeColor(mode).withValues(alpha: 0.2),
                                 borderRadius: BorderRadius.circular(4),
                               ),
                               child: Text(
@@ -4714,7 +4523,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final appTheme = ref.read(themeProvider);
     
     // Función para limpiar y formatear los mensajes
-    String _formatMessage(String message) {
+    String formatMessage(String message) {
       // Remover prefijos numéricos y códigos al inicio (ej: "14config.CONFIG_RELOAD 03")
       String cleaned = message;
       
@@ -4775,11 +4584,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     itemCount: results.length,
                     separatorBuilder: (context, index) => Divider(
                       height: 1,
-                      color: appTheme.textSecondary.withOpacity(0.2),
+                      color: appTheme.textSecondary.withValues(alpha: 0.2),
                     ),
                     itemBuilder: (context, index) {
                       final message = results[index];
-                      final formatted = _formatMessage(message);
+                      final formatted = formatMessage(message);
                       final isError = message.toLowerCase().contains('[error]') || 
                                      message.toLowerCase().contains('error') ||
                                      message.toLowerCase().contains('failed');
@@ -4950,7 +4759,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   ),
                   const SizedBox(height: 16),
                   DropdownButtonFormField<ServerProfile>(
-                    value: selected,
+                    initialValue: selected,
                     decoration: const InputDecoration(
                       labelText: 'Servidor / Red',
                     ),
@@ -5075,7 +4884,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     if (PlatformUtils.isWeb) {
       // En web, usar FilePicker
       try {
-        FilePickerResult? result = await FilePicker.pickFiles(
+        FilePickerResult? result = await FilePicker.platform.pickFiles(
           type: FileType.custom,
           allowedExtensions: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'mp4', 'webm', 'mov'],
           withData: true, // Obtener bytes directamente
@@ -5156,12 +4965,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     }
   }
 
-  // Manejar archivos arrastrados y soltados (solo en nativo)
-  Future<void> _handleDroppedFiles(List files) async {
-    if (files.isEmpty || PlatformUtils.isWeb) return;
-    // Implementación futura para nativo (desktop)
-  }
-
   /// Llamado desde drag & drop en web cuando se suelta un archivo
   Future<void> _handleDroppedFileBytes(Uint8List bytes, String fileName, String channel) async {
     if (!mounted) return;
@@ -5170,16 +4973,26 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     String mimeType;
     bool isVideo = false;
     if (nameLower.endsWith('.mp4') || nameLower.endsWith('.webm') || nameLower.endsWith('.mov')) {
-      if (nameLower.endsWith('.mp4')) mimeType = 'video/mp4';
-      else if (nameLower.endsWith('.webm')) mimeType = 'video/webm';
-      else mimeType = 'video/quicktime';
+      if (nameLower.endsWith('.mp4')) {
+        mimeType = 'video/mp4';
+      } else if (nameLower.endsWith('.webm')) {
+        mimeType = 'video/webm';
+      } else {
+        mimeType = 'video/quicktime';
+      }
       isVideo = true;
     } else {
-      if (nameLower.endsWith('.jpg') || nameLower.endsWith('.jpeg')) mimeType = 'image/jpeg';
-      else if (nameLower.endsWith('.png')) mimeType = 'image/png';
-      else if (nameLower.endsWith('.gif')) mimeType = 'image/gif';
-      else if (nameLower.endsWith('.webp')) mimeType = 'image/webp';
-      else mimeType = 'image/jpeg';
+      if (nameLower.endsWith('.jpg') || nameLower.endsWith('.jpeg')) {
+        mimeType = 'image/jpeg';
+      } else if (nameLower.endsWith('.png')) {
+        mimeType = 'image/png';
+      } else if (nameLower.endsWith('.gif')) {
+        mimeType = 'image/gif';
+      } else if (nameLower.endsWith('.webp')) {
+        mimeType = 'image/webp';
+      } else {
+        mimeType = 'image/jpeg';
+      }
     }
     if (isVideo) {
       await _uploadAndSendVideoToCloudinary(bytes, mimeType, normalizedChannel);
@@ -5522,11 +5335,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     }
   }
 
-  Future<void> _checkClipboardForImage() async {
-    // Verificar periódicamente si hay una imagen en el portapapeles
-    // Esto se puede mejorar con un listener más directo
-  }
-
   Future<void> _pasteImageFromClipboard() async {
     // En web, esta función no está disponible
     if (PlatformUtils.isWeb) {
@@ -5536,65 +5344,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     
     // En nativo, deshabilitado temporalmente
     // debugLog('ℹ️ Función de pegar imagen desde portapapeles deshabilitada temporalmente');
-  }
-
-  Future<void> _processAndSendImage(dynamic imageFile) async {
-    // En web, esta función no está disponible
-    if (PlatformUtils.isWeb) {
-      // debugLog('ℹ️ Procesamiento de imágenes no disponible en web');
-      return;
-    }
-    // En nativo, deshabilitado temporalmente
-    // debugLog('ℹ️ Procesamiento de imágenes deshabilitado temporalmente');
-  }
-
-  Future<void> _processAndSendVideo(dynamic videoFile) async {
-    // En web, esta función no está disponible
-    if (PlatformUtils.isWeb) {
-      // debugLog('ℹ️ Procesamiento de videos no disponible en web');
-      return;
-    }
-    // En nativo, deshabilitado temporalmente
-    // debugLog('ℹ️ Procesamiento de videos deshabilitado temporalmente');
-  }
-
-  bool _isImageUrl(String text) {
-    final uri = Uri.tryParse(text);
-    if (uri == null) return false;
-    
-    // Detectar URLs de Cloudinary
-    if (uri.host.contains('cloudinary.com') || uri.host.contains('res.cloudinary.com')) {
-      return true;
-    }
-    
-    final path = uri.path.toLowerCase();
-    return path.endsWith('.jpg') || 
-           path.endsWith('.jpeg') || 
-           path.endsWith('.png') || 
-           path.endsWith('.gif') || 
-           path.endsWith('.webp') ||
-           text.startsWith('data:image/');
-  }
-
-  bool _isVideoUrl(String text) {
-    final uri = Uri.tryParse(text);
-    if (uri == null) return false;
-    
-    // Detectar URLs de Cloudinary para videos
-    if (uri.host.contains('cloudinary.com') || uri.host.contains('res.cloudinary.com')) {
-      // Cloudinary puede servir videos, verificar si la URL contiene 'video' o tiene extensión de video
-      final path = uri.path.toLowerCase();
-      return path.contains('/video/') || 
-             path.endsWith('.mp4') || 
-             path.endsWith('.webm') || 
-             path.endsWith('.mov');
-    }
-    
-    final path = uri.path.toLowerCase();
-    return path.endsWith('.mp4') || 
-           path.endsWith('.webm') || 
-           path.endsWith('.mov') ||
-           text.startsWith('data:video/');
   }
 
   void _disconnect() async {
@@ -5635,9 +5384,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
             colors: [
-              appTheme.primary.withOpacity(0.15),
-              appTheme.secondary.withOpacity(0.12),
-              appTheme.accent.withOpacity(0.08),
+              appTheme.primary.withValues(alpha: 0.15),
+              appTheme.secondary.withValues(alpha: 0.12),
+              appTheme.accent.withValues(alpha: 0.08),
               appTheme.background,
             ],
             stops: const [0.0, 0.3, 0.6, 1.0],
@@ -5755,7 +5504,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final now = DateTime.now();
     
     // Función auxiliar para verificar si es mensaje de NickServ
-    bool _isNickServMessage(IRCMessage msg) {
+    bool isNickServMessage(IRCMessage msg) {
       if (msg.channel.startsWith('#')) return false; // No filtrar mensajes de canales
       final channelLower = msg.channel.toLowerCase();
       final nickLower = msg.nick.toLowerCase();
@@ -5774,7 +5523,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       if (privacyService.isUserBlocked(msg.nick)) return false;
       
       // Filtrar TODOS los mensajes privados históricos de NickServ (del historial)
-      if (_isNickServMessage(msg)) {
+      if (isNickServMessage(msg)) {
         return false;
       }
       return true;
@@ -5787,7 +5536,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       if (privacyService.isUserBlocked(msg.nick)) return false;
       
       // Filtrar mensajes privados de NickServ solo si son antiguos (más de 2 minutos)
-      if (_isNickServMessage(msg)) {
+      if (isNickServMessage(msg)) {
         final messageAge = now.difference(msg.timestamp);
         if (messageAge.inMinutes > 2) {
           return false; // Filtrar mensajes antiguos de NickServ
@@ -5871,7 +5620,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         }
       },
       child: MediaQuery(
-        data: MediaQuery.of(context).copyWith(textScaleFactor: fontScale),
+        data: MediaQuery.of(context).copyWith(
+          textScaler: TextScaler.linear(fontScale),
+        ),
         child: MacOSKeyboardShortcuts(
         onFind: _handleFind,
         onFindNext: _handleFindNext,
@@ -5885,7 +5636,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         appBar: AppBar(
           leading: nickname != null
               ? _buildCurrentUserHeaderAvatar(
-                  nickname!,
+                  nickname,
                   currentChannel,
                   channels,
                 )
@@ -6032,7 +5783,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                               width: 60,
                               height: 4,
                               decoration: BoxDecoration(
-                                color: Colors.white.withOpacity(0.2),
+                                color: Colors.white.withValues(alpha: 0.2),
                                 borderRadius: BorderRadius.circular(2),
                               ),
                               child: Stack(
@@ -6060,7 +5811,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                               return Text(
                                 '...',
                                 style: TextStyle(
-                                  color: Colors.white.withOpacity(0.7),
+                                  color: Colors.white.withValues(alpha: 0.7),
                                   fontSize: 9,
                                   fontWeight: FontWeight.w500,
                                 ),
@@ -6069,7 +5820,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                             return Text(
                               '${lag}ms',
                               style: TextStyle(
-                                color: Colors.white.withOpacity(0.9),
+                                color: Colors.white.withValues(alpha: 0.9),
                                 fontSize: 9,
                                 fontWeight: FontWeight.w500,
                               ),
@@ -6119,10 +5870,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                               child: Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                                 decoration: BoxDecoration(
-                                  color: Colors.white.withOpacity(0.2),
+                                  color: Colors.white.withValues(alpha: 0.2),
                                   borderRadius: BorderRadius.circular(8),
                                   border: Border.all(
-                                    color: Colors.white.withOpacity(0.3),
+                                    color: Colors.white.withValues(alpha: 0.3),
                                     width: 1,
                                   ),
                                 ),
@@ -6197,7 +5948,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       onPressed: _handleFind,
                     ),
                     // Botón para mostrar/ocultar lista de usuarios (solo en canales)
-                    if (currentChannel != null && currentChannel!.startsWith('#'))
+                    if (currentChannel != null && currentChannel.startsWith('#'))
                       IconButton(
                         icon: Icon(
                           _showUserList ? Icons.people_outline : Icons.people,
@@ -6397,7 +6148,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                   if (PlatformUtils.isWeb) {
                                     // En web, recargar la página
                                     try {
-                                      html.window.location.reload();
+                                      web.window.location.reload();
                                     } catch (e) {
                                       // Si falla, mostrar mensaje
                                       ScaffoldMessenger.of(context).showSnackBar(
@@ -6590,7 +6341,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                       Text(
                                         'FAVORITOS',
                                         style: TextStyle(
-                                          color: appTheme.textPrimary.withOpacity(0.7),
+                                          color: appTheme.textPrimary.withValues(alpha: 0.7),
                                           fontSize: 11,
                                           fontWeight: FontWeight.bold,
                                           letterSpacing: 1.2,
@@ -6629,13 +6380,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                       Icon(
                                         Icons.tag,
                                         size: 16,
-                                        color: appTheme.textPrimary.withOpacity(0.6),
+                                        color: appTheme.textPrimary.withValues(alpha: 0.6),
                                       ),
                                       const SizedBox(width: 6),
                                       Text(
                                         'CANALES',
                               style: TextStyle(
-                                          color: appTheme.textPrimary.withOpacity(0.6),
+                                          color: appTheme.textPrimary.withValues(alpha: 0.6),
                                           fontSize: 11,
                                           fontWeight: FontWeight.bold,
                                           letterSpacing: 1.2,
@@ -6701,13 +6452,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                       Icon(
                                         Icons.person,
                                         size: 16,
-                                        color: appTheme.accent.withOpacity(0.8),
+                                        color: appTheme.accent.withValues(alpha: 0.8),
                                       ),
                                       const SizedBox(width: 6),
                                       Text(
                                         'MENSAJES PRIVADOS',
                                         style: TextStyle(
-                                          color: appTheme.accent.withOpacity(0.8),
+                                          color: appTheme.accent.withValues(alpha: 0.8),
                                           fontSize: 11,
                                           fontWeight: FontWeight.bold,
                                           letterSpacing: 1.2,
@@ -6737,13 +6488,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                       Icon(
                                         Icons.archive,
                                         size: 16,
-                                        color: appTheme.textPrimary.withOpacity(0.6),
+                                        color: appTheme.textPrimary.withValues(alpha: 0.6),
                                       ),
                                       const SizedBox(width: 6),
                                       Text(
                                         'PRIVADOS ARCHIVADOS',
                                         style: TextStyle(
-                                          color: appTheme.textPrimary.withOpacity(0.6),
+                                          color: appTheme.textPrimary.withValues(alpha: 0.6),
                                           fontSize: 11,
                                           fontWeight: FontWeight.bold,
                                           letterSpacing: 1.2,
@@ -6818,13 +6569,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                       Icon(
                                         Icons.history,
                                         size: 16,
-                                        color: appTheme.textPrimary.withOpacity(0.6),
+                                        color: appTheme.textPrimary.withValues(alpha: 0.6),
                                       ),
                                       const SizedBox(width: 6),
                                       Text(
                                         'RECIENTES',
                                         style: TextStyle(
-                                          color: appTheme.textPrimary.withOpacity(0.6),
+                                          color: appTheme.textPrimary.withValues(alpha: 0.6),
                                           fontSize: 11,
                                           fontWeight: FontWeight.bold,
                                           letterSpacing: 1.2,
@@ -6949,9 +6700,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                         }
                                         final message = allMessages[
                                             allMessages.length - 1 - index];
-                                        if (message == null) {
-                                          return const SizedBox.shrink();
-                                        }
                                         return RepaintBoundary(
                                           child: Builder(
                                             builder: (context) {
@@ -7022,9 +6770,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                   builder: (context, ref, child) {
                                     // Obtener imagen de fondo configurada para el canal actual
                                     final channelBackgrounds = ref.watch(channelBackgroundProvider);
-                                    final backgroundUrl = currentChannel != null
-                                        ? channelBackgrounds[currentChannel!.toLowerCase()]
-                                        : null;
+                                    final backgroundUrl = channelBackgrounds[
+                                        currentChannel.toLowerCase()];
                                     
                                     return Container(
                                       decoration: BoxDecoration(
@@ -7113,7 +6860,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   if (currentChannel != null)
                     Consumer(
                       builder: (context, ref, child) {
-                        final typingNick = ref.watch(typingIndicatorProvider)[currentChannel!.toLowerCase()];
+                        final typingNick = ref.watch(typingIndicatorProvider)[currentChannel.toLowerCase()];
                         if (typingNick == null) return const SizedBox.shrink();
                         return _buildTypingIndicator(currentChannel, appTheme, typingNick);
                       },
@@ -7166,7 +6913,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                           ),
                           Builder(
                             builder: (context) {
-                              final count = _scheduledMessagesService.getScheduledMessagesForChannel(currentChannel ?? '').length;
+                              final count = _scheduledMessagesService
+                                  .getScheduledMessagesForChannel(currentChannel)
+                                  .length;
                               return PopupMenuButton<String>(
                                 icon: Icon(Icons.image, color: appTheme.primary),
                                 tooltip: 'Adjuntar imagen',
@@ -7229,44 +6978,42 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                             },
                           ),
                           // Botón de videoconferencia
-                          if (currentChannel != null)
-                            IconButton(
-                              icon: Icon(
-                                currentChannel!.startsWith('#') 
-                                    ? Icons.videocam 
-                                    : Icons.video_call,
-                                color: appTheme.primary,
-                              ),
-                              tooltip: currentChannel!.startsWith('#') 
-                                  ? 'Iniciar videoconferencia del canal'
-                                  : 'Videollamada con ${currentChannel!}',
-                              onPressed: () {
-                                if (currentChannel!.startsWith('#')) {
-                                  _iniciarVideoconferenciaCanal();
-                                } else {
-                                  _iniciarVideollamadaPrivada(currentChannel!);
-                                }
-                              },
+                          IconButton(
+                            icon: Icon(
+                              currentChannel.startsWith('#')
+                                  ? Icons.videocam
+                                  : Icons.video_call,
+                              color: appTheme.primary,
                             ),
+                            tooltip: currentChannel.startsWith('#')
+                                ? 'Iniciar videoconferencia del canal'
+                                : 'Videollamada con $currentChannel',
+                            onPressed: () {
+                              if (currentChannel.startsWith('#')) {
+                                _iniciarVideoconferenciaCanal();
+                              } else {
+                                _iniciarVideollamadaPrivada(currentChannel);
+                              }
+                            },
+                          ),
                           // Botón de audioconferencia
-                          if (currentChannel != null)
-                            IconButton(
-                              icon: Icon(
-                                currentChannel!.startsWith('#') 
-                                    ? Icons.mic 
-                                    : Icons.call,
-                                color: appTheme.primary,
-                              ),
-                              tooltip: currentChannel!.startsWith('#') 
-                                  ? 'Iniciar audioconferencia del canal'
-                                  : 'Audiollamada con ${currentChannel!}',
-                              onPressed: () {
-                                if (currentChannel!.startsWith('#')) {
-                                  _iniciarAudioconferenciaCanal();
-                                } else {
-                                  _iniciarAudiollamadaPrivada(currentChannel!);
-                                }
-                              },
+                          IconButton(
+                            icon: Icon(
+                              currentChannel.startsWith('#')
+                                  ? Icons.mic
+                                  : Icons.call,
+                              color: appTheme.primary,
+                            ),
+                            tooltip: currentChannel.startsWith('#')
+                                ? 'Iniciar audioconferencia del canal'
+                                : 'Audiollamada con $currentChannel',
+                            onPressed: () {
+                              if (currentChannel.startsWith('#')) {
+                                _iniciarAudioconferenciaCanal();
+                              } else {
+                                _iniciarAudiollamadaPrivada(currentChannel);
+                              }
+                            },
                           ),
                           const SizedBox(width: 4),
                           Expanded(
@@ -7403,10 +7150,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                               decoration: BoxDecoration(
                                                 color: appTheme.surface,
                                                 borderRadius: BorderRadius.circular(8),
-                                                border: Border.all(color: appTheme.primary.withOpacity(0.3)),
+                                                border: Border.all(color: appTheme.primary.withValues(alpha: 0.3)),
                                                 boxShadow: [
                                                   BoxShadow(
-                                                    color: Colors.black.withOpacity(0.2),
+                                                    color: Colors.black.withValues(alpha: 0.2),
                                                     blurRadius: 8,
                                                     offset: const Offset(0, 2),
                                                   ),
@@ -7419,7 +7166,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                                 itemCount: _commandSuggestions.length,
                                                 separatorBuilder: (context, index) => Divider(
                                                   height: 1,
-                                                  color: appTheme.primary.withOpacity(0.1),
+                                                  color: appTheme.primary.withValues(alpha: 0.1),
                                                 ),
                                                 itemBuilder: (context, index) {
                                                   final cmd = _commandSuggestions[index];
@@ -7430,7 +7177,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                                     child: Container(
                                                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                                                       color: isSelected 
-                                                          ? appTheme.primary.withOpacity(0.2) 
+                                                          ? appTheme.primary.withValues(alpha: 0.2) 
                                                           : Colors.transparent,
                                                       child: Row(
                                                         children: [
@@ -7458,7 +7205,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                                             child: Text(
                                                               cmd['usage'] ?? '',
                                                               style: TextStyle(
-                                                                color: appTheme.textSecondary.withOpacity(0.6),
+                                                                color: appTheme.textSecondary.withValues(alpha: 0.6),
                                                                 fontSize: 11,
                                                                 fontStyle: FontStyle.italic,
                                                               ),
@@ -7490,10 +7237,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                                 decoration: BoxDecoration(
                                                   color: appTheme.surface,
                                                   borderRadius: BorderRadius.circular(8),
-                                                  border: Border.all(color: appTheme.accent.withOpacity(0.3)),
+                                                  border: Border.all(color: appTheme.accent.withValues(alpha: 0.3)),
                                                   boxShadow: [
                                                     BoxShadow(
-                                                      color: Colors.black.withOpacity(0.3),
+                                                      color: Colors.black.withValues(alpha: 0.3),
                                                       blurRadius: 12,
                                                       offset: const Offset(0, 4),
                                                     ),
@@ -7506,7 +7253,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                                   itemCount: _nickSuggestions.length,
                                                   separatorBuilder: (context, index) => Divider(
                                                     height: 1,
-                                                    color: appTheme.accent.withOpacity(0.1),
+                                                    color: appTheme.accent.withValues(alpha: 0.1),
                                                   ),
                                                   itemBuilder: (context, index) {
                                                     final nick = _nickSuggestions[index];
@@ -7517,7 +7264,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                                       child: Container(
                                                         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                                                         color: isSelected 
-                                                            ? appTheme.accent.withOpacity(0.2) 
+                                                            ? appTheme.accent.withValues(alpha: 0.2) 
                                                             : Colors.transparent,
                                                         child: Row(
                                                           children: [
@@ -7553,7 +7300,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                           ), // Expanded
                           const SizedBox(width: 8),
                           // Toggle para NOTICE/PRIVMSG (solo en mensajes privados)
-                          if (currentChannel != null && !currentChannel.startsWith('#'))
+                          if (!currentChannel.startsWith('#'))
                             Tooltip(
                               message: ref.watch(useNoticeForPrivateProvider) ? 'Cambiar a PRIVMSG' : 'Cambiar a NOTICE',
                               child: IconButton(
@@ -7629,7 +7376,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               ),
             ),
             // Users sidebar - Solo mostrar para canales, no para queries (mensajes privados)
-            if (currentChannel != null && currentChannel!.startsWith('#') && _showUserList)
+            if (currentChannel != null && currentChannel.startsWith('#') && _showUserList)
               Expanded(
                 flex: 1,
                 child: Container(
@@ -7697,7 +7444,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                               padding: EdgeInsets.zero,
                               constraints: const BoxConstraints(),
                               onPressed: () {
-                                _showChannelSettingsMenu(context, currentChannel!);
+                                _showChannelSettingsMenu(context, currentChannel);
                               },
                             ),
                           ],
@@ -7871,7 +7618,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                             : LinearGradient(
                                                 colors: [
                                                   userColor,
-                                                  userColor.withOpacity(0.7),
+                                                  userColor.withValues(alpha: 0.7),
                                                 ],
                                                 begin: Alignment.topLeft,
                                                 end: Alignment.bottomRight,
@@ -7879,15 +7626,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                         boxShadow: [
                                           BoxShadow(
                                             color: isRobot
-                                                ? const Color(0xFFFFD700).withOpacity(0.5)
-                                                : userColor.withOpacity(0.4),
+                                                ? const Color(0xFFFFD700).withValues(alpha: 0.5)
+                                                : userColor.withValues(alpha: 0.4),
                                             blurRadius: 4,
                                             offset: const Offset(0, 1),
                                           ),
                                         ],
                                         border: isRobot
                                             ? Border.all(
-                                                color: const Color(0xFFFFD700).withOpacity(0.6),
+                                                color: const Color(0xFFFFD700).withValues(alpha: 0.6),
                                                 width: 1.5,
                                               )
                                             : null,
@@ -7917,16 +7664,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                               decoration: BoxDecoration(
                                                 // Usar color rojo/naranja para Dueño
-                                                color: const Color(0xFFFF5722).withOpacity(0.25),
+                                                color: const Color(0xFFFF5722).withValues(alpha: 0.25),
                                                 borderRadius: BorderRadius.circular(8),
                                                 border: Border.all(
-                                                  color: const Color(0xFFFF5722).withOpacity(0.8),
+                                                  color: const Color(0xFFFF5722).withValues(alpha: 0.8),
                                                   width: 1.5,
                                                 ),
                                                 // Añadir sombra sutil para mejor contraste
                                                 boxShadow: [
                                                   BoxShadow(
-                                                    color: const Color(0xFFFF5722).withOpacity(0.3),
+                                                    color: const Color(0xFFFF5722).withValues(alpha: 0.3),
                                                     blurRadius: 4,
                                                     spreadRadius: 0.5,
                                                   ),
@@ -7943,7 +7690,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                                   // Añadir sombra al texto para mejor legibilidad
                                                   shadows: [
                                                     Shadow(
-                                                      color: appTheme.background.withOpacity(0.8),
+                                                      color: appTheme.background.withValues(alpha: 0.8),
                                                       blurRadius: 2,
                                                       offset: const Offset(0, 0.5),
                                                     ),
@@ -7960,16 +7707,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                               decoration: BoxDecoration(
                                                 // Usar accent o primary con mayor opacidad para mejor visibilidad
-                                                color: appTheme.accent.withOpacity(0.25),
+                                                color: appTheme.accent.withValues(alpha: 0.25),
                                                 borderRadius: BorderRadius.circular(8),
                                                 border: Border.all(
-                                                  color: appTheme.accent.withOpacity(0.8),
+                                                  color: appTheme.accent.withValues(alpha: 0.8),
                                                   width: 1.5,
                                                 ),
                                                 // Añadir sombra sutil para mejor contraste
                                                 boxShadow: [
                                                   BoxShadow(
-                                                    color: appTheme.accent.withOpacity(0.3),
+                                                    color: appTheme.accent.withValues(alpha: 0.3),
                                                     blurRadius: 4,
                                                     spreadRadius: 0.5,
                                                   ),
@@ -7986,7 +7733,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                                   // Añadir sombra al texto para mejor legibilidad
                                                   shadows: [
                                                     Shadow(
-                                                      color: appTheme.background.withOpacity(0.8),
+                                                      color: appTheme.background.withValues(alpha: 0.8),
                                                       blurRadius: 2,
                                                       offset: const Offset(0, 0.5),
                                                     ),
@@ -8003,16 +7750,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                               decoration: BoxDecoration(
                                                 // Usar color morado para Voz
-                                                color: const Color(0xFF9C27B0).withOpacity(0.25),
+                                                color: const Color(0xFF9C27B0).withValues(alpha: 0.25),
                                                 borderRadius: BorderRadius.circular(8),
                                                 border: Border.all(
-                                                  color: const Color(0xFF9C27B0).withOpacity(0.8),
+                                                  color: const Color(0xFF9C27B0).withValues(alpha: 0.8),
                                                   width: 1.5,
                                                 ),
                                                 // Añadir sombra sutil para mejor contraste
                                                 boxShadow: [
                                                   BoxShadow(
-                                                    color: const Color(0xFF9C27B0).withOpacity(0.3),
+                                                    color: const Color(0xFF9C27B0).withValues(alpha: 0.3),
                                                     blurRadius: 4,
                                                     spreadRadius: 0.5,
                                                   ),
@@ -8029,7 +7776,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                                   // Añadir sombra al texto para mejor legibilidad
                                                   shadows: [
                                                     Shadow(
-                                                      color: appTheme.background.withOpacity(0.8),
+                                                      color: appTheme.background.withValues(alpha: 0.8),
                                                       blurRadius: 2,
                                                       offset: const Offset(0, 0.5),
                                                     ),
@@ -8046,16 +7793,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                               decoration: BoxDecoration(
                                                 // Usar color verde para Hop
-                                                color: const Color(0xFF4CAF50).withOpacity(0.25),
+                                                color: const Color(0xFF4CAF50).withValues(alpha: 0.25),
                                                 borderRadius: BorderRadius.circular(8),
                                                 border: Border.all(
-                                                  color: const Color(0xFF4CAF50).withOpacity(0.8),
+                                                  color: const Color(0xFF4CAF50).withValues(alpha: 0.8),
                                                   width: 1.5,
                                                 ),
                                                 // Añadir sombra sutil para mejor contraste
                                                 boxShadow: [
                                                   BoxShadow(
-                                                    color: const Color(0xFF4CAF50).withOpacity(0.3),
+                                                    color: const Color(0xFF4CAF50).withValues(alpha: 0.3),
                                                     blurRadius: 4,
                                                     spreadRadius: 0.5,
                                                   ),
@@ -8072,7 +7819,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                                   // Añadir sombra al texto para mejor legibilidad
                                                   shadows: [
                                                     Shadow(
-                                                      color: appTheme.background.withOpacity(0.8),
+                                                      color: appTheme.background.withValues(alpha: 0.8),
                                                       blurRadius: 2,
                                                       offset: const Offset(0, 0.5),
                                                     ),
@@ -8089,16 +7836,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                               decoration: BoxDecoration(
                                                 // Usar color dorado para robots
-                                                color: const Color(0xFFFFD700).withOpacity(0.25),
+                                                color: const Color(0xFFFFD700).withValues(alpha: 0.25),
                                                 borderRadius: BorderRadius.circular(8),
                                                 border: Border.all(
-                                                  color: const Color(0xFFFFD700).withOpacity(0.8),
+                                                  color: const Color(0xFFFFD700).withValues(alpha: 0.8),
                                                   width: 1.5,
                                                 ),
                                                 // Añadir sombra sutil para mejor contraste
                                                 boxShadow: [
                                                   BoxShadow(
-                                                    color: const Color(0xFFFFD700).withOpacity(0.3),
+                                                    color: const Color(0xFFFFD700).withValues(alpha: 0.3),
                                                     blurRadius: 4,
                                                     spreadRadius: 0.5,
                                                   ),
@@ -8115,7 +7862,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                                   // Añadir sombra al texto para mejor legibilidad
                                                   shadows: [
                                                     Shadow(
-                                                      color: appTheme.background.withOpacity(0.8),
+                                                      color: appTheme.background.withValues(alpha: 0.8),
                                                       blurRadius: 2,
                                                       offset: const Offset(0, 0.5),
                                                     ),
@@ -8135,9 +7882,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                         try {
                                           _showUserContextMenu(context, user);
                                           // debugLog('🔍 [DEBUG] _showUserContextMenu called successfully');
-                                        } catch (e, stackTrace) {
+                                        } catch (e) {
                                           // debugLog('🔍 [ERROR] Error showing user context menu: $e');
-                                          // debugLog('🔍 [ERROR] Stack trace: $stackTrace');
                                         }
                                       },
                                     ),
@@ -8177,15 +7923,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   child: Container(
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: appTheme.primary.withOpacity(0.9),
+                      color: appTheme.primary.withValues(alpha: 0.9),
                       borderRadius: BorderRadius.circular(24),
                       border: Border.all(
-                        color: appTheme.secondary.withOpacity(0.6),
+                        color: appTheme.secondary.withValues(alpha: 0.6),
                         width: 2,
                       ),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withOpacity(0.3),
+                          color: Colors.black.withValues(alpha: 0.3),
                           blurRadius: 8,
                           offset: const Offset(0, 2),
                         ),
@@ -8215,7 +7961,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               ),
             ),
           // Botón flotante para mostrar lista de usuarios cuando está oculta
-          if (currentChannel != null && currentChannel!.startsWith('#') && !_showUserList)
+          if (currentChannel != null && currentChannel.startsWith('#') && !_showUserList)
             Positioned(
               right: 8,
               top: 100,  // Debajo del AppBar
@@ -8231,15 +7977,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   child: Container(
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: appTheme.primary.withOpacity(0.9),
+                      color: appTheme.primary.withValues(alpha: 0.9),
                       borderRadius: BorderRadius.circular(24),
                       border: Border.all(
-                        color: appTheme.secondary.withOpacity(0.6),
+                        color: appTheme.secondary.withValues(alpha: 0.6),
                         width: 2,
                       ),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withOpacity(0.3),
+                          color: Colors.black.withValues(alpha: 0.3),
                           blurRadius: 8,
                           offset: const Offset(0, 2),
                         ),
@@ -8285,7 +8031,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         //         decoration: BoxDecoration(
         //           color: appTheme.background,
         //           border: Border.all(
-        //             color: appTheme.primary.withOpacity(0.3),
+        //             color: appTheme.primary.withValues(alpha: 0.3),
         //             width: 1,
         //           ),
         //           borderRadius: BorderRadius.circular(4),
@@ -8400,7 +8146,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       Icon(
                         Icons.search_off,
                         size: 64,
-                        color: appTheme.textSecondary.withOpacity(0.5),
+                        color: appTheme.textSecondary.withValues(alpha: 0.5),
                       ),
                       const SizedBox(height: 16),
                       Text(
@@ -8439,9 +8185,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       onTap: () {
         final ch = message.channel.startsWith('#') ? message.channel : '#${message.channel}';
         ref.read(currentChannelProvider.notifier).state = ch;
-        _scrollToMessageId = message.messageId ?? '${message.channel}_${message.nick}_${message.timestamp.millisecondsSinceEpoch}';
-        _scrollToMessageChannel = message.channel;
-        _scrollScheduled = false;
         setState(() {
           _showSearch = false;
         });
@@ -8453,7 +8196,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           color: appTheme.surface,
           borderRadius: BorderRadius.circular(8),
           border: Border.all(
-            color: appTheme.primary.withOpacity(0.3),
+            color: appTheme.primary.withValues(alpha: 0.3),
             width: 1,
           ),
         ),
@@ -8484,7 +8227,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 Text(
                   message.channel,
                   style: TextStyle(
-                    color: appTheme.textSecondary.withOpacity(0.7),
+                    color: appTheme.textSecondary.withValues(alpha: 0.7),
                     fontSize: 11,
                     fontStyle: FontStyle.italic,
                   ),
@@ -8539,7 +8282,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         style: TextStyle(
           color: appTheme.primary,
           fontWeight: FontWeight.bold,
-          backgroundColor: appTheme.primary.withOpacity(0.2),
+          backgroundColor: appTheme.primary.withValues(alpha: 0.2),
         ),
       ));
       lastIndex = matchIndex + query.length;
@@ -8580,7 +8323,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final isBot = channelData != null
         ? channelData.isRobot(message.nick, customRobots: customRobotsData)
         : customRobotsData.any(
-            (r) => (r['nick'] as String?)?.toLowerCase() == message.nick.toLowerCase(),
+            (r) => (r['nick'] as String).toLowerCase() == message.nick.toLowerCase(),
           );
     final userMode = channelData?.getUserMode(message.nick);
     final userColor = isBot ? const Color(0xFFFFD700) : _getUserColor(message.nick.hashCode);
@@ -8591,10 +8334,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       child: Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: appTheme.surface.withOpacity(0.5),
+          color: appTheme.surface.withValues(alpha: 0.5),
           borderRadius: BorderRadius.circular(8),
           border: Border.all(
-            color: appTheme.textPrimary.withOpacity(0.1),
+            color: appTheme.textPrimary.withValues(alpha: 0.1),
             width: 1,
           ),
         ),
@@ -8623,7 +8366,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                           : LinearGradient(
                               colors: [
                                 userColor,
-                                userColor.withOpacity(0.7),
+                                userColor.withValues(alpha: 0.7),
                               ],
                               begin: Alignment.topLeft,
                               end: Alignment.bottomRight,
@@ -8631,15 +8374,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       boxShadow: [
                         BoxShadow(
                           color: isBot
-                              ? const Color(0xFFFFD700).withOpacity(0.3)
-                              : userColor.withOpacity(0.2),
+                              ? const Color(0xFFFFD700).withValues(alpha: 0.3)
+                              : userColor.withValues(alpha: 0.2),
                           blurRadius: 3,
                           offset: const Offset(0, 1),
                         ),
                       ],
                       border: isBot
                           ? Border.all(
-                              color: const Color(0xFFFFD700).withOpacity(0.45),
+                              color: const Color(0xFFFFD700).withValues(alpha: 0.45),
                               width: 1,
                             )
                           : null,
@@ -8680,7 +8423,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   Text(
                     message.channel,
                     style: TextStyle(
-                      color: appTheme.textSecondary.withOpacity(0.7),
+                      color: appTheme.textSecondary.withValues(alpha: 0.7),
                       fontSize: 11,
                       fontStyle: FontStyle.italic,
                     ),
@@ -8721,9 +8464,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     margin: const EdgeInsets.only(top: 4),
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     decoration: BoxDecoration(
-                      color: appTheme.accent.withOpacity(0.1),
+                      color: appTheme.accent.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: appTheme.accent.withOpacity(0.3)),
+                      border: Border.all(color: appTheme.accent.withValues(alpha: 0.3)),
                     ),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
@@ -8818,7 +8561,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     if (message.isSystem) {
       // Detectar si es JOIN o PART
       final isJoin = message.message.contains('se unió');
-      final isPart = message.message.contains('dejó') || message.message.contains('salió');
       
       return Padding(
         padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
@@ -8829,12 +8571,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               gradient: LinearGradient(
                 colors: isJoin
                     ? [
-                        Colors.green.withOpacity(0.2),
-                        Colors.greenAccent.withOpacity(0.15),
+                        Colors.green.withValues(alpha: 0.2),
+                        Colors.greenAccent.withValues(alpha: 0.15),
                       ]
                     : [
-                        Colors.orange.withOpacity(0.2),
-                        Colors.redAccent.withOpacity(0.15),
+                        Colors.orange.withValues(alpha: 0.2),
+                        Colors.redAccent.withValues(alpha: 0.15),
                       ],
                 begin: Alignment.centerLeft,
                 end: Alignment.centerRight,
@@ -8842,14 +8584,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               borderRadius: BorderRadius.circular(20),
               border: Border.all(
                 color: isJoin
-                    ? Colors.green.withOpacity(0.4)
-                    : Colors.orange.withOpacity(0.4),
+                    ? Colors.green.withValues(alpha: 0.4)
+                    : Colors.orange.withValues(alpha: 0.4),
                 width: 1.5,
               ),
               boxShadow: [
                 BoxShadow(
                   color: (isJoin ? Colors.green : Colors.orange)
-                      .withOpacity(0.2),
+                      .withValues(alpha: 0.2),
                   blurRadius: 8,
                   offset: const Offset(0, 2),
                 ),
@@ -8862,7 +8604,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   padding: const EdgeInsets.all(6),
                   decoration: BoxDecoration(
                     color: (isJoin ? Colors.green : Colors.orange)
-                        .withOpacity(0.2),
+                        .withValues(alpha: 0.2),
                     shape: BoxShape.circle,
                   ),
                   child: Icon(
@@ -8917,8 +8659,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     } else {
       // Para mensajes privados, solo verificar la lista de robots personalizados
       final nickLower = message.nick.toLowerCase();
-      isBot = customRobotsData.any((r) => 
-        (r['nick'] as String?)?.toLowerCase() == nickLower
+      isBot = customRobotsData.any(
+        (r) => (r['nick'] as String).toLowerCase() == nickLower,
       );
     }
     
@@ -8973,7 +8715,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     : LinearGradient(
                         colors: [
                           userColor,
-                          userColor.withOpacity(0.7),
+                          userColor.withValues(alpha: 0.7),
                         ],
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
@@ -8981,15 +8723,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 boxShadow: [
                   BoxShadow(
                     color: isBot
-                        ? const Color(0xFFFFD700).withOpacity(0.5)
-                        : userColor.withOpacity(0.4),
+                        ? const Color(0xFFFFD700).withValues(alpha: 0.5)
+                        : userColor.withValues(alpha: 0.4),
                     blurRadius: 8,
                     offset: const Offset(0, 2),
                   ),
                 ],
                 border: isBot
                     ? Border.all(
-                        color: const Color(0xFFFFD700).withOpacity(0.6),
+                        color: const Color(0xFFFFD700).withValues(alpha: 0.6),
                         width: 2,
                       )
                     : null,
@@ -9007,7 +8749,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     ? LinearGradient(
                         colors: [
                           appTheme.primary,
-                          appTheme.primary.withOpacity(0.9),
+                          appTheme.primary.withValues(alpha: 0.9),
                         ],
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
@@ -9024,7 +8766,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         : LinearGradient(
                             colors: [
                               appTheme.surface,
-                              appTheme.surface.withOpacity(0.95),
+                              appTheme.surface.withValues(alpha: 0.95),
                             ],
                             begin: Alignment.topLeft,
                             end: Alignment.bottomRight,
@@ -9038,14 +8780,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 boxShadow: [
                   BoxShadow(
                     color: isOwnMessage
-                        ? appTheme.primary.withOpacity(0.3)
-                        : Colors.black.withOpacity(0.1),
+                        ? appTheme.primary.withValues(alpha: 0.3)
+                        : Colors.black.withValues(alpha: 0.1),
                     blurRadius: 12,
                     offset: const Offset(0, 4),
                     spreadRadius: 0,
                   ),
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.05),
+                    color: Colors.black.withValues(alpha: 0.05),
                     blurRadius: 4,
                     offset: const Offset(0, 2),
                   ),
@@ -9054,11 +8796,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     ? null
                     : isBot
                         ? Border.all(
-                            color: const Color(0xFFFFD700).withOpacity(0.4),
+                            color: const Color(0xFFFFD700).withValues(alpha: 0.4),
                             width: 2,
                           )
                         : Border.all(
-                            color: appTheme.textPrimary.withOpacity(0.1),
+                            color: appTheme.textPrimary.withValues(alpha: 0.1),
                             width: 1,
                           ),
               ),
@@ -9093,7 +8835,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                     : LinearGradient(
                                         colors: [
                                           userColor,
-                                          userColor.withOpacity(0.7),
+                                          userColor.withValues(alpha: 0.7),
                                         ],
                                         begin: Alignment.topLeft,
                                         end: Alignment.bottomRight,
@@ -9101,15 +8843,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                 boxShadow: [
                                   BoxShadow(
                                     color: isBot
-                                        ? const Color(0xFFFFD700).withOpacity(0.35)
-                                        : userColor.withOpacity(0.25),
+                                        ? const Color(0xFFFFD700).withValues(alpha: 0.35)
+                                        : userColor.withValues(alpha: 0.25),
                                     blurRadius: 3,
                                     offset: const Offset(0, 1),
                                   ),
                                 ],
                                 border: isBot
                                     ? Border.all(
-                                        color: const Color(0xFFFFD700).withOpacity(0.45),
+                                        color: const Color(0xFFFFD700).withValues(alpha: 0.45),
                                         width: 1,
                                       )
                                     : null,
@@ -9138,10 +8880,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                 letterSpacing: 0.2,
                                 decoration: TextDecoration.underline,
                                 decorationColor: isOwnMessage 
-                                    ? Colors.white.withOpacity(0.5)
+                                    ? Colors.white.withValues(alpha: 0.5)
                                     : isBot
-                                        ? const Color(0xFFB8860B).withOpacity(0.5)
-                                        : userColor.withOpacity(0.5),
+                                        ? const Color(0xFFB8860B).withValues(alpha: 0.5)
+                                        : userColor.withValues(alpha: 0.5),
                               ),
                             ),
                           ],
@@ -9153,8 +8895,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                             horizontal: 6, vertical: 2),
                         decoration: BoxDecoration(
                           color: isOwnMessage
-                              ? Colors.white.withOpacity(0.2)
-                              : appTheme.textPrimary.withOpacity(0.08),
+                              ? Colors.white.withValues(alpha: 0.2)
+                              : appTheme.textPrimary.withValues(alpha: 0.08),
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: Row(
@@ -9166,8 +8908,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                 style: TextStyle(
                                   fontSize: 10,
                                   color: isOwnMessage
-                                      ? Colors.white.withOpacity(0.9)
-                                      : appTheme.textPrimary.withOpacity(0.6),
+                                      ? Colors.white.withValues(alpha: 0.9)
+                                      : appTheme.textPrimary.withValues(alpha: 0.6),
                                   fontWeight: FontWeight.w500,
                                   letterSpacing: 0.3,
                                 ),
@@ -9186,7 +8928,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                 color: isPinned
                                     ? appTheme.accent
                                     : appTheme.textPrimary
-                                        .withOpacity(0.4),
+                                        .withValues(alpha: 0.4),
                               ),
                             ),
                             const SizedBox(width: 4),
@@ -9197,7 +8939,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                               child: Icon(
                                 Icons.content_copy,
                                 size: 14,
-                                color: appTheme.textPrimary.withOpacity(0.4),
+                                color: appTheme.textPrimary.withValues(alpha: 0.4),
                               ),
                             ),
                           ],
@@ -9224,9 +8966,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       margin: const EdgeInsets.only(bottom: 4),
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                       decoration: BoxDecoration(
-                        color: appTheme.primary.withOpacity(0.1),
+                        color: appTheme.primary.withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: appTheme.primary.withOpacity(0.3)),
+                        border: Border.all(color: appTheme.primary.withValues(alpha: 0.3)),
                       ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
@@ -9248,7 +8990,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                               style: TextStyle(
                                 fontSize: 10,
                                 fontStyle: FontStyle.italic,
-                                color: appTheme.textSecondary.withOpacity(0.7),
+                                color: appTheme.textSecondary.withValues(alpha: 0.7),
                               ),
                             ),
                           ],
@@ -9271,9 +9013,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                           margin: const EdgeInsets.only(bottom: 4),
                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                           decoration: BoxDecoration(
-                            color: appTheme.accent.withOpacity(0.1),
+                            color: appTheme.accent.withValues(alpha: 0.1),
                             borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: appTheme.accent.withOpacity(0.3)),
+                            border: Border.all(color: appTheme.accent.withValues(alpha: 0.3)),
                           ),
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
@@ -9301,14 +9043,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       padding: const EdgeInsets.only(top: 4),
                       child: Row(
                         children: [
-                          Icon(Icons.edit, size: 12, color: appTheme.textSecondary.withOpacity(0.6)),
+                          Icon(Icons.edit, size: 12, color: appTheme.textSecondary.withValues(alpha: 0.6)),
                           const SizedBox(width: 4),
                           Text(
                             'editado',
                             style: TextStyle(
                               fontSize: 11,
                               fontStyle: FontStyle.italic,
-                              color: appTheme.textSecondary.withOpacity(0.6),
+                              color: appTheme.textSecondary.withValues(alpha: 0.6),
                             ),
                           ),
                         ],
@@ -9323,14 +9065,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       padding: const EdgeInsets.only(top: 4),
                       child: Row(
                         children: [
-                          Icon(Icons.done_all, size: 12, color: appTheme.primary.withOpacity(0.7)),
+                          Icon(Icons.done_all, size: 12, color: appTheme.primary.withValues(alpha: 0.7)),
                           const SizedBox(width: 4),
                           Text(
                             'Leído por ${message.readBy.length} ${message.readBy.length == 1 ? "persona" : "personas"}',
                             style: TextStyle(
                               fontSize: 11,
                               fontStyle: FontStyle.italic,
-                              color: appTheme.textSecondary.withOpacity(0.6),
+                              color: appTheme.textSecondary.withValues(alpha: 0.6),
                             ),
                           ),
                         ],
@@ -9367,14 +9109,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               gradient: LinearGradient(
                 colors: [
                   appTheme.primary,
-                  appTheme.primary.withOpacity(0.8),
+                  appTheme.primary.withValues(alpha: 0.8),
                 ],
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
               ),
               boxShadow: [
                 BoxShadow(
-                  color: appTheme.primary.withOpacity(0.4),
+                  color: appTheme.primary.withValues(alpha: 0.4),
                   blurRadius: 8,
                   offset: const Offset(0, 2),
                 ),
@@ -9418,7 +9160,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         child: CircularProgressIndicator(
                           strokeWidth: 2,
                           valueColor: AlwaysStoppedAnimation<Color>(
-                            Colors.white.withOpacity(0.7),
+                            Colors.white.withValues(alpha: 0.7),
                           ),
                         ),
                       ),
@@ -9428,7 +9170,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                             ? 'Enviando en ${remaining}s...'
                             : 'Enviando...',
                     style: TextStyle(
-                      color: Colors.white.withOpacity(0.7),
+                      color: Colors.white.withValues(alpha: 0.7),
                       fontSize: 11,
                       fontStyle: FontStyle.italic,
                     ),
@@ -9437,7 +9179,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   // Botón para forzar envío inmediato
                   IconButton(
                     icon: const Icon(Icons.send, size: 16),
-                    color: Colors.white.withOpacity(0.9),
+                    color: Colors.white.withValues(alpha: 0.9),
                     padding: EdgeInsets.zero,
                     constraints: const BoxConstraints(),
                     tooltip: 'Enviar inmediatamente',
@@ -9448,7 +9190,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   const SizedBox(width: 4),
                   IconButton(
                     icon: const Icon(Icons.close, size: 16),
-                    color: Colors.white.withOpacity(0.7),
+                    color: Colors.white.withValues(alpha: 0.7),
                     padding: EdgeInsets.zero,
                     constraints: const BoxConstraints(),
                     onPressed: () {
@@ -9469,7 +9211,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                               ).toList();
                               // Añadir los mensajes actualizados del canal
                               final updatedMessages = [...otherChannelMessages, ...channelObj.messages];
-                              ref.read(messagesProvider.notifier).state = updatedMessages;
+                              ref.read(messagesProvider.notifier).replaceAll(updatedMessages);
                             }
                           }
                           ScaffoldMessenger.of(context).showSnackBar(
@@ -9514,8 +9256,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   Widget _buildModernRegistrationMessage(IRCMessage message) {
     final appTheme = ref.read(themeProvider);
     final timeFormat = DateFormat('HH:mm');
-    final formatPrefs = ref.read(messageFormatPreferencesProvider);
-    final showTimestamp = formatPrefs.showTimestamp;
     
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -9525,18 +9265,18 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
             colors: [
-              appTheme.primary.withOpacity(0.15),
-              appTheme.secondary.withOpacity(0.1),
+              appTheme.primary.withValues(alpha: 0.15),
+              appTheme.secondary.withValues(alpha: 0.1),
             ],
           ),
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: appTheme.primary.withOpacity(0.3),
+            color: appTheme.primary.withValues(alpha: 0.3),
             width: 1.5,
           ),
           boxShadow: [
             BoxShadow(
-              color: appTheme.primary.withOpacity(0.2),
+              color: appTheme.primary.withValues(alpha: 0.2),
               blurRadius: 12,
               spreadRadius: 2,
               offset: const Offset(0, 4),
@@ -9554,7 +9294,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   Container(
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
-                      color: appTheme.primary.withOpacity(0.2),
+                      color: appTheme.primary.withValues(alpha: 0.2),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Icon(
@@ -9627,10 +9367,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         Container(
                           padding: const EdgeInsets.all(16),
                           decoration: BoxDecoration(
-                            color: Colors.blue.withOpacity(0.1),
+                            color: Colors.blue.withValues(alpha: 0.1),
                             borderRadius: BorderRadius.circular(12),
                             border: Border.all(
-                              color: Colors.blue.withOpacity(0.3),
+                              color: Colors.blue.withValues(alpha: 0.3),
                               width: 1,
                             ),
                           ),
@@ -9702,7 +9442,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         Container(
                           padding: const EdgeInsets.all(16),
                           decoration: BoxDecoration(
-                            color: appTheme.surface.withOpacity(0.5),
+                            color: appTheme.surface.withValues(alpha: 0.5),
                             borderRadius: BorderRadius.circular(12),
                           ),
                           child: Row(
@@ -9760,7 +9500,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                 borderRadius: BorderRadius.circular(12),
                               ),
                               elevation: 4,
-                              shadowColor: appTheme.primary.withOpacity(0.4),
+                              shadowColor: appTheme.primary.withValues(alpha: 0.4),
                             ),
                           ),
                         ),
@@ -9843,7 +9583,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     Container(
                       padding: const EdgeInsets.all(8),
                       decoration: BoxDecoration(
-                        color: appTheme.primary.withOpacity(0.1),
+                        color: appTheme.primary.withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Row(
@@ -9879,20 +9619,20 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         decoration: BoxDecoration(
           gradient: LinearGradient(
             colors: [
-              appTheme.primary.withOpacity(0.15),
-              appTheme.primary.withOpacity(0.08),
+              appTheme.primary.withValues(alpha: 0.15),
+              appTheme.primary.withValues(alpha: 0.08),
             ],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),
           borderRadius: BorderRadius.circular(10),
           border: Border.all(
-            color: appTheme.primary.withOpacity(0.3),
+            color: appTheme.primary.withValues(alpha: 0.3),
             width: 1.5,
           ),
           boxShadow: [
             BoxShadow(
-              color: appTheme.primary.withOpacity(0.1),
+              color: appTheme.primary.withValues(alpha: 0.1),
               blurRadius: 4,
               offset: const Offset(0, 2),
             ),
@@ -9904,7 +9644,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             Container(
               padding: const EdgeInsets.all(4),
               decoration: BoxDecoration(
-                color: appTheme.primary.withOpacity(0.2),
+                color: appTheme.primary.withValues(alpha: 0.2),
                 borderRadius: BorderRadius.circular(6),
               ),
               child: Icon(Icons.reply, size: 16, color: appTheme.primary),
@@ -9926,7 +9666,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       ),
                       if (replyToMessage.isEdited) ...[
                         const SizedBox(width: 4),
-                        Icon(Icons.edit, size: 10, color: appTheme.textSecondary.withOpacity(0.6)),
+                        Icon(Icons.edit, size: 10, color: appTheme.textSecondary.withValues(alpha: 0.6)),
                       ],
                       if (replyToMessage.isPinned) ...[
                         const SizedBox(width: 4),
@@ -9955,14 +9695,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 Icon(
                   Icons.arrow_forward_ios,
                   size: 12,
-                  color: appTheme.primary.withOpacity(0.5),
+                  color: appTheme.primary.withValues(alpha: 0.5),
                 ),
                 if (replyCount > 0) ...[
                   const SizedBox(width: 8),
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                     decoration: BoxDecoration(
-                      color: appTheme.primary.withOpacity(0.2),
+                      color: appTheme.primary.withValues(alpha: 0.2),
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: Row(
@@ -10005,7 +9745,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           if (showReplyButton) ...[
             IconButton(
               icon: const Icon(Icons.reply, size: 16),
-              color: appTheme.textSecondary.withOpacity(0.6),
+              color: appTheme.textSecondary.withValues(alpha: 0.6),
               padding: EdgeInsets.zero,
               constraints: const BoxConstraints(),
               tooltip: 'Responder',
@@ -10016,7 +9756,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           // Reacciones rápidas (solo si las reacciones están habilitadas)
           if (formatPrefs.enableReactions) ...[
             PopupMenuButton<String>(
-              icon: Icon(Icons.add_reaction, size: 16, color: appTheme.textSecondary.withOpacity(0.6)),
+              icon: Icon(Icons.add_reaction, size: 16, color: appTheme.textSecondary.withValues(alpha: 0.6)),
               tooltip: 'Reaccionar',
               padding: EdgeInsets.zero,
               constraints: const BoxConstraints(),
@@ -10053,7 +9793,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             const SizedBox(width: 4),
             IconButton(
               icon: const Icon(Icons.edit, size: 16),
-              color: appTheme.textSecondary.withOpacity(0.6),
+              color: appTheme.textSecondary.withValues(alpha: 0.6),
               padding: EdgeInsets.zero,
               constraints: const BoxConstraints(),
               tooltip: 'Editar',
@@ -10070,7 +9810,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               ),
               color: message.isPinned 
                   ? appTheme.primary 
-                  : appTheme.textSecondary.withOpacity(0.6),
+                  : appTheme.textSecondary.withValues(alpha: 0.6),
               padding: EdgeInsets.zero,
               constraints: const BoxConstraints(),
               tooltip: message.isPinned ? 'Desfijar mensaje' : 'Fijar mensaje',
@@ -10089,7 +9829,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           // Menú de más opciones
           const SizedBox(width: 4),
           PopupMenuButton<String>(
-            icon: Icon(Icons.more_vert, size: 16, color: appTheme.textSecondary.withOpacity(0.6)),
+            icon: Icon(Icons.more_vert, size: 16, color: appTheme.textSecondary.withValues(alpha: 0.6)),
             tooltip: 'Más opciones',
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints(),
@@ -10418,11 +10158,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     final newTag = MessageTag(
                       id: '${DateTime.now().millisecondsSinceEpoch}_$name',
                       name: name,
-                      color: '#${pickedColor.value.toRadixString(16)}',
+                      color: '#${pickedColor.toARGB32().toRadixString(16)}',
                       createdAt: DateTime.now(),
                     );
                     await tagsNotifier.createTag(newTag);
                     await tagsNotifier.tagMessage(message, newTag.id);
+                    if (!context.mounted) return;
                     Navigator.pop(context);
                   },
                   child: Text(
@@ -10463,7 +10204,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             Container(
               padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(
-                color: appTheme.primary.withOpacity(0.1),
+                color: appTheme.primary.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(8),
                 border: Border(
                   left: BorderSide(color: appTheme.primary, width: 3),
@@ -10595,7 +10336,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         setState(() => selectedMinutes = minutes);
                       }
                     },
-                    selectedColor: appTheme.primary.withOpacity(0.3),
+                    selectedColor: appTheme.primary.withValues(alpha: 0.3),
                     labelStyle: TextStyle(
                       color: isSelected ? appTheme.primary : appTheme.textPrimary,
                       fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
@@ -10806,7 +10547,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                             setState(() => recurrenceInterval = duration);
                           }
                         },
-                        selectedColor: appTheme.primary.withOpacity(0.3),
+                        selectedColor: appTheme.primary.withValues(alpha: 0.3),
                         labelStyle: TextStyle(
                           color: isSelected ? appTheme.primary : appTheme.textPrimary,
                           fontSize: 12,
@@ -10977,6 +10718,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                           onPressed: () async {
                             final cancelled = await _scheduledMessagesService.cancelScheduledMessage(msg.id);
                             if (cancelled) {
+                              if (!context.mounted) return;
                               Navigator.pop(context);
                               _showScheduledMessagesListDialog(context);
                               ScaffoldMessenger.of(context).showSnackBar(
@@ -10995,6 +10737,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             TextButton(
               onPressed: () async {
                 await _scheduledMessagesService.clearAllScheduledMessages();
+                if (!context.mounted) return;
                 Navigator.pop(context);
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(content: Text('Todos los mensajes programados han sido cancelados')),
@@ -11265,8 +11008,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(
                     color: isOwnMessage 
-                        ? Colors.white.withOpacity(0.3)
-                        : Colors.grey.withOpacity(0.3),
+                        ? Colors.white.withValues(alpha: 0.3)
+                        : Colors.grey.withValues(alpha: 0.3),
                     width: 1,
                   ),
                 ),
@@ -11355,8 +11098,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
                 color: isOwnMessage 
-                    ? Colors.white.withOpacity(0.3)
-                    : Colors.grey.withOpacity(0.3),
+                    ? Colors.white.withValues(alpha: 0.3)
+                    : Colors.grey.withValues(alpha: 0.3),
                 width: 1,
               ),
             ),
@@ -11406,7 +11149,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                       decoration: BoxDecoration(
-                        color: Colors.black.withOpacity(0.7),
+                        color: Colors.black.withValues(alpha: 0.7),
                         borderRadius: BorderRadius.circular(4),
                       ),
                       child: Text(
@@ -11535,8 +11278,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
                 color: isOwnMessage 
-                    ? Colors.white.withOpacity(0.3)
-                    : Colors.grey.withOpacity(0.3),
+                    ? Colors.white.withValues(alpha: 0.3)
+                    : Colors.grey.withValues(alpha: 0.3),
                 width: 1,
               ),
             ),
@@ -12267,8 +12010,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         decoration: BoxDecoration(
           gradient: LinearGradient(
             colors: [
-              appTheme.accent.withOpacity(0.2),
-              appTheme.accent.withOpacity(0.1),
+              appTheme.accent.withValues(alpha: 0.2),
+              appTheme.accent.withValues(alpha: 0.1),
             ],
           ),
         ),
@@ -12367,8 +12110,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         decoration: BoxDecoration(
           gradient: LinearGradient(
             colors: [
-              appTheme.primary.withOpacity(0.2),
-              appTheme.secondary.withOpacity(0.2),
+              appTheme.primary.withValues(alpha: 0.2),
+              appTheme.secondary.withValues(alpha: 0.2),
             ],
           ),
         ),
@@ -12418,7 +12161,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         ),
         boxShadow: [
           BoxShadow(
-            color: appTheme.primary.withOpacity(0.3),
+            color: appTheme.primary.withValues(alpha: 0.3),
             blurRadius: 4,
             offset: const Offset(0, 2),
           ),
@@ -12441,10 +12184,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
               decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.25),
+                color: Colors.white.withValues(alpha: 0.25),
                 borderRadius: BorderRadius.circular(4),
                 border: Border.all(
-                  color: Colors.white.withOpacity(0.5),
+                  color: Colors.white.withValues(alpha: 0.5),
                   width: 1,
                 ),
               ),
@@ -12476,10 +12219,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
               decoration: BoxDecoration(
-                color: Colors.green.withOpacity(0.4),
+                color: Colors.green.withValues(alpha: 0.4),
                 borderRadius: BorderRadius.circular(4),
                 border: Border.all(
-                  color: Colors.greenAccent.withOpacity(0.6),
+                  color: Colors.greenAccent.withValues(alpha: 0.6),
                   width: 1,
                 ),
               ),
@@ -12536,10 +12279,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final isFavorite = favorites.contains(normalizedChannel);
     
     final baseBackgroundColor = isQuery
-        ? appTheme.accent.withOpacity(hasUnread ? 0.15 : 0.05)
+        ? appTheme.accent.withValues(alpha: hasUnread ? 0.15 : 0.05)
         : Colors.transparent;
     final archivedOverlayColor = isArchived
-        ? Colors.grey.withOpacity(0.15)
+        ? Colors.grey.withValues(alpha: 0.15)
         : Colors.transparent;
 
     return Container(
@@ -12547,11 +12290,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       decoration: BoxDecoration(
         color: isSelected
             ? (isQuery 
-                ? appTheme.accent.withOpacity(0.2)
-                : appTheme.accent.withOpacity(0.3))
+                ? appTheme.accent.withValues(alpha: 0.2)
+                : appTheme.accent.withValues(alpha: 0.3))
             : (baseBackgroundColor == Colors.transparent
                 ? archivedOverlayColor
-                : baseBackgroundColor.withOpacity(
+                : baseBackgroundColor.withValues(alpha: 
                     isArchived ? (hasUnread ? 0.18 : 0.08) : (hasUnread ? 0.15 : 0.05),
                   )),
         borderRadius: BorderRadius.circular(10),
@@ -12563,8 +12306,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             : (isQuery
                 ? Border.all(
                     color: hasUnread 
-                        ? appTheme.accent.withOpacity(0.6)
-                        : appTheme.accent.withOpacity(0.3),
+                        ? appTheme.accent.withValues(alpha: 0.6)
+                        : appTheme.accent.withValues(alpha: 0.3),
                     width: hasUnread ? 2 : 1,
                   )
                 : null),
@@ -12609,16 +12352,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   // Para mensajes privados, mostrar el avatar del usuario
                   final nick = _resolvePrivateDisplayNick(channel);
                   final customRobots = ref.read(customRobotsProvider);
-                  final customRobotsData = customRobots.map((r) => {
-                    'nick': r.nick,
-                    'icon': r.icon,
-                    'host': r.host,
-                  }).toList();
                   
                   // Verificar si es robot usando la lista de customRobots
                   bool isRobot = false;
                   try {
-                    final robot = customRobots.firstWhere(
+                    customRobots.firstWhere(
                       (r) => r.nick.toLowerCase() == nick.toLowerCase(),
                     );
                     isRobot = true;
@@ -12661,7 +12399,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         : LinearGradient(
                             colors: [
                               userColor,
-                              userColor.withOpacity(0.7),
+                              userColor.withValues(alpha: 0.7),
                             ],
                             begin: Alignment.topLeft,
                             end: Alignment.bottomRight,
@@ -12669,15 +12407,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     boxShadow: [
                       BoxShadow(
                         color: isRobot
-                            ? const Color(0xFFFFD700).withOpacity(0.5)
-                            : userColor.withOpacity(0.4),
+                            ? const Color(0xFFFFD700).withValues(alpha: 0.5)
+                            : userColor.withValues(alpha: 0.4),
                         blurRadius: 4,
                         offset: const Offset(0, 1),
                       ),
                     ],
                     border: isRobot
                         ? Border.all(
-                            color: const Color(0xFFFFD700).withOpacity(0.6),
+                            color: const Color(0xFFFFD700).withValues(alpha: 0.6),
                             width: 1.5,
                           )
                         : null,
@@ -12690,14 +12428,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 width: 32,
                 height: 32,
                 decoration: BoxDecoration(
-                  color: appTheme.primary.withOpacity(isSelected ? 0.3 : 0.15),
+                  color: appTheme.primary.withValues(alpha: isSelected ? 0.3 : 0.15),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Icon(
                   Icons.tag,
                   color: isSelected
                       ? appTheme.accent
-                      : appTheme.textPrimary.withOpacity(0.7),
+                      : appTheme.textPrimary.withValues(alpha: 0.7),
                   size: 18,
                 ),
               ),
@@ -12719,7 +12457,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                 decoration: BoxDecoration(
-                  color: Colors.amber.withOpacity(0.2),
+                  color: Colors.amber.withValues(alpha: 0.2),
                   borderRadius: BorderRadius.circular(4),
                 ),
                 child: Row(
@@ -12749,7 +12487,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                 decoration: BoxDecoration(
-                  color: appTheme.accent.withOpacity(0.2),
+                  color: appTheme.accent.withValues(alpha: 0.2),
                   borderRadius: BorderRadius.circular(4),
                 ),
                 child: Text(
@@ -12790,7 +12528,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 isFavorite ? Icons.star : Icons.star_border,
                 color: isFavorite
                     ? Colors.amber
-                    : appTheme.textPrimary.withOpacity(0.5),
+                    : appTheme.textPrimary.withValues(alpha: 0.5),
                 size: 18,
               ),
               onPressed: () {
@@ -12802,7 +12540,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             IconButton(
               icon: Icon(
                 Icons.close,
-                color: appTheme.textPrimary.withOpacity(0.5),
+                color: appTheme.textPrimary.withValues(alpha: 0.5),
                 size: 16,
               ),
               onPressed: () {
@@ -12870,10 +12608,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
-        color: appTheme.surface.withOpacity(0.9),
+        color: appTheme.surface.withValues(alpha: 0.9),
         border: Border(
           bottom: BorderSide(
-            color: appTheme.textPrimary.withOpacity(0.1),
+            color: appTheme.textPrimary.withValues(alpha: 0.1),
             width: 1,
           ),
         ),
@@ -12891,7 +12629,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 style: TextStyle(
                   fontSize: 11,
                   fontWeight: FontWeight.bold,
-                  color: appTheme.textPrimary.withOpacity(0.8),
+                  color: appTheme.textPrimary.withValues(alpha: 0.8),
                   letterSpacing: 0.5,
                 ),
               ),
@@ -12903,7 +12641,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             child: ListView.separated(
               scrollDirection: Axis.horizontal,
               itemCount: pinned.length,
-              separatorBuilder: (_, __) => const SizedBox(width: 8),
+              separatorBuilder: (_, index) => const SizedBox(width: 8),
               itemBuilder: (context, index) {
                 final msg = pinned[index];
                 return Container(
@@ -12911,10 +12649,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   padding:
                       const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                   decoration: BoxDecoration(
-                    color: appTheme.surface.withOpacity(0.95),
+                    color: appTheme.surface.withValues(alpha: 0.95),
                     borderRadius: BorderRadius.circular(10),
                     border: Border.all(
-                      color: appTheme.accent.withOpacity(0.4),
+                      color: appTheme.accent.withValues(alpha: 0.4),
                       width: 1,
                     ),
                   ),
@@ -12943,7 +12681,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                               style: TextStyle(
                                 fontSize: 11,
                                 color:
-                                    appTheme.textPrimary.withOpacity(0.85),
+                                    appTheme.textPrimary.withValues(alpha: 0.85),
                               ),
                             ),
                           ],
@@ -12953,7 +12691,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         icon: Icon(
                           Icons.close,
                           size: 16,
-                          color: appTheme.textPrimary.withOpacity(0.6),
+                          color: appTheme.textPrimary.withValues(alpha: 0.6),
                         ),
                         tooltip: 'Quitar mensaje fijado',
                         padding: EdgeInsets.zero,
@@ -12969,42 +12707,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 );
               },
             ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showJoinDialog(BuildContext context) {
-    final controller = TextEditingController();
-    final appTheme = ref.read(themeProvider);
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Unirse a Canal'),
-        content: TextField(
-          controller: controller,
-          decoration: const InputDecoration(
-            // Placeholder más claro y en español
-            hintText: '#canal',
-            prefixIcon: Icon(Icons.tag),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancelar'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              _joinChannel(controller.text);
-              Navigator.pop(context);
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: appTheme.primary,
-              foregroundColor: appTheme.textPrimary,
-            ),
-            child: const Text('Unirse'),
           ),
         ],
       ),
@@ -13028,12 +12730,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           child: RichText(
             text: TextSpan(
               style: TextStyle(
-                color: appTheme.textPrimary.withOpacity(0.9),
+                color: appTheme.textPrimary.withValues(alpha: 0.9),
                 fontSize: 13,
               ),
               children: [
                 TextSpan(
-                  text: '$name',
+                  text: name,
                   style: const TextStyle(
                     fontWeight: FontWeight.bold,
                   ),
@@ -13075,15 +12777,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             borderRadius: BorderRadius.circular(24),
             gradient: LinearGradient(
               colors: [
-                appTheme.primary.withOpacity(0.95),
-                appTheme.secondary.withOpacity(0.95),
+                appTheme.primary.withValues(alpha: 0.95),
+                appTheme.secondary.withValues(alpha: 0.95),
               ],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
             ),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.45),
+                color: Colors.black.withValues(alpha: 0.45),
                 blurRadius: 24,
                 offset: const Offset(0, 12),
               ),
@@ -13130,7 +12832,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                           Text(
                             'Elige cómo quieres contactar con soporte.',
                             style: TextStyle(
-                              color: appTheme.textSecondary.withOpacity(0.9),
+                              color: appTheme.textSecondary.withValues(alpha: 0.9),
                               fontSize: 13,
                             ),
                           ),
@@ -13139,7 +12841,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     ),
                     IconButton(
                       icon: Icon(Icons.close,
-                          color: appTheme.textPrimary.withOpacity(0.7)),
+                          color: appTheme.textPrimary.withValues(alpha: 0.7)),
                       onPressed: () => Navigator.pop(context),
                     ),
                   ],
@@ -13191,16 +12893,17 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     Expanded(
                       child: ElevatedButton(
                         onPressed: () {
-                          final navigatorContext = Navigator.of(context);
-                          navigatorContext.pop();
+                          Navigator.of(context).pop();
                           // Usar un pequeño delay para asegurar que el bottom sheet se cierre primero
                           Future.delayed(const Duration(milliseconds: 100), () {
+                            if (!mounted) return;
                             showDialog(
-                              context: context,
+                              context: this.context,
                               builder: (dialogContext) => RemoteSupportDialog(
                                 appTheme: appTheme,
                                 onJoinHelpChannel: () {
-                                  ScaffoldMessenger.of(context).showSnackBar(
+                                  if (!mounted) return;
+                                  ScaffoldMessenger.of(this.context).showSnackBar(
                                     const SnackBar(
                                       content: Text('Puedes unirte manualmente a #Ayuda o #cau desde la lista de canales'),
                                       duration: Duration(seconds: 3),
@@ -13254,6 +12957,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                             await launchUrl(uri,
                                 mode: LaunchMode.externalApplication);
                           } else {
+                            if (!context.mounted) return;
                             ScaffoldMessenger.of(context).showSnackBar(
                               const SnackBar(
                                 content:
@@ -13266,7 +12970,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         style: OutlinedButton.styleFrom(
                           foregroundColor: appTheme.textPrimary,
                           side: BorderSide(
-                            color: appTheme.textPrimary.withOpacity(0.6),
+                            color: appTheme.textPrimary.withValues(alpha: 0.6),
                           ),
                           padding: const EdgeInsets.symmetric(
                               vertical: 14, horizontal: 12),
@@ -13299,7 +13003,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 Text(
                   'La web de soporte se abrirá en tu navegador para crear un ticket en el Centro de Ayuda de IRC GlobalChat.',
                   style: TextStyle(
-                    color: appTheme.textSecondary.withOpacity(0.8),
+                    color: appTheme.textSecondary.withValues(alpha: 0.8),
                     fontSize: 11,
                   ),
                 ),
@@ -13319,8 +13023,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final currentNick = ref.read(currentNicknameProvider) ?? '';
     final passwordController = TextEditingController();
     final formKey = GlobalKey<FormState>();
-    bool _obscurePassword = true;
-    bool _isSubmitting = false;
+    bool obscurePassword = true;
+    bool isSubmitting = false;
     
     showDialog(
       context: context,
@@ -13336,13 +13040,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 end: Alignment.bottomRight,
                 colors: [
                   appTheme.surface,
-                  appTheme.surface.withOpacity(0.95),
+                  appTheme.surface.withValues(alpha: 0.95),
                 ],
               ),
               borderRadius: BorderRadius.circular(24),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.blue.withOpacity(0.3),
+                  color: Colors.blue.withValues(alpha: 0.3),
                   blurRadius: 20,
                   spreadRadius: 5,
                   offset: const Offset(0, 10),
@@ -13374,7 +13078,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       Container(
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.2),
+                          color: Colors.white.withValues(alpha: 0.2),
                           borderRadius: BorderRadius.circular(12),
                         ),
                         child: const Icon(
@@ -13417,8 +13121,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         const SizedBox(height: 20),
                         TextFormField(
                           controller: passwordController,
-                          obscureText: _obscurePassword,
-                          enabled: !_isSubmitting,
+                          obscureText: obscurePassword,
+                          enabled: !isSubmitting,
                           style: TextStyle(color: appTheme.textPrimary),
                           decoration: InputDecoration(
                             labelText: 'Contraseña *',
@@ -13428,12 +13132,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                             prefixIcon: const Icon(Icons.lock),
                             suffixIcon: IconButton(
                               icon: Icon(
-                                _obscurePassword ? Icons.visibility : Icons.visibility_off,
+                                obscurePassword ? Icons.visibility : Icons.visibility_off,
                                 color: appTheme.textSecondary,
                               ),
                               onPressed: () {
                                 setDialogState(() {
-                                  _obscurePassword = !_obscurePassword;
+                                  obscurePassword = !obscurePassword;
                                 });
                               },
                             ),
@@ -13450,9 +13154,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                             return null;
                           },
                           onFieldSubmitted: (_) {
-                            if (formKey.currentState!.validate() && !_isSubmitting) {
+                            if (formKey.currentState!.validate() && !isSubmitting) {
                               setDialogState(() {
-                                _isSubmitting = true;
+                                isSubmitting = true;
                               });
                               final nick = ref.read(currentNicknameProvider) ?? '';
                               if (nick.isNotEmpty) {
@@ -13478,7 +13182,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 Container(
                   padding: const EdgeInsets.all(24),
                   decoration: BoxDecoration(
-                    color: appTheme.surface.withOpacity(0.5),
+                    color: appTheme.surface.withValues(alpha: 0.5),
                     borderRadius: const BorderRadius.only(
                       bottomLeft: Radius.circular(24),
                       bottomRight: Radius.circular(24),
@@ -13488,9 +13192,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     mainAxisAlignment: MainAxisAlignment.end,
                     children: [
                       TextButton(
-                        onPressed: _isSubmitting ? null : () => Navigator.pop(context),
+                        onPressed: isSubmitting ? null : () => Navigator.pop(context),
                         style: TextButton.styleFrom(
-                          foregroundColor: appTheme.textPrimary.withOpacity(0.7),
+                          foregroundColor: appTheme.textPrimary.withValues(alpha: 0.7),
                           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
                         ),
                         child: const Text('Cancelar'),
@@ -13504,17 +13208,17 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                           borderRadius: BorderRadius.circular(12),
                           boxShadow: [
                             BoxShadow(
-                              color: Colors.blue.withOpacity(0.4),
+                              color: Colors.blue.withValues(alpha: 0.4),
                               blurRadius: 8,
                               offset: const Offset(0, 4),
                             ),
                           ],
                         ),
                         child: ElevatedButton.icon(
-                          onPressed: _isSubmitting ? null : () {
+                          onPressed: isSubmitting ? null : () {
                             if (formKey.currentState!.validate()) {
                               setDialogState(() {
-                                _isSubmitting = true;
+                                isSubmitting = true;
                               });
                               final nick = ref.read(currentNicknameProvider) ?? '';
                               if (nick.isNotEmpty) {
@@ -13531,7 +13235,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                               }
                             }
                           },
-                          icon: _isSubmitting
+                          icon: isSubmitting
                               ? const SizedBox(
                                   width: 20,
                                   height: 20,
@@ -13541,7 +13245,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                   ),
                                 )
                               : const Icon(Icons.check, size: 20),
-                          label: Text(_isSubmitting ? 'Identificando...' : 'Identificar'),
+                          label: Text(isSubmitting ? 'Identificando...' : 'Identificar'),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: Colors.transparent,
                             foregroundColor: Colors.white,
@@ -13572,7 +13276,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final passwordController = TextEditingController();
     final emailController = TextEditingController();
     final formKey = GlobalKey<FormState>();
-    bool _obscurePassword = true;
+    bool obscurePassword = true;
 
     showDialog(
       context: context,
@@ -13588,13 +13292,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 end: Alignment.bottomRight,
                 colors: [
                   appTheme.surface,
-                  appTheme.surface.withOpacity(0.95),
+                  appTheme.surface.withValues(alpha: 0.95),
                 ],
               ),
               borderRadius: BorderRadius.circular(24),
               boxShadow: [
                 BoxShadow(
-                  color: appTheme.primary.withOpacity(0.3),
+                  color: appTheme.primary.withValues(alpha: 0.3),
                   blurRadius: 20,
                   spreadRadius: 5,
                   offset: const Offset(0, 10),
@@ -13628,7 +13332,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         Container(
                           padding: const EdgeInsets.all(12),
                           decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.2),
+                            color: Colors.white.withValues(alpha: 0.2),
                             borderRadius: BorderRadius.circular(12),
                           ),
                           child: const Text(
@@ -13653,7 +13357,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                               Text(
                                 'Registra tu nick en el servidor IRC',
                                 style: TextStyle(
-                                  color: appTheme.textPrimary.withOpacity(0.9),
+                                  color: appTheme.textPrimary.withValues(alpha: 0.9),
                                   fontSize: 14,
                                 ),
                               ),
@@ -13678,21 +13382,21 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                             hintText: 'Ej: MiNick',
                             prefixIcon: Icon(Icons.person, color: appTheme.primary),
                             filled: true,
-                            fillColor: appTheme.surface.withOpacity(0.5),
+                            fillColor: appTheme.surface.withValues(alpha: 0.5),
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
-                              borderSide: BorderSide(color: appTheme.primary.withOpacity(0.3)),
+                              borderSide: BorderSide(color: appTheme.primary.withValues(alpha: 0.3)),
                             ),
                             enabledBorder: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
-                              borderSide: BorderSide(color: appTheme.primary.withOpacity(0.3)),
+                              borderSide: BorderSide(color: appTheme.primary.withValues(alpha: 0.3)),
                             ),
                             focusedBorder: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
                               borderSide: BorderSide(color: appTheme.primary, width: 2),
                             ),
-                            labelStyle: TextStyle(color: appTheme.textPrimary.withOpacity(0.7)),
-                            hintStyle: TextStyle(color: appTheme.textPrimary.withOpacity(0.5)),
+                            labelStyle: TextStyle(color: appTheme.textPrimary.withValues(alpha: 0.7)),
+                            hintStyle: TextStyle(color: appTheme.textPrimary.withValues(alpha: 0.5)),
                           ),
                           validator: (value) {
                             if (value == null || value.trim().isEmpty) {
@@ -13711,7 +13415,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         // Campo Password
                         TextFormField(
                           controller: passwordController,
-                          obscureText: _obscurePassword,
+                          obscureText: obscurePassword,
                           style: TextStyle(color: appTheme.textPrimary),
                           decoration: InputDecoration(
                             labelText: 'Contraseña',
@@ -13719,31 +13423,31 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                             prefixIcon: Icon(Icons.lock, color: appTheme.primary),
                             suffixIcon: IconButton(
                               icon: Icon(
-                                _obscurePassword ? Icons.visibility : Icons.visibility_off,
-                                color: appTheme.textPrimary.withOpacity(0.7),
+                                obscurePassword ? Icons.visibility : Icons.visibility_off,
+                                color: appTheme.textPrimary.withValues(alpha: 0.7),
                               ),
                               onPressed: () {
                                 setDialogState(() {
-                                  _obscurePassword = !_obscurePassword;
+                                  obscurePassword = !obscurePassword;
                                 });
                               },
                             ),
                             filled: true,
-                            fillColor: appTheme.surface.withOpacity(0.5),
+                            fillColor: appTheme.surface.withValues(alpha: 0.5),
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
-                              borderSide: BorderSide(color: appTheme.primary.withOpacity(0.3)),
+                              borderSide: BorderSide(color: appTheme.primary.withValues(alpha: 0.3)),
                             ),
                             enabledBorder: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
-                              borderSide: BorderSide(color: appTheme.primary.withOpacity(0.3)),
+                              borderSide: BorderSide(color: appTheme.primary.withValues(alpha: 0.3)),
                             ),
                             focusedBorder: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
                               borderSide: BorderSide(color: appTheme.primary, width: 2),
                             ),
-                            labelStyle: TextStyle(color: appTheme.textPrimary.withOpacity(0.7)),
-                            hintStyle: TextStyle(color: appTheme.textPrimary.withOpacity(0.5)),
+                            labelStyle: TextStyle(color: appTheme.textPrimary.withValues(alpha: 0.7)),
+                            hintStyle: TextStyle(color: appTheme.textPrimary.withValues(alpha: 0.5)),
                           ),
                           validator: (value) {
                             if (value == null || value.isEmpty) {
@@ -13766,21 +13470,21 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                             hintText: 'tu@email.com',
                             prefixIcon: Icon(Icons.email, color: appTheme.primary),
                             filled: true,
-                            fillColor: appTheme.surface.withOpacity(0.5),
+                            fillColor: appTheme.surface.withValues(alpha: 0.5),
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
-                              borderSide: BorderSide(color: appTheme.primary.withOpacity(0.3)),
+                              borderSide: BorderSide(color: appTheme.primary.withValues(alpha: 0.3)),
                             ),
                             enabledBorder: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
-                              borderSide: BorderSide(color: appTheme.primary.withOpacity(0.3)),
+                              borderSide: BorderSide(color: appTheme.primary.withValues(alpha: 0.3)),
                             ),
                             focusedBorder: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
                               borderSide: BorderSide(color: appTheme.primary, width: 2),
                             ),
-                            labelStyle: TextStyle(color: appTheme.textPrimary.withOpacity(0.7)),
-                            hintStyle: TextStyle(color: appTheme.textPrimary.withOpacity(0.5)),
+                            labelStyle: TextStyle(color: appTheme.textPrimary.withValues(alpha: 0.7)),
+                            hintStyle: TextStyle(color: appTheme.textPrimary.withValues(alpha: 0.5)),
                           ),
                           validator: (value) {
                             if (value == null || value.trim().isEmpty) {
@@ -13800,7 +13504,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                             TextButton(
                               onPressed: () => Navigator.pop(context),
                               style: TextButton.styleFrom(
-                                foregroundColor: appTheme.textPrimary.withOpacity(0.7),
+                                foregroundColor: appTheme.textPrimary.withValues(alpha: 0.7),
                                 padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
                               ),
                               child: const Text('Cancelar'),
@@ -13819,7 +13523,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                 borderRadius: BorderRadius.circular(12),
                                 boxShadow: [
                                   BoxShadow(
-                                    color: appTheme.primary.withOpacity(0.4),
+                                    color: appTheme.primary.withValues(alpha: 0.4),
                                     blurRadius: 8,
                                     offset: const Offset(0, 4),
                                   ),
@@ -13906,7 +13610,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           gradient: LinearGradient(
             colors: [
               appTheme.surface,
-              appTheme.surface.withOpacity(0.95),
+              appTheme.surface.withValues(alpha: 0.95),
             ],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
@@ -13944,10 +13648,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       width: 60,
                       height: 60,
                       decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.2),
+                        color: Colors.white.withValues(alpha: 0.2),
                         shape: BoxShape.circle,
                         border: Border.all(
-                          color: Colors.white.withOpacity(0.3),
+                          color: Colors.white.withValues(alpha: 0.3),
                           width: 2,
                         ),
                       ),
@@ -13973,7 +13677,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                           Text(
                             'Opciones de usuario',
                             style: TextStyle(
-                              color: appTheme.textPrimary.withOpacity(0.9),
+                              color: appTheme.textPrimary.withValues(alpha: 0.9),
                               fontSize: 14,
                             ),
                           ),
@@ -13988,7 +13692,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 leading: Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: appTheme.primary.withOpacity(0.2),
+                    color: appTheme.primary.withValues(alpha: 0.2),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: const Icon(Icons.message, color: Colors.orange),
@@ -14010,7 +13714,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 leading: Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: Colors.purple.withOpacity(0.2),
+                    color: Colors.purple.withValues(alpha: 0.2),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: const Icon(Icons.person, color: Colors.purple),
@@ -14032,7 +13736,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 leading: Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: Colors.orange.withOpacity(0.2),
+                    color: Colors.orange.withValues(alpha: 0.2),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: const Icon(Icons.delete_sweep, color: Colors.orange),
@@ -14048,7 +13752,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 leading: Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: Colors.blue.withOpacity(0.2),
+                    color: Colors.blue.withValues(alpha: 0.2),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: const Icon(Icons.info, color: Colors.blue),
@@ -14084,7 +13788,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 leading: Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: Colors.red.withOpacity(0.2),
+                    color: Colors.red.withValues(alpha: 0.2),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: const Icon(Icons.block, color: Colors.red),
@@ -14106,7 +13810,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 leading: Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: Colors.green.withOpacity(0.2),
+                    color: Colors.green.withValues(alpha: 0.2),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: const Icon(Icons.check_circle, color: Colors.green),
@@ -14191,7 +13895,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         leading: Container(
                           padding: const EdgeInsets.all(8),
                           decoration: BoxDecoration(
-                            color: Colors.orange.withOpacity(0.2),
+                            color: Colors.orange.withValues(alpha: 0.2),
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: const Icon(Icons.person_remove, color: Colors.orange),
@@ -14207,7 +13911,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         leading: Container(
                           padding: const EdgeInsets.all(8),
                           decoration: BoxDecoration(
-                            color: Colors.red.withOpacity(0.2),
+                            color: Colors.red.withValues(alpha: 0.2),
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: const Icon(Icons.block, color: Colors.red),
@@ -14223,7 +13927,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         leading: Container(
                           padding: const EdgeInsets.all(8),
                           decoration: BoxDecoration(
-                            color: Colors.green.withOpacity(0.2),
+                            color: Colors.green.withValues(alpha: 0.2),
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: const Icon(Icons.check_circle_outline, color: Colors.green),
@@ -14245,7 +13949,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         leading: Container(
                           padding: const EdgeInsets.all(8),
                           decoration: BoxDecoration(
-                            color: Colors.blue.withOpacity(0.2),
+                            color: Colors.blue.withValues(alpha: 0.2),
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: const Icon(Icons.admin_panel_settings, color: Colors.blue),
@@ -14267,7 +13971,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         leading: Container(
                           padding: const EdgeInsets.all(8),
                           decoration: BoxDecoration(
-                            color: Colors.purple.withOpacity(0.2),
+                            color: Colors.purple.withValues(alpha: 0.2),
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: const Icon(Icons.remove_moderator, color: Colors.purple),
@@ -14289,7 +13993,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         leading: Container(
                           padding: const EdgeInsets.all(8),
                           decoration: BoxDecoration(
-                            color: Colors.orange.withOpacity(0.2),
+                            color: Colors.orange.withValues(alpha: 0.2),
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: const Icon(Icons.person_add, color: Colors.orange),
@@ -14311,7 +14015,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         leading: Container(
                           padding: const EdgeInsets.all(8),
                           decoration: BoxDecoration(
-                            color: Colors.orange.withOpacity(0.2),
+                            color: Colors.orange.withValues(alpha: 0.2),
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: const Icon(Icons.person_remove, color: Colors.orange),
@@ -14333,7 +14037,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         leading: Container(
                           padding: const EdgeInsets.all(8),
                           decoration: BoxDecoration(
-                            color: Colors.green.withOpacity(0.2),
+                            color: Colors.green.withValues(alpha: 0.2),
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: const Icon(Icons.mic, color: Colors.green),
@@ -14355,7 +14059,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         leading: Container(
                           padding: const EdgeInsets.all(8),
                           decoration: BoxDecoration(
-                            color: Colors.green.withOpacity(0.2),
+                            color: Colors.green.withValues(alpha: 0.2),
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: const Icon(Icons.mic_off, color: Colors.green),
@@ -14377,7 +14081,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         leading: Container(
                           padding: const EdgeInsets.all(8),
                           decoration: BoxDecoration(
-                            color: Colors.teal.withOpacity(0.2),
+                            color: Colors.teal.withValues(alpha: 0.2),
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: const Icon(Icons.edit, color: Colors.teal),
@@ -14590,7 +14294,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           gradient: LinearGradient(
             colors: [
               appTheme.surface,
-              appTheme.surface.withOpacity(0.95),
+              appTheme.surface.withValues(alpha: 0.95),
             ],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
@@ -14627,7 +14331,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       Container(
                         padding: const EdgeInsets.all(8),
                         decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.2),
+                          color: Colors.white.withValues(alpha: 0.2),
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: const Icon(Icons.settings, color: Colors.white, size: 24),
@@ -14649,7 +14353,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                             Text(
                               channel,
                               style: TextStyle(
-                                color: appTheme.textPrimary.withOpacity(0.9),
+                                color: appTheme.textPrimary.withValues(alpha: 0.9),
                                 fontSize: 14,
                               ),
                             ),
@@ -14665,7 +14369,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     leading: Container(
                       padding: const EdgeInsets.all(8),
                       decoration: BoxDecoration(
-                        color: Colors.teal.withOpacity(0.2),
+                        color: Colors.teal.withValues(alpha: 0.2),
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: const Icon(Icons.edit, color: Colors.teal),
@@ -14702,7 +14406,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     leading: Container(
                       padding: const EdgeInsets.all(8),
                       decoration: BoxDecoration(
-                        color: Colors.blue.withOpacity(0.2),
+                        color: Colors.blue.withValues(alpha: 0.2),
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: const Icon(Icons.tune, color: Colors.blue),
@@ -14721,7 +14425,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   leading: Container(
                     padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
-                      color: Colors.red.withOpacity(0.2),
+                      color: Colors.red.withValues(alpha: 0.2),
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: const Icon(Icons.delete_sweep, color: Colors.red),
@@ -14927,7 +14631,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   void _showIRCOpMenu(BuildContext context) {
     final appTheme = ref.read(themeProvider);
-    final currentNick = ref.read(currentNicknameProvider);
     final isIRCOp = _ircService.isIRCOp;
     
     showModalBottomSheet(
@@ -14940,7 +14643,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           gradient: LinearGradient(
             colors: [
               appTheme.surface,
-              appTheme.surface.withOpacity(0.95),
+              appTheme.surface.withValues(alpha: 0.95),
             ],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
@@ -14975,7 +14678,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     Container(
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
-                        color: appTheme.textPrimary.withOpacity(0.2),
+                        color: appTheme.textPrimary.withValues(alpha: 0.2),
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: Icon(
@@ -15023,7 +14726,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   margin: const EdgeInsets.all(16),
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: appTheme.accent.withOpacity(0.2),
+                    color: appTheme.accent.withValues(alpha: 0.2),
                     borderRadius: BorderRadius.circular(8),
                     border: Border.all(color: appTheme.accent, width: 1),
                   ),
@@ -15438,7 +15141,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           decoration: BoxDecoration(
-            color: appTheme.primary.withOpacity(0.1),
+            color: appTheme.primary.withValues(alpha: 0.1),
             borderRadius: BorderRadius.circular(12),
           ),
           child: Row(
@@ -15467,7 +15170,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       leading: Container(
         padding: const EdgeInsets.all(8),
         decoration: BoxDecoration(
-          color: item.iconColor.withOpacity(0.2),
+          color: item.iconColor.withValues(alpha: 0.2),
           borderRadius: BorderRadius.circular(8),
         ),
         child: Icon(item.icon, color: item.iconColor, size: 20),
@@ -16773,7 +16476,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           gradient: LinearGradient(
             colors: [
               appTheme.surface,
-              appTheme.surface.withOpacity(0.95),
+              appTheme.surface.withValues(alpha: 0.95),
             ],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
@@ -16810,7 +16513,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       Container(
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.2),
+                          color: Colors.white.withValues(alpha: 0.2),
                           borderRadius: BorderRadius.circular(12),
                         ),
                         child: const Icon(
@@ -16836,7 +16539,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                             Text(
                               'Configuración de cuenta',
                               style: TextStyle(
-                                color: appTheme.textPrimary.withOpacity(0.9),
+                                color: appTheme.textPrimary.withValues(alpha: 0.9),
                                 fontSize: 14,
                               ),
                             ),
@@ -16851,7 +16554,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 leading: Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: Colors.blue.withOpacity(0.2),
+                    color: Colors.blue.withValues(alpha: 0.2),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: const Icon(Icons.person, color: Colors.blue),
@@ -16872,7 +16575,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 leading: Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: Colors.teal.withOpacity(0.2),
+                    color: Colors.teal.withValues(alpha: 0.2),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: const Icon(Icons.edit, color: Colors.teal),
@@ -16891,7 +16594,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     leading: Container(
                       padding: const EdgeInsets.all(8),
                       decoration: BoxDecoration(
-                        color: Colors.amber.withOpacity(0.2),
+                        color: Colors.amber.withValues(alpha: 0.2),
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: const Icon(Icons.timer, color: Colors.amber),
@@ -16920,7 +16623,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     leading: Container(
                       padding: const EdgeInsets.all(8),
                       decoration: BoxDecoration(
-                        color: Colors.green.withOpacity(0.2),
+                        color: Colors.green.withValues(alpha: 0.2),
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: const Icon(Icons.pets, color: Colors.green),
@@ -16939,7 +16642,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 leading: Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: Colors.red.withOpacity(0.15),
+                    color: Colors.red.withValues(alpha: 0.15),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: const Text('🦆', style: TextStyle(fontSize: 20)),
@@ -16963,7 +16666,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 leading: Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: Colors.orange.withOpacity(0.2),
+                    color: Colors.orange.withValues(alpha: 0.2),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: const Icon(Icons.admin_panel_settings, color: Colors.orange),
@@ -16989,7 +16692,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 leading: Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: Colors.deepOrange.withOpacity(0.2),
+                    color: Colors.deepOrange.withValues(alpha: 0.2),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: const Icon(Icons.admin_panel_settings, color: Colors.deepOrange),
@@ -17015,7 +16718,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 leading: Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: Colors.red.withOpacity(0.2),
+                    color: Colors.red.withValues(alpha: 0.2),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: const Icon(Icons.delete_sweep, color: Colors.red),
@@ -17031,7 +16734,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 leading: Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: Colors.purple.withOpacity(0.2),
+                    color: Colors.purple.withValues(alpha: 0.2),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: const Icon(Icons.account_circle, color: Colors.purple),
@@ -17067,7 +16770,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   
                   // Obtener la canción actual
                   final currentSong = activeStation.currentArtistSong?.trim();
-                  final stationName = activeStation.name ?? 'Radio';
+                  final stationName = activeStation.name;
                   
                   // Obtener el canal actual donde está el usuario
                   final currentChannel = ref.read(currentChannelProvider);
@@ -17091,7 +16794,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     leading: Container(
                       padding: const EdgeInsets.all(8),
                       decoration: BoxDecoration(
-                        color: Colors.pink.withOpacity(0.2),
+                        color: Colors.pink.withValues(alpha: 0.2),
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: const Icon(Icons.music_note, color: Colors.pink),
@@ -17127,6 +16830,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         await ref.read(radioProvider.notifier).refreshNowPlaying();
                         // Esperar un poco para que se actualice el estado
                         await Future.delayed(const Duration(milliseconds: 500));
+                        if (!context.mounted) return;
                         
                         // Obtener la canción actualizada
                         final updatedRadioState = ref.read(radioProvider);
@@ -17134,7 +16838,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         final updatedSong = updatedStation?.currentArtistSong?.trim();
                         final finalSong = (updatedSong != null && updatedSong.isNotEmpty && updatedSong != 'Sin información')
                             ? updatedSong
-                            : (hasSong ? currentSong! : 'Sin información');
+                            : (hasSong ? currentSong : 'Sin información');
                         
                         // Crear mensaje moderno y atractivo
                         final message = '🎵 🎶 ¡Escuchando ahora en $stationName! 🎶 🎵\n'
@@ -17142,7 +16846,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                             '📻 ${suggestedChannel != null ? '¡Únete a escuchar en $suggestedChannel! 🎧' : '🎧'}';
                         
                         // Enviar mensaje al canal actual
-                        _ircService.sendMessage(currentChannel!, message);
+                        _ircService.sendMessage(currentChannel, message);
                         
                         // Mostrar confirmación
                         ScaffoldMessenger.of(context).showSnackBar(
@@ -17168,6 +16872,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                           ),
                         );
                       } catch (e) {
+                        if (!context.mounted) return;
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
                             content: Text('Error al enviar canción: $e'),
@@ -17184,7 +16889,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 leading: Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: Colors.green.withOpacity(0.2),
+                    color: Colors.green.withValues(alpha: 0.2),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: const Icon(Icons.palette, color: Colors.green),
@@ -17200,7 +16905,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 leading: Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: Colors.pink.withOpacity(0.2),
+                    color: Colors.pink.withValues(alpha: 0.2),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: const Icon(Icons.emoji_emotions, color: Colors.pink),
@@ -17221,7 +16926,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 leading: Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: Colors.orange.withOpacity(0.2),
+                    color: Colors.orange.withValues(alpha: 0.2),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: const Icon(Icons.info, color: Colors.orange),
@@ -17258,7 +16963,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 leading: Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: Colors.red.withOpacity(0.2),
+                    color: Colors.red.withValues(alpha: 0.2),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: const Icon(Icons.delete_sweep, color: Colors.red),
@@ -17274,7 +16979,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 leading: Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: Colors.orange.withOpacity(0.2),
+                    color: Colors.orange.withValues(alpha: 0.2),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: const Icon(Icons.bug_report, color: Colors.orange),
@@ -17365,26 +17070,23 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 // Limpiar también del historial cargado en memoria
                 final normalized = channel.toLowerCase();
                 _loadedHistoryByChannel.remove(normalized);
-                
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('✅ Historial del canal $channel eliminado correctamente'),
-                      duration: const Duration(seconds: 3),
-                      backgroundColor: Colors.green,
-                    ),
-                  );
-                }
+                if (!context.mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('✅ Historial del canal $channel eliminado correctamente'),
+                    duration: const Duration(seconds: 3),
+                    backgroundColor: Colors.green,
+                  ),
+                );
               } catch (e) {
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('❌ Error al borrar historial: $e'),
-                      duration: const Duration(seconds: 3),
-                      backgroundColor: Colors.red,
-                    ),
-                  );
-                }
+                if (!context.mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('❌ Error al borrar historial: $e'),
+                    duration: const Duration(seconds: 3),
+                    backgroundColor: Colors.red,
+                  ),
+                );
               }
             },
             child: Text(
@@ -17583,26 +17285,23 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               Navigator.pop(context);
               try {
                 await ref.read(messagesProvider.notifier).clearPrivateHistory(nick);
-                
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('✅ Historial de la conversación con $nick eliminado correctamente'),
-                      duration: const Duration(seconds: 3),
-                      backgroundColor: Colors.green,
-                    ),
-                  );
-                }
+                if (!context.mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('✅ Historial de la conversación con $nick eliminado correctamente'),
+                    duration: const Duration(seconds: 3),
+                    backgroundColor: Colors.green,
+                  ),
+                );
               } catch (e) {
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('❌ Error al borrar historial: $e'),
-                      duration: const Duration(seconds: 3),
-                      backgroundColor: Colors.red,
-                    ),
-                  );
-                }
+                if (!context.mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('❌ Error al borrar historial: $e'),
+                    duration: const Duration(seconds: 3),
+                    backgroundColor: Colors.red,
+                  ),
+                );
               }
             },
             child: Text(
@@ -17723,10 +17422,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 final dynamic notifier = favoritesNotifier;
                 if (notifier.runtimeType.toString().contains('FavoritesNotifier')) {
                   await notifier.clearAllFavorites();
+                  if (!context.mounted) return;
                   // Forzar rebuild de la UI
-                  if (mounted) {
-                    setState(() {});
-                  }
+                  setState(() {});
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
                       content: Text('✅ Todos los favoritos han sido eliminados. Reinicia la aplicación para aplicar los cambios completamente.'),
@@ -17736,6 +17434,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   );
                 }
               } catch (e) {
+                if (!context.mounted) return;
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
                     content: Text('❌ Error al limpiar favoritos: $e'),
@@ -17786,7 +17485,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: Colors.green.withOpacity(0.2),
+                  color: Colors.green.withValues(alpha: 0.2),
                   borderRadius: BorderRadius.circular(8),
                   border: Border.all(color: Colors.green, width: 1),
                 ),
@@ -18163,7 +17862,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     content: Text(
                       delay == 0 
                         ? 'Delay desactivado. Los mensajes se enviarán inmediatamente.'
-                        : 'Delay configurado a ${delay}s. Los mensajes esperarán ${delay} segundos antes de enviarse.',
+                        : 'Delay configurado a $delay s. Los mensajes esperarán $delay segundos antes de enviarse.',
                     ),
                     duration: const Duration(seconds: 3),
                   ),
@@ -18288,8 +17987,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final passwordController = TextEditingController();
     final antispamController = TextEditingController();
     final formKey = GlobalKey<FormState>();
-    bool _obscurePassword = true;
-    bool _isSubmitting = false;
+    bool obscurePassword = true;
+    bool isSubmitting = false;
     
     showDialog(
       context: context,
@@ -18305,13 +18004,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 end: Alignment.bottomRight,
                 colors: [
                   appTheme.surface,
-                  appTheme.surface.withOpacity(0.95),
+                  appTheme.surface.withValues(alpha: 0.95),
                 ],
               ),
               borderRadius: BorderRadius.circular(24),
               boxShadow: [
                 BoxShadow(
-                  color: appTheme.primary.withOpacity(0.3),
+                  color: appTheme.primary.withValues(alpha: 0.3),
                   blurRadius: 20,
                   spreadRadius: 5,
                   offset: const Offset(0, 10),
@@ -18345,7 +18044,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         Container(
                           padding: const EdgeInsets.all(12),
                           decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.2),
+                            color: Colors.white.withValues(alpha: 0.2),
                             borderRadius: BorderRadius.circular(12),
                           ),
                           child: const Text(
@@ -18370,7 +18069,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                               Text(
                                 'Registra un nuevo canal en GlobalChat',
                                 style: TextStyle(
-                                  color: appTheme.textPrimary.withOpacity(0.9),
+                                  color: appTheme.textPrimary.withValues(alpha: 0.9),
                                   fontSize: 14,
                                 ),
                               ),
@@ -18542,14 +18241,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                 borderRadius: BorderRadius.circular(12),
                               ),
                               filled: true,
-                              fillColor: appTheme.background.withOpacity(0.5),
+                              fillColor: appTheme.background.withValues(alpha: 0.5),
                             ),
                           ),
                           const SizedBox(height: 16),
                           // Contraseña del nick
                           TextFormField(
                             controller: passwordController,
-                            obscureText: _obscurePassword,
+                            obscureText: obscurePassword,
                             style: TextStyle(color: appTheme.textPrimary),
                             decoration: InputDecoration(
                               labelText: 'Contraseña del nick *',
@@ -18559,11 +18258,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                               prefixIcon: const Icon(Icons.lock),
                               suffixIcon: IconButton(
                                 icon: Icon(
-                                  _obscurePassword ? Icons.visibility : Icons.visibility_off,
+                                  obscurePassword ? Icons.visibility : Icons.visibility_off,
                                 ),
                                 onPressed: () {
                                   setDialogState(() {
-                                    _obscurePassword = !_obscurePassword;
+                                    obscurePassword = !obscurePassword;
                                   });
                                 },
                               ),
@@ -18616,7 +18315,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   Container(
                     padding: const EdgeInsets.all(24),
                     decoration: BoxDecoration(
-                      color: appTheme.surface.withOpacity(0.5),
+                      color: appTheme.surface.withValues(alpha: 0.5),
                       borderRadius: const BorderRadius.only(
                         bottomLeft: Radius.circular(24),
                         bottomRight: Radius.circular(24),
@@ -18626,9 +18325,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       mainAxisAlignment: MainAxisAlignment.end,
                       children: [
                         TextButton(
-                          onPressed: _isSubmitting ? null : () => Navigator.pop(context),
+                        onPressed: isSubmitting ? null : () => Navigator.pop(context),
                           style: TextButton.styleFrom(
-                            foregroundColor: appTheme.textPrimary.withOpacity(0.7),
+                            foregroundColor: appTheme.textPrimary.withValues(alpha: 0.7),
                             padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
                           ),
                           child: const Text('Cancelar'),
@@ -18647,39 +18346,39 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                             borderRadius: BorderRadius.circular(12),
                             boxShadow: [
                               BoxShadow(
-                                color: appTheme.primary.withOpacity(0.4),
+                                color: appTheme.primary.withValues(alpha: 0.4),
                                 blurRadius: 8,
                                 offset: const Offset(0, 4),
                               ),
                             ],
                           ),
                           child: ElevatedButton(
-                            onPressed: _isSubmitting ? null : () async {
+                            onPressed: isSubmitting ? null : () async {
                               if (formKey.currentState!.validate()) {
                                 setDialogState(() {
-                                  _isSubmitting = true;
+                                  isSubmitting = true;
                                 });
                                 
                                 // Abrir el formulario web con los datos
                                 final url = Uri.parse('https://registro-chan.globalchat.org/formulario.html');
                                 if (await canLaunchUrl(url)) {
                                   await launchUrl(url, mode: LaunchMode.externalApplication);
-                                  if (context.mounted) {
-                                    Navigator.pop(context);
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(
-                                        content: const Text(
-                                          'Formulario abierto en el navegador. Por favor, completa el registro allí.',
-                                        ),
-                                        duration: const Duration(seconds: 4),
-                                        backgroundColor: appTheme.primary,
+                                  if (!context.mounted) return;
+                                  Navigator.pop(context);
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: const Text(
+                                        'Formulario abierto en el navegador. Por favor, completa el registro allí.',
                                       ),
-                                    );
-                                  }
+                                      duration: const Duration(seconds: 4),
+                                      backgroundColor: appTheme.primary,
+                                    ),
+                                  );
                                 } else {
                                   setDialogState(() {
-                                    _isSubmitting = false;
+                                    isSubmitting = false;
                                   });
+                                  if (!context.mounted) return;
                                   ScaffoldMessenger.of(context).showSnackBar(
                                     const SnackBar(
                                       content: Text('No se pudo abrir el formulario web'),
@@ -18694,7 +18393,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                               shadowColor: Colors.transparent,
                               padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
                             ),
-                            child: _isSubmitting
+                            child: isSubmitting
                                 ? SizedBox(
                                     width: 20,
                                     height: 20,
@@ -18811,7 +18510,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     // El nick está registrado, mostrar el formulario
     final vhostController = TextEditingController();
     final formKey = GlobalKey<FormState>();
-    bool _isSubmitting = false;
+    bool isSubmitting = false;
     
     showDialog(
       context: context,
@@ -18827,13 +18526,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 end: Alignment.bottomRight,
                 colors: [
                   appTheme.surface,
-                  appTheme.surface.withOpacity(0.95),
+                  appTheme.surface.withValues(alpha: 0.95),
                 ],
               ),
               borderRadius: BorderRadius.circular(24),
               boxShadow: [
                 BoxShadow(
-                  color: appTheme.primary.withOpacity(0.3),
+                  color: appTheme.primary.withValues(alpha: 0.3),
                   blurRadius: 20,
                   spreadRadius: 5,
                   offset: const Offset(0, 10),
@@ -18867,7 +18566,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         Container(
                           padding: const EdgeInsets.all(12),
                           decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.2),
+                            color: Colors.white.withValues(alpha: 0.2),
                             borderRadius: BorderRadius.circular(12),
                           ),
                           child: const Text(
@@ -18892,7 +18591,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                               Text(
                                 'Solicita un host virtual (vhost) para tu nick',
                                 style: TextStyle(
-                                  color: appTheme.textPrimary.withOpacity(0.9),
+                                  color: appTheme.textPrimary.withValues(alpha: 0.9),
                                   fontSize: 14,
                                 ),
                               ),
@@ -18912,10 +18611,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         Container(
                           padding: const EdgeInsets.all(16),
                           decoration: BoxDecoration(
-                            color: appTheme.primary.withOpacity(0.1),
+                            color: appTheme.primary.withValues(alpha: 0.1),
                             borderRadius: BorderRadius.circular(12),
                             border: Border.all(
-                              color: appTheme.primary.withOpacity(0.3),
+                              color: appTheme.primary.withValues(alpha: 0.3),
                             ),
                           ),
                           child: Column(
@@ -19001,7 +18700,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                               borderRadius: BorderRadius.circular(12),
                             ),
                             filled: true,
-                            fillColor: appTheme.background.withOpacity(0.5),
+                            fillColor: appTheme.background.withValues(alpha: 0.5),
                           ),
                         ),
                       ],
@@ -19011,7 +18710,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   Container(
                     padding: const EdgeInsets.all(24),
                     decoration: BoxDecoration(
-                      color: appTheme.surface.withOpacity(0.5),
+                      color: appTheme.surface.withValues(alpha: 0.5),
                       borderRadius: const BorderRadius.only(
                         bottomLeft: Radius.circular(24),
                         bottomRight: Radius.circular(24),
@@ -19021,9 +18720,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       mainAxisAlignment: MainAxisAlignment.end,
                       children: [
                         TextButton(
-                          onPressed: _isSubmitting ? null : () => Navigator.pop(context),
+                          onPressed: isSubmitting ? null : () => Navigator.pop(context),
                           style: TextButton.styleFrom(
-                            foregroundColor: appTheme.textPrimary.withOpacity(0.7),
+                            foregroundColor: appTheme.textPrimary.withValues(alpha: 0.7),
                             padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
                           ),
                           child: const Text('Cancelar'),
@@ -19042,14 +18741,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                             borderRadius: BorderRadius.circular(12),
                             boxShadow: [
                               BoxShadow(
-                                color: appTheme.primary.withOpacity(0.4),
+                                color: appTheme.primary.withValues(alpha: 0.4),
                                 blurRadius: 8,
                                 offset: const Offset(0, 4),
                               ),
                             ],
                           ),
                           child: ElevatedButton(
-                            onPressed: _isSubmitting ? null : () async {
+                            onPressed: isSubmitting ? null : () async {
                               // debugLog('🌐 [ChatScreen] Botón de solicitar IP virtual presionado');
                               
                               if (!formKey.currentState!.validate()) {
@@ -19058,7 +18757,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                               }
                               
                                 setDialogState(() {
-                                  _isSubmitting = true;
+                                  isSubmitting = true;
                                 });
                                 
                                 final vhost = vhostController.text.trim();
@@ -19111,7 +18810,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                               shadowColor: Colors.transparent,
                               padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
                             ),
-                            child: _isSubmitting
+                            child: isSubmitting
                                 ? SizedBox(
                                     width: 20,
                                     height: 20,
@@ -19213,13 +18912,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               end: Alignment.bottomRight,
               colors: [
                 appTheme.surface,
-                appTheme.surface.withOpacity(0.95),
+                appTheme.surface.withValues(alpha: 0.95),
               ],
             ),
             borderRadius: BorderRadius.circular(24),
             boxShadow: [
               BoxShadow(
-                color: appTheme.primary.withOpacity(0.3),
+                color: appTheme.primary.withValues(alpha: 0.3),
                 blurRadius: 20,
                 spreadRadius: 5,
                 offset: const Offset(0, 10),
@@ -19251,7 +18950,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     Container(
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.2),
+                        color: Colors.white.withValues(alpha: 0.2),
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: const Icon(
@@ -19284,10 +18983,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     Container(
                       padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
-                        color: appTheme.primary.withOpacity(0.1),
+                        color: appTheme.primary.withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(12),
                         border: Border.all(
-                          color: appTheme.primary.withOpacity(0.3),
+                          color: appTheme.primary.withValues(alpha: 0.3),
                           width: 2,
                         ),
                       ),
@@ -19313,7 +19012,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                 Text(
                                   'Programador Principal',
                                   style: TextStyle(
-                                    color: appTheme.textPrimary.withOpacity(0.7),
+                                    color: appTheme.textPrimary.withValues(alpha: 0.7),
                                     fontSize: 12,
                                     fontWeight: FontWeight.w500,
                                   ),
@@ -19338,10 +19037,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     Container(
                       padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
-                        color: appTheme.accent.withOpacity(0.1),
+                        color: appTheme.accent.withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(12),
                         border: Border.all(
-                          color: appTheme.accent.withOpacity(0.3),
+                          color: appTheme.accent.withValues(alpha: 0.3),
                           width: 2,
                         ),
                       ),
@@ -19370,7 +19069,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                           Text(
                             'Esta aplicación está diseñada exclusivamente para la red GlobalChat IRC.',
                             style: TextStyle(
-                              color: appTheme.textPrimary.withOpacity(0.9),
+                              color: appTheme.textPrimary.withValues(alpha: 0.9),
                               fontSize: 14,
                               height: 1.5,
                             ),
@@ -19383,10 +19082,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     Container(
                       padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
-                        color: Colors.green.withOpacity(0.1),
+                        color: Colors.green.withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(12),
                         border: Border.all(
-                          color: Colors.green.withOpacity(0.3),
+                          color: Colors.green.withValues(alpha: 0.3),
                           width: 2,
                         ),
                       ),
@@ -19416,7 +19115,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     Container(
                       padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
-                        color: appTheme.secondary.withOpacity(0.1),
+                        color: appTheme.secondary.withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: Row(
@@ -19431,7 +19130,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                             child: Text(
                               'Gracias por usar GlobalChat IRC',
                               style: TextStyle(
-                                color: appTheme.textPrimary.withOpacity(0.9),
+                                color: appTheme.textPrimary.withValues(alpha: 0.9),
                                 fontSize: 14,
                                 fontStyle: FontStyle.italic,
                               ),
@@ -19445,10 +19144,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     Container(
                       padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
-                        color: appTheme.secondary.withOpacity(0.1),
+                        color: appTheme.secondary.withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(12),
                         border: Border.all(
-                          color: appTheme.secondary.withOpacity(0.3),
+                          color: appTheme.secondary.withValues(alpha: 0.3),
                           width: 2,
                         ),
                       ),
@@ -19509,7 +19208,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                           Text(
                             'Gracias a todos por hacer de IRC App una mejor aplicación.',
                             style: TextStyle(
-                              color: appTheme.textPrimary.withOpacity(0.8),
+                              color: appTheme.textPrimary.withValues(alpha: 0.8),
                               fontSize: 13,
                               fontStyle: FontStyle.italic,
                             ),
@@ -19594,9 +19293,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 labelText: 'Nick del jugador',
                 labelStyle: TextStyle(color: appTheme.textSecondary),
                 hintText: 'Ej: Usuario123',
-                hintStyle: TextStyle(color: appTheme.textSecondary.withOpacity(0.5)),
+                hintStyle: TextStyle(color: appTheme.textSecondary.withValues(alpha: 0.5)),
                 enabledBorder: UnderlineInputBorder(
-                  borderSide: BorderSide(color: appTheme.textSecondary.withOpacity(0.3)),
+                  borderSide: BorderSide(color: appTheme.textSecondary.withValues(alpha: 0.3)),
                 ),
                 focusedBorder: UnderlineInputBorder(
                   borderSide: BorderSide(color: appTheme.primary),
@@ -19663,7 +19362,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             borderRadius: BorderRadius.circular(24),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.35),
+                color: Colors.black.withValues(alpha: 0.35),
                 blurRadius: 24,
                 offset: const Offset(0, 12),
               ),
@@ -19680,7 +19379,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       Container(
                         padding: const EdgeInsets.all(10),
                         decoration: BoxDecoration(
-                          color: Colors.green.withOpacity(0.15),
+                          color: Colors.green.withValues(alpha: 0.15),
                           borderRadius: BorderRadius.circular(14),
                         ),
                         child: const Icon(Icons.pets, color: Colors.green, size: 22),
@@ -19703,7 +19402,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                               'Comandos básicos para jugar al hombre lobo. '
                               'Consulta las reglas completas en rentry.co/werewolf-irc-es.',
                               style: TextStyle(
-                                color: appTheme.textSecondary.withOpacity(0.9),
+                                color: appTheme.textSecondary.withValues(alpha: 0.9),
                                 fontSize: 12,
                               ),
                             ),
@@ -19712,7 +19411,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       ),
                       IconButton(
                         icon: Icon(Icons.close,
-                            color: appTheme.textSecondary.withOpacity(0.8)),
+                            color: appTheme.textSecondary.withValues(alpha: 0.8)),
                         onPressed: () => Navigator.pop(context),
                       ),
                     ],
@@ -19851,7 +19550,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               borderRadius: BorderRadius.circular(20),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.4),
+                  color: Colors.black.withValues(alpha: 0.4),
                   blurRadius: 30,
                   offset: const Offset(0, 14),
                 ),
@@ -19866,7 +19565,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     Container(
                       padding: const EdgeInsets.all(10),
                       decoration: BoxDecoration(
-                        color: Colors.green.withOpacity(0.15),
+                        color: Colors.green.withValues(alpha: 0.15),
                         borderRadius: BorderRadius.circular(14),
                       ),
                       child: const Icon(Icons.pets, color: Colors.green, size: 24),
@@ -19888,7 +19587,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                           Text(
                             'Aquí se juega al clásico juego de “Hombre Lobo” directamente en IRC.',
                             style: TextStyle(
-                              color: appTheme.textSecondary.withOpacity(0.9),
+                              color: appTheme.textSecondary.withValues(alpha: 0.9),
                               fontSize: 12,
                             ),
                           ),
@@ -19897,7 +19596,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     ),
                     IconButton(
                       icon: Icon(Icons.close,
-                          color: appTheme.textSecondary.withOpacity(0.8)),
+                          color: appTheme.textSecondary.withValues(alpha: 0.8)),
                       onPressed: () => Navigator.pop(context),
                     ),
                   ],
@@ -19995,10 +19694,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
         decoration: BoxDecoration(
-          color: appTheme.primary.withOpacity(0.12),
+          color: appTheme.primary.withValues(alpha: 0.12),
           borderRadius: BorderRadius.circular(999),
           border: Border.all(
-            color: appTheme.primary.withOpacity(0.4),
+            color: appTheme.primary.withValues(alpha: 0.4),
           ),
         ),
         child: Row(
@@ -20008,7 +19707,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               command,
               style: TextStyle(
                 fontSize: 11,
-                color: appTheme.textSecondary.withOpacity(0.9),
+                color: appTheme.textSecondary.withValues(alpha: 0.9),
                 fontFeatures: const [FontFeature.tabularFigures()],
               ),
             ),
@@ -20033,10 +19732,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       height: 24,
       padding: const EdgeInsets.symmetric(horizontal: 12),
       decoration: BoxDecoration(
-        color: appTheme.surface.withOpacity(0.5),
+        color: appTheme.surface.withValues(alpha: 0.5),
         border: Border(
           bottom: BorderSide(
-            color: appTheme.primary.withOpacity(0.2),
+            color: appTheme.primary.withValues(alpha: 0.2),
             width: 1,
           ),
         ),
@@ -20149,84 +19848,6 @@ class _CanalSurBackground extends StatelessWidget {
   }
 }
 
-// Fondo con imagen difuminada y transparente para NuestrasVoces
-// NOTA: ImageFiltered puede causar errores en web, usar solución más simple
-class _NuestrasVocesBackground extends StatelessWidget {
-  _NuestrasVocesBackground();
-
-  @override
-  Widget build(BuildContext context) {
-    // Solución simple sin ImageFiltered para evitar errores de JavaScript en web
-    // Usar solo Image.network con overlay para simular el efecto de blur
-    try {
-      return Stack(
-        children: [
-          // Imagen de fondo SIN blur (ImageFiltered causa problemas en web)
-          Positioned.fill(
-            child: Image.network(
-              'https://duyn491kcolsw.cloudfront.net/files/0m/0mw/0mw5jp.jpg?ph=025d9b876e',
-              fit: BoxFit.cover,
-              width: double.infinity,
-              height: double.infinity,
-              alignment: Alignment.center,
-              repeat: ImageRepeat.noRepeat,
-              errorBuilder: (context, error, stackTrace) {
-                // Si falla la carga, mostrar un placeholder
-                return Container(
-                  color: Colors.blue.withOpacity(0.3),
-                  child: const Center(
-                    child: Icon(Icons.image_not_supported, color: Colors.white, size: 48),
-                  ),
-                );
-              },
-              loadingBuilder: (context, child, loadingProgress) {
-                if (loadingProgress == null) {
-                  return child;
-                }
-                return Container(
-                  color: Colors.orange.withOpacity(0.3),
-                  child: const Center(
-                    child: CircularProgressIndicator(
-                      strokeWidth: 3,
-                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                    ),
-                  ),
-                );
-              },
-            ),
-          ),
-          // Overlay más opaco para simular efecto de blur y mantener legibilidad
-          Positioned.fill(
-            child: Container(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    Colors.black.withOpacity(0.15), // Más opaco para simular blur
-                    Colors.black.withOpacity(0.35), // Más opaco
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ],
-      );
-    } catch (e) {
-      // Si hay error, devolver un placeholder seguro
-      return Container(
-        color: Colors.red.withOpacity(0.5),
-        child: const Center(
-          child: Text(
-            'Error construyendo fondo',
-            style: TextStyle(color: Colors.white),
-          ),
-        ),
-      );
-    }
-  }
-}
-
 // Badge parpadeante para mensajes no leídos
 class _UnreadBadge extends StatefulWidget {
   final int count;
@@ -20277,11 +19898,11 @@ class _UnreadBadgeState extends State<_UnreadBadge>
         return Container(
           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
           decoration: BoxDecoration(
-            color: widget.appTheme.accent.withOpacity(_animation.value),
+            color: widget.appTheme.accent.withValues(alpha: _animation.value),
             borderRadius: BorderRadius.circular(10),
             boxShadow: [
               BoxShadow(
-                color: widget.appTheme.accent.withOpacity(_animation.value * 0.5),
+                color: widget.appTheme.accent.withValues(alpha: _animation.value * 0.5),
                 blurRadius: 6,
                 spreadRadius: 1,
               ),
@@ -20518,7 +20139,7 @@ class _AsciiBackgroundPainter extends CustomPainter {
     );
 
     // Opacidad ligera y sensación de texto de fondo
-    canvas.saveLayer(baseRect, Paint()..color = Colors.white.withOpacity(0.32));
+    canvas.saveLayer(baseRect, Paint()..color = Colors.white.withValues(alpha: 0.32));
     logoPainter.paint(canvas, logoOffset);
     canvas.restore();
   }
@@ -20534,11 +20155,10 @@ class _BouncingEmojiInline extends StatefulWidget {
   final Color color;
   
   const _BouncingEmojiInline({
-    Key? key,
     required this.text,
     required this.size,
     required this.color,
-  }) : super(key: key);
+  });
   
   @override
   State<_BouncingEmojiInline> createState() => _BouncingEmojiInlineState();

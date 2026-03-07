@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../services/video_database_service.dart';
 import '../providers/video_provider.dart';
 
 /// Diálogo para verificar email
@@ -24,7 +23,6 @@ class _EmailVerificationDialogState extends ConsumerState<EmailVerificationDialo
   bool _codeSent = false;
   bool _isLoading = false;
   String? _errorMessage;
-  String? _sentCode; // Para testing (remover en producción)
   
   @override
   void dispose() {
@@ -55,7 +53,6 @@ class _EmailVerificationDialogState extends ConsumerState<EmailVerificationDialo
       setState(() {
         _codeSent = true;
         _isLoading = false;
-        _sentCode = code; // Para testing
       });
       
       if (mounted) {
@@ -200,7 +197,7 @@ class _EmailVerificationDialogState extends ConsumerState<EmailVerificationDialo
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: Colors.red.withOpacity(0.1),
+                  color: Colors.red.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(8),
                   border: Border.all(color: Colors.red),
                 ),

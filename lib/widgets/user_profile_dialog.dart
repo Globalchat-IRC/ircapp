@@ -4,11 +4,9 @@ import 'package:intl/intl.dart';
 import '../config/debug_config.dart';
 import '../models/user_role.dart';
 import '../models/radio_station.dart';
-import '../services/video_database_service.dart';
 import '../providers/video_provider.dart';
 import '../providers/irc_provider.dart';
 import '../providers/radio_provider.dart';
-import '../services/irc_service.dart';
 import 'reputation_badge.dart';
 import 'email_verification_dialog.dart';
 import 'user_avatar.dart';
@@ -75,7 +73,7 @@ class _UserProfileDialogState extends ConsumerState<UserProfileDialog> with Sing
   @override
   Widget build(BuildContext context) {
     return Dialog(
-      child: Container(
+      child: SizedBox(
         width: 600,
         height: 700,
         child: _isLoading
@@ -155,7 +153,7 @@ class _UserProfileDialogState extends ConsumerState<UserProfileDialog> with Sing
         gradient: LinearGradient(
           colors: [
             Color(_profile!.role.color),
-            Color(_profile!.role.color).withOpacity(0.7),
+            Color(_profile!.role.color).withValues(alpha: 0.7),
           ],
         ),
       ),
@@ -173,7 +171,7 @@ class _UserProfileDialogState extends ConsumerState<UserProfileDialog> with Sing
                     end: Alignment.bottomRight,
                   )
                 : LinearGradient(
-                    colors: [userColor, userColor.withOpacity(0.7)],
+                    colors: [userColor, userColor.withValues(alpha: 0.7)],
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
                   ),
@@ -211,7 +209,7 @@ class _UserProfileDialogState extends ConsumerState<UserProfileDialog> with Sing
                 Text(
                   _profile!.role.description,
                   style: TextStyle(
-                    color: Colors.white.withOpacity(0.9),
+                    color: Colors.white.withValues(alpha: 0.9),
                     fontSize: 14,
                   ),
                 ),
@@ -261,20 +259,20 @@ class _UserProfileDialogState extends ConsumerState<UserProfileDialog> with Sing
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   colors: [
-                    const Color(0xFFFFD700).withOpacity(0.2),
-                    const Color(0xFFFFA500).withOpacity(0.2),
+                    const Color(0xFFFFD700).withValues(alpha: 0.2),
+                    const Color(0xFFFFA500).withValues(alpha: 0.2),
                   ],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                 ),
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(
-                  color: const Color(0xFFFFD700).withOpacity(0.5),
+                  color: const Color(0xFFFFD700).withValues(alpha: 0.5),
                   width: 2,
                 ),
                 boxShadow: [
                   BoxShadow(
-                    color: const Color(0xFFFFD700).withOpacity(0.3),
+                    color: const Color(0xFFFFD700).withValues(alpha: 0.3),
                     blurRadius: 8,
                     spreadRadius: 1,
                   ),
@@ -285,7 +283,7 @@ class _UserProfileDialogState extends ConsumerState<UserProfileDialog> with Sing
                   Container(
                     padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
-                      color: const Color(0xFFFFD700).withOpacity(0.3),
+                      color: const Color(0xFFFFD700).withValues(alpha: 0.3),
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: const Text(
@@ -462,7 +460,7 @@ class _UserProfileDialogState extends ConsumerState<UserProfileDialog> with Sing
                   borderRadius: BorderRadius.circular(8),
                 ),
                 filled: true,
-                fillColor: Colors.grey.withOpacity(0.05),
+                fillColor: Colors.grey.withValues(alpha: 0.05),
               ),
               onChanged: (value) {
                 // Guardar nota en segundo plano
@@ -480,10 +478,10 @@ class _UserProfileDialogState extends ConsumerState<UserProfileDialog> with Sing
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.grey.withOpacity(0.1),
+        color: Colors.grey.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: Colors.grey.withOpacity(0.2),
+          color: Colors.grey.withValues(alpha: 0.2),
           width: 1,
         ),
       ),
@@ -538,7 +536,7 @@ class _UserProfileDialogState extends ConsumerState<UserProfileDialog> with Sing
   // Construir tarjeta para compartir canción
   Widget _buildShareSongCard(WidgetRef ref, RadioStation activeStation) {
     final currentSong = activeStation.currentArtistSong ?? 'Sin información';
-    final stationName = activeStation.name ?? 'Radio';
+    final stationName = activeStation.name;
     final channelName = _getChannelForStation(stationName);
     
     return Container(
@@ -546,15 +544,15 @@ class _UserProfileDialogState extends ConsumerState<UserProfileDialog> with Sing
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: [
-            Colors.purple.withOpacity(0.1),
-            Colors.blue.withOpacity(0.1),
+            Colors.purple.withValues(alpha: 0.1),
+            Colors.blue.withValues(alpha: 0.1),
           ],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: Colors.purple.withOpacity(0.3),
+          color: Colors.purple.withValues(alpha: 0.3),
           width: 1.5,
         ),
       ),
@@ -628,7 +626,7 @@ class _UserProfileDialogState extends ConsumerState<UserProfileDialog> with Sing
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: Colors.grey.withOpacity(0.1),
+                color: Colors.grey.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: const Row(

@@ -2,12 +2,9 @@ import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:http/http.dart' as http;
-import 'package:flutter/painting.dart' show WebHtmlElementStrategy;
 import '../services/avatar_service.dart';
 import '../providers/irc_provider.dart';
 import '../utils/platform_utils.dart';
-import '../models/whois_info.dart';
 
 class UserAvatar extends ConsumerStatefulWidget {
   final String nick;
@@ -20,7 +17,7 @@ class UserAvatar extends ConsumerStatefulWidget {
   final bool isRobot; // Si es true, no intenta cargar avatar de la red, usa directamente el fallback
 
   const UserAvatar({
-    Key? key,
+    super.key,
     required this.nick,
     this.size = 42,
     this.fallbackIcon,
@@ -29,7 +26,7 @@ class UserAvatar extends ConsumerStatefulWidget {
     this.border,
     this.boxShadow,
     this.isRobot = false,
-  }) : super(key: key);
+  });
 
   @override
   ConsumerState<UserAvatar> createState() => _UserAvatarState();
@@ -38,8 +35,6 @@ class UserAvatar extends ConsumerStatefulWidget {
 class _UserAvatarState extends ConsumerState<UserAvatar> {
   String? _avatarUrl;
   String? _staticAvatarUrl;
-  String? _gifAvatarUrl;
-  bool _avatarLoaded = false;
   int? _lastRefreshTimestamp;
   bool _lastIsRobot = false;
   bool _triedDefaultAvatar = false;
@@ -67,7 +62,6 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
     super.didUpdateWidget(oldWidget);
     // Si cambió el nick, recargar avatar
     if (oldWidget.nick != widget.nick) {
-      _avatarLoaded = false;
       _avatarUrl = null;
       _lastRefreshTimestamp = null;
       _loadAvatar();
@@ -83,7 +77,6 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
     // Si cambió isRobot, recargar avatar (importante: puede cambiar la detección)
     if (oldWidget.isRobot != widget.isRobot) {
       _lastIsRobot = widget.isRobot; // Actualizar inmediatamente
-      _avatarLoaded = false;
       _avatarUrl = null;
       // No resetear _lastRefreshTimestamp para mantener el timestamp actual
       // Forzar refresh del avatar cuando cambia isRobot
@@ -117,7 +110,6 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
       // Si cambió isRobot, recargar el avatar inmediatamente
       if (_lastIsRobot != widget.isRobot) {
         _lastIsRobot = widget.isRobot;
-        _avatarLoaded = false;
         _avatarUrl = null;
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted) _loadAvatar();
@@ -125,7 +117,7 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
       }
 
       return _buildAvatarWidget();
-    } catch (e, st) {
+    } catch (e) {
       // Evitar que un error en avatar (p. ej. web/Image.network) rompa la lista de usuarios
       assert(() {
         // ignore: avoid_print
@@ -163,18 +155,14 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
 
   Future<void> _loadAvatar() async {
     if (widget.nick.isEmpty) {
-      setState(() {
-        _avatarLoaded = true;
-      });
+      setState(() {});
       return;
     }
     
     // Limpiar el nick para asegurar que no tenga espacios extra
     final cleanNick = widget.nick.trim();
     if (cleanNick.isEmpty) {
-      setState(() {
-        _avatarLoaded = true;
-      });
+      setState(() {});
       return;
     }
     
@@ -183,7 +171,6 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
       if (mounted) {
         setState(() {
           _avatarUrl = null; // Forzar uso del fallback
-          _avatarLoaded = true;
         });
       }
       return;
@@ -198,9 +185,7 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
       if (mounted) {
         setState(() {
           _staticAvatarUrl = staticUrl;
-          _gifAvatarUrl = gifUrl;
           _avatarUrl = gifUrl;
-          _avatarLoaded = true;
           _gifPreferred = true;
           _shouldTryStaticFallback = hasCustomStatic;
           _triedDefaultAvatar = !hasCustomStatic;
@@ -215,9 +200,7 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
     if (mounted) {
       setState(() {
         _staticAvatarUrl = staticUrl;
-        _gifAvatarUrl = gifUrl;
         _avatarUrl = initialUrl;
-        _avatarLoaded = true;
         _gifPreferred = !PlatformUtils.isWeb;
         _triedDefaultAvatar = false;
       });

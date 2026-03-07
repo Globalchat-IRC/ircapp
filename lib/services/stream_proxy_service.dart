@@ -1,6 +1,5 @@
 import 'dart:io';
 import 'dart:convert';
-import '../main.dart' show globalLog;
 
 /// Servicio proxy local que agrega headers HTTP necesarios para streams de radio
 class StreamProxyService {
@@ -47,9 +46,8 @@ class StreamProxyService {
           continue;
         }
       }
-    } catch (e, stackTrace) {
+    } catch (e) {
       // globalLog('[StreamProxy] ❌ Error iniciando proxy: $e');
-      // globalLog('[StreamProxy] Stack trace: $stackTrace');
       rethrow;
     }
   }
@@ -292,9 +290,8 @@ class StreamProxyService {
       } finally {
         client.close();
       }
-    } catch (e, stackTrace) {
+    } catch (e) {
       // print('❌ Error en proxy: $e');
-      // print('❌ Stack trace: $stackTrace');
       try {
         if (!responseClosed) {
           request.response.statusCode = HttpStatus.internalServerError;

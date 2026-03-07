@@ -1,11 +1,8 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../utils/platform_utils.dart';
-// Conditional import for Platform (native only)
-import 'dart:io' if (dart.library.html) 'dart:html' as io;
 
 /// Servicio de actualización automática
 /// Verifica si hay nuevas versiones disponibles en GitHub Releases
@@ -150,8 +147,12 @@ class UpdateService {
       final latestParts = latest.split('.').map(int.parse).toList();
       
       // Asegurar que ambas tengan 3 partes
-      while (currentParts.length < 3) currentParts.add(0);
-      while (latestParts.length < 3) latestParts.add(0);
+      while (currentParts.length < 3) {
+        currentParts.add(0);
+      }
+      while (latestParts.length < 3) {
+        latestParts.add(0);
+      }
       
       // Comparar major.minor.patch
       for (var i = 0; i < 3; i++) {

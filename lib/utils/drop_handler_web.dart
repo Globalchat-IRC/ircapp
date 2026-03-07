@@ -1,40 +1,44 @@
 // Solo en web: maneja drag & drop de archivos sobre la página
-import 'dart:html' as html;
-import 'dart:typed_data' show ByteBuffer, Uint8List;
+import 'dart:js_interop';
+import 'dart:typed_data' show Uint8List;
+import 'package:web/web.dart' as web;
 
 typedef RemoveListener = void Function();
 
 RemoveListener? setupWebDropListener(void Function(Uint8List bytes, String name) onFileDropped) {
-  void handleDrop(html.Event e) {
+  final body = web.document.body;
+  if (body == null) return null;
+
+  final dropListener = ((web.Event e) {
     e.preventDefault();
     e.stopPropagation();
-    final de = e as dynamic;
-    final dt = de.dataTransfer;
-    if (dt == null || dt.files == null || dt.files.length == 0) return;
-    final file = dt.files[0];
-    final reader = html.FileReader();
-    reader.onLoadEnd.listen((_) {
+    final dragEvent = e as web.DragEvent;
+    final file = dragEvent.dataTransfer?.files.item(0);
+    if (file == null) return;
+    final reader = web.FileReader();
+    reader.onloadend = ((web.Event _) {
       final result = reader.result;
       if (result != null) {
         try {
-          final bytes = Uint8List.view(result is ByteBuffer ? result : (result as dynamic));
-          onFileDropped(bytes, file.name as String);
+          final bytes = Uint8List.view((result as JSArrayBuffer).toDart);
+          onFileDropped(bytes, file.name);
         } catch (_) {}
       }
-    });
+    }).toJS;
     reader.readAsArrayBuffer(file);
-  }
+  }).toJS;
 
-  void handleDragOver(html.Event e) {
+  final dragOverListener = ((web.Event e) {
     e.preventDefault();
-    (e as dynamic).dataTransfer?.dropEffect = 'copy';
-  }
+    final dragEvent = e as web.DragEvent;
+    dragEvent.dataTransfer?.dropEffect = 'copy';
+  }).toJS;
 
-  html.document.body?.addEventListener('drop', handleDrop);
-  html.document.body?.addEventListener('dragover', handleDragOver);
+  body.addEventListener('drop', dropListener);
+  body.addEventListener('dragover', dragOverListener);
 
   return () {
-    html.document.body?.removeEventListener('drop', handleDrop);
-    html.document.body?.removeEventListener('dragover', handleDragOver);
+    body.removeEventListener('drop', dropListener);
+    body.removeEventListener('dragover', dragOverListener);
   };
 }

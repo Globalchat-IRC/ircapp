@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
-import 'dart:html' if (dart.library.io) '../utils/html_stub.dart' as html;
+import 'package:web/web.dart' as web;
 import 'dart:ui_web' if (dart.library.io) '../utils/ui_web_stub.dart' as ui;
 import '../services/voice_assistant_service.dart';
 import '../models/app_theme.dart';
@@ -14,10 +14,10 @@ class VoiceAssistantDialog extends ConsumerStatefulWidget {
   final String? helpChannel; // Canal de ayuda desde el cual se abrió automáticamente (#ayuda o #cau)
 
   const VoiceAssistantDialog({
-    Key? key,
+    super.key,
     required this.appTheme,
     this.helpChannel,
-  }) : super(key: key);
+  });
 
   @override
   ConsumerState<VoiceAssistantDialog> createState() => _VoiceAssistantDialogState();
@@ -263,10 +263,10 @@ class _VoiceAssistantDialogState extends ConsumerState<VoiceAssistantDialog> {
                   margin: const EdgeInsets.all(16),
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
-                    color: widget.appTheme.accent.withOpacity(0.1),
+                    color: widget.appTheme.accent.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(
-                      color: widget.appTheme.accent.withOpacity(0.3),
+                      color: widget.appTheme.accent.withValues(alpha: 0.3),
                       width: 1,
                     ),
                   ),
@@ -364,10 +364,10 @@ class _VoiceAssistantDialogState extends ConsumerState<VoiceAssistantDialog> {
                 width: double.infinity,
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: widget.appTheme.accent.withOpacity(0.1),
+                  color: widget.appTheme.accent.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(
-                    color: widget.appTheme.accent.withOpacity(0.3),
+                    color: widget.appTheme.accent.withValues(alpha: 0.3),
                     width: 1,
                   ),
                 ),
@@ -418,10 +418,10 @@ class _VoiceAssistantDialogState extends ConsumerState<VoiceAssistantDialog> {
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: Colors.red.withOpacity(0.1),
+                  color: Colors.red.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(
-                    color: Colors.red.withOpacity(0.3),
+                    color: Colors.red.withValues(alpha: 0.3),
                     width: 2,
                   ),
                 ),
@@ -484,7 +484,7 @@ class _VoiceAssistantDialogState extends ConsumerState<VoiceAssistantDialog> {
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: widget.appTheme.primary.withOpacity(0.1),
+                  color: widget.appTheme.primary.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Column(
@@ -527,7 +527,7 @@ class _VoiceAssistantDialogState extends ConsumerState<VoiceAssistantDialog> {
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: Colors.red.withOpacity(0.1),
+                  color: Colors.red.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Row(
@@ -553,7 +553,7 @@ class _VoiceAssistantDialogState extends ConsumerState<VoiceAssistantDialog> {
                 color: widget.appTheme.surface,
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(
-                  color: Colors.grey.withOpacity(0.3),
+                  color: Colors.grey.withValues(alpha: 0.3),
                   width: 1,
                 ),
               ),
@@ -579,7 +579,7 @@ class _VoiceAssistantDialogState extends ConsumerState<VoiceAssistantDialog> {
                           decoration: InputDecoration(
                             hintText: 'Escribe tu pregunta aquí...',
                             hintStyle: TextStyle(
-                              color: (widget.appTheme.textSecondary ?? Colors.grey).withOpacity(0.5),
+                              color: widget.appTheme.textSecondary.withValues(alpha: 0.5),
                             ),
                             border: InputBorder.none,
                             contentPadding: const EdgeInsets.symmetric(
@@ -716,7 +716,7 @@ class _WebViewWidgetState extends State<_WebViewWidget> {
     ui.platformViewRegistry.registerViewFactory(
       _viewType,
       (int viewId) {
-        final iframe = html.IFrameElement()
+        final iframe = web.HTMLIFrameElement()
           ..src = widget.url
           ..style.border = 'none'
           ..style.width = '100%'

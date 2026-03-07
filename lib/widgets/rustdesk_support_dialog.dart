@@ -7,10 +7,10 @@ class RustDeskSupportDialog extends StatelessWidget {
   final VoidCallback? onJoinHelpChannel;
 
   const RustDeskSupportDialog({
-    Key? key,
+    super.key,
     required this.appTheme,
     this.onJoinHelpChannel,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -30,7 +30,7 @@ class RustDeskSupportDialog extends StatelessWidget {
           ),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.45),
+              color: Colors.black.withValues(alpha: 0.45),
               blurRadius: 24,
               offset: const Offset(0, 12),
             ),

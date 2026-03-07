@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/irc_provider.dart';
 import '../providers/theme_provider.dart';
@@ -7,9 +6,6 @@ import '../providers/radio_provider.dart';
 import '../models/app_theme.dart';
 import '../models/radio_station.dart';
 import '../widgets/user_avatar.dart';
-import '../services/irc_service.dart';
-import '../models/channel_info.dart';
-import '../models/irc_message.dart';
 import '../models/whois_info.dart';
 import '../models/user_role.dart';
 import '../providers/video_provider.dart';
@@ -18,7 +14,7 @@ import '../config/debug_config.dart';
 class UserProfileScreen extends ConsumerStatefulWidget {
   final String nick;
 
-  const UserProfileScreen({Key? key, required this.nick}) : super(key: key);
+  const UserProfileScreen({super.key, required this.nick});
 
   @override
   ConsumerState<UserProfileScreen> createState() => _UserProfileScreenState();
@@ -194,7 +190,7 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
                           borderRadius: BorderRadius.circular(16),
                           boxShadow: [
                             BoxShadow(
-                              color: appTheme.primary.withOpacity(0.3),
+                              color: appTheme.primary.withValues(alpha: 0.3),
                               blurRadius: 12,
                               offset: const Offset(0, 6),
                             ),
@@ -219,14 +215,14 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
                                   : LinearGradient(
                                       colors: [
                                         _getUserColor(widget.nick.hashCode),
-                                        _getUserColor(widget.nick.hashCode).withOpacity(0.7),
+                                        _getUserColor(widget.nick.hashCode).withValues(alpha: 0.7),
                                       ],
                                       begin: Alignment.topLeft,
                                       end: Alignment.bottomRight,
                                     ),
                               border: _isRobotUser(whoisInfo)
                                   ? Border.all(
-                                      color: const Color(0xFFFFD700).withOpacity(0.6),
+                                      color: const Color(0xFFFFD700).withValues(alpha: 0.6),
                                       width: 2,
                                     )
                                   : null,
@@ -266,15 +262,15 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
                                       decoration: BoxDecoration(
                                         gradient: LinearGradient(
                                           colors: [
-                                            const Color(0xFFFFD700).withOpacity(0.3),
-                                            const Color(0xFFFFA500).withOpacity(0.3),
+                                            const Color(0xFFFFD700).withValues(alpha: 0.3),
+                                            const Color(0xFFFFA500).withValues(alpha: 0.3),
                                           ],
                                           begin: Alignment.topLeft,
                                           end: Alignment.bottomRight,
                                         ),
                                         borderRadius: BorderRadius.circular(14),
                                         border: Border.all(
-                                          color: const Color(0xFFFFD700).withOpacity(0.6),
+                                          color: const Color(0xFFFFD700).withValues(alpha: 0.6),
                                           width: 1.2,
                                         ),
                                       ),
@@ -323,9 +319,9 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
                                       if (ownerChannels.isNotEmpty) {
                                         // Usar colores del tema adaptados para dueño
                                         // Color naranja/rojo adaptado al tema
-                                        final ownerColor = appTheme.primary.withOpacity(0.9).computeLuminance() > 0.5
+                                        final ownerColor = appTheme.primary.withValues(alpha: 0.9).computeLuminance() > 0.5
                                             ? const Color(0xFFFF5722) // Naranja/rojo para temas claros
-                                            : appTheme.accent.withOpacity(0.8); // Adaptado para temas oscuros
+                                            : appTheme.accent.withValues(alpha: 0.8); // Adaptado para temas oscuros
                                         
                                         return Column(
                                           children: [
@@ -339,15 +335,15 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
                                                 vertical: 6,
                                               ),
                                               decoration: BoxDecoration(
-                                                color: ownerColor.withOpacity(0.25),
+                                                color: ownerColor.withValues(alpha: 0.25),
                                                 borderRadius: BorderRadius.circular(14),
                                                 border: Border.all(
-                                                  color: ownerColor.withOpacity(0.8),
+                                                  color: ownerColor.withValues(alpha: 0.8),
                                                   width: 1.5,
                                                 ),
                                                 boxShadow: [
                                                   BoxShadow(
-                                                    color: ownerColor.withOpacity(0.3),
+                                                    color: ownerColor.withValues(alpha: 0.3),
                                                     blurRadius: 4,
                                                     spreadRadius: 0.5,
                                                   ),
@@ -377,7 +373,7 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
                                                             fontWeight: FontWeight.bold,
                                                             shadows: [
                                                               Shadow(
-                                                                color: appTheme.background.withOpacity(0.8),
+                                                                color: appTheme.background.withValues(alpha: 0.8),
                                                                 blurRadius: 2,
                                                                 offset: const Offset(0, 0.5),
                                                               ),
@@ -398,10 +394,10 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
                                                                   vertical: 2,
                                                                 ),
                                                                 decoration: BoxDecoration(
-                                                                  color: ownerColor.withOpacity(0.2),
+                                                                  color: ownerColor.withValues(alpha: 0.2),
                                                                   borderRadius: BorderRadius.circular(6),
                                                                   border: Border.all(
-                                                                    color: ownerColor.withOpacity(0.5),
+                                                                    color: ownerColor.withValues(alpha: 0.5),
                                                                     width: 1,
                                                                   ),
                                                                 ),
@@ -419,9 +415,9 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
                                                         ] else ...[
                                                           const SizedBox(height: 4),
                                                           Text(
-                                                            ownerChannels.take(2).join(', ') + '...',
+                                                            '${ownerChannels.take(2).join(', ')}...',
                                                             style: TextStyle(
-                                                              color: ownerColor.withOpacity(0.9),
+                                                              color: ownerColor.withValues(alpha: 0.9),
                                                               fontSize: 10,
                                                               fontWeight: FontWeight.w500,
                                                             ),
@@ -453,7 +449,7 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
                                         vertical: 4,
                                       ),
                                       decoration: BoxDecoration(
-                                        color: Colors.deepPurpleAccent.withOpacity(0.25),
+                                        color: Colors.deepPurpleAccent.withValues(alpha: 0.25),
                                         borderRadius: BorderRadius.circular(14),
                                         border: Border.all(
                                           color: Colors.amberAccent,
@@ -493,7 +489,7 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
                                         vertical: 4,
                                       ),
                                       decoration: BoxDecoration(
-                                        color: Colors.orange.withOpacity(0.3),
+                                        color: Colors.orange.withValues(alpha: 0.3),
                                         borderRadius: BorderRadius.circular(12),
                                         border: Border.all(
                                           color: Colors.orange,
@@ -696,7 +692,7 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
                                   'No sonar cuack ni alertas cuando hable',
                                 ),
                                 value: isMuted,
-                                activeColor: appTheme.accent,
+                                activeThumbColor: appTheme.accent,
                                 onChanged: (_) {
                                   ref
                                       .read(notificationSettingsProvider
@@ -755,10 +751,10 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
                                     vertical: 6,
                                   ),
                                   decoration: BoxDecoration(
-                                    color: appTheme.primary.withOpacity(0.2),
+                                    color: appTheme.primary.withValues(alpha: 0.2),
                                     borderRadius: BorderRadius.circular(8),
                                     border: Border.all(
-                                      color: appTheme.primary.withOpacity(0.4),
+                                      color: appTheme.primary.withValues(alpha: 0.4),
                                       width: 1,
                                     ),
                                   ),
@@ -867,7 +863,7 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
                 : 'Activa para indicar que estás ausente',
           ),
           value: awayStatus.isAway,
-          activeColor: appTheme.primary,
+          activeThumbColor: appTheme.primary,
           onChanged: (value) {
             if (value) {
               // Activar away con mensaje actual o por defecto
@@ -1002,11 +998,12 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
               onProfileUpdated: (updatedProfile) async {
                 final db = ref.read(videoDatabaseProvider);
                 await db.saveUserProfile(updatedProfile);
+                if (!context.mounted) return;
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(content: Text('Perfil actualizado')),
                 );
                 // Forzar actualización del widget
-                if (context.mounted) {
+                if (mounted) {
                   setState(() {});
                 }
               },
@@ -1077,7 +1074,7 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
         color: appTheme.surface,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: appTheme.primary.withOpacity(0.2),
+          color: appTheme.primary.withValues(alpha: 0.2),
           width: 1,
         ),
       ),
@@ -1177,10 +1174,10 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: appTheme.surface.withOpacity(0.5),
+        color: appTheme.surface.withValues(alpha: 0.5),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: appTheme.textSecondary.withOpacity(0.2),
+          color: appTheme.textSecondary.withValues(alpha: 0.2),
           width: 1,
         ),
       ),
@@ -1245,7 +1242,7 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
     final currentSong = (currentSongRaw != null && currentSongRaw.isNotEmpty && currentSongRaw != 'Sin información')
         ? currentSongRaw
         : 'Sin información';
-    final stationName = activeStation.name ?? 'Radio';
+    final stationName = activeStation.name;
     
     // Obtener el canal actual donde está el usuario
     final currentChannel = ref.read(currentChannelProvider);
@@ -1258,15 +1255,15 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: [
-            appTheme.primary.withOpacity(0.1),
-            appTheme.accent.withOpacity(0.1),
+            appTheme.primary.withValues(alpha: 0.1),
+            appTheme.accent.withValues(alpha: 0.1),
           ],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: appTheme.primary.withOpacity(0.3),
+          color: appTheme.primary.withValues(alpha: 0.3),
           width: 1.5,
         ),
       ),
@@ -1714,7 +1711,7 @@ class _GenderChip extends StatelessWidget {
       label: Text(label),
       selected: selected,
       onSelected: onSelected,
-      selectedColor: appTheme.primary.withOpacity(0.3),
+      selectedColor: appTheme.primary.withValues(alpha: 0.3),
       labelStyle: TextStyle(
         color: selected ? appTheme.primary : appTheme.textPrimary,
         fontWeight: selected ? FontWeight.bold : FontWeight.normal,

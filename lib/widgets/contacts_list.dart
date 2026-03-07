@@ -11,10 +11,10 @@ class ContactsList extends ConsumerWidget {
   final bool showFavoritesOnly;
 
   const ContactsList({
-    Key? key,
+    super.key,
     this.onContactTap,
     this.showFavoritesOnly = false,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -77,7 +77,7 @@ class ContactsList extends ConsumerWidget {
         // Separador si hay grupos y contactos sin grupo
         if (ungroupedContacts.isNotEmpty && groupedContacts.isNotEmpty) {
           if (index == currentIndex) {
-            return Divider(color: appTheme.textSecondary.withOpacity(0.2));
+            return Divider(color: appTheme.textSecondary.withValues(alpha: 0.2));
           }
           currentIndex++;
         }

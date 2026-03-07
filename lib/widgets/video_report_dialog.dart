@@ -7,10 +7,10 @@ class VideoReportDialog extends StatefulWidget {
   final Function(ReportType type, String description) onSubmit;
   
   const VideoReportDialog({
-    Key? key,
+    super.key,
     required this.reportedNick,
     required this.onSubmit,
-  }) : super(key: key);
+  });
   
   @override
   State<VideoReportDialog> createState() => _VideoReportDialogState();

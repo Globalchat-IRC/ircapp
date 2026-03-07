@@ -11,11 +11,11 @@ class MarkdownMessage extends StatelessWidget {
   final TextStyle? baseStyle;
 
   const MarkdownMessage({
-    Key? key,
+    super.key,
     required this.content,
     this.isDarkMode = false,
     this.baseStyle,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {

@@ -6,7 +6,6 @@ import 'dart:convert';
 import '../models/radio_station.dart';
 import '../services/radio_service.dart';
 import '../services/mixcloud_live_service.dart';
-import '../utils/platform_utils.dart';
 import '../config/debug_config.dart';
 
 class RadioState {
@@ -90,7 +89,7 @@ class RadioNotifier extends Notifier<RadioState> {
       // debugLog('📻 Llamando a loadStations...');
       await loadStations(activeName);
       // debugLog('📻 loadStations completado');
-    } catch (e, stackTrace) {
+    } catch (e) {
       // debugLog('❌ Error cargando configuración de radio: $e');
       // debugLog('❌ Stack trace: $stackTrace');
     }
@@ -379,7 +378,7 @@ class RadioNotifier extends Notifier<RadioState> {
       );
       // debugLog('📻 ✅ Estaciones cargadas: ${stations.length}');
       // debugLog('📻 ✅ Estación activa: ${active?.name ?? "ninguna"}');
-    } catch (e, stackTrace) {
+    } catch (e) {
       // debugLog('❌ Error cargando estaciones de radio: $e');
       // debugLog('❌ Stack trace: $stackTrace');
       // Usar estaciones por defecto en caso de error
@@ -433,13 +432,6 @@ class RadioNotifier extends Notifier<RadioState> {
 
   void setError(bool hasError) {
     state = state.copyWith(hasError: hasError);
-  }
-
-  // Nota: En Riverpod 3.x, Notifier no tiene dispose()
-  // Limpiar timers en un método separado si es necesario
-  void _cleanup() {
-    _nowPlayingTimer?.cancel();
-    _liveStreamCheckTimer?.cancel();
   }
 }
 

@@ -43,7 +43,6 @@ class MixcloudLiveStream {
 /// Servicio para obtener streams en vivo de Mixcloud
 class MixcloudLiveService {
   static const String _baseUrl = 'https://mobilev1.globalchat.org/api';
-  static const String _proxyUrl = 'https://mobilev1.globalchat.org/api/mixcloud_stream_proxy.php';
   
   // Cache del último stream obtenido
   MixcloudLiveStream? _cachedStream;
@@ -52,12 +51,6 @@ class MixcloudLiveService {
   static final MixcloudLiveService _instance = MixcloudLiveService._internal();
   factory MixcloudLiveService() => _instance;
   MixcloudLiveService._internal();
-  
-  /// Convertir URL de Mixcloud a URL del proxy
-  String _getProxyUrl(String mixcloudUrl) {
-    final encodedUrl = Uri.encodeComponent(mixcloudUrl);
-    return '$_proxyUrl?url=$encodedUrl';
-  }
 
   /// Obtener el stream en vivo de un usuario de Mixcloud
   Future<MixcloudLiveStream?> getLiveStream(String username) async {

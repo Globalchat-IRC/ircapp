@@ -1,8 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:riverpod/riverpod.dart' show Notifier, NotifierProvider, Provider, Ref;
-import 'package:riverpod/riverpod.dart' show Notifier, NotifierProvider, Provider, Ref;
+import 'package:riverpod/riverpod.dart' show Notifier, NotifierProvider, Provider;
 import 'package:riverpod/legacy.dart' show StateProvider;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/irc_message.dart';
@@ -570,6 +569,10 @@ class MessagesNotifier extends Notifier<List<IRCMessage>> {
     Future.microtask(() => _saveHistory());
   }
 
+  void replaceAll(List<IRCMessage> messages) {
+    _updateStateAndSave(messages);
+  }
+
   /// Cargar mensajes privados desde SharedPreferences (solo en web)
   Future<void> _loadPrivateMessages() async {
     if (!PlatformUtils.isWeb) return;
@@ -820,8 +823,7 @@ class ChannelsNotifier extends Notifier<Map<String, IRCChannel>> {
     }
     
     // Comparar estados
-    final keysChanged = newState.keys.length != state.keys.length;
-    final valuesChanged = newState.entries.any((e) {
+    newState.entries.any((e) {
       final oldChannel = state[e.key];
       if (oldChannel == null) return true;
       final usersChanged = oldChannel.users.length != e.value.users.length ||
@@ -842,7 +844,7 @@ class ChannelsNotifier extends Notifier<Map<String, IRCChannel>> {
 
   void updateChannels() {
     // debugLog('🔍 [DEBUG] 🔄 updateChannels() called, service has ${_service.channels.length} channels');
-    for (var entry in _service!.channels.entries) {
+    for (final _ in _service!.channels.entries) {
       // debugLog('🔍 [DEBUG]   - ${entry.key}: ${entry.value.users.length} users: ${entry.value.users}');
     }
     
@@ -1008,7 +1010,6 @@ class FavoritesNotifier extends Notifier<Set<String>> {
       
       // Si hay canales excluidos en la lista guardada, limpiarlos de SharedPreferences
       if (filtered.length != list.length) {
-        final removed = list.where((e) => _excludedChannels.contains(e.toLowerCase())).toList();
         await prefs.setStringList(_prefsKey, filtered);
         // debugLog('🧹 [FavoritesNotifier] Limpiados ${list.length - filtered.length} canales excluidos de favoritos guardados');
         // debugLog('🧹 [FavoritesNotifier] Canales eliminados específicamente: $removed');
@@ -1100,27 +1101,25 @@ class FavoritesNotifier extends Notifier<Set<String>> {
       // debugLog('🧹 [FavoritesNotifier] Excluidos ANTES de limpiar: $_excludedChannels');
       
       // Obtener los favoritos actuales antes de limpiar para logging
-      final currentFavorites = prefs.getStringList(_prefsKey) ?? <String>[];
       // debugLog('🧹 [FavoritesNotifier] Favoritos en SharedPreferences ANTES: $currentFavorites');
       
       // Limpiar favoritos guardados
-      final removedFavorites = await prefs.remove(_prefsKey);
+      await prefs.remove(_prefsKey);
       // debugLog('🧹 [FavoritesNotifier] Favoritos eliminados de SharedPreferences: $removedFavorites');
       
       // Verificar que se eliminaron correctamente
-      final verifyFavorites = prefs.getStringList(_prefsKey) ?? <String>[];
+      prefs.getStringList(_prefsKey);
       // debugLog('🧹 [FavoritesNotifier] Verificación - Favoritos después de remove: $verifyFavorites');
       
       // Limpiar también la lista de excluidos para permitir que el usuario vuelva a añadir canales
-      final currentExcluded = prefs.getStringList(_excludedPrefsKey) ?? <String>[];
       // debugLog('🧹 [FavoritesNotifier] Excluidos en SharedPreferences ANTES: $currentExcluded');
       
       _excludedChannels.clear();
-      final removedExcluded = await prefs.remove(_excludedPrefsKey);
+      await prefs.remove(_excludedPrefsKey);
       // debugLog('🧹 [FavoritesNotifier] Excluidos eliminados de SharedPreferences: $removedExcluded');
       
       // Verificar que se eliminaron correctamente
-      final verifyExcluded = prefs.getStringList(_excludedPrefsKey) ?? <String>[];
+      prefs.getStringList(_excludedPrefsKey);
       // debugLog('🧹 [FavoritesNotifier] Verificación - Excluidos después de remove: $verifyExcluded');
       
       // Actualizar el estado
@@ -1638,7 +1637,6 @@ class NotificationSettingsNotifier
           mentionValue = 'click';
           break;
         case MentionSound.cuack:
-        default:
           mentionValue = 'cuack';
       }
       await prefs.setString(_prefsKeyMentionSound, mentionValue);
@@ -1730,7 +1728,6 @@ class TypingIndicatorNotifier extends Notifier<Map<String, String?>> {
     return state[channel.toLowerCase()];
   }
 
-  @override
   void dispose() {
     for (var timer in _timers.values) {
       timer.cancel();
@@ -1747,7 +1744,6 @@ final typingIndicatorProvider = NotifierProvider<TypingIndicatorNotifier, Map<St
 
 // Notifier para refrescar avatares en tiempo real
 class AvatarRefreshNotifier extends Notifier<Map<String, int>> {
-  Timer? _refreshTimer;
   int _currentRefreshIndex = 0;
   bool _isRefreshing = false;
 
@@ -1820,12 +1816,6 @@ class AvatarRefreshNotifier extends Notifier<Map<String, int>> {
     return state[nick.toLowerCase()];
   }
 
-  @override
-  // Nota: En Riverpod 3.x, Notifier no tiene dispose()
-  // Limpiar timers en un método separado si es necesario
-  void _cleanup() {
-    _refreshTimer?.cancel();
-  }
 }
 
 // Provider para invalidar/refrescar avatares

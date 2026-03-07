@@ -6,10 +6,10 @@ class DebugConnectionWindow extends StatefulWidget {
   final List<String> logs;
 
   const DebugConnectionWindow({
-    Key? key,
+    super.key,
     required this.appTheme,
     required this.logs,
-  }) : super(key: key);
+  });
 
   @override
   State<DebugConnectionWindow> createState() => _DebugConnectionWindowState();
@@ -128,19 +128,19 @@ class _DebugConnectionWindowState extends State<DebugConnectionWindow> {
 
                           // Colorear según el tipo de mensaje
                           if (log.contains('353') || log.contains('NAMES') || log.contains('📋')) {
-                            bgColor = Colors.blue.withOpacity(0.1);
+                            bgColor = Colors.blue.withValues(alpha: 0.1);
                             textColor = Colors.blue.shade300;
                           } else if (log.contains('366') || log.contains('✅')) {
-                            bgColor = Colors.green.withOpacity(0.1);
+                            bgColor = Colors.green.withValues(alpha: 0.1);
                             textColor = Colors.green.shade300;
                           } else if (log.contains('⚠️') || log.contains('ERROR') || log.contains('❌')) {
-                            bgColor = Colors.red.withOpacity(0.1);
+                            bgColor = Colors.red.withValues(alpha: 0.1);
                             textColor = Colors.red.shade300;
                           } else if (log.contains('JOIN') || log.contains('🔍')) {
-                            bgColor = Colors.orange.withOpacity(0.1);
+                            bgColor = Colors.orange.withValues(alpha: 0.1);
                             textColor = Colors.orange.shade300;
                           } else if (log.contains('📡') || log.contains('CONNECT')) {
-                            bgColor = Colors.purple.withOpacity(0.1);
+                            bgColor = Colors.purple.withValues(alpha: 0.1);
                             textColor = Colors.purple.shade300;
                           }
 

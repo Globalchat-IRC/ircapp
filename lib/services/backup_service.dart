@@ -73,7 +73,7 @@ class BackupService {
       await backupFile.writeAsString(backupJson);
 
       // Abrir diálogo para guardar
-      final savePath = await FilePicker.saveFile(
+      final savePath = await FilePicker.platform.saveFile(
         dialogTitle: 'Guardar backup como...',
         fileName: 'irc_app_backup_$timestamp.json',
         type: FileType.custom,
@@ -186,7 +186,7 @@ class BackupService {
       final configJson = jsonEncode(config);
       final timestamp = DateTime.now().toIso8601String().replaceAll(':', '-');
       
-      final savePath = await FilePicker.saveFile(
+      final savePath = await FilePicker.platform.saveFile(
         dialogTitle: 'Exportar configuración...',
         fileName: 'irc_app_config_$timestamp.json',
         type: FileType.custom,

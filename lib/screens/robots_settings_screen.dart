@@ -8,7 +8,7 @@ import 'icon_selector_screen.dart';
 
 /// Pantalla para gestionar robots personalizados
 class RobotsSettingsScreen extends ConsumerStatefulWidget {
-  const RobotsSettingsScreen({Key? key}) : super(key: key);
+  const RobotsSettingsScreen({super.key});
 
   @override
   ConsumerState<RobotsSettingsScreen> createState() => _RobotsSettingsScreenState();
@@ -33,7 +33,7 @@ class _RobotsSettingsScreenState extends ConsumerState<RobotsSettingsScreen> {
           Container(
             width: double.infinity,
             padding: const EdgeInsets.all(16),
-            color: appTheme.primary.withOpacity(0.1),
+            color: appTheme.primary.withValues(alpha: 0.1),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -131,7 +131,7 @@ class _RobotsSettingsScreenState extends ConsumerState<RobotsSettingsScreen> {
             ),
             boxShadow: [
               BoxShadow(
-                color: const Color(0xFFFFD700).withOpacity(0.5),
+                color: const Color(0xFFFFD700).withValues(alpha: 0.5),
                 blurRadius: 4,
                 offset: const Offset(0, 1),
               ),
@@ -273,7 +273,7 @@ class _RobotsSettingsScreenState extends ConsumerState<RobotsSettingsScreen> {
                       ),
                       boxShadow: [
                         BoxShadow(
-                          color: const Color(0xFFFFD700).withOpacity(0.5),
+                          color: const Color(0xFFFFD700).withValues(alpha: 0.5),
                           blurRadius: 4,
                           offset: const Offset(0, 1),
                         ),
@@ -428,7 +428,7 @@ class _RobotsSettingsScreenState extends ConsumerState<RobotsSettingsScreen> {
                       ),
                       boxShadow: [
                         BoxShadow(
-                          color: const Color(0xFFFFD700).withOpacity(0.5),
+                          color: const Color(0xFFFFD700).withValues(alpha: 0.5),
                           blurRadius: 4,
                           offset: const Offset(0, 1),
                         ),
@@ -522,6 +522,7 @@ class _RobotsSettingsScreenState extends ConsumerState<RobotsSettingsScreen> {
     );
 
     if (confirmed == true) {
+      if (!context.mounted) return;
       ref.read(customRobotsProvider.notifier).removeRobot(robot.nick);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(

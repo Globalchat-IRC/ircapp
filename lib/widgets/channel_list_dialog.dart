@@ -15,9 +15,9 @@ class ChannelListDialog extends ConsumerStatefulWidget {
   final IRCService ircService;
 
   const ChannelListDialog({
-    Key? key,
+    super.key,
     required this.ircService,
-  }) : super(key: key);
+  });
 
   @override
   ConsumerState<ChannelListDialog> createState() => _ChannelListDialogState();
@@ -160,7 +160,7 @@ class _ChannelListDialogState extends ConsumerState<ChannelListDialog> {
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(24),
       ),
-      child: Container(
+      child: SizedBox(
         width: MediaQuery.of(context).size.width * 0.9,
         height: MediaQuery.of(context).size.height * 0.8,
         child: Column(
@@ -187,7 +187,7 @@ class _ChannelListDialogState extends ConsumerState<ChannelListDialog> {
                   Container(
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.2),
+                        color: Colors.white.withValues(alpha: 0.2),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: const Icon(
@@ -212,7 +212,7 @@ class _ChannelListDialogState extends ConsumerState<ChannelListDialog> {
                         Text(
                           '${_filteredChannels.length} canales disponibles',
                           style: TextStyle(
-                            color: Colors.white.withOpacity(0.9),
+                            color: Colors.white.withValues(alpha: 0.9),
                             fontSize: 14,
                           ),
                         ),
@@ -234,7 +234,7 @@ class _ChannelListDialogState extends ConsumerState<ChannelListDialog> {
                 color: appTheme.background,
                 border: Border(
                   bottom: BorderSide(
-                    color: appTheme.textSecondary.withOpacity(0.2),
+                    color: appTheme.textSecondary.withValues(alpha: 0.2),
                     width: 1,
                   ),
                 ),
@@ -309,13 +309,13 @@ class _ChannelListDialogState extends ConsumerState<ChannelListDialog> {
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
                         borderSide: BorderSide(
-                          color: appTheme.textSecondary.withOpacity(0.3),
+                          color: appTheme.textSecondary.withValues(alpha: 0.3),
                         ),
                       ),
                       enabledBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
                         borderSide: BorderSide(
-                          color: appTheme.textSecondary.withOpacity(0.3),
+                          color: appTheme.textSecondary.withValues(alpha: 0.3),
                         ),
                       ),
                       focusedBorder: OutlineInputBorder(
@@ -457,13 +457,13 @@ class _ChannelListDialogState extends ConsumerState<ChannelListDialog> {
         padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
         decoration: BoxDecoration(
           color: isActive
-              ? appTheme.primary.withOpacity(0.2)
+              ? appTheme.primary.withValues(alpha: 0.2)
               : appTheme.surface,
           borderRadius: BorderRadius.circular(8),
           border: Border.all(
             color: isActive
                 ? appTheme.primary
-                : appTheme.textSecondary.withOpacity(0.3),
+                : appTheme.textSecondary.withValues(alpha: 0.3),
             width: isActive ? 2 : 1,
           ),
         ),
@@ -511,7 +511,7 @@ class _ChannelListDialogState extends ConsumerState<ChannelListDialog> {
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
         side: BorderSide(
-          color: appTheme.textSecondary.withOpacity(0.1),
+          color: appTheme.textSecondary.withValues(alpha: 0.1),
         ),
       ),
       child: InkWell(
@@ -574,7 +574,7 @@ class _ChannelListDialogState extends ConsumerState<ChannelListDialog> {
                                     vertical: 2,
                                   ),
                                   decoration: BoxDecoration(
-                                    color: Colors.amber.withOpacity(0.2),
+                                    color: Colors.amber.withValues(alpha: 0.2),
                                     borderRadius: BorderRadius.circular(4),
                                   ),
                                   child: Row(
@@ -608,7 +608,7 @@ class _ChannelListDialogState extends ConsumerState<ChannelListDialog> {
                             vertical: 4,
                           ),
                           decoration: BoxDecoration(
-                            color: appTheme.primary.withOpacity(0.2),
+                            color: appTheme.primary.withValues(alpha: 0.2),
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: Row(
@@ -693,13 +693,13 @@ class _ChannelListDialogState extends ConsumerState<ChannelListDialog> {
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(8),
               borderSide: BorderSide(
-                color: appTheme.textSecondary.withOpacity(0.3),
+                color: appTheme.textSecondary.withValues(alpha: 0.3),
               ),
             ),
             enabledBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(8),
               borderSide: BorderSide(
-                color: appTheme.textSecondary.withOpacity(0.3),
+                color: appTheme.textSecondary.withValues(alpha: 0.3),
               ),
             ),
             focusedBorder: OutlineInputBorder(

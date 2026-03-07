@@ -2,16 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../providers/radio_provider.dart';
-import '../models/radio_station.dart';
-import '../models/app_theme.dart';
 import '../providers/theme_provider.dart';
-import '../services/irc_service.dart';
 import '../providers/irc_provider.dart';
-import '../services/radio_service.dart';
 import '../config/debug_config.dart';
 
 class RadioStationsList extends ConsumerStatefulWidget {
-  const RadioStationsList({Key? key}) : super(key: key);
+  const RadioStationsList({super.key});
 
   @override
   ConsumerState<RadioStationsList> createState() => _RadioStationsListState();
@@ -110,7 +106,7 @@ class _RadioStationsListState extends ConsumerState<RadioStationsList> {
                           padding: const EdgeInsets.all(12),
                           decoration: BoxDecoration(
                             color: isActive
-                                ? appTheme.primary.withOpacity(0.2)
+                                ? appTheme.primary.withValues(alpha: 0.2)
                                 : appTheme.surface,
                             borderRadius: BorderRadius.circular(8),
                             border: Border.all(
