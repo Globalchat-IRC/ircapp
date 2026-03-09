@@ -14,7 +14,9 @@ class UserAvatar extends ConsumerStatefulWidget {
   final Gradient? gradient;
   final Border? border;
   final List<BoxShadow>? boxShadow;
-  final bool isRobot; // Si es true, no intenta cargar avatar de la red, usa directamente el fallback
+  final bool
+  isRobot; // Si es true, no intenta cargar avatar de la red, usa directamente el fallback
+  final String? robotGifUrl; // URL de GIF animado para robots
 
   const UserAvatar({
     super.key,
@@ -26,6 +28,7 @@ class UserAvatar extends ConsumerStatefulWidget {
     this.border,
     this.boxShadow,
     this.isRobot = false,
+    this.robotGifUrl,
   });
 
   @override
@@ -48,7 +51,10 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
     _loadAvatar();
     // Asegurar carga tras el primer frame (por si el setState no se aplica a tiempo en web)
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && !widget.isRobot && _avatarUrl == null && widget.nick.trim().isNotEmpty) {
+      if (mounted &&
+          !widget.isRobot &&
+          _avatarUrl == null &&
+          widget.nick.trim().isNotEmpty) {
         _loadAvatar();
       }
       if (mounted) {
@@ -68,9 +74,7 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
       // Registrar el nuevo nick para refresco fuera del ciclo de build
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
-          ref
-              .read(avatarRefreshProvider.notifier)
-              .refreshAvatar(widget.nick);
+          ref.read(avatarRefreshProvider.notifier).refreshAvatar(widget.nick);
         }
       });
     }
@@ -83,9 +87,7 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
           _loadAvatar();
-          ref
-              .read(avatarRefreshProvider.notifier)
-              .refreshAvatar(widget.nick);
+          ref.read(avatarRefreshProvider.notifier).refreshAvatar(widget.nick);
         }
       });
     }
@@ -100,7 +102,8 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
       );
 
       // Si el timestamp cambió, recargar el avatar
-      if (refreshTimestamp != null && refreshTimestamp != _lastRefreshTimestamp) {
+      if (refreshTimestamp != null &&
+          refreshTimestamp != _lastRefreshTimestamp) {
         _lastRefreshTimestamp = refreshTimestamp;
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted) _loadAvatar();
@@ -129,13 +132,17 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
   }
 
   Widget _buildSafeFallback() {
-    final initial = widget.nick.trim().isNotEmpty ? widget.nick.trim()[0].toUpperCase() : '?';
+    final initial = widget.nick.trim().isNotEmpty
+        ? widget.nick.trim()[0].toUpperCase()
+        : '?';
     return Container(
       width: widget.size,
       height: widget.size,
       decoration: BoxDecoration(
         gradient: widget.gradient,
-        color: widget.gradient == null ? (widget.backgroundColor ?? Colors.grey) : null,
+        color: widget.gradient == null
+            ? (widget.backgroundColor ?? Colors.grey)
+            : null,
         shape: BoxShape.circle,
         border: widget.border,
         boxShadow: widget.boxShadow,
@@ -158,29 +165,43 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
       setState(() {});
       return;
     }
-    
+
     // Limpiar el nick para asegurar que no tenga espacios extra
     final cleanNick = widget.nick.trim();
     if (cleanNick.isEmpty) {
       setState(() {});
       return;
     }
-    
-    // Si es un robot, no intentar cargar avatar de la red, usar directamente el fallback
+
+    // Si es un robot, también intentar cargar avatar GIF animado del servidor
+    // (los robots pueden tener avatares personalizados subidos)
     if (widget.isRobot) {
+      if (widget.robotGifUrl != null && widget.robotGifUrl!.isNotEmpty) {
+        // Usar el GIF proporcionado externamente
+        if (mounted) {
+          setState(() {
+            _avatarUrl = widget.robotGifUrl;
+          });
+        }
+        return;
+      }
+
+      // Intentar cargar avatar GIF del servidor para robots también
+      final gifUrl = AvatarService.getAvatarGifUrl(cleanNick);
       if (mounted) {
         setState(() {
-          _avatarUrl = null; // Forzar uso del fallback
+          _avatarUrl = gifUrl;
         });
       }
       return;
     }
-    
+
     if (PlatformUtils.isWeb) {
       final staticUrl = AvatarService.getAvatarUrl(cleanNick);
       final gifUrl = AvatarService.getAvatarGifUrl(cleanNick);
-      final hasCustomStatic =
-          await AvatarService.hasLikelyCustomStaticAvatar(cleanNick);
+      final hasCustomStatic = await AvatarService.hasLikelyCustomStaticAvatar(
+        cleanNick,
+      );
 
       if (mounted) {
         setState(() {
@@ -206,40 +227,46 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
       });
     }
   }
-  
 
   Widget _buildAvatarWidget() {
     // Verificar si hay un icono personalizado para este usuario
     final userIcons = ref.read(userIconsProvider);
     final customIcon = userIcons[widget.nick.toLowerCase()];
-    
-    final fallback = widget.fallbackIcon ??
+
+    final fallback =
+        widget.fallbackIcon ??
         customIcon ??
         (widget.nick.isNotEmpty ? widget.nick[0].toUpperCase() : '?');
 
     final currentNick = ref.read(currentNicknameProvider);
     final globalGif = ref.read(globalAvatarGifProvider);
-    final localOwnGif = PlatformUtils.isWeb &&
+    final localOwnGif =
+        PlatformUtils.isWeb &&
             currentNick != null &&
             currentNick.toLowerCase() == widget.nick.toLowerCase() &&
             globalGif != null &&
             globalGif.startsWith('data:image/gif;base64,')
         ? globalGif
         : null;
-    
+
     // Detectar si el fallback es URL (emoticono JoyPixels), asset local o emoji/texto
-    final isFallbackUrl = fallback.startsWith('http://') || fallback.startsWith('https://');
+    final isFallbackUrl =
+        fallback.startsWith('http://') || fallback.startsWith('https://');
     final isFallbackAsset = fallback.startsWith('asset:');
-    
-    // Para usuarios normales, intentar cargar el avatar solo si tenemos una URL válida (no vacía)
-    final shouldTryLoadAvatar = localOwnGif == null &&
-        !widget.isRobot &&
+
+    // Para usuarios y robots, intentar cargar el avatar si tenemos una URL válida (no vacía)
+    final shouldTryLoadAvatar =
+        localOwnGif == null &&
         _avatarUrl != null &&
         _avatarUrl!.trim().isNotEmpty;
-    
+
     // Solo observar away de este nick para evitar rebuilds de todos los avatares
-    final isAway = ref.watch(whoisProvider.select((m) => m[widget.nick.toLowerCase()]?.isAway ?? false));
-    
+    final isAway = ref.watch(
+      whoisProvider.select(
+        (m) => m[widget.nick.toLowerCase()]?.isAway ?? false,
+      ),
+    );
+
     return Stack(
       clipBehavior: Clip.none,
       children: [
@@ -257,50 +284,62 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
             child: localOwnGif != null
                 ? _buildDataUrlGif(localOwnGif)
                 : shouldTryLoadAvatar
-                    ? Image.network(
-                        _avatarUrl!,
-                        width: widget.size,
-                        height: widget.size,
-                        fit: BoxFit.contain,
-                        gaplessPlayback: true,
-                        // En web, preferimos <img> HTML para que entren mejor los PNG hash de xmlrpc.
-                        webHtmlElementStrategy: PlatformUtils.isWeb
-                            ? WebHtmlElementStrategy.prefer
-                            : WebHtmlElementStrategy.never,
-                        // Durante el refresco mantenemos la imagen anterior para evitar
-                        // parpadeos o pequeños saltos visuales en la lista y el chat.
-                        loadingBuilder: (context, child, loadingProgress) {
-                          return child;
-                        },
-                        errorBuilder: (context, error, stackTrace) {
-                          final cleanNick = widget.nick.trim();
-                          if (_gifPreferred &&
-                              _shouldTryStaticFallback &&
-                              _staticAvatarUrl != null &&
-                              _avatarUrl != _staticAvatarUrl) {
-                            _gifPreferred = false;
-                            final nextUrl = _staticAvatarUrl!;
-                            WidgetsBinding.instance.addPostFrameCallback((_) {
-                              if (mounted) setState(() => _avatarUrl = nextUrl);
-                            });
-                            return const SizedBox.expand();
-                          } else if (!_triedDefaultAvatar && !PlatformUtils.isWeb) {
-                            _triedDefaultAvatar = true;
-                            final defaultUrl = AvatarService.getDefaultAvatarUrl(cleanNick);
-                            WidgetsBinding.instance.addPostFrameCallback((_) {
-                              if (mounted) setState(() => _avatarUrl = defaultUrl);
-                            });
-                            return const SizedBox.expand();
-                          }
+                ? Image.network(
+                    _avatarUrl!,
+                    width: widget.size,
+                    height: widget.size,
+                    fit: BoxFit.contain,
+                    gaplessPlayback: true,
+                    // En web, preferimos <img> HTML para que entren mejor los PNG hash de xmlrpc.
+                    webHtmlElementStrategy: PlatformUtils.isWeb
+                        ? WebHtmlElementStrategy.prefer
+                        : WebHtmlElementStrategy.never,
+                    // Durante el refresco mantenemos la imagen anterior para evitar
+                    // parpadeos o pequeños saltos visuales en la lista y el chat.
+                    loadingBuilder: (context, child, loadingProgress) {
+                      return child;
+                    },
+                    errorBuilder: (context, error, stackTrace) {
+                      final cleanNick = widget.nick.trim();
 
-                          return _buildFallback(
-                            fallback,
-                            isFallbackUrl,
-                            isFallbackAsset,
-                          );
-                        },
-                      )
-                    : _buildFallback(fallback, isFallbackUrl, isFallbackAsset),
+                      // Para robots, si falla el GIF, ir directamente al fallback (emoji de robot)
+                      if (widget.isRobot) {
+                        return _buildFallback(
+                          fallback,
+                          isFallbackUrl,
+                          isFallbackAsset,
+                        );
+                      }
+
+                      if (_gifPreferred &&
+                          _shouldTryStaticFallback &&
+                          _staticAvatarUrl != null &&
+                          _avatarUrl != _staticAvatarUrl) {
+                        _gifPreferred = false;
+                        final nextUrl = _staticAvatarUrl!;
+                        WidgetsBinding.instance.addPostFrameCallback((_) {
+                          if (mounted) setState(() => _avatarUrl = nextUrl);
+                        });
+                        return const SizedBox.expand();
+                      } else if (!_triedDefaultAvatar && !PlatformUtils.isWeb) {
+                        _triedDefaultAvatar = true;
+                        final defaultUrl = AvatarService.getDefaultAvatarUrl(
+                          cleanNick,
+                        );
+                        WidgetsBinding.instance.addPostFrameCallback((_) {
+                          if (mounted) setState(() => _avatarUrl = defaultUrl);
+                        });
+                        return const SizedBox.expand();
+                      }
+
+                      return _buildFallback(
+                        fallback,
+                        isFallbackUrl,
+                        isFallbackAsset,
+                      );
+                    },
+                  )
+                : _buildFallback(fallback, isFallbackUrl, isFallbackAsset),
           ),
         ),
         // Indicador de away
@@ -314,10 +353,7 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
               decoration: BoxDecoration(
                 color: Colors.orange,
                 shape: BoxShape.circle,
-                border: Border.all(
-                  color: Colors.white,
-                  width: 2,
-                ),
+                border: Border.all(color: Colors.white, width: 2),
               ),
               child: const Icon(
                 Icons.airplanemode_active,
@@ -353,7 +389,7 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
       return const SizedBox.shrink();
     }
   }
-  
+
   Widget _buildFallback(String fallback, bool isUrl, bool isAsset, {Key? key}) {
     Widget fallbackWidget;
     if (isAsset && fallback.startsWith('asset:')) {
@@ -409,6 +445,8 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
         ),
       );
     }
-    return key != null ? KeyedSubtree(key: key, child: fallbackWidget) : fallbackWidget;
+    return key != null
+        ? KeyedSubtree(key: key, child: fallbackWidget)
+        : fallbackWidget;
   }
 }
