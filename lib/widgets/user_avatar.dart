@@ -16,7 +16,6 @@ class UserAvatar extends ConsumerStatefulWidget {
   final List<BoxShadow>? boxShadow;
   final bool
   isRobot; // Si es true, no intenta cargar avatar de la red, usa directamente el fallback
-  final String? robotGifUrl; // URL de GIF animado para robots
 
   const UserAvatar({
     super.key,
@@ -28,7 +27,6 @@ class UserAvatar extends ConsumerStatefulWidget {
     this.border,
     this.boxShadow,
     this.isRobot = false,
-    this.robotGifUrl,
   });
 
   @override
@@ -173,24 +171,11 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
       return;
     }
 
-    // Si es un robot, también intentar cargar avatar GIF animado del servidor
-    // (los robots pueden tener avatares personalizados subidos)
+    // Si es un robot, no intentar cargar avatar de la red, usar directamente el fallback
     if (widget.isRobot) {
-      if (widget.robotGifUrl != null && widget.robotGifUrl!.isNotEmpty) {
-        // Usar el GIF proporcionado externamente
-        if (mounted) {
-          setState(() {
-            _avatarUrl = widget.robotGifUrl;
-          });
-        }
-        return;
-      }
-
-      // Intentar cargar avatar GIF del servidor para robots también
-      final gifUrl = AvatarService.getAvatarGifUrl(cleanNick);
       if (mounted) {
         setState(() {
-          _avatarUrl = gifUrl;
+          _avatarUrl = null; // Forzar uso del fallback
         });
       }
       return;
@@ -254,9 +239,10 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
         fallback.startsWith('http://') || fallback.startsWith('https://');
     final isFallbackAsset = fallback.startsWith('asset:');
 
-    // Para usuarios y robots, intentar cargar el avatar si tenemos una URL válida (no vacía)
+    // Para usuarios normales, intentar cargar el avatar solo si tenemos una URL válida (no vacía)
     final shouldTryLoadAvatar =
         localOwnGif == null &&
+        !widget.isRobot &&
         _avatarUrl != null &&
         _avatarUrl!.trim().isNotEmpty;
 
@@ -301,15 +287,6 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
                     },
                     errorBuilder: (context, error, stackTrace) {
                       final cleanNick = widget.nick.trim();
-
-                      // Para robots, si falla el GIF, ir directamente al fallback (emoji de robot)
-                      if (widget.isRobot) {
-                        return _buildFallback(
-                          fallback,
-                          isFallbackUrl,
-                          isFallbackAsset,
-                        );
-                      }
 
                       if (_gifPreferred &&
                           _shouldTryStaticFallback &&

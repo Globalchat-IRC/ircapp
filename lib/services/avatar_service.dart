@@ -11,19 +11,6 @@ class AvatarService {
   static const int _customAvatarMinBytes = 10000;
   static const String _webUploadProxyPath = '/api/avatar_upload_proxy.php';
 
-  // Cache para evitar repetidos HEAD requests (dura 5 minutos)
-  static final Map<String, bool> _avatarExistsCache = {};
-  static DateTime? _cacheExpiry;
-  static const Duration _cacheDuration = Duration(minutes: 5);
-
-  static void _cleanExpiredCache() {
-    final now = DateTime.now();
-    if (_cacheExpiry == null || now.isAfter(_cacheExpiry!)) {
-      _avatarExistsCache.clear();
-      _cacheExpiry = now.add(_cacheDuration);
-    }
-  }
-
   // Generar hash MD5 del nick (usando nick exacto case-sensitive como el plugin)
   static String _generateAvatarHash(String nick) {
     // Asegurar que el nick no esté vacío
@@ -144,20 +131,12 @@ class AvatarService {
   /// Heurística para distinguir un PNG hash realmente personalizado del PNG
   /// "por defecto" pequeño generado por xmlrpc.
   static Future<bool> hasLikelyCustomStaticAvatar(String nick) async {
-    _cleanExpiredCache();
-
-    final cacheKey = 'hasLikely_$nick';
-    if (_avatarExistsCache.containsKey(cacheKey)) {
-      return _avatarExistsCache[cacheKey]!;
-    }
-
     try {
       final url = getAvatarUrl(nick);
       final response = await http
           .head(Uri.parse(url))
           .timeout(const Duration(seconds: 3));
       if (response.statusCode != 200) {
-        _avatarExistsCache[cacheKey] = false;
         return false;
       }
 
@@ -167,15 +146,11 @@ class AvatarService {
           : null;
 
       if (contentLength == null) {
-        _avatarExistsCache[cacheKey] = true;
         return true;
       }
 
-      final result = contentLength >= _customAvatarMinBytes;
-      _avatarExistsCache[cacheKey] = result;
-      return result;
+      return contentLength >= _customAvatarMinBytes;
     } catch (_) {
-      _avatarExistsCache[cacheKey] = false;
       return false;
     }
   }
