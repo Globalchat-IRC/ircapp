@@ -44,7 +44,9 @@ class RadioState {
   }
 
   List<RadioStation> getStarredStations() {
-    return stations.where((station) => starredStations.contains(station.name)).toList();
+    return stations
+        .where((station) => starredStations.contains(station.name))
+        .toList();
   }
 
   bool isStarred(RadioStation station) {
@@ -72,18 +74,15 @@ class RadioNotifier extends Notifier<RadioState> {
       final volume = prefs.getDouble('radio_volume') ?? 0.1;
       final starredJson = prefs.getString('radio_starred');
       final activeName = prefs.getString('radio_active');
-      
+
       // debugLog('📻 Configuración cargada: volume=$volume, activeName=$activeName');
-      
+
       List<String> starred = [];
       if (starredJson != null) {
         starred = List<String>.from(jsonDecode(starredJson));
       }
 
-      state = state.copyWith(
-        volume: volume,
-        starredStations: starred,
-      );
+      state = state.copyWith(volume: volume, starredStations: starred);
 
       // Cargar estaciones
       // debugLog('📻 Llamando a loadStations...');
@@ -124,7 +123,9 @@ class RadioNotifier extends Notifier<RadioState> {
       final mixcloudService = MixcloudLiveService();
       if (forceRefresh) {
         mixcloudService.clearCache();
-        debugLog('🔄 [RadioProvider] Caché limpiado, obteniendo URL fresca del stream...');
+        debugLog(
+          '🔄 [RadioProvider] Caché limpiado, obteniendo URL fresca del stream...',
+        );
       }
       final stream = await mixcloudService.getUrbanFlowStream();
       if (stream != null && stream.streamUrl.isNotEmpty) {
@@ -134,8 +135,12 @@ class RadioNotifier extends Notifier<RadioState> {
           debugLog('🔴 [RadioProvider] UrbanFlow está EN VIVO');
           debugLog('🎵 [RadioProvider] URL del stream: ${stream.streamUrl}');
         } else {
-          debugLog('📼 [RadioProvider] UrbanFlow NO está en vivo, usando última sesión grabada: $cloudcastName');
-          debugLog('🎵 [RadioProvider] URL del stream grabado: ${stream.streamUrl}');
+          debugLog(
+            '📼 [RadioProvider] UrbanFlow NO está en vivo, usando última sesión grabada: $cloudcastName',
+          );
+          debugLog(
+            '🎵 [RadioProvider] URL del stream grabado: ${stream.streamUrl}',
+          );
         }
         final updatedStations = currentStations.map((station) {
           if (station.name == 'UrbanFlow') {
@@ -143,25 +148,27 @@ class RadioNotifier extends Notifier<RadioState> {
               id: station.id,
               name: station.name,
               description: isLive
-                  ? (station.description.contains('🔴') 
-                      ? station.description 
-                      : 'UrbanFlow - Canal #urbanflow en IRC GlobalChat 🔴 EN VIVO')
+                  ? (station.description.contains('🔴')
+                        ? station.description
+                        : 'UrbanFlow - Canal #urbanflow en IRC GlobalChat 🔴 EN VIVO')
                   : (cloudcastName.isNotEmpty
-                      ? 'UrbanFlow - Canal #urbanflow en IRC GlobalChat 📼 $cloudcastName'
-                      : 'UrbanFlow - Canal #urbanflow en IRC GlobalChat 📼 Sesión grabada'),
+                        ? 'UrbanFlow - Canal #urbanflow en IRC GlobalChat 📼 $cloudcastName'
+                        : 'UrbanFlow - Canal #urbanflow en IRC GlobalChat 📼 Sesión grabada'),
               source: stream.streamUrl, // ← URL del stream (en vivo o grabado)
               namesite: station.namesite,
               salon: station.salon,
               genre: station.genre,
               bitrate: stream.info?['bitrate'] ?? station.bitrate,
-              currentArtistSong: isLive 
+              currentArtistSong: isLive
                   ? 'Emisión en directo'
-                  : (cloudcastName.isNotEmpty ? cloudcastName : 'Sesión grabada'),
+                  : (cloudcastName.isNotEmpty
+                        ? cloudcastName
+                        : 'Sesión grabada'),
             );
           }
           return station;
         }).toList();
-        
+
         // Actualizar también la estación activa si es UrbanFlow
         RadioStation? updatedActive = state.activeStation;
         if (state.activeStation?.name == 'UrbanFlow') {
@@ -170,14 +177,16 @@ class RadioNotifier extends Notifier<RadioState> {
             orElse: () => state.activeStation!,
           );
         }
-        
+
         state = state.copyWith(
           stations: updatedStations,
           activeStation: updatedActive,
         );
       } else {
-        debugLog('ℹ️ [RadioProvider] UrbanFlow NO está disponible (ni en vivo ni grabado), usando URL por defecto');
-        
+        debugLog(
+          'ℹ️ [RadioProvider] UrbanFlow NO está disponible (ni en vivo ni grabado), usando URL por defecto',
+        );
+
         // Restaurar la URL por defecto de Mixcloud
         final updatedStations = state.stations.map((station) {
           if (station.name == 'UrbanFlow') {
@@ -232,7 +241,9 @@ class RadioNotifier extends Notifier<RadioState> {
       http.Response? response;
       for (var i = 0; i < urls.length; i++) {
         try {
-          response = await http.get(Uri.parse(urls[i])).timeout(const Duration(seconds: 5));
+          response = await http
+              .get(Uri.parse(urls[i]))
+              .timeout(const Duration(seconds: 5));
           if (response.statusCode == 200) break;
         } catch (_) {
           continue;
@@ -242,7 +253,9 @@ class RadioNotifier extends Notifier<RadioState> {
       if (response == null || response.statusCode != 200) return;
 
       final List<dynamic> jsonList = jsonDecode(response.body);
-      final allStations = jsonList.map((json) => RadioStation.fromJson(json)).toList();
+      final allStations = jsonList
+          .map((json) => RadioStation.fromJson(json))
+          .toList();
       final byName = <String, RadioStation>{};
       for (var i = 0; i < allStations.length; i++) {
         byName[allStations[i].name] = allStations[i];
@@ -323,18 +336,20 @@ class RadioNotifier extends Notifier<RadioState> {
         id: 'zeno1',
         name: 'NuestrasVoces',
         description: '🎤✨ Nuevos talentos y dedicatorias',
-        source: 'https://stream-179.zeno.fm/td7dw1np6s8uv?zt=eyJhbGciOiJIUzI1NiJ9.eyJzdHJlYW0iOiJ0ZDdkdzFucDZzOHV2IiwiaG9zdCI6InN0cmVhbS0xNzkuemVuby5mbSIsInJ0dGwiOjUsImp0aSI6ImZ6dGxpd002U0RlSmo0S3VfUE1xNWciLCJpYXQiOjE3NTg3NTU0MDMsImV4cCI6MTc1ODc1NTQ2M30.wl2oH7CHKjldHmqf3gkqqVhzl0lpJMTc3XebALO65l0',
+        source:
+            'https://stream-179.zeno.fm/td7dw1np6s8uv?zt=eyJhbGciOiJIUzI1NiJ9.eyJzdHJlYW0iOiJ0ZDdkdzFucDZzOHV2IiwiaG9zdCI6InN0cmVhbS0xNzkuemVuby5mbSIsInJ0dGwiOjUsImp0aSI6ImZ6dGxpd002U0RlSmo0S3VfUE1xNWciLCJpYXQiOjE3NTg3NTU0MDMsImV4cCI6MTc1ODc1NTQ2M30.wl2oH7CHKjldHmqf3gkqqVhzl0lpJMTc3XebALO65l0',
         namesite: 'https://globalchat.org/',
         salon: '#nuestrasvoces',
       ),
-      RadioStation(
-        id: 'zeno2',
-        name: 'SoundMusic',
-        description: '🎶🌟 Variado gusto musical',
-        source: 'https://stream.zeno.fm/3ezwa4mtghmtv',
-        namesite: 'https://zeno.fm/radio/soundmusic/',
-        salon: '#soundmusic',
-      ),
+      // SoundMusic comentada temporalment
+      // RadioStation(
+      //   id: 'zeno2',
+      //   name: 'SoundMusic',
+      //   description: '🎶🌟 Variado gusto musical',
+      //   source: 'https://stream.zeno.fm/3ezwa4mtghmtv',
+      //   namesite: 'https://zeno.fm/radio/soundmusic/',
+      //   salon: '#soundmusic',
+      // ),
       RadioStation(
         id: 'urban1',
         name: 'UrbanFlow',
@@ -361,7 +376,9 @@ class RadioNotifier extends Notifier<RadioState> {
           active = stations[0];
         }
       } else if (state.starredStations.isNotEmpty && stations.isNotEmpty) {
-        final starred = stations.where((s) => state.starredStations.contains(s.name)).toList();
+        final starred = stations
+            .where((s) => state.starredStations.contains(s.name))
+            .toList();
         active = starred.isNotEmpty ? starred[0] : stations[0];
       } else if (stations.isNotEmpty) {
         try {
@@ -395,7 +412,9 @@ class RadioNotifier extends Notifier<RadioState> {
   Future<void> setActiveStation(RadioStation station) async {
     // Si es UrbanFlow, verificar primero si hay stream en vivo
     if (station.name == 'UrbanFlow') {
-      debugLog('🎵 [RadioProvider] Usuario seleccionó UrbanFlow, obteniendo URL fresca del stream...');
+      debugLog(
+        '🎵 [RadioProvider] Usuario seleccionó UrbanFlow, obteniendo URL fresca del stream...',
+      );
       // Forzar actualización para obtener URL fresca (sin caché)
       await _checkLiveStreams(forceRefresh: true);
       // Después de verificar, obtener la estación actualizada
@@ -444,4 +463,3 @@ final radioServiceProvider = Provider<RadioService>((ref) {
   ref.onDispose(() => service.dispose());
   return service;
 });
-
