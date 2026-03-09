@@ -44,10 +44,7 @@ class AppTheme {
         foregroundColor: textPrimary,
         elevation: 0,
       ),
-      cardTheme: CardThemeData(
-        color: surface,
-        elevation: 2,
-      ),
+      cardTheme: CardThemeData(color: surface, elevation: 2),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: surface,
@@ -65,16 +62,12 @@ class AppTheme {
         style: ElevatedButton.styleFrom(
           backgroundColor: primary,
           foregroundColor: textPrimary,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
-          ),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
         ),
       ),
       textButtonTheme: TextButtonThemeData(
-        style: TextButton.styleFrom(
-          foregroundColor: primary,
-        ),
+        style: TextButton.styleFrom(foregroundColor: primary),
       ),
       floatingActionButtonTheme: FloatingActionButtonThemeData(
         backgroundColor: primary,
@@ -104,10 +97,7 @@ class AppTheme {
         foregroundColor: textPrimary,
         elevation: 0,
       ),
-      cardTheme: CardThemeData(
-        color: surface,
-        elevation: 2,
-      ),
+      cardTheme: CardThemeData(color: surface, elevation: 2),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: surface,
@@ -125,16 +115,12 @@ class AppTheme {
         style: ElevatedButton.styleFrom(
           backgroundColor: primary,
           foregroundColor: textPrimary,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
-          ),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
         ),
       ),
       textButtonTheme: TextButtonThemeData(
-        style: TextButton.styleFrom(
-          foregroundColor: primary,
-        ),
+        style: TextButton.styleFrom(foregroundColor: primary),
       ),
       floatingActionButtonTheme: FloatingActionButtonThemeData(
         backgroundColor: primary,
@@ -163,8 +149,8 @@ class AppTheme {
       primary: Colors.blue[700]!,
       secondary: Colors.blue[400]!,
       accent: Colors.orange,
-      background: Colors.white,
-      surface: Colors.grey[100]!,
+      background: const Color(0xFFF5F5F5), // Gris muy claro
+      surface: Colors.grey[200]!,
       textPrimary: Colors.black87,
       textSecondary: Colors.grey[700]!,
       error: Colors.red,
@@ -219,7 +205,9 @@ class AppTheme {
       secondary: const Color(0xFFA78BFA), // Púrpura medio
       accent: const Color(0xFFC4B5FD), // Púrpura claro
       background: const Color(0xFF1E1B4B), // Púrpura oscuro profundo
-      surface: const Color(0xFF312E81), // Superficie púrpura oscura con contraste
+      surface: const Color(
+        0xFF312E81,
+      ), // Superficie púrpura oscura con contraste
       textPrimary: Colors.white,
       textSecondary: const Color(0xFFDDD6FE), // Púrpura claro legible
       error: const Color(0xFFEF4444), // Rojo moderno
@@ -252,7 +240,9 @@ class AppTheme {
       secondary: const Color(0xFFFBBF24), // Amarillo medio
       accent: const Color(0xFFFCD34D), // Amarillo claro
       background: const Color(0xFF78350F), // Amarillo oscuro profundo
-      surface: const Color(0xFF92400E), // Superficie amarilla oscura con contraste
+      surface: const Color(
+        0xFF92400E,
+      ), // Superficie amarilla oscura con contraste
       textPrimary: Colors.white,
       textSecondary: const Color(0xFFFEF3C7), // Amarillo claro legible
       error: const Color(0xFFDC2626), // Rojo para errores
@@ -274,7 +264,9 @@ class AppTheme {
       secondary: const Color(0xFFFB923C), // Naranja medio
       accent: const Color(0xFFFDBA74), // Naranja claro
       background: const Color(0xFF7C2D12), // Naranja oscuro profundo
-      surface: const Color(0xFF9A3412), // Superficie naranja oscura con contraste
+      surface: const Color(
+        0xFF9A3412,
+      ), // Superficie naranja oscura con contraste
       textPrimary: Colors.white,
       textSecondary: const Color(0xFFFFEDD5), // Naranja claro legible
       error: const Color(0xFFDC2626), // Rojo para errores
@@ -285,7 +277,9 @@ class AppTheme {
       secondary: const Color(0xFF818CF8), // Índigo medio
       accent: const Color(0xFFA5B4FC), // Índigo claro
       background: const Color(0xFF312E81), // Índigo oscuro profundo
-      surface: const Color(0xFF3730A3), // Superficie índigo oscura con contraste
+      surface: const Color(
+        0xFF3730A3,
+      ), // Superficie índigo oscura con contraste
       textPrimary: Colors.white,
       textSecondary: const Color(0xFFE0E7FF), // Índigo claro legible
       error: const Color(0xFFDC2626), // Rojo para errores
@@ -296,7 +290,9 @@ class AppTheme {
       secondary: const Color(0xFF10B981), // Esmeralda medio
       accent: const Color(0xFF34D399), // Esmeralda claro
       background: const Color(0xFF064E3B), // Esmeralda oscuro profundo
-      surface: const Color(0xFF065F46), // Superficie esmeralda oscura con contraste
+      surface: const Color(
+        0xFF065F46,
+      ), // Superficie esmeralda oscura con contraste
       textPrimary: Colors.white,
       textSecondary: const Color(0xFFD1FAE5), // Esmeralda claro legible
       error: const Color(0xFFDC2626), // Rojo para errores
@@ -318,7 +314,9 @@ class AppTheme {
       secondary: const Color(0xFFE879F9), // Fucsia medio
       accent: const Color(0xFFF0ABFC), // Fucsia claro
       background: const Color(0xFF701A75), // Fucsia oscuro profundo
-      surface: const Color(0xFF86198F), // Superficie fucsia oscura con contraste
+      surface: const Color(
+        0xFF86198F,
+      ), // Superficie fucsia oscura con contraste
       textPrimary: Colors.white,
       textSecondary: const Color(0xFFFAE8FF), // Fucsia claro legible
       error: const Color(0xFFDC2626), // Rojo para errores
@@ -351,7 +349,9 @@ class AppTheme {
       secondary: const Color(0xFFA78BFA), // Violeta medio
       accent: const Color(0xFFC4B5FD), // Violeta claro
       background: const Color(0xFF4C1D95), // Violeta oscuro profundo
-      surface: const Color(0xFF5B21B6), // Superficie violeta oscura con contraste
+      surface: const Color(
+        0xFF5B21B6,
+      ), // Superficie violeta oscura con contraste
       textPrimary: Colors.white,
       textSecondary: const Color(0xFFEDE9FE), // Violeta claro legible
       error: const Color(0xFFDC2626), // Rojo para errores
@@ -364,7 +364,9 @@ class AppTheme {
       background: const Color(0xFF0A0A0A), // Negro profundo
       surface: const Color(0xFF1A1A1A), // Gris muy oscuro
       textPrimary: const Color(0xFF39FF14), // Verde neón para texto
-      textSecondary: const Color(0xFF7FFF00), // Verde chartreuse para texto secundario
+      textSecondary: const Color(
+        0xFF7FFF00,
+      ), // Verde chartreuse para texto secundario
       error: const Color(0xFFFF1744), // Rojo neón para errores
     ),
     AppTheme(
@@ -375,8 +377,12 @@ class AppTheme {
       background: const Color(0xFF1A0A1A), // Fondo oscuro con tinte morado
       surface: const Color(0xFF2D1B2D), // Superficie morada oscura
       textPrimary: const Color(0xFFFFD700), // Texto dorado (como los detalles)
-      textSecondary: const Color(0xFFD1C4E9), // Morado claro para texto secundario
-      error: const Color(0xFFC62828), // Rojo oscuro (como las túnicas de algunas cofradías)
+      textSecondary: const Color(
+        0xFFD1C4E9,
+      ), // Morado claro para texto secundario
+      error: const Color(
+        0xFFC62828,
+      ), // Rojo oscuro (como las túnicas de algunas cofradías)
     ),
     AppTheme(
       name: 'Canal Sur',
@@ -386,29 +392,45 @@ class AppTheme {
       background: const Color(0xFF0A1F0F), // Fondo verde oscuro
       surface: const Color(0xFF1A3F2A), // Superficie verde oscura
       textPrimary: Colors.white, // Texto blanco
-      textSecondary: const Color(0xFFB8E6D1), // Verde claro para texto secundario
+      textSecondary: const Color(
+        0xFFB8E6D1,
+      ), // Verde claro para texto secundario
       error: const Color(0xFFDC2626), // Rojo para errores
     ),
     AppTheme(
       name: 'NuestrasVoces',
-      primary: const Color(0xFF1E3A8A), // Azul oscuro elegante (como el fondo del sitio)
+      primary: const Color(
+        0xFF1E3A8A,
+      ), // Azul oscuro elegante (como el fondo del sitio)
       secondary: const Color(0xFF3B82F6), // Azul vibrante (acento principal)
       accent: const Color(0xFF60A5FA), // Azul claro brillante (para destacar)
-      background: const Color(0xFF0F172A), // Fondo azul muy oscuro (negro azulado)
+      background: const Color(
+        0xFF0F172A,
+      ), // Fondo azul muy oscuro (negro azulado)
       surface: const Color(0xFF1E293B), // Superficie azul oscura con contraste
       textPrimary: Colors.white, // Texto blanco (legible y elegante)
-      textSecondary: const Color(0xFFCBD5E1), // Gris azulado claro (texto secundario)
+      textSecondary: const Color(
+        0xFFCBD5E1,
+      ), // Gris azulado claro (texto secundario)
       error: const Color(0xFFEF4444), // Rojo moderno para errores
     ),
     AppTheme(
       name: 'mIRC',
-      primary: const Color(0xFFC0C0C0), // Gris claro para barras de herramientas (estilo mIRC clásico)
-      secondary: const Color(0xFF808080), // Gris medio para elementos secundarios
+      primary: const Color(
+        0xFFC0C0C0,
+      ), // Gris claro para barras de herramientas (estilo mIRC clásico)
+      secondary: const Color(
+        0xFF808080,
+      ), // Gris medio para elementos secundarios
       accent: const Color(0xFF0000FF), // Azul IRC clásico para links y acentos
       background: const Color(0xFFFFFFFF), // Fondo blanco (estilo mIRC clásico)
-      surface: const Color(0xFFF0F0F0), // Gris muy claro para superficies (paneles)
+      surface: const Color(
+        0xFFF0F0F0,
+      ), // Gris muy claro para superficies (paneles)
       textPrimary: const Color(0xFF000000), // Texto negro (estilo mIRC clásico)
-      textSecondary: const Color(0xFF404040), // Gris oscuro para texto secundario
+      textSecondary: const Color(
+        0xFF404040,
+      ), // Gris oscuro para texto secundario
       error: const Color(0xFFFF0000), // Rojo clásico para errores
     ),
   ];
