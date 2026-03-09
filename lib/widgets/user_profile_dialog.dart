@@ -14,19 +14,17 @@ import 'user_avatar.dart';
 /// Diálogo de perfil de usuario completo
 class UserProfileDialog extends ConsumerStatefulWidget {
   final String nick;
-  final String? currentChannel; // Canal actual para detectar si es el robot oficial
-  
-  const UserProfileDialog({
-    super.key,
-    required this.nick,
-    this.currentChannel,
-  });
-  
+  final String?
+  currentChannel; // Canal actual para detectar si es el robot oficial
+
+  const UserProfileDialog({super.key, required this.nick, this.currentChannel});
+
   @override
   ConsumerState<UserProfileDialog> createState() => _UserProfileDialogState();
 }
 
-class _UserProfileDialogState extends ConsumerState<UserProfileDialog> with SingleTickerProviderStateMixin {
+class _UserProfileDialogState extends ConsumerState<UserProfileDialog>
+    with SingleTickerProviderStateMixin {
   UserProfile? _profile;
   List<Map<String, dynamic>> _reputationHistory = [];
   List<Map<String, dynamic>> _conferences = [];
@@ -34,30 +32,33 @@ class _UserProfileDialogState extends ConsumerState<UserProfileDialog> with Sing
   late TabController _tabController;
   final TextEditingController _notesController = TextEditingController();
   bool _notesInitialized = false;
-  
+
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
     _loadProfile();
   }
-  
+
   @override
   void dispose() {
     _tabController.dispose();
     _notesController.dispose();
     super.dispose();
   }
-  
+
   Future<void> _loadProfile() async {
     setState(() => _isLoading = true);
-    
+
     try {
       final db = ref.read(videoDatabaseProvider);
       final profile = await db.getUserProfile(widget.nick);
       final history = await db.getReputationHistory(widget.nick, limit: 20);
-      final conferences = await db.getConferencesHistory(nick: widget.nick, limit: 20);
-      
+      final conferences = await db.getConferencesHistory(
+        nick: widget.nick,
+        limit: 20,
+      );
+
       setState(() {
         _profile = profile;
         _reputationHistory = history;
@@ -69,7 +70,7 @@ class _UserProfileDialogState extends ConsumerState<UserProfileDialog> with Sing
       setState(() => _isLoading = false);
     }
   }
-  
+
   @override
   Widget build(BuildContext context) {
     return Dialog(
@@ -79,12 +80,12 @@ class _UserProfileDialogState extends ConsumerState<UserProfileDialog> with Sing
         child: _isLoading
             ? const Center(child: CircularProgressIndicator())
             : _profile == null
-                ? _buildNoProfile()
-                : _buildProfileContent(),
+            ? _buildNoProfile()
+            : _buildProfileContent(),
       ),
     );
   }
-  
+
   Widget _buildNoProfile() {
     return Center(
       child: Column(
@@ -107,7 +108,7 @@ class _UserProfileDialogState extends ConsumerState<UserProfileDialog> with Sing
       ),
     );
   }
-  
+
   Widget _buildProfileContent() {
     return Column(
       children: [
@@ -126,7 +127,7 @@ class _UserProfileDialogState extends ConsumerState<UserProfileDialog> with Sing
       ],
     );
   }
-  
+
   static Color _getUserColor(int hash) {
     const colors = [
       Color(0xFFFFA500),
@@ -145,8 +146,14 @@ class _UserProfileDialogState extends ConsumerState<UserProfileDialog> with Sing
 
   Widget _buildHeader() {
     final nickLower = _profile!.nick.toLowerCase();
-    final isRobot = nickLower == 'globalchat' || nickLower.endsWith('bot') || nickLower == 'orion' || nickLower == 'stats';
-    final userColor = isRobot ? const Color(0xFFFFD700) : _getUserColor(_profile!.nick.hashCode);
+    final isRobot =
+        nickLower == 'globalchat' ||
+        nickLower.endsWith('bot') ||
+        nickLower == 'orion' ||
+        nickLower == 'stats';
+    final userColor = isRobot
+        ? const Color(0xFFFFD700)
+        : _getUserColor(_profile!.nick.hashCode);
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -214,10 +221,7 @@ class _UserProfileDialogState extends ConsumerState<UserProfileDialog> with Sing
                   ),
                 ),
                 const SizedBox(height: 8),
-                ReputationBadge(
-                  reputation: _profile!.reputation,
-                  size: 16,
-                ),
+                ReputationBadge(reputation: _profile!.reputation, size: 16),
               ],
             ),
           ),
@@ -229,7 +233,7 @@ class _UserProfileDialogState extends ConsumerState<UserProfileDialog> with Sing
       ),
     );
   }
-  
+
   Widget _buildTabBar() {
     return TabBar(
       controller: _tabController,
@@ -240,12 +244,13 @@ class _UserProfileDialogState extends ConsumerState<UserProfileDialog> with Sing
       ],
     );
   }
-  
+
   Widget _buildInfoTab() {
     // Detectar si es el robot oficial de GlobalChat
-    final isGlobalChatBot = widget.nick.toLowerCase() == 'globalchat' && 
-                          widget.currentChannel?.toLowerCase() == '#globalchat';
-    
+    final isGlobalChatBot =
+        widget.nick.toLowerCase() == 'globalchat' &&
+        widget.currentChannel?.toLowerCase() == '#globalchat';
+
     return SingleChildScrollView(
       padding: const EdgeInsets.all(20),
       child: Column(
@@ -286,10 +291,7 @@ class _UserProfileDialogState extends ConsumerState<UserProfileDialog> with Sing
                       color: const Color(0xFFFFD700).withValues(alpha: 0.3),
                       borderRadius: BorderRadius.circular(8),
                     ),
-                    child: const Text(
-                      '🤖',
-                      style: TextStyle(fontSize: 28),
-                    ),
+                    child: const Text('🤖', style: TextStyle(fontSize: 28)),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
@@ -329,7 +331,9 @@ class _UserProfileDialogState extends ConsumerState<UserProfileDialog> with Sing
           _buildInfoCard(
             '✉️ Email',
             _profile!.emailVerified ? 'Verificado' : 'No verificado',
-            subtitle: _profile!.emailVerified ? 'Email confirmado' : 'Click para verificar',
+            subtitle: _profile!.emailVerified
+                ? 'Email confirmado'
+                : 'Click para verificar',
             trailing: _profile!.emailVerified
                 ? const Icon(Icons.check_circle, color: Colors.green)
                 : IconButton(
@@ -367,14 +371,18 @@ class _UserProfileDialogState extends ConsumerState<UserProfileDialog> with Sing
           ),
           _buildInfoCard(
             '🎥 Videoconferencias',
-            _profile!.hasAcceptedVideoTerms ? 'Términos aceptados' : 'No aceptados',
+            _profile!.hasAcceptedVideoTerms
+                ? 'Términos aceptados'
+                : 'No aceptados',
             subtitle: _profile!.canEnableVideo
                 ? '✅ Puede usar video'
                 : '❌ ${_profile!.videoRestrictionReason ?? "Restricciones activas"}',
           ),
           _buildInfoCard(
             '🎙️ Audioconferencias',
-            _profile!.hasAcceptedVideoTerms ? 'Disponible' : 'Términos no aceptados',
+            _profile!.hasAcceptedVideoTerms
+                ? 'Disponible'
+                : 'Términos no aceptados',
             subtitle: _profile!.canEnableVideo
                 ? '✅ Puede usar audio'
                 : '❌ ${_profile!.videoRestrictionReason ?? "Restricciones activas"}',
@@ -385,23 +393,28 @@ class _UserProfileDialogState extends ConsumerState<UserProfileDialog> with Sing
           Consumer(
             builder: (context, ref, _) {
               final currentNick = ref.watch(currentNicknameProvider);
-              final isOwnProfile = currentNick != null && 
+              final isOwnProfile =
+                  currentNick != null &&
                   currentNick.toLowerCase() == widget.nick.toLowerCase();
-              
+
               // Debug logs
-              debugLog('🎵 [DIALOGO] isOwnProfile: $isOwnProfile, currentNick: $currentNick, widget.nick: ${widget.nick}');
-              
+              debugLog(
+                '🎵 [DIALOGO] isOwnProfile: $isOwnProfile, currentNick: $currentNick, widget.nick: ${widget.nick}',
+              );
+
               if (!isOwnProfile) {
                 return const SizedBox.shrink();
               }
-              
+
               final radioState = ref.watch(radioProvider);
               final isPlaying = radioState.isPlaying;
               final activeStation = radioState.activeStation;
-              
+
               // Debug logs
-              debugLog('🎵 [DIALOGO] Radio state - isPlaying: $isPlaying, activeStation: ${activeStation?.name ?? "null"}');
-              
+              debugLog(
+                '🎵 [DIALOGO] Radio state - isPlaying: $isPlaying, activeStation: ${activeStation?.name ?? "null"}',
+              );
+
               // Mostrar siempre la sección de radio, pero con diferentes contenidos según el estado
               return Column(
                 children: [
@@ -436,18 +449,12 @@ class _UserProfileDialogState extends ConsumerState<UserProfileDialog> with Sing
           children: [
             const Text(
               '📝 Notas privadas',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-              ),
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 8),
             Text(
               'Estas notas solo se guardan en este navegador. Úsalas para recordar quién es este usuario, roles, acuerdos, etc.',
-              style: TextStyle(
-                fontSize: 12,
-                color: Colors.grey[700],
-              ),
+              style: TextStyle(fontSize: 12, color: Colors.grey[700]),
             ),
             const SizedBox(height: 8),
             TextField(
@@ -455,7 +462,8 @@ class _UserProfileDialogState extends ConsumerState<UserProfileDialog> with Sing
               maxLines: 4,
               minLines: 3,
               decoration: InputDecoration(
-                hintText: 'Escribe aquí tus notas sobre ${widget.nick} (solo las ves tú)',
+                hintText:
+                    'Escribe aquí tus notas sobre ${widget.nick} (solo las ves tú)',
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(8),
                 ),
@@ -464,7 +472,9 @@ class _UserProfileDialogState extends ConsumerState<UserProfileDialog> with Sing
               ),
               onChanged: (value) {
                 // Guardar nota en segundo plano
-                ref.read(userNotesProvider.notifier).setNote(widget.nick, value);
+                ref
+                    .read(userNotesProvider.notifier)
+                    .setNote(widget.nick, value);
               },
             ),
           ],
@@ -472,7 +482,7 @@ class _UserProfileDialogState extends ConsumerState<UserProfileDialog> with Sing
       },
     );
   }
-  
+
   // Mensaje cuando la radio está apagada
   Widget _buildRadioOffCard() {
     return Container(
@@ -480,18 +490,11 @@ class _UserProfileDialogState extends ConsumerState<UserProfileDialog> with Sing
       decoration: BoxDecoration(
         color: Colors.grey.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: Colors.grey.withValues(alpha: 0.2),
-          width: 1,
-        ),
+        border: Border.all(color: Colors.grey.withValues(alpha: 0.2), width: 1),
       ),
       child: Row(
         children: [
-          const Icon(
-            Icons.radio,
-            color: Colors.grey,
-            size: 24,
-          ),
+          const Icon(Icons.radio, color: Colors.grey, size: 24),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -499,18 +502,12 @@ class _UserProfileDialogState extends ConsumerState<UserProfileDialog> with Sing
               children: [
                 const Text(
                   'Radio apagada',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.bold,
-                  ),
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 4),
                 const Text(
                   'Enciende la radio para compartir la canción que estás escuchando',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey,
-                  ),
+                  style: TextStyle(fontSize: 12, color: Colors.grey),
                 ),
               ],
             ),
@@ -532,13 +529,13 @@ class _UserProfileDialogState extends ConsumerState<UserProfileDialog> with Sing
     }
     return null;
   }
-  
+
   // Construir tarjeta para compartir canción
   Widget _buildShareSongCard(WidgetRef ref, RadioStation activeStation) {
     final currentSong = activeStation.currentArtistSong ?? 'Sin información';
     final stationName = activeStation.name;
     final channelName = _getChannelForStation(stationName);
-    
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -561,11 +558,7 @@ class _UserProfileDialogState extends ConsumerState<UserProfileDialog> with Sing
         children: [
           Row(
             children: [
-              const Icon(
-                Icons.music_note,
-                color: Colors.purple,
-                size: 24,
-              ),
+              const Icon(Icons.music_note, color: Colors.purple, size: 24),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
@@ -592,10 +585,7 @@ class _UserProfileDialogState extends ConsumerState<UserProfileDialog> with Sing
                     const SizedBox(height: 4),
                     Text(
                       'En $stationName',
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: Colors.grey,
-                      ),
+                      style: const TextStyle(fontSize: 12, color: Colors.grey),
                     ),
                   ],
                 ),
@@ -607,7 +597,13 @@ class _UserProfileDialogState extends ConsumerState<UserProfileDialog> with Sing
             SizedBox(
               width: double.infinity,
               child: ElevatedButton.icon(
-                onPressed: () => _sendSongToChannel(context, ref, channelName, stationName, currentSong),
+                onPressed: () => _sendSongToChannel(
+                  context,
+                  ref,
+                  channelName,
+                  stationName,
+                  currentSong,
+                ),
                 icon: const Icon(Icons.send, size: 18),
                 label: const Text('Enviar canción al canal'),
                 style: ElevatedButton.styleFrom(
@@ -631,19 +627,12 @@ class _UserProfileDialogState extends ConsumerState<UserProfileDialog> with Sing
               ),
               child: const Row(
                 children: [
-                  Icon(
-                    Icons.info_outline,
-                    color: Colors.grey,
-                    size: 18,
-                  ),
+                  Icon(Icons.info_outline, color: Colors.grey, size: 18),
                   SizedBox(width: 8),
                   Expanded(
                     child: Text(
                       'Esta estación no tiene canal asociado',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.grey,
-                      ),
+                      style: TextStyle(fontSize: 12, color: Colors.grey),
                     ),
                   ),
                 ],
@@ -654,7 +643,7 @@ class _UserProfileDialogState extends ConsumerState<UserProfileDialog> with Sing
       ),
     );
   }
-  
+
   // Enviar canción al canal correspondiente
   Future<void> _sendSongToChannel(
     BuildContext context,
@@ -666,26 +655,27 @@ class _UserProfileDialogState extends ConsumerState<UserProfileDialog> with Sing
     try {
       final ircService = ref.read(ircServiceProvider);
       final channels = ref.read(channelsProvider);
-      
+
       // Verificar si el usuario está en el canal
       final normalizedChannel = channelName.toLowerCase();
       final isInChannel = channels.containsKey(normalizedChannel);
-      
+
       // Si no está en el canal, unirse primero
       if (!isInChannel) {
         ircService.joinChannel(channelName);
         // Esperar un poco para que el servidor procese el JOIN
         await Future.delayed(const Duration(milliseconds: 500));
       }
-      
+
       // Crear mensaje moderno y atractivo
-      final message = '🎵 🎶 ¡Escuchando ahora en $stationName! 🎶 🎵\n'
+      final message =
+          '🎵 🎶 ¡Escuchando ahora en $stationName! 🎶 🎵\n'
           '▶️ **$currentSong**\n'
           '📻 ¡Únete a escuchar en $channelName! 🎧';
-      
+
       // Enviar mensaje al canal
       ircService.sendMessage(channelName, message);
-      
+
       // Mostrar confirmación
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -711,7 +701,7 @@ class _UserProfileDialogState extends ConsumerState<UserProfileDialog> with Sing
           ),
         );
       }
-      
+
       // Cerrar el diálogo después de enviar
       if (context.mounted) {
         Navigator.of(context).pop();
@@ -728,7 +718,7 @@ class _UserProfileDialogState extends ConsumerState<UserProfileDialog> with Sing
       }
     }
   }
-  
+
   Widget _buildReputationTab() {
     return _reputationHistory.isEmpty
         ? const Center(child: Text('Sin historial de reputación'))
@@ -739,7 +729,7 @@ class _UserProfileDialogState extends ConsumerState<UserProfileDialog> with Sing
               final entry = _reputationHistory[index];
               final change = entry['change_amount'] as int;
               final isPositive = change > 0;
-              
+
               return Card(
                 child: ListTile(
                   leading: Icon(
@@ -763,7 +753,7 @@ class _UserProfileDialogState extends ConsumerState<UserProfileDialog> with Sing
             },
           );
   }
-  
+
   Widget _buildActivityTab() {
     return _conferences.isEmpty
         ? const Center(child: Text('Sin actividad de conferencias'))
@@ -774,7 +764,7 @@ class _UserProfileDialogState extends ConsumerState<UserProfileDialog> with Sing
               final conf = _conferences[index];
               final startTime = DateTime.parse(conf['start_time'] as String);
               final duration = conf['duration_seconds'] as int?;
-              
+
               return Card(
                 child: ListTile(
                   leading: const Icon(Icons.videocam, color: Colors.blue),
@@ -782,7 +772,9 @@ class _UserProfileDialogState extends ConsumerState<UserProfileDialog> with Sing
                   subtitle: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('Iniciado: ${DateFormat('dd/MM HH:mm').format(startTime)}'),
+                      Text(
+                        'Iniciado: ${DateFormat('dd/MM HH:mm').format(startTime)}',
+                      ),
                       if (duration != null)
                         Text('Duración: ${_formatDuration(duration)}'),
                     ],
@@ -796,7 +788,7 @@ class _UserProfileDialogState extends ConsumerState<UserProfileDialog> with Sing
             },
           );
   }
-  
+
   Widget _buildInfoCard(
     String title,
     String value, {
@@ -815,10 +807,7 @@ class _UserProfileDialogState extends ConsumerState<UserProfileDialog> with Sing
                 children: [
                   Text(
                     title,
-                    style: const TextStyle(
-                      fontSize: 14,
-                      color: Colors.grey,
-                    ),
+                    style: const TextStyle(fontSize: 14, color: Colors.grey),
                   ),
                   const SizedBox(height: 4),
                   Text(
@@ -832,22 +821,19 @@ class _UserProfileDialogState extends ConsumerState<UserProfileDialog> with Sing
                     const SizedBox(height: 4),
                     Text(
                       subtitle,
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: Colors.grey,
-                      ),
+                      style: const TextStyle(fontSize: 12, color: Colors.grey),
                     ),
                   ],
                 ],
               ),
             ),
-            if (trailing != null) trailing,
+            ?trailing,
           ],
         ),
       ),
     );
   }
-  
+
   String _getReputationDescription() {
     final rep = _profile!.reputation;
     if (rep >= 80) return 'Excelente comportamiento';
@@ -856,11 +842,11 @@ class _UserProfileDialogState extends ConsumerState<UserProfileDialog> with Sing
     if (rep >= 20) return 'Comportamiento cuestionable';
     return 'Múltiples infracciones';
   }
-  
+
   String _formatDuration(int seconds) {
     final minutes = seconds ~/ 60;
     final hours = minutes ~/ 60;
-    
+
     if (hours > 0) {
       return '${hours}h ${minutes % 60}m';
     } else if (minutes > 0) {
@@ -870,4 +856,3 @@ class _UserProfileDialogState extends ConsumerState<UserProfileDialog> with Sing
     }
   }
 }
-

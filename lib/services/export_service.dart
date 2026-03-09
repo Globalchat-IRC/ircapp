@@ -21,13 +21,17 @@ class ExportService {
   ) async {
     try {
       final directory = await getApplicationDocumentsDirectory();
-      final timestamp = DateFormat('yyyy-MM-dd_HH-mm-ss').format(DateTime.now());
+      final timestamp = DateFormat(
+        'yyyy-MM-dd_HH-mm-ss',
+      ).format(DateTime.now());
       final fileName = 'irc_${channelName.replaceAll('#', '')}_$timestamp.txt';
       final file = File('${directory.path}/$fileName');
 
       final buffer = StringBuffer();
       buffer.writeln('IRC Chat Export - $channelName');
-      buffer.writeln('Exported: ${DateFormat('yyyy-MM-dd HH:mm:ss').format(DateTime.now())}');
+      buffer.writeln(
+        'Exported: ${DateFormat('yyyy-MM-dd HH:mm:ss').format(DateTime.now())}',
+      );
       buffer.writeln('=' * 80);
       buffer.writeln();
 
@@ -66,7 +70,9 @@ class ExportService {
   ) async {
     try {
       final directory = await getApplicationDocumentsDirectory();
-      final timestamp = DateFormat('yyyy-MM-dd_HH-mm-ss').format(DateTime.now());
+      final timestamp = DateFormat(
+        'yyyy-MM-dd_HH-mm-ss',
+      ).format(DateTime.now());
       final fileName = 'irc_${channelName.replaceAll('#', '')}_$timestamp.html';
       final file = File('${directory.path}/$fileName');
 
@@ -92,14 +98,18 @@ class ExportService {
       buffer.writeln('<body>');
       buffer.writeln('<div class="container">');
       buffer.writeln('<h1>IRC Chat Export - $channelName</h1>');
-      buffer.writeln('<div class="meta">Exported: ${DateFormat('yyyy-MM-dd HH:mm:ss').format(DateTime.now())}</div>');
+      buffer.writeln(
+        '<div class="meta">Exported: ${DateFormat('yyyy-MM-dd HH:mm:ss').format(DateTime.now())}</div>',
+      );
 
       for (final message in messages) {
         final time = DateFormat('HH:mm:ss').format(message.timestamp);
         buffer.writeln('<div class="message">');
         buffer.writeln('<span class="timestamp">[$time]</span> ');
         buffer.writeln('<span class="nick">&lt;${message.nick}&gt;</span> ');
-        buffer.writeln('<span class="content">${_escapeHtml(message.message)}</span>');
+        buffer.writeln(
+          '<span class="content">${_escapeHtml(message.message)}</span>',
+        );
         buffer.writeln('</div>');
       }
 
@@ -148,20 +158,26 @@ class ExportService {
     required String encryptionKey,
   }) async {
     try {
-      final timestamp = DateFormat('yyyy-MM-dd_HH-mm-ss').format(DateTime.now());
+      final timestamp = DateFormat(
+        'yyyy-MM-dd_HH-mm-ss',
+      ).format(DateTime.now());
       final channelClean = channelName.replaceAll('#', '');
-      
+
       // Crear contenido de texto
       final textBuffer = StringBuffer();
       textBuffer.writeln('IRC Chat Logs - $channelName');
       textBuffer.writeln('Server: $server');
-      textBuffer.writeln('Exported: ${DateFormat('yyyy-MM-dd HH:mm:ss').format(DateTime.now())}');
+      textBuffer.writeln(
+        'Exported: ${DateFormat('yyyy-MM-dd HH:mm:ss').format(DateTime.now())}',
+      );
       textBuffer.writeln('Total messages: ${messages.length}');
       textBuffer.writeln('=' * 80);
       textBuffer.writeln();
 
       for (final message in messages) {
-        final time = DateFormat('yyyy-MM-dd HH:mm:ss').format(message.timestamp);
+        final time = DateFormat(
+          'yyyy-MM-dd HH:mm:ss',
+        ).format(message.timestamp);
         textBuffer.writeln('[$time] <${message.nick}> ${message.message}');
       }
 
@@ -190,16 +206,24 @@ class ExportService {
       htmlBuffer.writeln('<h1>IRC Chat Logs - $channelName</h1>');
       htmlBuffer.writeln('<div class="meta">');
       htmlBuffer.writeln('Server: $server<br>');
-      htmlBuffer.writeln('Exported: ${DateFormat('yyyy-MM-dd HH:mm:ss').format(DateTime.now())}<br>');
+      htmlBuffer.writeln(
+        'Exported: ${DateFormat('yyyy-MM-dd HH:mm:ss').format(DateTime.now())}<br>',
+      );
       htmlBuffer.writeln('Total messages: ${messages.length}');
       htmlBuffer.writeln('</div>');
 
       for (final message in messages) {
-        final time = DateFormat('yyyy-MM-dd HH:mm:ss').format(message.timestamp);
+        final time = DateFormat(
+          'yyyy-MM-dd HH:mm:ss',
+        ).format(message.timestamp);
         htmlBuffer.writeln('<div class="message">');
         htmlBuffer.writeln('<span class="timestamp">[$time]</span> ');
-        htmlBuffer.writeln('<span class="nick">&lt;${message.nick}&gt;</span> ');
-        htmlBuffer.writeln('<span class="content">${_escapeHtml(message.message)}</span>');
+        htmlBuffer.writeln(
+          '<span class="nick">&lt;${message.nick}&gt;</span> ',
+        );
+        htmlBuffer.writeln(
+          '<span class="content">${_escapeHtml(message.message)}</span>',
+        );
         htmlBuffer.writeln('</div>');
       }
 
@@ -218,35 +242,41 @@ class ExportService {
 
       // Crear ZIP
       final archive = Archive();
-      
+
       // Agregar archivos al ZIP
-      archive.addFile(ArchiveFile(
-        '${channelClean}_logs.txt',
-        utf8.encode(textBuffer.toString()).length,
-        utf8.encode(textBuffer.toString()),
-      ));
-      
-      archive.addFile(ArchiveFile(
-        '${channelClean}_logs.html',
-        utf8.encode(htmlBuffer.toString()).length,
-        utf8.encode(htmlBuffer.toString()),
-      ));
-      
-      archive.addFile(ArchiveFile(
-        'metadata.json',
-        utf8.encode(jsonEncode(metadata)).length,
-        utf8.encode(jsonEncode(metadata)),
-      ));
+      archive.addFile(
+        ArchiveFile(
+          '${channelClean}_logs.txt',
+          utf8.encode(textBuffer.toString()).length,
+          utf8.encode(textBuffer.toString()),
+        ),
+      );
+
+      archive.addFile(
+        ArchiveFile(
+          '${channelClean}_logs.html',
+          utf8.encode(htmlBuffer.toString()).length,
+          utf8.encode(htmlBuffer.toString()),
+        ),
+      );
+
+      archive.addFile(
+        ArchiveFile(
+          'metadata.json',
+          utf8.encode(jsonEncode(metadata)).length,
+          utf8.encode(jsonEncode(metadata)),
+        ),
+      );
 
       // Comprimir ZIP
       final zipEncoder = ZipEncoder();
       final zipData = zipEncoder.encode(archive);
-      if (zipData == null) {
-        throw Exception('Error al crear el archivo ZIP');
-      }
 
       // Encriptar el ZIP con AES-256
-      final encryptedData = _encryptAES(Uint8List.fromList(zipData), encryptionKey);
+      final encryptedData = _encryptAES(
+        Uint8List.fromList(zipData),
+        encryptionKey,
+      );
 
       // Guardar archivo encriptado
       if (PlatformUtils.isWeb) {
@@ -292,10 +322,10 @@ class ExportService {
   static Uint8List _encryptAES(Uint8List data, String password) {
     // Generar salt aleatorio
     final salt = Uint8List.fromList('IRC_APP_SALT_2024'.codeUnits);
-    
+
     // Derivar clave usando PBKDF2
     final key = _deriveKey(password, salt, 32); // 256 bits
-    
+
     // Generar IV desde la clave (para consistencia)
     final ivBytes = _deriveKey(password, salt, 16); // 128 bits para IV
     final iv = Uint8List(16);
@@ -361,9 +391,3 @@ class ExportService {
     }
   }
 }
-
-
-
-
-
-

@@ -44,7 +44,7 @@ dependencies:
   file_picker: ^10.3.9
   url_launcher: ^6.3.0
   crypto: ^3.0.6
-  pasteboard: ^0.4.0
+  pasteboard: ^0.5.0
   just_audio: ^0.10.5
   audio_session: ^0.2.2
   audioplayers: ^6.1.0  # Para mejor soporte web
@@ -66,8 +66,8 @@ dependencies:
   photo_view: ^0.15.0  # Para preview de imágenes
   video_player: ^2.8.2  # Para preview de videos
   flutter_highlight: ^0.7.0  # Para syntax highlighting en código
-  archive: ^3.4.10  # Para crear archivos ZIP
-  pointycastle: ^3.9.1  # Para encriptación AES
+  archive: ^4.0.9  # Para crear archivos ZIP
+  pointycastle: ^4.0.0  # Para encriptación AES
   speech_to_text: ^7.0.0  # Para reconocimiento de voz
   flutter_tts: ^4.0.2  # Para síntesis de voz (text-to-speech)
   web: ^1.1.1
