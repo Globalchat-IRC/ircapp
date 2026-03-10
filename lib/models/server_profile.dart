@@ -65,10 +65,10 @@ class ServerProfile {
       useSSL: true,
     ),
     const ServerProfile(
-      id: 'gc-znc-3000',
-      name: 'GlobalChat · ZNC (3000 SSL)',
-      host: 'znc.globalchat.org',
-      port: 3000,
+      id: 'gc-znc-2000',
+      name: 'GlobalChat · ZNC (2000 SSL)',
+      host: 'ceres.globalchat.org',
+      port: 2000,
       useSSL: true,
     ),
   ];
