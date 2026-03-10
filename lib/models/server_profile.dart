@@ -64,13 +64,12 @@ class ServerProfile {
       port: 6697,
       useSSL: true,
     ),
+    const ServerProfile(
+      id: 'gc-znc-3000',
+      name: 'GlobalChat · ZNC (3000 SSL)',
+      host: 'znc.globalchat.org',
+      port: 3000,
+      useSSL: true,
+    ),
   ];
 }
-
-
-
-
-
-
-
-
