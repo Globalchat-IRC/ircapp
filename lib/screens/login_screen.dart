@@ -1301,7 +1301,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
       // Si es servidor ZNC, enviar el comando PASS
       if (zncPassword != null && zncPassword.isNotEmpty) {
-        await Future.delayed(const Duration(milliseconds: 1500));
+        // Delay más largo para asegurar que la conexión esté lista
+        await Future.delayed(const Duration(milliseconds: 3000));
+        debugLog('🔐 [ZNC] Enviando PASS al servidor...');
         ircService.sendRaw('PASS $zncPassword');
         // Marcar como conexión ZNC
         ref.read(isZncConnectionProvider.notifier).setZncConnection(true);
