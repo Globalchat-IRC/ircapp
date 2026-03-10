@@ -1,7 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:riverpod/riverpod.dart' show Notifier, NotifierProvider, Provider;
+import 'package:riverpod/riverpod.dart'
+    show Notifier, NotifierProvider, Provider;
 import 'package:riverpod/legacy.dart' show StateProvider;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/irc_message.dart';
@@ -21,20 +22,40 @@ final ircServiceProvider = Provider<IRCService>((ref) {
   return IRCService();
 });
 
-final messagesProvider = NotifierProvider<MessagesNotifier, List<IRCMessage>>(() {
-  final notifier = MessagesNotifier();
-  // Observar cambios en el historial para cargar/guardar mensajes
-  // Esto se hace en el build del notifier
-  return notifier;
-});
+final messagesProvider = NotifierProvider<MessagesNotifier, List<IRCMessage>>(
+  () {
+    final notifier = MessagesNotifier();
+    // Observar cambios en el historial para cargar/guardar mensajes
+    // Esto se hace en el build del notifier
+    return notifier;
+  },
+);
 
-final channelsProvider = NotifierProvider<ChannelsNotifier, Map<String, IRCChannel>>(() {
-  return ChannelsNotifier();
-});
+final channelsProvider =
+    NotifierProvider<ChannelsNotifier, Map<String, IRCChannel>>(() {
+      return ChannelsNotifier();
+    });
 
-final connectionStatusProvider = NotifierProvider<ConnectionStatusNotifier, bool>(() {
-  return ConnectionStatusNotifier();
-});
+final connectionStatusProvider =
+    NotifierProvider<ConnectionStatusNotifier, bool>(() {
+      return ConnectionStatusNotifier();
+    });
+
+/// Indica si está conectado via ZNC
+final isZncConnectionProvider = NotifierProvider<IsZncConnectionNotifier, bool>(
+  () {
+    return IsZncConnectionNotifier();
+  },
+);
+
+class IsZncConnectionNotifier extends Notifier<bool> {
+  @override
+  bool build() => false;
+
+  void setZncConnection(bool isZnc) {
+    state = isZnc;
+  }
+}
 
 /// Lag (latencia) con el servidor IRC en milisegundos
 final lagProvider = NotifierProvider<LagNotifier, int?>(() {
@@ -62,9 +83,10 @@ class LagNotifier extends Notifier<int?> {
 final currentNicknameProvider = StateProvider<String?>((ref) => null);
 
 /// Delay en segundos antes de enviar mensajes al servidor (configurable)
-final messageSendDelayProvider = NotifierProvider<MessageSendDelayNotifier, int>(() {
-  return MessageSendDelayNotifier();
-});
+final messageSendDelayProvider =
+    NotifierProvider<MessageSendDelayNotifier, int>(() {
+      return MessageSendDelayNotifier();
+    });
 
 class MessageSendDelayNotifier extends Notifier<int> {
   static const _prefsKey = 'message_send_delay_seconds';
@@ -100,9 +122,10 @@ class MessageSendDelayNotifier extends Notifier<int> {
 }
 
 /// Usar NOTICE en lugar de PRIVMSG para mensajes privados (persistido en Ajustes)
-final useNoticeForPrivateProvider = NotifierProvider<UseNoticeForPrivateNotifier, bool>(() {
-  return UseNoticeForPrivateNotifier();
-});
+final useNoticeForPrivateProvider =
+    NotifierProvider<UseNoticeForPrivateNotifier, bool>(() {
+      return UseNoticeForPrivateNotifier();
+    });
 
 class UseNoticeForPrivateNotifier extends Notifier<bool> {
   static const _prefsKey = 'use_notice_for_private';
@@ -134,23 +157,18 @@ class UseNoticeForPrivateNotifier extends Notifier<bool> {
 final currentChannelProvider = StateProvider<String?>((ref) => null);
 
 /// Estado de away del usuario actual
-final userAwayStatusProvider = NotifierProvider<UserAwayStatusNotifier, UserAwayStatus>(() {
-  return UserAwayStatusNotifier();
-});
+final userAwayStatusProvider =
+    NotifierProvider<UserAwayStatusNotifier, UserAwayStatus>(() {
+      return UserAwayStatusNotifier();
+    });
 
 class UserAwayStatus {
   final bool isAway;
   final String? awayMessage;
 
-  UserAwayStatus({
-    this.isAway = false,
-    this.awayMessage,
-  });
+  UserAwayStatus({this.isAway = false, this.awayMessage});
 
-  UserAwayStatus copyWith({
-    bool? isAway,
-    String? awayMessage,
-  }) {
+  UserAwayStatus copyWith({bool? isAway, String? awayMessage}) {
     return UserAwayStatus(
       isAway: isAway ?? this.isAway,
       awayMessage: awayMessage ?? this.awayMessage,
@@ -178,9 +196,10 @@ class UserAwayStatusNotifier extends Notifier<UserAwayStatus> {
 }
 
 /// Mensaje de away por defecto
-final defaultAwayMessageProvider = NotifierProvider<DefaultAwayMessageNotifier, String?>(() {
-  return DefaultAwayMessageNotifier();
-});
+final defaultAwayMessageProvider =
+    NotifierProvider<DefaultAwayMessageNotifier, String?>(() {
+      return DefaultAwayMessageNotifier();
+    });
 
 class DefaultAwayMessageNotifier extends Notifier<String?> {
   static const _prefsKey = 'default_away_message';
@@ -235,51 +254,49 @@ final autoJoinChannelsProvider = StateProvider<List<String>>((ref) => []);
 final nickIdentifyModalAllowedProvider = StateProvider<bool>((ref) => false);
 
 /// Canales/nicks marcados como favoritos (para autounirse y sección destacada)
-final favoritesProvider =
-    NotifierProvider<FavoritesNotifier, Set<String>>(() {
+final favoritesProvider = NotifierProvider<FavoritesNotifier, Set<String>>(() {
   return FavoritesNotifier();
 });
 
 /// Lista de canales/nicks recientes (histórico ligero de uso)
 final recentChannelsProvider =
     NotifierProvider<RecentChannelsNotifier, List<String>>(() {
-  return RecentChannelsNotifier();
-});
+      return RecentChannelsNotifier();
+    });
 
 /// Lista de privados (queries) archivados.
 /// - Solo se aplica a canales que NO empiezan por # (mensajes privados).
 /// - Se almacenan como nicks en minúsculas en SharedPreferences.
 final archivedPrivatesProvider =
     NotifierProvider<ArchivedPrivatesNotifier, Set<String>>(() {
-  return ArchivedPrivatesNotifier();
-});
+      return ArchivedPrivatesNotifier();
+    });
 
 /// Mensajes fijados por canal (avisos, reglas, enlaces importantes)
-final pinnedMessagesProvider = NotifierProvider<PinnedMessagesNotifier,
-    Map<String, List<IRCMessage>>>(() {
-  return PinnedMessagesNotifier();
-});
+final pinnedMessagesProvider =
+    NotifierProvider<PinnedMessagesNotifier, Map<String, List<IRCMessage>>>(() {
+      return PinnedMessagesNotifier();
+    });
 
 /// Reglas de notificación por canal y tipo de sonido
 final notificationSettingsProvider =
-    NotifierProvider<NotificationSettingsNotifier, NotificationSettings>(
-        () {
-  return NotificationSettingsNotifier();
-});
+    NotifierProvider<NotificationSettingsNotifier, NotificationSettings>(() {
+      return NotificationSettingsNotifier();
+    });
 
 /// Chats privados con cifrado punto a punto activado (solo cliente local).
 /// Clave: nick en minúsculas (canales que no empiezan por #).
 final encryptedPrivatesProvider =
     NotifierProvider<EncryptedPrivatesNotifier, Set<String>>(() {
-  return EncryptedPrivatesNotifier();
-});
+      return EncryptedPrivatesNotifier();
+    });
 
 /// Notas privadas por usuario (solo cliente local).
 /// Clave: nick en minúsculas, valor: texto libre.
 final userNotesProvider =
     NotifierProvider<UserNotesNotifier, Map<String, String>>(() {
-  return UserNotesNotifier();
-});
+      return UserNotesNotifier();
+    });
 
 /// Tamaño de fuente del chat: 0=pequeño, 1=normal, 2=grande, 3=muy grande
 final chatFontSizeProvider = NotifierProvider<ChatFontSizeNotifier, int>(() {
@@ -344,9 +361,10 @@ class ReduceMotionNotifier extends Notifier<bool> {
 }
 
 /// Plantillas / respuestas rápidas (lista de textos)
-final quickRepliesProvider = NotifierProvider<QuickRepliesNotifier, List<String>>(() {
-  return QuickRepliesNotifier();
-});
+final quickRepliesProvider =
+    NotifierProvider<QuickRepliesNotifier, List<String>>(() {
+      return QuickRepliesNotifier();
+    });
 
 class QuickRepliesNotifier extends Notifier<List<String>> {
   static const _prefsKey = 'quick_replies';
@@ -394,9 +412,10 @@ class QuickRepliesNotifier extends Notifier<List<String>> {
 
 /// Perfil de servidor actual (para multi-servidor/multi-red)
 /// Persistido en SharedPreferences para mantener el valor entre navegaciones
-final currentServerProfileProvider = NotifierProvider<CurrentServerProfileNotifier, ServerProfile?>(() {
-  return CurrentServerProfileNotifier();
-});
+final currentServerProfileProvider =
+    NotifierProvider<CurrentServerProfileNotifier, ServerProfile?>(() {
+      return CurrentServerProfileNotifier();
+    });
 
 class CurrentServerProfileNotifier extends Notifier<ServerProfile?> {
   static const _prefsKey = 'current_server_profile_v1';
@@ -422,7 +441,9 @@ class CurrentServerProfileNotifier extends Notifier<ServerProfile?> {
           ),
         );
         state = profile;
-        debugLog('🔍 [SERVER_PROFILE] ✅ Cargado desde prefs: ${profile.name} (${profile.host}:${profile.port})');
+        debugLog(
+          '🔍 [SERVER_PROFILE] ✅ Cargado desde prefs: ${profile.name} (${profile.host}:${profile.port})',
+        );
       } else {
         debugLog('🔍 [SERVER_PROFILE] No hay serverId guardado en prefs');
       }
@@ -432,16 +453,22 @@ class CurrentServerProfileNotifier extends Notifier<ServerProfile?> {
   }
 
   Future<void> setServerProfile(ServerProfile profile) async {
-    debugLog('🔍 [SERVER_PROFILE] setServerProfile llamado: ${profile.name} (${profile.host}:${profile.port}, id: ${profile.id})');
+    debugLog(
+      '🔍 [SERVER_PROFILE] setServerProfile llamado: ${profile.name} (${profile.host}:${profile.port}, id: ${profile.id})',
+    );
     state = profile;
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_prefsKey, profile.id);
-      debugLog('🔍 [SERVER_PROFILE] ✅ Guardado en prefs: ${profile.name} (id: ${profile.id})');
-      
+      debugLog(
+        '🔍 [SERVER_PROFILE] ✅ Guardado en prefs: ${profile.name} (id: ${profile.id})',
+      );
+
       // Verificar que se guardó correctamente
       final savedId = prefs.getString(_prefsKey);
-      debugLog('🔍 [SERVER_PROFILE] Verificación - serverId en prefs: $savedId');
+      debugLog(
+        '🔍 [SERVER_PROFILE] Verificación - serverId en prefs: $savedId',
+      );
     } catch (e) {
       debugLog('❌ [SERVER_PROFILE] Error guardando en prefs: $e');
     }
@@ -461,21 +488,26 @@ class CurrentServerProfileNotifier extends Notifier<ServerProfile?> {
 /// Lista de perfiles de servidor disponibles (inicialmente los de GlobalChat)
 final serverProfilesProvider =
     NotifierProvider<ServerProfilesNotifier, List<ServerProfile>>(() {
-  return ServerProfilesNotifier();
-});
+      return ServerProfilesNotifier();
+    });
 
-final whoisProvider = NotifierProvider<WhoisNotifier, Map<String, WhoisInfo>>(() {
-  return WhoisNotifier();
-});
+final whoisProvider = NotifierProvider<WhoisNotifier, Map<String, WhoisInfo>>(
+  () {
+    return WhoisNotifier();
+  },
+);
 
-final emojiConfigProvider = NotifierProvider<EmojiConfigNotifier, EmojiConfig>(() {
-  return EmojiConfigNotifier();
-});
+final emojiConfigProvider = NotifierProvider<EmojiConfigNotifier, EmojiConfig>(
+  () {
+    return EmojiConfigNotifier();
+  },
+);
 
 // Provider para mensajes no leídos por canal
-final unreadMessagesProvider = NotifierProvider<UnreadMessagesNotifier, Map<String, int>>(() {
-  return UnreadMessagesNotifier();
-});
+final unreadMessagesProvider =
+    NotifierProvider<UnreadMessagesNotifier, Map<String, int>>(() {
+      return UnreadMessagesNotifier();
+    });
 
 class MessagesNotifier extends Notifier<List<IRCMessage>> {
   static const String _privateMessagesKey = 'private_messages_web';
@@ -498,7 +530,7 @@ class MessagesNotifier extends Notifier<List<IRCMessage>> {
     _loadHistoryIfEnabled();
     return [];
   }
-  
+
   /// Cargar historial si está activado
   Future<void> _loadHistoryIfEnabled() async {
     final historyEnabled = ref.read(historyEnabledProvider);
@@ -509,7 +541,7 @@ class MessagesNotifier extends Notifier<List<IRCMessage>> {
       await _loadPrivateMessages();
     }
   }
-  
+
   /// Cargar todo el historial de mensajes (canales y privados)
   Future<void> loadHistory() async {
     try {
@@ -520,38 +552,42 @@ class MessagesNotifier extends Notifier<List<IRCMessage>> {
         final loadedMessages = jsonList
             .map((json) => IRCMessage.fromJson(json as Map<String, dynamic>))
             .toList();
-        
+
         // Filtrar mensajes duplicados basándose en messageId o contenido único
         final Map<String, IRCMessage> uniqueMessages = {};
         for (var msg in loadedMessages) {
-          final key = msg.messageId ?? '${msg.channel}_${msg.nick}_${msg.message}_${msg.timestamp.millisecondsSinceEpoch}';
+          final key =
+              msg.messageId ??
+              '${msg.channel}_${msg.nick}_${msg.message}_${msg.timestamp.millisecondsSinceEpoch}';
           if (!uniqueMessages.containsKey(key)) {
             uniqueMessages[key] = msg;
           }
         }
-        
+
         // Actualizar el estado con todos los mensajes cargados (sin duplicados)
         state = uniqueMessages.values.toList();
-        debugLog('✅ [MessagesNotifier] Historial cargado: ${state.length} mensajes únicos');
+        debugLog(
+          '✅ [MessagesNotifier] Historial cargado: ${state.length} mensajes únicos',
+        );
       }
     } catch (e) {
       debugLog('⚠️ [MessagesNotifier] Error cargando historial: $e');
     }
   }
-  
+
   /// Guardar todo el historial de mensajes (canales y privados)
   Future<void> _saveHistory() async {
     final historyEnabled = ref.read(historyEnabledProvider);
     if (!historyEnabled) return; // No guardar si el historial está desactivado
-    
+
     try {
       final prefs = await SharedPreferences.getInstance();
-      
+
       // Limitar a los últimos 10000 mensajes para evitar sobrecargar el almacenamiento
-      final messagesToSave = state.length > 10000 
-          ? state.sublist(state.length - 10000) 
+      final messagesToSave = state.length > 10000
+          ? state.sublist(state.length - 10000)
           : state;
-      
+
       final jsonList = messagesToSave.map((msg) => msg.toJson()).toList();
       final jsonString = jsonEncode(jsonList);
       await prefs.setString(_allMessagesKey, jsonString);
@@ -561,7 +597,7 @@ class MessagesNotifier extends Notifier<List<IRCMessage>> {
       debugLog('⚠️ [MessagesNotifier] Error guardando historial: $e');
     }
   }
-  
+
   /// Actualizar estado y guardar historial si está activado
   void _updateStateAndSave(List<IRCMessage> newState) {
     state = newState;
@@ -576,7 +612,7 @@ class MessagesNotifier extends Notifier<List<IRCMessage>> {
   /// Cargar mensajes privados desde SharedPreferences (solo en web)
   Future<void> _loadPrivateMessages() async {
     if (!PlatformUtils.isWeb) return;
-    
+
     try {
       final prefs = await SharedPreferences.getInstance();
       final jsonString = prefs.getString(_privateMessagesKey);
@@ -584,11 +620,15 @@ class MessagesNotifier extends Notifier<List<IRCMessage>> {
         final List<dynamic> jsonList = jsonDecode(jsonString);
         final privateMessages = jsonList
             .map((json) => IRCMessage.fromJson(json as Map<String, dynamic>))
-            .where((msg) => !msg.channel.startsWith('#')) // Solo mensajes privados
+            .where(
+              (msg) => !msg.channel.startsWith('#'),
+            ) // Solo mensajes privados
             .toList();
-        
+
         // Añadir los mensajes privados al estado actual (sin duplicar canales)
-        final currentChannels = state.where((m) => m.channel.startsWith('#')).toList();
+        final currentChannels = state
+            .where((m) => m.channel.startsWith('#'))
+            .toList();
         state = [...currentChannels, ...privateMessages];
       }
     } catch (e) {
@@ -600,12 +640,14 @@ class MessagesNotifier extends Notifier<List<IRCMessage>> {
   /// Guardar mensajes privados en SharedPreferences (solo en web)
   Future<void> _savePrivateMessages() async {
     if (!PlatformUtils.isWeb) return;
-    
+
     try {
-      final privateMessages = state.where((m) => !m.channel.startsWith('#')).toList();
+      final privateMessages = state
+          .where((m) => !m.channel.startsWith('#'))
+          .toList();
       final jsonList = privateMessages.map((msg) => msg.toJson()).toList();
       final jsonString = jsonEncode(jsonList);
-      
+
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_privateMessagesKey, jsonString);
     } catch (e) {
@@ -634,7 +676,7 @@ class MessagesNotifier extends Notifier<List<IRCMessage>> {
     state = state.where((message) {
       return message.channel.toLowerCase() != normalizedChannel;
     }).toList();
-    
+
     // Borrar del historial guardado en base de datos
     try {
       final server = ref.read(ircServiceProvider).serverHost;
@@ -647,7 +689,7 @@ class MessagesNotifier extends Notifier<List<IRCMessage>> {
     } catch (e) {
       debugLog('⚠️ [MessagesNotifier] Error borrando historial del canal: $e');
     }
-    
+
     _saveHistory();
   }
 
@@ -661,7 +703,7 @@ class MessagesNotifier extends Notifier<List<IRCMessage>> {
       }
       return true; // Mantener mensajes de canales
     }).toList();
-    
+
     // Borrar del historial guardado en base de datos
     try {
       final server = ref.read(ircServiceProvider).serverHost;
@@ -674,15 +716,21 @@ class MessagesNotifier extends Notifier<List<IRCMessage>> {
     } catch (e) {
       debugLog('⚠️ [MessagesNotifier] Error borrando historial privado: $e');
     }
-    
+
     _saveHistory();
   }
 
   /// Limpiar historial de NickServ (todas las variantes: nick, nickserv, NickServ, etc.)
   Future<void> clearNickServHistory() async {
     // Lista de todas las variantes posibles de NickServ
-    final nickservVariants = ['nick', 'nickserv', 'nickserv', 'NickServ', 'NICKSERV'];
-    
+    final nickservVariants = [
+      'nick',
+      'nickserv',
+      'nickserv',
+      'NickServ',
+      'NICKSERV',
+    ];
+
     // Limpiar de la memoria
     state = state.where((message) {
       // Mantener solo mensajes de canales
@@ -693,13 +741,14 @@ class MessagesNotifier extends Notifier<List<IRCMessage>> {
       final channelLower = message.channel.toLowerCase();
       final nickLower = message.nick.toLowerCase();
       for (final variant in nickservVariants) {
-        if (channelLower == variant.toLowerCase() || nickLower == variant.toLowerCase()) {
+        if (channelLower == variant.toLowerCase() ||
+            nickLower == variant.toLowerCase()) {
           return false;
         }
       }
       return true;
     }).toList();
-    
+
     // Borrar del historial guardado en base de datos
     try {
       final server = ref.read(ircServiceProvider).serverHost;
@@ -713,11 +762,15 @@ class MessagesNotifier extends Notifier<List<IRCMessage>> {
         }
       }
     } catch (e) {
-      debugLog('⚠️ [MessagesNotifier] Error borrando historial de NickServ: $e');
+      debugLog(
+        '⚠️ [MessagesNotifier] Error borrando historial de NickServ: $e',
+      );
     }
-    
+
     _saveHistory();
-    debugLog('✅ [MessagesNotifier] Historial de NickServ limpiado (todas las variantes)');
+    debugLog(
+      '✅ [MessagesNotifier] Historial de NickServ limpiado (todas las variantes)',
+    );
   }
 
   void _onMessage(IRCMessage message) {
@@ -732,18 +785,19 @@ class MessagesNotifier extends Notifier<List<IRCMessage>> {
         return;
       }
     }
-    
+
     // Si el mensaje no tiene pendingId o no se encontró uno existente, verificar si es una actualización
     // de un mensaje pendiente (isPending cambió de true a false)
     if (!message.isPending) {
       // Buscar mensaje con mismo contenido, canal y nick que sea pendiente
-      final index = state.indexWhere((m) => 
-        m.isPending && 
-        m.channel.toLowerCase() == message.channel.toLowerCase() &&
-        m.nick == message.nick &&
-        m.message.trim() == message.message.trim() &&
-        // Timestamp similar (dentro de 5 segundos)
-        (m.timestamp.difference(message.timestamp).inSeconds.abs() < 5)
+      final index = state.indexWhere(
+        (m) =>
+            m.isPending &&
+            m.channel.toLowerCase() == message.channel.toLowerCase() &&
+            m.nick == message.nick &&
+            m.message.trim() == message.message.trim() &&
+            // Timestamp similar (dentro de 5 segundos)
+            (m.timestamp.difference(message.timestamp).inSeconds.abs() < 5),
       );
       if (index != -1) {
         // Actualizar el mensaje existente
@@ -753,7 +807,7 @@ class MessagesNotifier extends Notifier<List<IRCMessage>> {
         return;
       }
     }
-    
+
     // Si no es una actualización, añadir como nuevo mensaje
     _updateStateAndSave([...state, message]);
   }
@@ -763,7 +817,7 @@ class MessagesNotifier extends Notifier<List<IRCMessage>> {
     // Limpiar historial guardado si existe
     _clearSavedHistory();
   }
-  
+
   /// Limpiar el historial guardado
   Future<void> _clearSavedHistory() async {
     try {
@@ -796,7 +850,7 @@ class ChannelsNotifier extends Notifier<Map<String, IRCChannel>> {
     // debugLog('🔍 [DEBUG] 🔄 ChannelsNotifier._onUserListUpdate: channel=$channel');
     // debugLog('🔍 [DEBUG] 📊 Service channels: ${_service.channels.keys.toList()}');
     // debugLog('🔍 [DEBUG] 📊 Current state channels: ${state.keys.toList()}');
-    
+
     // Always update the entire state with current service state
     final newState = <String, IRCChannel>{};
     for (var entry in _service!.channels.entries) {
@@ -805,15 +859,21 @@ class ChannelsNotifier extends Notifier<Map<String, IRCChannel>> {
         name: entry.value.name,
         messages: List.from(entry.value.messages),
         users: List.from(entry.value.users),
-        userHosts: Map<String, String>.from(entry.value.userHosts), // Copiar el mapa de hosts
-        userModes: Map<String, String>.from(entry.value.userModes), // Copiar el mapa de modos
+        userHosts: Map<String, String>.from(
+          entry.value.userHosts,
+        ), // Copiar el mapa de hosts
+        userModes: Map<String, String>.from(
+          entry.value.userModes,
+        ), // Copiar el mapa de modos
         topic: entry.value.topic, // Incluir el topic en la copia
-        pinnedMessageIds: List<String>.from(entry.value.pinnedMessageIds), // Incluir mensajes fijados
+        pinnedMessageIds: List<String>.from(
+          entry.value.pinnedMessageIds,
+        ), // Incluir mensajes fijados
       );
       newState[entry.key] = channelCopy;
       // debugLog('🔍 [DEBUG] Copied channel ${entry.key} with ${channelCopy.users.length} users: ${channelCopy.users}, topic: ${channelCopy.topic}');
     }
-    
+
     if (newState.containsKey(channel)) {
       // debugLog('🔍 [DEBUG] 👥 Channel found in new state, users: ${newState[channel]!.users}');
       // debugLog('🔍 [DEBUG] 👥 Channel users count: ${newState[channel]!.users.length}');
@@ -821,24 +881,28 @@ class ChannelsNotifier extends Notifier<Map<String, IRCChannel>> {
       // debugLog('🔍 [DEBUG] ⚠️  Channel not found in service: $channel');
       // debugLog('🔍 [DEBUG] Available channels: ${newState.keys.toList()}');
     }
-    
+
     // Comparar estados
     newState.entries.any((e) {
       final oldChannel = state[e.key];
       if (oldChannel == null) return true;
-      final usersChanged = oldChannel.users.length != e.value.users.length ||
+      final usersChanged =
+          oldChannel.users.length != e.value.users.length ||
           !oldChannel.users.every((u) => e.value.users.contains(u));
       final topicChanged = oldChannel.topic != e.value.topic;
-      final modesChanged = oldChannel.userModes.length != e.value.userModes.length ||
-          oldChannel.userModes.entries.any((entry) => e.value.userModes[entry.key] != entry.value);
+      final modesChanged =
+          oldChannel.userModes.length != e.value.userModes.length ||
+          oldChannel.userModes.entries.any(
+            (entry) => e.value.userModes[entry.key] != entry.value,
+          );
       return usersChanged || topicChanged || modesChanged;
     });
-    
+
     // debugLog('🔍 [DEBUG] Keys changed: $keysChanged, Values changed: $valuesChanged');
-    
+
     // Always update to ensure UI reflects current state
     // debugLog('🔍 [DEBUG] ✅ Updating state with new channels');
-      state = newState;
+    state = newState;
     // debugLog('🔍 [DEBUG] ✅ State updated, now has ${state.length} channels');
   }
 
@@ -847,7 +911,7 @@ class ChannelsNotifier extends Notifier<Map<String, IRCChannel>> {
     for (final _ in _service!.channels.entries) {
       // debugLog('🔍 [DEBUG]   - ${entry.key}: ${entry.value.users.length} users: ${entry.value.users}');
     }
-    
+
     // Crear una copia profunda del estado del servicio
     final newState = <String, IRCChannel>{};
     for (var entry in _service!.channels.entries) {
@@ -856,15 +920,21 @@ class ChannelsNotifier extends Notifier<Map<String, IRCChannel>> {
         name: entry.value.name,
         messages: List.from(entry.value.messages),
         users: List.from(entry.value.users),
-        userHosts: Map<String, String>.from(entry.value.userHosts), // Copiar el mapa de hosts
-        userModes: Map<String, String>.from(entry.value.userModes), // Copiar el mapa de modos
+        userHosts: Map<String, String>.from(
+          entry.value.userHosts,
+        ), // Copiar el mapa de hosts
+        userModes: Map<String, String>.from(
+          entry.value.userModes,
+        ), // Copiar el mapa de modos
         topic: entry.value.topic, // Incluir el topic en la copia
-        pinnedMessageIds: List<String>.from(entry.value.pinnedMessageIds), // Incluir mensajes fijados
+        pinnedMessageIds: List<String>.from(
+          entry.value.pinnedMessageIds,
+        ), // Incluir mensajes fijados
       );
       newState[entry.key] = channelCopy;
       // debugLog('🔍 [DEBUG] Copied channel ${entry.key} with ${channelCopy.users.length} users, topic: ${channelCopy.topic}');
     }
-    
+
     // debugLog('🔍 [DEBUG] ✅ Updating state with ${newState.length} channels');
     state = newState;
   }
@@ -914,7 +984,7 @@ class WhoisNotifier extends Notifier<Map<String, WhoisInfo>> {
   void requestWhois(String nick) {
     // debugLog('🔍 [WHOIS NOTIFIER] Requesting whois for: $nick');
     // Verificar si ya tenemos la información en caché del servicio
-      final cachedInfo = _service?.getWhoisInfo(nick);
+    final cachedInfo = _service?.getWhoisInfo(nick);
     if (cachedInfo != null) {
       // debugLog('🔍 [WHOIS NOTIFIER] Found cached info, updating state');
       _onWhoisReceived(cachedInfo);
@@ -934,10 +1004,7 @@ class UnreadMessagesNotifier extends Notifier<Map<String, int>> {
 
   void incrementUnread(String channel) {
     final normalizedChannel = channel.toLowerCase();
-    state = {
-      ...state,
-      normalizedChannel: (state[normalizedChannel] ?? 0) + 1,
-    };
+    state = {...state, normalizedChannel: (state[normalizedChannel] ?? 0) + 1};
   }
 
   void markAsRead(String channel) {
@@ -962,7 +1029,7 @@ class UnreadMessagesNotifier extends Notifier<Map<String, int>> {
 class FavoritesNotifier extends Notifier<Set<String>> {
   static const _prefsKey = 'favorite_channels';
   static const _excludedPrefsKey = 'favorite_channels_excluded';
-  
+
   // Lista de canales que el usuario ha eliminado de favoritos y no deben volver a añadirse automáticamente
   final Set<String> _excludedChannels = {};
   bool _isInitialized = false;
@@ -973,7 +1040,7 @@ class FavoritesNotifier extends Notifier<Set<String>> {
     _initialize();
     return <String>{};
   }
-  
+
   Future<void> _initialize() async {
     await _loadExcludedChannels();
     await _loadFromPrefs();
@@ -982,7 +1049,7 @@ class FavoritesNotifier extends Notifier<Set<String>> {
       _initializationCompleter.complete();
     }
   }
-  
+
   // Método para esperar a que la inicialización termine
   Future<void> waitForInitialization() async {
     if (_isInitialized) return;
@@ -998,23 +1065,23 @@ class FavoritesNotifier extends Notifier<Set<String>> {
       // debugLog('📋 [FavoritesNotifier] Total favoritos RAW: ${list.length}');
       // debugLog('📋 [FavoritesNotifier] Canales excluidos actuales: $_excludedChannels');
       // debugLog('📋 [FavoritesNotifier] Total excluidos: ${_excludedChannels.length}');
-      
+
       // Filtrar los canales excluidos al cargar
       final filtered = list
           .map((e) => e.toLowerCase())
           .where((e) => !_excludedChannels.contains(e))
           .toList();
-      
+
       // debugLog('📋 [FavoritesNotifier] Favoritos después de filtrar excluidos: $filtered');
       // debugLog('📋 [FavoritesNotifier] Total favoritos filtrados: ${filtered.length}');
-      
+
       // Si hay canales excluidos en la lista guardada, limpiarlos de SharedPreferences
       if (filtered.length != list.length) {
         await prefs.setStringList(_prefsKey, filtered);
         // debugLog('🧹 [FavoritesNotifier] Limpiados ${list.length - filtered.length} canales excluidos de favoritos guardados');
         // debugLog('🧹 [FavoritesNotifier] Canales eliminados específicamente: $removed');
       }
-      
+
       state = filtered.toSet();
       // debugLog('✅ [FavoritesNotifier] Estado final de favoritos: $state');
       // debugLog('✅ [FavoritesNotifier] Total en estado final: ${state.length}');
@@ -1024,7 +1091,7 @@ class FavoritesNotifier extends Notifier<Set<String>> {
       // Si falla la lectura, simplemente dejamos los favoritos vacíos
     }
   }
-  
+
   Future<void> _loadExcludedChannels() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -1034,7 +1101,7 @@ class FavoritesNotifier extends Notifier<Set<String>> {
       // Ignorar errores de carga
     }
   }
-  
+
   Future<void> _saveExcludedChannels() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -1084,44 +1151,44 @@ class FavoritesNotifier extends Notifier<Set<String>> {
     }
     return state.contains(key);
   }
-  
+
   // Método para limpiar la lista de excluidos (útil para debugging)
   void clearExcluded() {
     _excludedChannels.clear();
     _saveExcludedChannels();
   }
-  
+
   // Método para limpiar todos los favoritos (útil para resetear)
   Future<void> clearAllFavorites() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      
+
       // debugLog('🧹 [FavoritesNotifier] ========== LIMPIANDO TODOS LOS FAVORITOS ==========');
       // debugLog('🧹 [FavoritesNotifier] Estado ANTES de limpiar: $state');
       // debugLog('🧹 [FavoritesNotifier] Excluidos ANTES de limpiar: $_excludedChannels');
-      
+
       // Obtener los favoritos actuales antes de limpiar para logging
       // debugLog('🧹 [FavoritesNotifier] Favoritos en SharedPreferences ANTES: $currentFavorites');
-      
+
       // Limpiar favoritos guardados
       await prefs.remove(_prefsKey);
       // debugLog('🧹 [FavoritesNotifier] Favoritos eliminados de SharedPreferences: $removedFavorites');
-      
+
       // Verificar que se eliminaron correctamente
       prefs.getStringList(_prefsKey);
       // debugLog('🧹 [FavoritesNotifier] Verificación - Favoritos después de remove: $verifyFavorites');
-      
+
       // Limpiar también la lista de excluidos para permitir que el usuario vuelva a añadir canales
       // debugLog('🧹 [FavoritesNotifier] Excluidos en SharedPreferences ANTES: $currentExcluded');
-      
+
       _excludedChannels.clear();
       await prefs.remove(_excludedPrefsKey);
       // debugLog('🧹 [FavoritesNotifier] Excluidos eliminados de SharedPreferences: $removedExcluded');
-      
+
       // Verificar que se eliminaron correctamente
       prefs.getStringList(_excludedPrefsKey);
       // debugLog('🧹 [FavoritesNotifier] Verificación - Excluidos después de remove: $verifyExcluded');
-      
+
       // Actualizar el estado
       state = <String>{};
       // debugLog('✅ [FavoritesNotifier] Estado DESPUÉS de limpiar: $state');
@@ -1137,7 +1204,7 @@ class FavoritesNotifier extends Notifier<Set<String>> {
 class RecentChannelsNotifier extends Notifier<List<String>> {
   static const int maxItems = 20;
   static const _prefsKey = 'recent_channels_excluded';
-  
+
   // Lista de canales que el usuario ha eliminado y no deben volver a añadirse automáticamente
   final Set<String> _excludedChannels = {};
 
@@ -1175,8 +1242,9 @@ class RecentChannelsNotifier extends Notifier<List<String>> {
       return;
     }
     // Evitar duplicados y mantener el orden (más reciente primero)
-    final filtered =
-        state.where((c) => _normalize(c) != key).toList(growable: true);
+    final filtered = state
+        .where((c) => _normalize(c) != key)
+        .toList(growable: true);
     filtered.insert(0, channel);
     if (filtered.length > maxItems) {
       filtered.removeRange(maxItems, filtered.length);
@@ -1191,7 +1259,7 @@ class RecentChannelsNotifier extends Notifier<List<String>> {
     _saveExcludedChannels();
     state = state.where((c) => _normalize(c) != key).toList(growable: false);
   }
-  
+
   void clearExcluded(String channel) {
     final key = _normalize(channel);
     _excludedChannels.remove(key);
@@ -1382,8 +1450,7 @@ class ArchivedPrivatesNotifier extends Notifier<Set<String>> {
 }
 
 /// Notifier para mensajes fijados por canal
-class PinnedMessagesNotifier
-    extends Notifier<Map<String, List<IRCMessage>>> {
+class PinnedMessagesNotifier extends Notifier<Map<String, List<IRCMessage>>> {
   static const int maxPinnedPerChannel = 5;
   static const _prefsKey = 'pinned_messages_v1';
 
@@ -1463,8 +1530,7 @@ class PinnedMessagesNotifier
     final key = _normalize(message.channel);
     final current = List<IRCMessage>.from(state[key] ?? const []);
 
-    final existingIndex =
-        current.indexWhere((m) => _isSameMessage(m, message));
+    final existingIndex = current.indexWhere((m) => _isSameMessage(m, message));
 
     if (existingIndex != -1) {
       // Ya estaba fijado, lo quitamos
@@ -1477,10 +1543,7 @@ class PinnedMessagesNotifier
       }
     }
 
-    state = {
-      ...state,
-      key: current,
-    };
+    state = {...state, key: current};
 
     _saveToPrefs();
   }
@@ -1496,6 +1559,7 @@ class NotificationSettings {
   final bool soundForMentions;
   final Set<String> mutedUsers;
   final MentionSound mentionSound;
+
   /// No molestar: no mostrar notificaciones ni sonidos.
   final bool doNotDisturb;
 
@@ -1536,8 +1600,7 @@ class NotificationSettings {
   }
 }
 
-class NotificationSettingsNotifier
-    extends Notifier<NotificationSettings> {
+class NotificationSettingsNotifier extends Notifier<NotificationSettings> {
   static const _prefsKeyLevels = 'notification_channel_levels_v1';
   static const _prefsKeyPrivates = 'notification_sound_privates';
   static const _prefsKeyMentions = 'notification_sound_mentions';
@@ -1575,8 +1638,7 @@ class NotificationSettingsNotifier
       final privates = prefs.getBool(_prefsKeyPrivates) ?? true;
       final mentions = prefs.getBool(_prefsKeyMentions) ?? true;
       final mutedList = prefs.getStringList(_prefsKeyMutedUsers) ?? <String>[];
-      final mentionSoundRaw =
-          prefs.getString(_prefsKeyMentionSound) ?? 'cuack';
+      final mentionSoundRaw = prefs.getString(_prefsKeyMentionSound) ?? 'cuack';
       final mentionSound = switch (mentionSoundRaw) {
         'alert' => MentionSound.systemAlert,
         'click' => MentionSound.systemClick,
@@ -1624,10 +1686,7 @@ class NotificationSettingsNotifier
       await prefs.setBool(_prefsKeyPrivates, state.soundForPrivates);
       await prefs.setBool(_prefsKeyMentions, state.soundForMentions);
       await prefs.setBool(_prefsKeyDoNotDisturb, state.doNotDisturb);
-      await prefs.setStringList(
-        _prefsKeyMutedUsers,
-        state.mutedUsers.toList(),
-      );
+      await prefs.setStringList(_prefsKeyMutedUsers, state.mutedUsers.toList());
       String mentionValue = 'cuack';
       switch (state.mentionSound) {
         case MentionSound.systemAlert:
@@ -1692,23 +1751,17 @@ class TypingIndicatorNotifier extends Notifier<Map<String, String?>> {
 
   void setTyping(String channel, String? nick) {
     final normalizedChannel = channel.toLowerCase();
-    
+
     // Cancelar timer anterior si existe
     _timers[normalizedChannel]?.cancel();
-    
-    state = {
-      ...state,
-      normalizedChannel: nick,
-    };
-    
+
+    state = {...state, normalizedChannel: nick};
+
     // Si hay un nick, programar que desaparezca después de 3 segundos
     if (nick != null) {
       _timers[normalizedChannel] = Timer(const Duration(seconds: 3), () {
         if (state[normalizedChannel] == nick) {
-          state = {
-            ...state,
-            normalizedChannel: null,
-          };
+          state = {...state, normalizedChannel: null};
         }
       });
     }
@@ -1718,10 +1771,7 @@ class TypingIndicatorNotifier extends Notifier<Map<String, String?>> {
     final normalizedChannel = channel.toLowerCase();
     _timers[normalizedChannel]?.cancel();
     _timers.remove(normalizedChannel);
-    state = {
-      ...state,
-      normalizedChannel: null,
-    };
+    state = {...state, normalizedChannel: null};
   }
 
   String? getTyping(String channel) {
@@ -1738,9 +1788,10 @@ class TypingIndicatorNotifier extends Notifier<Map<String, String?>> {
 }
 
 // Provider para typing indicators (quién está escribiendo en cada canal)
-final typingIndicatorProvider = NotifierProvider<TypingIndicatorNotifier, Map<String, String?>>(() {
-  return TypingIndicatorNotifier();
-});
+final typingIndicatorProvider =
+    NotifierProvider<TypingIndicatorNotifier, Map<String, String?>>(() {
+      return TypingIndicatorNotifier();
+    });
 
 // Notifier para refrescar avatares en tiempo real
 class AvatarRefreshNotifier extends Notifier<Map<String, int>> {
@@ -1752,7 +1803,7 @@ class AvatarRefreshNotifier extends Notifier<Map<String, int>> {
     _startRefreshCycle();
     return {};
   }
-  
+
   void _startRefreshCycle() {
     // Esperar 60 segundos antes de empezar el ciclo de refresco
     Future.delayed(const Duration(seconds: 60), () {
@@ -1760,28 +1811,25 @@ class AvatarRefreshNotifier extends Notifier<Map<String, int>> {
       _refreshNextAvatar();
     });
   }
-  
+
   void _refreshNextAvatar() {
     if (_isRefreshing) return;
-    
+
     final entries = state.entries.toList();
     if (entries.isEmpty) {
       _currentRefreshIndex = 0;
       _startRefreshCycle();
       return;
     }
-    
+
     // Actualizar solo un avatar a la vez
     if (_currentRefreshIndex < entries.length) {
       _isRefreshing = true;
       final entry = entries[_currentRefreshIndex];
-      state = {
-        ...state,
-        entry.key: DateTime.now().millisecondsSinceEpoch,
-      };
+      state = {...state, entry.key: DateTime.now().millisecondsSinceEpoch};
       _currentRefreshIndex++;
       _isRefreshing = false;
-      
+
       // Esperar 2 segundos antes de actualizar el siguiente avatar
       Future.delayed(const Duration(seconds: 2), () {
         // Nota: Notifier no tiene 'mounted'
@@ -1798,10 +1846,7 @@ class AvatarRefreshNotifier extends Notifier<Map<String, int>> {
 
   void refreshAvatar(String nick) {
     final normalizedNick = nick.toLowerCase();
-    state = {
-      ...state,
-      normalizedNick: DateTime.now().millisecondsSinceEpoch,
-    };
+    state = {...state, normalizedNick: DateTime.now().millisecondsSinceEpoch};
   }
 
   void refreshAllAvatars() {
@@ -1815,13 +1860,13 @@ class AvatarRefreshNotifier extends Notifier<Map<String, int>> {
   int? getRefreshTimestamp(String nick) {
     return state[nick.toLowerCase()];
   }
-
 }
 
 // Provider para invalidar/refrescar avatares
-final avatarRefreshProvider = NotifierProvider<AvatarRefreshNotifier, Map<String, int>>(() {
-  return AvatarRefreshNotifier();
-});
+final avatarRefreshProvider =
+    NotifierProvider<AvatarRefreshNotifier, Map<String, int>>(() {
+      return AvatarRefreshNotifier();
+    });
 
 class EmojiConfigNotifier extends Notifier<EmojiConfig> {
   @override
@@ -1859,7 +1904,8 @@ class EmojiConfigNotifier extends Notifier<EmojiConfig> {
 /// Notifier para gestionar perfiles de servidor (multi-servidor / multi-red)
 class ServerProfilesNotifier extends Notifier<List<ServerProfile>> {
   @override
-  List<ServerProfile> build() => List<ServerProfile>.from(ServerProfile.defaultGlobalChatProfiles);
+  List<ServerProfile> build() =>
+      List<ServerProfile>.from(ServerProfile.defaultGlobalChatProfiles);
 
   void addProfile(ServerProfile profile) {
     state = [...state, profile];
@@ -1889,10 +1935,12 @@ class MessageFormatPreferences {
   final String channelFontFamily;
   final String privateFontFamily;
   final double emojiSize;
+
   /// Factor global para escalar el tamaño de los avatares (1.0 = tamaño base).
   final double avatarScale;
   final bool enableThreadsInChannels;
   final bool enableReactions;
+
   /// Controla si se permiten avatares animados (GIFs) en la interfaz.
   final bool enableAnimatedAvatars;
 
@@ -1939,7 +1987,8 @@ class MessageFormatPreferences {
       privateFontFamily: privateFontFamily ?? this.privateFontFamily,
       emojiSize: emojiSize ?? this.emojiSize,
       avatarScale: avatarScale ?? this.avatarScale,
-      enableThreadsInChannels: enableThreadsInChannels ?? this.enableThreadsInChannels,
+      enableThreadsInChannels:
+          enableThreadsInChannels ?? this.enableThreadsInChannels,
       enableReactions: enableReactions ?? this.enableReactions,
       enableAnimatedAvatars:
           enableAnimatedAvatars ?? this.enableAnimatedAvatars,
@@ -1948,9 +1997,12 @@ class MessageFormatPreferences {
 }
 
 final messageFormatPreferencesProvider =
-    NotifierProvider<MessageFormatPreferencesNotifier, MessageFormatPreferences>(() {
-  return MessageFormatPreferencesNotifier();
-});
+    NotifierProvider<
+      MessageFormatPreferencesNotifier,
+      MessageFormatPreferences
+    >(() {
+      return MessageFormatPreferencesNotifier();
+    });
 
 class MessageFormatPreferencesNotifier
     extends Notifier<MessageFormatPreferences> {
@@ -1967,8 +2019,7 @@ class MessageFormatPreferencesNotifier
   static const _prefsKeyAvatarScale = 'avatar_scale';
   static const _prefsKeyEnableThreadsInChannels = 'enable_threads_in_channels';
   static const _prefsKeyEnableReactions = 'enable_reactions';
-  static const _prefsKeyEnableAnimatedAvatars =
-      'enable_animated_avatars';
+  static const _prefsKeyEnableAnimatedAvatars = 'enable_animated_avatars';
 
   @override
   MessageFormatPreferences build() {
@@ -1986,11 +2037,14 @@ class MessageFormatPreferencesNotifier
           prefs.getBool(_prefsKeyShowInlineChannelAvatar) ?? true;
       final channelFontSize = prefs.getDouble(_prefsKeyChannelFontSize) ?? 15.0;
       final privateFontSize = prefs.getDouble(_prefsKeyPrivateFontSize) ?? 15.0;
-      final channelFontFamily = prefs.getString(_prefsKeyChannelFontFamily) ?? 'Roboto';
-      final privateFontFamily = prefs.getString(_prefsKeyPrivateFontFamily) ?? 'Roboto';
+      final channelFontFamily =
+          prefs.getString(_prefsKeyChannelFontFamily) ?? 'Roboto';
+      final privateFontFamily =
+          prefs.getString(_prefsKeyPrivateFontFamily) ?? 'Roboto';
       final emojiSize = prefs.getDouble(_prefsKeyEmojiSize) ?? 40.0;
       final avatarScale = prefs.getDouble(_prefsKeyAvatarScale) ?? 1.0;
-      final enableThreadsInChannels = prefs.getBool(_prefsKeyEnableThreadsInChannels) ?? true;
+      final enableThreadsInChannels =
+          prefs.getBool(_prefsKeyEnableThreadsInChannels) ?? true;
       final enableReactions = prefs.getBool(_prefsKeyEnableReactions) ?? true;
       final enableAnimatedAvatars =
           prefs.getBool(_prefsKeyEnableAnimatedAvatars) ?? false;
@@ -2027,7 +2081,9 @@ class MessageFormatPreferencesNotifier
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(
-          _prefsKeyChannel, format == MessageFormat.plain ? 'plain' : 'bubble');
+        _prefsKeyChannel,
+        format == MessageFormat.plain ? 'plain' : 'bubble',
+      );
     } catch (_) {
       // Ignorar errores de guardado
     }
@@ -2038,7 +2094,9 @@ class MessageFormatPreferencesNotifier
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(
-          _prefsKeyPrivate, format == MessageFormat.plain ? 'plain' : 'bubble');
+        _prefsKeyPrivate,
+        format == MessageFormat.plain ? 'plain' : 'bubble',
+      );
     } catch (_) {
       // Ignorar errores de guardado
     }
@@ -2165,19 +2223,20 @@ class MessageFormatPreferencesNotifier
 
 /// Provider para iconos personalizados de usuarios
 /// Mapea nick -> icono (emoji o inicial)
-final userIconsProvider = NotifierProvider<UserIconsNotifier, Map<String, String>>(() {
-  return UserIconsNotifier();
-});
+final userIconsProvider =
+    NotifierProvider<UserIconsNotifier, Map<String, String>>(() {
+      return UserIconsNotifier();
+    });
 
 class UserIconsNotifier extends Notifier<Map<String, String>> {
   static const _prefsKey = 'user_custom_icons';
-  
+
   @override
   Map<String, String> build() {
     _loadFromPrefs();
     return {};
   }
-  
+
   Future<void> _loadFromPrefs() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -2190,44 +2249,45 @@ class UserIconsNotifier extends Notifier<Map<String, String>> {
       // debugLog('Error cargando iconos personalizados: $e');
     }
   }
-  
+
   Future<void> setIcon(String nick, String icon) async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final newState = Map<String, String>.from(state);
       newState[nick.toLowerCase()] = icon;
       state = newState;
-      
+
       final iconsJson = json.encode(newState);
       await prefs.setString(_prefsKey, iconsJson);
     } catch (e) {
       // debugLog('Error guardando icono personalizado: $e');
     }
   }
-  
+
   Future<void> removeIcon(String nick) async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final newState = Map<String, String>.from(state);
       newState.remove(nick.toLowerCase());
       state = newState;
-      
+
       final iconsJson = json.encode(newState);
       await prefs.setString(_prefsKey, iconsJson);
     } catch (e) {
       // debugLog('Error eliminando icono personalizado: $e');
     }
   }
-  
+
   String? getIcon(String nick) {
     return state[nick.toLowerCase()];
   }
 }
 
 /// Avatar GIF global (subido en Ajustes). Guarda path en disco o data URL en web.
-final globalAvatarGifProvider = NotifierProvider<GlobalAvatarGifNotifier, String?>(() {
-  return GlobalAvatarGifNotifier();
-});
+final globalAvatarGifProvider =
+    NotifierProvider<GlobalAvatarGifNotifier, String?>(() {
+      return GlobalAvatarGifNotifier();
+    });
 
 class GlobalAvatarGifNotifier extends Notifier<String?> {
   static const _prefsKey = 'global_avatar_gif';
@@ -2270,46 +2330,55 @@ class GlobalAvatarGifNotifier extends Notifier<String?> {
     if (dataUrl == null || dataUrl.isEmpty) return;
     if (!dataUrl.startsWith('data:image/gif;base64,')) return;
     try {
-      final base64Data = dataUrl.contains(',') ? dataUrl.substring(dataUrl.indexOf(',') + 1) : dataUrl;
+      final base64Data = dataUrl.contains(',')
+          ? dataUrl.substring(dataUrl.indexOf(',') + 1)
+          : dataUrl;
       final bytes = base64Decode(base64Data);
       if (bytes.isEmpty) return;
-      AvatarService.uploadAvatarGif(nick.trim(), bytes).then((result) {
-        if (result.success && result.url != null && result.url!.isNotEmpty) {
-          // Sustituir la data URL local por la URL remota en el servidor
-          if (!PlatformUtils.isWeb) {
-            setGlobalAvatarGif(result.url);
-          }
-        } else if (!result.success) {
-          // Para revisar si la subida falla: abre la consola del navegador (F12) y busca este mensaje
-          debugLog('🖼️ [AVATAR] Subida automática GIF falló: ${result.errorMessage}');
-        }
-      }).catchError((error) {
-        debugLog('🖼️ [AVATAR] Excepción en subida automática GIF: $error');
-      });
+      AvatarService.uploadAvatarGif(nick.trim(), bytes)
+          .then((result) {
+            if (result.success &&
+                result.url != null &&
+                result.url!.isNotEmpty) {
+              // Sustituir la data URL local por la URL remota en el servidor
+              if (!PlatformUtils.isWeb) {
+                setGlobalAvatarGif(result.url);
+              }
+            } else if (!result.success) {
+              // Para revisar si la subida falla: abre la consola del navegador (F12) y busca este mensaje
+              debugLog(
+                '🖼️ [AVATAR] Subida automática GIF falló: ${result.errorMessage}',
+              );
+            }
+          })
+          .catchError((error) {
+            debugLog('🖼️ [AVATAR] Excepción en subida automática GIF: $error');
+          });
     } catch (_) {}
   }
 }
 
 /// Provider para robots personalizados
 /// Permite añadir robots manualmente y asignarles iconos personalizados
-final customRobotsProvider = NotifierProvider<CustomRobotsNotifier, List<CustomRobot>>(() {
-  return CustomRobotsNotifier();
-});
+final customRobotsProvider =
+    NotifierProvider<CustomRobotsNotifier, List<CustomRobot>>(() {
+      return CustomRobotsNotifier();
+    });
 
 class CustomRobotsNotifier extends Notifier<List<CustomRobot>> {
   static const _prefsKey = 'custom_robots';
-  
+
   @override
   List<CustomRobot> build() {
     _loadFromPrefs();
     return [];
   }
-  
+
   Future<void> _loadFromPrefs() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final robotsJson = prefs.getString(_prefsKey);
-      
+
       // Lista de robots por defecto
       final defaultRobots = [
         CustomRobot(nick: 'GlobalChat', icon: '🤖', host: 'GlobalChat.Org'),
@@ -2324,21 +2393,25 @@ class CustomRobotsNotifier extends Notifier<List<CustomRobot>> {
         CustomRobot(nick: 'Global', icon: '🤖'),
         CustomRobot(nick: 'ipvirtual', icon: '🤖'),
       ];
-      
+
       if (robotsJson != null) {
         final List<dynamic> decoded = json.decode(robotsJson);
-        final loadedRobots = decoded.map((json) => CustomRobot.fromJson(json as Map<String, dynamic>)).toList();
-        
+        final loadedRobots = decoded
+            .map((json) => CustomRobot.fromJson(json as Map<String, dynamic>))
+            .toList();
+
         // Añadir robots por defecto que no estén ya en la lista
         bool needsSave = false;
         for (var defaultRobot in defaultRobots) {
-          final exists = loadedRobots.any((r) => r.nick.toLowerCase() == defaultRobot.nick.toLowerCase());
+          final exists = loadedRobots.any(
+            (r) => r.nick.toLowerCase() == defaultRobot.nick.toLowerCase(),
+          );
           if (!exists) {
             loadedRobots.add(defaultRobot);
             needsSave = true;
           }
         }
-        
+
         state = loadedRobots;
         if (needsSave) {
           await _saveToPrefs(); // Guardar con los robots por defecto incluidos
@@ -2366,7 +2439,7 @@ class CustomRobotsNotifier extends Notifier<List<CustomRobot>> {
       ];
     }
   }
-  
+
   Future<void> _saveToPrefs() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -2376,10 +2449,12 @@ class CustomRobotsNotifier extends Notifier<List<CustomRobot>> {
       debugLog('Error guardando robots personalizados: $e');
     }
   }
-  
+
   Future<void> addRobot(CustomRobot robot) async {
     // Verificar que no exista ya
-    final existingIndex = state.indexWhere((r) => r.nick.toLowerCase() == robot.nick.toLowerCase());
+    final existingIndex = state.indexWhere(
+      (r) => r.nick.toLowerCase() == robot.nick.toLowerCase(),
+    );
     if (existingIndex != -1) {
       // Actualizar el existente
       final newState = List<CustomRobot>.from(state);
@@ -2391,14 +2466,18 @@ class CustomRobotsNotifier extends Notifier<List<CustomRobot>> {
     }
     await _saveToPrefs();
   }
-  
+
   Future<void> removeRobot(String nick) async {
-    state = state.where((r) => r.nick.toLowerCase() != nick.toLowerCase()).toList();
+    state = state
+        .where((r) => r.nick.toLowerCase() != nick.toLowerCase())
+        .toList();
     await _saveToPrefs();
   }
-  
+
   Future<void> updateRobot(String nick, CustomRobot updatedRobot) async {
-    final index = state.indexWhere((r) => r.nick.toLowerCase() == nick.toLowerCase());
+    final index = state.indexWhere(
+      (r) => r.nick.toLowerCase() == nick.toLowerCase(),
+    );
     if (index != -1) {
       final newState = List<CustomRobot>.from(state);
       newState[index] = updatedRobot;
@@ -2406,7 +2485,7 @@ class CustomRobotsNotifier extends Notifier<List<CustomRobot>> {
       await _saveToPrefs();
     }
   }
-  
+
   CustomRobot? getRobot(String nick) {
     try {
       return state.firstWhere(
@@ -2416,7 +2495,7 @@ class CustomRobotsNotifier extends Notifier<List<CustomRobot>> {
       return null;
     }
   }
-  
+
   bool isCustomRobot(String nick, {String? host}) {
     // Verificar por nick
     final robot = getRobot(nick);
@@ -2428,15 +2507,16 @@ class CustomRobotsNotifier extends Notifier<List<CustomRobot>> {
       // Si no tiene host, cualquier host es válido
       return true;
     }
-    
+
     // Verificar por host si no se encontró por nick
     if (host != null) {
-      return state.any((r) => 
-        r.host != null && 
-        host.toLowerCase().contains(r.host!.toLowerCase())
+      return state.any(
+        (r) =>
+            r.host != null &&
+            host.toLowerCase().contains(r.host!.toLowerCase()),
       );
     }
-    
+
     return false;
   }
 
@@ -2444,9 +2524,11 @@ class CustomRobotsNotifier extends Notifier<List<CustomRobot>> {
   /// Útil para inicializar con una lista de bots conocidos
   Future<void> addRobots(List<CustomRobot> robots) async {
     final newState = List<CustomRobot>.from(state);
-    
+
     for (var robot in robots) {
-      final existingIndex = newState.indexWhere((r) => r.nick.toLowerCase() == robot.nick.toLowerCase());
+      final existingIndex = newState.indexWhere(
+        (r) => r.nick.toLowerCase() == robot.nick.toLowerCase(),
+      );
       if (existingIndex != -1) {
         // Actualizar el existente
         newState[existingIndex] = robot;
@@ -2455,7 +2537,7 @@ class CustomRobotsNotifier extends Notifier<List<CustomRobot>> {
         newState.add(robot);
       }
     }
-    
+
     state = newState;
     await _saveToPrefs();
   }
@@ -2472,8 +2554,8 @@ const _translationChannelsPrefsKey = 'translation_enabled_channels';
 /// Canales donde la traducción automática está activada (mensajes → español).
 final translationEnabledChannelsProvider =
     NotifierProvider<TranslationEnabledChannelsNotifier, Set<String>>(() {
-  return TranslationEnabledChannelsNotifier();
-});
+      return TranslationEnabledChannelsNotifier();
+    });
 
 class TranslationEnabledChannelsNotifier extends Notifier<Set<String>> {
   @override
@@ -2527,8 +2609,8 @@ class TranslationEnabledChannelsNotifier extends Notifier<Set<String>> {
 /// Caché de traducciones (texto original → traducido) para refrescar UI.
 final translationCacheProvider =
     NotifierProvider<TranslationCacheNotifier, Map<String, String>>(() {
-  return TranslationCacheNotifier();
-});
+      return TranslationCacheNotifier();
+    });
 
 class TranslationCacheNotifier extends Notifier<Map<String, String>> {
   final Set<String> _pending = {};
@@ -2536,7 +2618,10 @@ class TranslationCacheNotifier extends Notifier<Map<String, String>> {
   @override
   Map<String, String> build() => {};
 
-  Future<String?> getOrTranslate(String text, TranslationService service) async {
+  Future<String?> getOrTranslate(
+    String text,
+    TranslationService service,
+  ) async {
     final clean = text.trim();
     if (clean.length < TranslationService.minChars) return null;
     if (state.containsKey(clean)) return state[clean];

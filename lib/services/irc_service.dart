@@ -5206,6 +5206,18 @@ class IRCService {
     _notifyUserListListeners(channel);
   }
 
+  /// Agregar un mensaje de sistema personalizado (usado para ZNC, etc.)
+  void addSystemMessage(String channel, String message) {
+    final systemMessage = IRCMessage(
+      nick: 'System',
+      channel: channel,
+      message: message,
+      timestamp: DateTime.now(),
+      isSystem: true,
+    );
+    _notifyMessageListeners(systemMessage);
+  }
+
   // Verificar y eliminar mensajes expirados periódicamente
   void _checkExpiredMessages() {
     for (var channelEntry in channels.entries) {

@@ -1303,6 +1303,13 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       if (zncPassword != null && zncPassword.isNotEmpty) {
         await Future.delayed(const Duration(milliseconds: 1500));
         ircService.sendRaw('PASS $zncPassword');
+        // Marcar como conexión ZNC
+        ref.read(isZncConnectionProvider.notifier).setZncConnection(true);
+        // Mostrar mensaje de bienvenida ZNC
+        ircService.addSystemMessage(
+          channel,
+          '🔐 Conectado via ZNC - Tus buffers serán sincronizados',
+        );
       }
 
       // Actualizar el provider con el nick inicial (se actualizará automáticamente si el servidor lo modifica)
