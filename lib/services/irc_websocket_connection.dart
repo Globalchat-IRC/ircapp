@@ -8,6 +8,9 @@ import '../utils/platform_utils.dart';
 /// Puerto WebSocket nativo de UnrealIRCd (modo directo: el IRC ve la IP real del usuario).
 const int kUnrealIRCdWebSocketPort = 4443;
 
+/// Puerto ZNC (usar conexión directa también)
+const int kZNCPort = 2000;
+
 /// Sufijo de dominios GlobalChat; todos los nodos tienen WebSocket en 4443.
 const String _globalChatHostSuffix = '.globalchat.org';
 
@@ -20,7 +23,8 @@ bool _isGlobalChatHost(String host) {
 /// - Otros servidores: gateway ceres:4444 + handshake JSON.
 class IRCWebSocketConnection implements IRCConnection {
   WebSocketChannel? _channel;
-  final StreamController<String> _streamController = StreamController<String>.broadcast();
+  final StreamController<String> _streamController =
+      StreamController<String>.broadcast();
   StreamSubscription? _subscription;
   bool _isConnected = false;
   bool _handshakeComplete = false;
@@ -30,17 +34,19 @@ class IRCWebSocketConnection implements IRCConnection {
   @override
   Future<void> connect(String host, int port, {bool useSSL = true}) async {
     if (!PlatformUtils.mustUseWebSocket) {
-      throw UnsupportedError('WebSocket solo está disponible en web. Use Socket TCP.');
+      throw UnsupportedError(
+        'WebSocket solo está disponible en web. Use Socket TCP.',
+      );
     }
 
     // Limpiar estado previo
     _isConnected = false;
     _handshakeComplete = false;
     _directMode = false;
-    
+
     await _subscription?.cancel();
     _subscription = null;
-    
+
     try {
       await _channel?.sink.close(status.goingAway);
     } catch (e) {
@@ -50,10 +56,16 @@ class IRCWebSocketConnection implements IRCConnection {
 
     try {
       // En web, todos los nodos GlobalChat tienen 4443: conectar al nodo elegido en ese puerto (IP visible).
-      _directMode = port == kUnrealIRCdWebSocketPort || _isGlobalChatHost(host);
+      // También ZNC (puerto 2000) usa conexión directa.
+      _directMode =
+          port == kUnrealIRCdWebSocketPort ||
+          port == kZNCPort ||
+          _isGlobalChatHost(host);
 
       if (_directMode) {
-        final int wsPort = _isGlobalChatHost(host) ? kUnrealIRCdWebSocketPort : port;
+        final int wsPort = _isGlobalChatHost(host)
+            ? kUnrealIRCdWebSocketPort
+            : port;
         final String protocol = useSSL ? 'wss' : 'ws';
         final uri = Uri.parse('$protocol://$host:$wsPort');
         _channel = WebSocketChannel.connect(uri);
@@ -117,7 +129,9 @@ class IRCWebSocketConnection implements IRCConnection {
       throw StateError('No conectado al servidor');
     }
     if (!_handshakeComplete) {
-      throw StateError('Handshake no completado. No se pueden enviar mensajes IRC.');
+      throw StateError(
+        'Handshake no completado. No se pueden enviar mensajes IRC.',
+      );
     }
     // El gateway añade \r\n
     _channel!.sink.add(data);
@@ -133,7 +147,7 @@ class IRCWebSocketConnection implements IRCConnection {
   void close() {
     disconnect();
   }
-  
+
   void _setupChannelListeners({required bool directMode}) {
     _subscription = _channel!.stream.listen(
       (data) {
@@ -157,20 +171,25 @@ class IRCWebSocketConnection implements IRCConnection {
               final type = jsonData['type'] as String?;
               if (type == 'handshake_ok') {
                 _handshakeComplete = true;
-                if (_handshakeCompleter != null && !_handshakeCompleter!.isCompleted) {
+                if (_handshakeCompleter != null &&
+                    !_handshakeCompleter!.isCompleted) {
                   _handshakeCompleter!.complete();
                 }
                 return;
               } else if (type == 'handshake_error') {
-                final errorMsg = jsonData['error'] as String? ?? 'Error desconocido en handshake';
+                final errorMsg =
+                    jsonData['error'] as String? ??
+                    'Error desconocido en handshake';
                 _handshakeComplete = false;
-                if (_handshakeCompleter != null && !_handshakeCompleter!.isCompleted) {
+                if (_handshakeCompleter != null &&
+                    !_handshakeCompleter!.isCompleted) {
                   _handshakeCompleter!.completeError(Exception(errorMsg));
                 }
                 _streamController.addError(Exception(errorMsg));
                 return;
               } else if (type == 'irc_error') {
-                final errorMsg = jsonData['error'] as String? ?? 'Error de conexión IRC';
+                final errorMsg =
+                    jsonData['error'] as String? ?? 'Error de conexión IRC';
                 _streamController.addError(Exception(errorMsg));
                 return;
               } else if (type == 'irc_closed') {
@@ -197,7 +216,9 @@ class IRCWebSocketConnection implements IRCConnection {
         _isConnected = false;
         _handshakeComplete = false;
         if (_handshakeCompleter != null && !_handshakeCompleter!.isCompleted) {
-          _handshakeCompleter!.completeError(Exception('Conexión WebSocket cerrada'));
+          _handshakeCompleter!.completeError(
+            Exception('Conexión WebSocket cerrada'),
+          );
         }
         _streamController.close();
       },
