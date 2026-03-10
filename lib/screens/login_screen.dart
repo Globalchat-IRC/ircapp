@@ -1299,6 +1299,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         ircService.identifyNick(identifyPassword);
       }
 
+      // Si es servidor ZNC, enviar el comando PASS
+      if (zncPassword != null && zncPassword.isNotEmpty) {
+        await Future.delayed(const Duration(milliseconds: 1500));
+        ircService.sendRaw('PASS $zncPassword');
+      }
+
       // Actualizar el provider con el nick inicial (se actualizará automáticamente si el servidor lo modifica)
       ref.read(currentNicknameProvider.notifier).state = nick;
       // Subir avatar GIF al servidor automáticamente para que otros usuarios lo vean (sin pedir nada al usuario)
@@ -2523,6 +2529,69 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             },
           ),
         ),
+      ),
+    );
+  }
+
+  /// Mostrar diálogo para pedir usuario:password de ZNC
+  Future<String?> _showZncPasswordDialog(BuildContext context) async {
+    final userController = TextEditingController();
+    final passController = TextEditingController();
+    final appTheme = Theme.of(context);
+
+    return showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: Text(
+          'Conexión ZNC',
+          style: TextStyle(color: appTheme.textTheme.titleLarge?.color),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              'Introduce tu usuario y contraseña de ZNC:',
+              style: TextStyle(color: appTheme.textTheme.bodyMedium?.color),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: userController,
+              decoration: const InputDecoration(
+                labelText: 'Usuario',
+                hintText: 'usuario',
+                prefixIcon: Icon(Icons.person),
+              ),
+              autofocus: true,
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: passController,
+              decoration: const InputDecoration(
+                labelText: 'Contraseña',
+                hintText: 'contraseña',
+                prefixIcon: Icon(Icons.lock),
+              ),
+              obscureText: true,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(null),
+            child: const Text('Cancelar'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              final user = userController.text.trim();
+              final pass = passController.text.trim();
+              if (user.isNotEmpty && pass.isNotEmpty) {
+                Navigator.of(context).pop('$user:$pass');
+              }
+            },
+            child: const Text('Conectar'),
+          ),
+        ],
       ),
     );
   }
