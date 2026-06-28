@@ -4,12 +4,16 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:web_socket_channel/status.dart' as status;
 import 'irc_connection_interface.dart';
 import '../utils/platform_utils.dart';
+import '../config/debug_config.dart';
 
 /// Puerto WebSocket nativo de UnrealIRCd (modo directo: el IRC ve la IP real del usuario).
 const int kUnrealIRCdWebSocketPort = 4443;
 
-/// Puerto ZNC (usar conexión directa también)
-const int kZNCPort = 2000;
+/// Puerto ZNC (entrada WebSocket via Apache proxy)
+const int kZNCPort = 2002;
+
+/// Puerto real donde está ZNC escuchando
+const int kZNCRawPort = 2000;
 
 /// Sufijo de dominios GlobalChat; todos los nodos tienen WebSocket en 4443.
 const String _globalChatHostSuffix = '.globalchat.org';
@@ -56,22 +60,40 @@ class IRCWebSocketConnection implements IRCConnection {
 
     try {
       // En web, todos los nodos GlobalChat tienen 4443: conectar al nodo elegido en ese puerto (IP visible).
-      // También ZNC (puerto 2000) usa conexión directa.
+      // ZNC: conectar directamente a WebSocket de UnrealIRCd (4443) y enviar PASS
       _directMode =
           port == kUnrealIRCdWebSocketPort ||
-          port == kZNCPort ||
-          _isGlobalChatHost(host);
+          _isGlobalChatHost(host) ||
+          port == kZNCPort;
+
+      debugLog(
+        '🔌 [WebSocket] _directMode=$_directMode, port=$port, kZNCPort=$kZNCPort, host=$host',
+      );
 
       if (_directMode) {
-        final int wsPort = _isGlobalChatHost(host)
+        // Para ZNC (puerto 2002), usar WebSocket de UnrealIRCd (4443)
+        final int wsPort = port == kZNCPort
             ? kUnrealIRCdWebSocketPort
-            : port;
-        final String protocol = useSSL ? 'wss' : 'ws';
+            : (_isGlobalChatHost(host) ? kUnrealIRCdWebSocketPort : port);
+        // Para ZNC, necesitamos WSS aunque useSSL sea false,
+        // porque el navegador bloquea ws:// desde HTTPS
+        final bool pageIsHTTPS = Uri.base.scheme == 'https';
+        final bool forceSSL = pageIsHTTPS || port == kZNCPort;
+        final String protocol = (useSSL || forceSSL) ? 'wss' : 'ws';
         final uri = Uri.parse('$protocol://$host:$wsPort');
+        debugLog(
+          '🔌 [WebSocket] Connecting to $uri (forceSSL=$forceSSL, useSSL=$useSSL, pageIsHTTPS=$pageIsHTTPS, directMode=$_directMode)',
+        );
         _channel = WebSocketChannel.connect(uri);
+
+        // Wait for the WebSocket connection to be ready
+        await _channel!.ready;
+        debugLog('🔌 [WebSocket] Connection ready, setting up listeners');
+
         _handshakeComplete = true;
         _setupChannelListeners(directMode: true);
         _isConnected = true;
+        debugLog('🔌 [WebSocket] Direct mode connection established');
       } else {
         // Modo gateway: ceres:4444 + handshake JSON (servidores no GlobalChat)
         _handshakeCompleter = Completer<void>();
@@ -79,15 +101,23 @@ class IRCWebSocketConnection implements IRCConnection {
         final String protocol = pageIsHTTPS ? 'wss' : 'ws';
         const String gatewayHost = 'ceres.globalchat.org';
         const int gatewayPort = 4444;
+
+        // Para ZNC, el gateway debe conectar al puerto real de ZNC
+        final String targetHost = port == kZNCPort ? '127.0.0.1' : host;
+        final int targetPort = port == kZNCPort ? kZNCRawPort : port;
+
         final uri = Uri.parse('$protocol://$gatewayHost:$gatewayPort');
         _channel = WebSocketChannel.connect(uri);
         _setupChannelListeners(directMode: false);
         await Future.delayed(const Duration(milliseconds: 100));
         final handshake = jsonEncode({
-          'host': host,
-          'port': port,
-          'useSSL': useSSL,
+          'host': targetHost,
+          'port': targetPort,
+          'useSSL': port == kZNCPort
+              ? false
+              : useSSL, // ZNC usa SSL internamente
         });
+        debugLog('🔌 [WebSocket] Gateway handshake: $handshake');
         _channel!.sink.add(handshake);
         await _handshakeCompleter!.future.timeout(
           const Duration(seconds: 10),
@@ -99,7 +129,9 @@ class IRCWebSocketConnection implements IRCConnection {
         );
         _isConnected = true;
       }
-    } catch (e) {
+    } catch (e, stack) {
+      debugLog('❌ [WebSocket] Connection error: $e');
+      debugLog('❌ [WebSocket] Stack trace: $stack');
       _isConnected = false;
       _handshakeComplete = false;
       _directMode = false;
@@ -156,7 +188,11 @@ class IRCWebSocketConnection implements IRCConnection {
           if (data is String) {
             message = data;
           } else if (data is List<int>) {
-            message = String.fromCharCodes(data);
+            // Decodificar como UTF-8 (no usar String.fromCharCodes, que
+            // interpreta cada byte como un carácter y rompe caracteres
+            // multibyte como ñ, á, emojis, etc.). allowMalformed evita
+            // excepciones si llega algún byte no UTF-8 (p. ej. Latin-1).
+            message = utf8.decode(data, allowMalformed: true);
           } else {
             message = data.toString();
           }

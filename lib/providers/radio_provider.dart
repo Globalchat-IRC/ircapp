@@ -5,7 +5,6 @@ import 'dart:async';
 import 'dart:convert';
 import '../models/radio_station.dart';
 import '../services/radio_service.dart';
-import '../services/mixcloud_live_service.dart';
 import '../config/debug_config.dart';
 
 class RadioState {
@@ -20,7 +19,7 @@ class RadioState {
     required this.stations,
     this.activeStation,
     this.isPlaying = false,
-    this.volume = 0.1,
+    this.volume = 0.85,
     List<String>? starredStations,
     this.hasError = false,
   }) : starredStations = starredStations ?? [];
@@ -58,6 +57,24 @@ class RadioNotifier extends Notifier<RadioState> {
   Timer? _nowPlayingTimer;
   Timer? _liveStreamCheckTimer;
 
+  /// Estaciones retiradas: se migran automáticamente a Qualia_Radio.
+  static const _legacyStationNames = {
+    'UrbanFlow',
+    'NuestrasVoces',
+    'SoundMusic',
+  };
+
+  static String? _migrateLegacyStationName(String? name) {
+    if (name != null && _legacyStationNames.contains(name)) {
+      return 'Qualia_Radio';
+    }
+    return name;
+  }
+
+  static String _migrateLegacyStationNameRequired(String name) {
+    return _legacyStationNames.contains(name) ? 'Qualia_Radio' : name;
+  }
+
   @override
   RadioState build() {
     // debugLog('📻 RadioNotifier inicializado');
@@ -71,23 +88,34 @@ class RadioNotifier extends Notifier<RadioState> {
     try {
       // debugLog('📻 _loadSettings iniciado');
       final prefs = await SharedPreferences.getInstance();
-      final volume = prefs.getDouble('radio_volume') ?? 0.1;
+      final volume = prefs.getDouble('radio_volume') ?? 0.85;
       final starredJson = prefs.getString('radio_starred');
-      final activeName = prefs.getString('radio_active');
-
-      // debugLog('📻 Configuración cargada: volume=$volume, activeName=$activeName');
+      var activeName = _migrateLegacyStationName(prefs.getString('radio_active'));
 
       List<String> starred = [];
       if (starredJson != null) {
-        starred = List<String>.from(jsonDecode(starredJson));
+        starred = List<String>.from(jsonDecode(starredJson))
+            .map(_migrateLegacyStationNameRequired)
+            .toSet()
+            .toList();
       }
 
       state = state.copyWith(volume: volume, starredStations: starred);
 
-      // Cargar estaciones
-      // debugLog('📻 Llamando a loadStations...');
       await loadStations(activeName);
-      // debugLog('📻 loadStations completado');
+
+      // Persistir migración para no conservar nombres antiguos en el dispositivo.
+      if (activeName == 'Qualia_Radio' &&
+          prefs.getString('radio_active') != null &&
+          _legacyStationNames.contains(prefs.getString('radio_active'))) {
+        await prefs.setString('radio_active', 'Qualia_Radio');
+      }
+      if (starredJson != null &&
+          starredJson.contains(RegExp(
+            r'UrbanFlow|NuestrasVoces|SoundMusic',
+          ))) {
+        await prefs.setString('radio_starred', jsonEncode(starred));
+      }
     } catch (e) {
       // debugLog('❌ Error cargando configuración de radio: $e');
       // debugLog('❌ Stack trace: $stackTrace');
@@ -115,113 +143,80 @@ class RadioNotifier extends Notifier<RadioState> {
     Future.delayed(const Duration(seconds: 5), () => _checkLiveStreams());
   }
 
-  Future<void> _checkLiveStreams({bool forceRefresh = false}) async {
+  Future<void> _checkLiveStreams() async {
     try {
-      // Snapshot al inicio para evitar modificación concurrente con refreshNowPlaying
       final currentStations = List<RadioStation>.from(state.stations);
       final currentActive = state.activeStation;
-      final mixcloudService = MixcloudLiveService();
-      if (forceRefresh) {
-        mixcloudService.clearCache();
-        debugLog(
-          '🔄 [RadioProvider] Caché limpiado, obteniendo URL fresca del stream...',
+      if (!currentStations.any((s) => s.name == 'Qualia_Radio')) return;
+
+      final response = await http
+          .get(
+            Uri.parse(
+              'https://azura.streamingradio.online/api/nowplaying/qualia_radio',
+            ),
+          )
+          .timeout(const Duration(seconds: 5));
+
+      if (response.statusCode != 200) return;
+
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      final nowPlaying = data['now_playing'] as Map<String, dynamic>?;
+      final live = data['live'] as Map<String, dynamic>?;
+      final song = nowPlaying?['song'] as Map<String, dynamic>?;
+      final artist = (song?['artist'] as String?)?.trim() ?? '';
+      final title = (song?['title'] as String?)?.trim() ?? '';
+      final songText = (song?['text'] as String?)?.trim() ?? '';
+      final currentArtistSong = songText.isNotEmpty
+          ? songText
+          : (artist.isNotEmpty && title.isNotEmpty
+                ? '$artist - $title'
+                : (title.isNotEmpty ? title : null));
+
+      final isLive = live?['is_live'] == true;
+      final streamerName = (live?['streamer_name'] as String?)?.trim() ?? '';
+      const baseDescription =
+          'Qualia Radio - Canal #QualiaRadio en IRC GlobalChat';
+      final description = isLive
+          ? (streamerName.isNotEmpty
+                ? '$baseDescription 🔴 EN VIVO ($streamerName)'
+                : '$baseDescription 🔴 EN VIVO')
+          : baseDescription;
+
+      final updatedStations = currentStations.map((station) {
+        if (station.name == 'Qualia_Radio') {
+          return RadioStation(
+            id: station.id,
+            name: station.name,
+            description: description,
+            source: station.source,
+            namesite: station.namesite,
+            salon: station.salon,
+            genre: station.genre,
+            bitrate: station.bitrate,
+            currentArtistSong: isLive
+                ? (streamerName.isNotEmpty
+                      ? 'En directo: $streamerName'
+                      : 'Emisión en directo')
+                : currentArtistSong,
+          );
+        }
+        return station;
+      }).toList();
+
+      RadioStation? updatedActive = currentActive;
+      if (currentActive?.name == 'Qualia_Radio') {
+        updatedActive = updatedStations.firstWhere(
+          (s) => s.name == 'Qualia_Radio',
+          orElse: () => currentActive!,
         );
       }
-      final stream = await mixcloudService.getUrbanFlowStream();
-      if (stream != null && stream.streamUrl.isNotEmpty) {
-        final isLive = stream.isLive;
-        final cloudcastName = stream.info?['cloudcast_name'] ?? '';
-        if (isLive) {
-          debugLog('🔴 [RadioProvider] UrbanFlow está EN VIVO');
-          debugLog('🎵 [RadioProvider] URL del stream: ${stream.streamUrl}');
-        } else {
-          debugLog(
-            '📼 [RadioProvider] UrbanFlow NO está en vivo, usando última sesión grabada: $cloudcastName',
-          );
-          debugLog(
-            '🎵 [RadioProvider] URL del stream grabado: ${stream.streamUrl}',
-          );
-        }
-        final updatedStations = currentStations.map((station) {
-          if (station.name == 'UrbanFlow') {
-            return RadioStation(
-              id: station.id,
-              name: station.name,
-              description: isLive
-                  ? (station.description.contains('🔴')
-                        ? station.description
-                        : 'UrbanFlow - Canal #urbanflow en IRC GlobalChat 🔴 EN VIVO')
-                  : (cloudcastName.isNotEmpty
-                        ? 'UrbanFlow - Canal #urbanflow en IRC GlobalChat 📼 $cloudcastName'
-                        : 'UrbanFlow - Canal #urbanflow en IRC GlobalChat 📼 Sesión grabada'),
-              source: stream.streamUrl, // ← URL del stream (en vivo o grabado)
-              namesite: station.namesite,
-              salon: station.salon,
-              genre: station.genre,
-              bitrate: stream.info?['bitrate'] ?? station.bitrate,
-              currentArtistSong: isLive
-                  ? 'Emisión en directo'
-                  : (cloudcastName.isNotEmpty
-                        ? cloudcastName
-                        : 'Sesión grabada'),
-            );
-          }
-          return station;
-        }).toList();
 
-        // Actualizar también la estación activa si es UrbanFlow
-        RadioStation? updatedActive = state.activeStation;
-        if (state.activeStation?.name == 'UrbanFlow') {
-          updatedActive = updatedStations.firstWhere(
-            (s) => s.name == 'UrbanFlow',
-            orElse: () => state.activeStation!,
-          );
-        }
-
-        state = state.copyWith(
-          stations: updatedStations,
-          activeStation: updatedActive,
-        );
-      } else {
-        debugLog(
-          'ℹ️ [RadioProvider] UrbanFlow NO está disponible (ni en vivo ni grabado), usando URL por defecto',
-        );
-
-        // Restaurar la URL por defecto de Mixcloud
-        final updatedStations = state.stations.map((station) {
-          if (station.name == 'UrbanFlow') {
-            return RadioStation(
-              id: station.id,
-              name: station.name,
-              description: 'UrbanFlow - Canal #urbanflow en IRC GlobalChat',
-              source: 'https://www.mixcloud.com/djsonic_vlc/',
-              namesite: 'https://www.mixcloud.com/djsonic_vlc/',
-              salon: station.salon,
-              genre: 'VARIEDAD',
-              bitrate: '128',
-              currentArtistSong: station.currentArtistSong,
-            );
-          }
-          return station;
-        }).toList();
-        RadioStation? updatedActive = currentActive;
-        if (currentActive?.name == 'UrbanFlow') {
-          try {
-            updatedActive = updatedStations.firstWhere(
-              (s) => s.name == 'UrbanFlow',
-              orElse: () => currentActive!,
-            );
-          } catch (_) {
-            updatedActive = currentActive;
-          }
-        }
-        state = state.copyWith(
-          stations: updatedStations,
-          activeStation: updatedActive,
-        );
-      }
+      state = state.copyWith(
+        stations: updatedStations,
+        activeStation: updatedActive,
+      );
     } catch (e) {
-      debugLog('⚠️ [RadioProvider] Error verificando streams: $e');
+      debugLog('⚠️ [RadioProvider] Error verificando Qualia Radio: $e');
     }
   }
 
@@ -330,33 +325,15 @@ class RadioNotifier extends Notifier<RadioState> {
   }
 
   List<RadioStation> _getDefaultStations() {
-    // Estaciones que funcionan bien (Zeno.fm y listen2myradio.com)
     return [
       RadioStation(
-        id: 'zeno1',
-        name: 'NuestrasVoces',
-        description: '🎤✨ Nuevos talentos y dedicatorias',
+        id: 'qualia1',
+        name: 'Qualia_Radio',
+        description: 'Qualia Radio - Canal #QualiaRadio en IRC GlobalChat',
         source:
-            'https://stream-179.zeno.fm/td7dw1np6s8uv?zt=eyJhbGciOiJIUzI1NiJ9.eyJzdHJlYW0iOiJ0ZDdkdzFucDZzOHV2IiwiaG9zdCI6InN0cmVhbS0xNzkuemVuby5mbSIsInJ0dGwiOjUsImp0aSI6ImZ6dGxpd002U0RlSmo0S3VfUE1xNWciLCJpYXQiOjE3NTg3NTU0MDMsImV4cCI6MTc1ODc1NTQ2M30.wl2oH7CHKjldHmqf3gkqqVhzl0lpJMTc3XebALO65l0',
-        namesite: 'https://globalchat.org/',
-        salon: '#nuestrasvoces',
-      ),
-      // SoundMusic comentada temporalment
-      // RadioStation(
-      //   id: 'zeno2',
-      //   name: 'SoundMusic',
-      //   description: '🎶🌟 Variado gusto musical',
-      //   source: 'https://stream.zeno.fm/3ezwa4mtghmtv',
-      //   namesite: 'https://zeno.fm/radio/soundmusic/',
-      //   salon: '#soundmusic',
-      // ),
-      RadioStation(
-        id: 'urban1',
-        name: 'UrbanFlow',
-        description: 'UrbanFlow - Canal #urbanflow en IRC GlobalChat',
-        source: 'https://www.mixcloud.com/djsonic_vlc/',
-        namesite: 'https://www.mixcloud.com/djsonic_vlc/',
-        salon: '#urbanflow',
+            'https://azura.streamingradio.online/listen/qualia_radio/radio.mp3',
+        namesite: 'https://azura.streamingradio.online/public/qualia_radio',
+        salon: '#QualiaRadio',
         genre: 'VARIEDAD',
         bitrate: '128',
       ),
@@ -365,7 +342,7 @@ class RadioNotifier extends Notifier<RadioState> {
 
   Future<void> loadStations([String? activeName]) async {
     try {
-      // Usar solo las estaciones por defecto (las 3 configuradas)
+      activeName = _migrateLegacyStationName(activeName);
       final stations = _getDefaultStations();
 
       RadioStation? active;
@@ -382,7 +359,7 @@ class RadioNotifier extends Notifier<RadioState> {
         active = starred.isNotEmpty ? starred[0] : stations[0];
       } else if (stations.isNotEmpty) {
         try {
-          active = stations.firstWhere((s) => s.name == 'NuestrasVoces');
+          active = stations.firstWhere((s) => s.name == 'Qualia_Radio');
         } catch (e) {
           active = stations[0];
         }
@@ -410,16 +387,10 @@ class RadioNotifier extends Notifier<RadioState> {
   }
 
   Future<void> setActiveStation(RadioStation station) async {
-    // Si es UrbanFlow, verificar primero si hay stream en vivo
-    if (station.name == 'UrbanFlow') {
-      debugLog(
-        '🎵 [RadioProvider] Usuario seleccionó UrbanFlow, obteniendo URL fresca del stream...',
-      );
-      // Forzar actualización para obtener URL fresca (sin caché)
-      await _checkLiveStreams(forceRefresh: true);
-      // Después de verificar, obtener la estación actualizada
+    if (station.name == 'Qualia_Radio') {
+      await _checkLiveStreams();
       final updatedStation = state.stations.firstWhere(
-        (s) => s.name == 'UrbanFlow',
+        (s) => s.name == 'Qualia_Radio',
         orElse: () => station,
       );
       state = state.copyWith(activeStation: updatedStation, hasError: false);

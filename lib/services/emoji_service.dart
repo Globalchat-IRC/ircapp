@@ -989,9 +989,28 @@ class EmojiService {
               e.key == 'xdd')) {
         continue;
       }
-      result = result.replaceAll(e.key, e.value);
+      // Claves cortas tipo :P, :b, :d, etc. no deben sustituirse cuando forman parte de un
+      // código largo (:partying_face:, :blush:, :drool:, …).
+      if (_asciiEmoticonKeyNeedsWordBoundary(e.key)) {
+        final pattern = RegExp(
+          // Si el match está seguido por `:`, es muy probable que esté incrustado dentro
+          // de un shortcode real `:x:` / `:p:` / `:blush:` y NO debe tocarse.
+          '(?<![a-zA-Z0-9_])${RegExp.escape(e.key)}(?![a-zA-Z0-9_:])',
+        );
+        result = result.replaceAllMapped(pattern, (_) => e.value);
+      } else {
+        result = result.replaceAll(e.key, e.value);
+      }
     }
     return result;
+  }
+
+  /// Emoticonos que empiezan por `:` y acaban en carácter “identificador” pueden ser prefijo
+  /// de un nombre `:algo_mas:`; en ese caso hace falta límite antes/después del match.
+  static bool _asciiEmoticonKeyNeedsWordBoundary(String key) {
+    if (key.isEmpty || !key.startsWith(':')) return false;
+    final last = key[key.length - 1];
+    return RegExp(r'[a-zA-Z0-9]').hasMatch(last);
   }
 
   // Convertir texto con códigos de emoticonos a widgets

@@ -150,7 +150,7 @@ class _RadioStationsListState extends ConsumerState<RadioStationsList> {
                                           ref.read(radioServiceProvider);
                                       
                                       // Primero, establecer la estación activa
-                                      // (esto verifica el stream en vivo si es UrbanFlow)
+                                      // Actualiza now playing si es Qualia_Radio
                                       await ref
                                           .read(radioProvider.notifier)
                                           .setActiveStation(station);

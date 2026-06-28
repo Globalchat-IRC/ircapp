@@ -48,18 +48,24 @@ class ChannelBackgroundNotifier extends Notifier<Map<String, String>> {
     }
   }
 
+  /// URL de fondo por defecto para el canal de Qualia Radio (taza centrada).
+  static const String _qualiaRadioBackground =
+      'https://mobilev1.globalchat.org/branding/qualia_mug.png';
+
   /// Cargar configuraciones por defecto si no existen en preferencias
   Future<void> _loadDefaults() async {
     // Asegurar que los defaults estén presentes si no existen
-    final defaults = {
-      '#urbanflow': 'https://technosonic.radio12345.com/banner_images/3418735/128/95/785047816424filebaner.png',
+    final defaults = <String, String>{
+      '#qualiaradio': _qualiaRadioBackground,
     };
     final newState = Map<String, String>.from(state);
     bool hasChanges = false;
     
     defaults.forEach((key, value) {
       final normalizedKey = key.toLowerCase();
-      if (!newState.containsKey(normalizedKey)) {
+      // Forzar el fondo por defecto de #QualiaRadio aunque hubiera uno previo,
+      // para garantizar que siempre use la taza oficial.
+      if (newState[normalizedKey] != value) {
         newState[normalizedKey] = value;
         hasChanges = true;
       }

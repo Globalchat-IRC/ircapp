@@ -23,7 +23,20 @@ class AppTheme {
     required this.error,
   });
 
+  /// Devuelve un color (blanco o casi negro) que contraste correctamente
+  /// sobre [background]. Se usa para el contenido que va encima de superficies
+  /// de color (botones primary/secondary, AppBar, FAB, etc.), evitando que en
+  /// temas con `primary` oscuro y `textPrimary` oscuro queden iconos/texto
+  /// invisibles (negro sobre negro).
+  static Color contrastOn(Color background) {
+    return background.computeLuminance() > 0.5
+        ? const Color(0xFF111111)
+        : Colors.white;
+  }
+
   ThemeData toThemeData() {
+    final onPrimaryColor = contrastOn(primary);
+    final onSecondaryColor = contrastOn(secondary);
     return ThemeData(
       brightness: Brightness.light,
       primaryColor: primary,
@@ -33,15 +46,15 @@ class AppTheme {
         tertiary: accent,
         surface: surface,
         error: error,
-        onPrimary: textPrimary,
-        onSecondary: textPrimary,
+        onPrimary: onPrimaryColor,
+        onSecondary: onSecondaryColor,
         onSurface: textPrimary,
         onError: Colors.white,
       ),
       scaffoldBackgroundColor: background,
       appBarTheme: AppBarTheme(
         backgroundColor: primary,
-        foregroundColor: textPrimary,
+        foregroundColor: onPrimaryColor,
         elevation: 0,
       ),
       cardTheme: CardThemeData(color: surface, elevation: 2),
@@ -61,7 +74,7 @@ class AppTheme {
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
           backgroundColor: primary,
-          foregroundColor: textPrimary,
+          foregroundColor: onPrimaryColor,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
         ),
@@ -71,12 +84,15 @@ class AppTheme {
       ),
       floatingActionButtonTheme: FloatingActionButtonThemeData(
         backgroundColor: primary,
-        foregroundColor: textPrimary,
+        foregroundColor: onPrimaryColor,
       ),
+      iconTheme: IconThemeData(color: textPrimary),
     );
   }
 
   ThemeData toDarkThemeData() {
+    final onPrimaryColor = contrastOn(primary);
+    final onSecondaryColor = contrastOn(secondary);
     return ThemeData(
       brightness: Brightness.dark,
       primaryColor: primary,
@@ -86,15 +102,15 @@ class AppTheme {
         tertiary: accent,
         surface: surface,
         error: error,
-        onPrimary: textPrimary,
-        onSecondary: textPrimary,
+        onPrimary: onPrimaryColor,
+        onSecondary: onSecondaryColor,
         onSurface: textPrimary,
         onError: Colors.black,
       ),
       scaffoldBackgroundColor: background,
       appBarTheme: AppBarTheme(
         backgroundColor: primary,
-        foregroundColor: textPrimary,
+        foregroundColor: onPrimaryColor,
         elevation: 0,
       ),
       cardTheme: CardThemeData(color: surface, elevation: 2),
@@ -114,7 +130,7 @@ class AppTheme {
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
           backgroundColor: primary,
-          foregroundColor: textPrimary,
+          foregroundColor: onPrimaryColor,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
         ),
@@ -124,8 +140,9 @@ class AppTheme {
       ),
       floatingActionButtonTheme: FloatingActionButtonThemeData(
         backgroundColor: primary,
-        foregroundColor: textPrimary,
+        foregroundColor: onPrimaryColor,
       ),
+      iconTheme: IconThemeData(color: textPrimary),
     );
   }
 
@@ -432,6 +449,19 @@ class AppTheme {
         0xFF404040,
       ), // Gris oscuro para texto secundario
       error: const Color(0xFFFF0000), // Rojo clásico para errores
+    ),
+    AppTheme(
+      name: 'Qualia Radio',
+      // Theme minimalista y claro para Qualia Radio: fondo blanco/gris muy
+      // claro con letras negras. Pensado para máxima simplicidad y legibilidad.
+      primary: const Color(0xFF1A1A1A), // Negro suave (barras/botones)
+      secondary: const Color(0xFF4D4D4D), // Gris oscuro
+      accent: const Color(0xFF000000), // Negro como acento
+      background: const Color(0xFFFAFAFA), // Gris muy clarito casi blanco
+      surface: const Color(0xFFFFFFFF), // Blanco puro para superficies
+      textPrimary: const Color(0xFF111111), // Texto casi negro
+      textSecondary: const Color(0xFF555555), // Gris medio para secundario
+      error: const Color(0xFFB00020), // Rojo sobrio para errores
     ),
   ];
 }

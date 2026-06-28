@@ -161,17 +161,4 @@ class MixcloudLiveService {
     _cachedStream = null;
     _lastCheck = null;
   }
-
-  /// Obtener stream en vivo de UrbanFlow (djsonic_vlc)
-  Future<MixcloudLiveStream?> getUrbanFlowLiveStream() async {
-    return await getLiveStream('djsonic_vlc');
-  }
-
-  /// Obtener stream (en vivo o grabado) de UrbanFlow
-  /// El proxy se encarga de intentar primero el stream en vivo y luego la sesión grabada como fallback
-  Future<MixcloudLiveStream?> getUrbanFlowStream() async {
-    // El proxy (mixcloud_stream_extractor.php) se encarga del fallback automáticamente
-    // Solo necesitamos llamar a getLiveStream y el proxy devolverá en vivo o grabado
-    return await getUrbanFlowLiveStream();
-  }
 }

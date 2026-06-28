@@ -10,6 +10,7 @@ import 'irc_connection_interface.dart';
 import 'irc_connection_factory.dart';
 import '../utils/platform_utils.dart';
 import '../config/debug_config.dart';
+import '../utils/irc_message_limits.dart';
 
 class IRCService {
   IRCConnection? _connection;
@@ -18,6 +19,7 @@ class IRCService {
   String?
   _originalNickname; // Guardar el nick original para buscar alternativas
   int _nickAttempts = 0; // Contador de intentos de nick alternativos
+  String? _zncUsername; // Usuario ZNC (extraído de username:password)
   String? _currentChannel;
   Map<String, IRCChannel> channels = {};
   final List<Function(IRCMessage)> _messageListeners = [];
@@ -102,11 +104,20 @@ class IRCService {
   bool _manualDisconnectRequested = false;
   int _reconnectAttempts = 0;
 
-  static const Duration _heartbeatCheckInterval = Duration(seconds: 20);
-  static const Duration _heartbeatTimeout = Duration(minutes: 3);
+  // Comprobamos la salud de la conexión con frecuencia para detectar
+  // rápidamente caídas silenciosas (proxy/NAT que cierra conexiones inactivas,
+  // ping timeout del servidor, etc.).
+  static const Duration _heartbeatCheckInterval = Duration(seconds: 15);
+  // Si no hay ninguna actividad del servidor (ni PONG a nuestros PING, ni
+  // tráfico de otros usuarios) durante este tiempo, consideramos la conexión
+  // muerta y forzamos reconexión. 75s ≈ 3-4 PING sin respuesta.
+  static const Duration _heartbeatTimeout = Duration(seconds: 75);
   static const Duration _resumeReconnectThreshold = Duration(seconds: 90);
   static const Duration _resumeProbeTimeout = Duration(seconds: 8);
-  static const Duration _lagPingInterval = Duration(seconds: 30);
+  // Enviamos un PING cada 20s para mantener viva la sesión y la conexión TCP/
+  // WebSocket por debajo de los timeouts de inactividad habituales (60s en
+  // muchos proxies/NAT), con margen aunque el navegador ralentice algo el timer.
+  static const Duration _lagPingInterval = Duration(seconds: 20);
 
   bool get isConnected => _isConnected;
   String? get currentChannel => _currentChannel;
@@ -412,6 +423,7 @@ class IRCService {
     required int port,
     required String nickname,
     bool useSSL = true,
+    String? zncPassword,
   }) async {
     try {
       _manualDisconnectRequested = false;
@@ -435,6 +447,7 @@ class IRCService {
       _sessionNickname = cleanNick;
       _originalNickname = cleanNick; // Guardar el nick original
       _nickAttempts = 0; // Resetear contador de intentos
+      _zncUsername = null; // Resetear usuario ZNC
       _isRegistered = false; // Reset registration status
       _connectionCompleter = Completer<void>(); // Reinicializar el completer
       _lastServerActivityAt = DateTime.now();
@@ -493,22 +506,56 @@ class IRCService {
       // El stream ya devuelve String, no necesita decodificación
       _socketSubscription = _connection!.stream.listen(
         (String data) {
-          _handleData(data);
+          try {
+            _handleData(data);
+          } catch (e, stack) {
+            debugLog('❌ [IRCService] Error procesando datos: $e\n$stack');
+          }
         },
         onDone: () {
           // debugLog('⛔ [IRCService] Connection closed');
           _onDisconnect(reason: 'stream_done');
         },
         onError: (error) {
-          // debugLog('❌ [IRCService] Connection error: $error');
+          debugLog('❌ [IRCService] Stream error: $error');
           _onDisconnect(reason: 'stream_error');
         },
       );
 
       // Send initial IRC commands
+      // Para ZNC, enviar PASS primero (antes de NICK)
+      // Formato ZNC: usuario:contraseña
+      if (zncPassword != null && zncPassword.isNotEmpty) {
+        final zncPass = zncPassword;
+        // Extraer el username de ZNC (formato: username:password)
+        final parts = zncPassword.split(':');
+        if (parts.isNotEmpty) {
+          _zncUsername = parts[0];
+          debugLog('📡 [IRCService] ZNC Username extraído: $_zncUsername');
+        }
+        debugLog(
+          '📡 [IRCService] Enviando QUOTE PASS (ZNC) antes de NICK: $zncPass',
+        );
+        _sendCommand('QUOTE PASS $zncPass');
+        await Future.delayed(const Duration(milliseconds: 100));
+      }
+
+      // Para ZNC, usar el username de ZNC como nick inicial
+      final nickToSend = (_zncUsername != null && _zncUsername!.isNotEmpty)
+          ? _zncUsername!
+          : _nickname!;
+
+      // Actualizar _nickname si es ZNC para mantener consistencia
+      if (_zncUsername != null && _zncUsername!.isNotEmpty) {
+        _nickname = _zncUsername;
+        _sessionNickname = _zncUsername;
+      }
+
       // Usar el nick limpio (ya está en _nickname)
-      debugLog('📡 [IRCService] Enviando NICK con nick limpio: "$_nickname"');
-      _sendCommand('NICK $_nickname');
+      debugLog(
+        '📡 [IRCService] Enviando NICK: "$nickToSend" (ZNC: ${_zncUsername != null})',
+      );
+      _sendCommand('NICK $nickToSend');
 
       // Comando USER con formato correcto: USER username hostname servername :realname
       // El servidor rechaza conexiones que parecen bots, así que usamos valores más realistas
@@ -731,6 +778,71 @@ class IRCService {
     }
   }
 
+  /// Separador interno para enviar varias líneas en un único PRIVMSG de IRC.
+  static const String _multilineWireSeparator = '\u001E';
+
+  String _encodeMultilineForWire(String message) {
+    return message
+        .replaceAll('\r\n', '\n')
+        .replaceAll('\n', _multilineWireSeparator);
+  }
+
+  String _decodeMultilineFromWire(String message) {
+    return message.replaceAll(_multilineWireSeparator, '\n');
+  }
+
+  String _normalizeMultilineForCompare(String message) {
+    return _decodeMultilineFromWire(message).replaceAll('\r\n', '\n').trim();
+  }
+
+  bool _multilineMessagesMatch(String a, String b) {
+    final left = _normalizeMultilineForCompare(a);
+    final right = _normalizeMultilineForCompare(b);
+    if (left.isEmpty && right.isEmpty) return true;
+    return left == right || right.contains(left) || left.contains(right);
+  }
+
+  void _sendWirePrivmsg(
+    String target,
+    String message, {
+    String? replyToMessageId,
+  }) {
+    final payload = _encodeMultilineForWire(message);
+    if (payload.trim().isEmpty) return;
+    final suffix =
+        replyToMessageId != null ? ' [reply:$replyToMessageId]' : '';
+    // El [reply:...] sólo debe ir en el primer trozo, así que reservamos sus
+    // bytes únicamente para ese cálculo.
+    final firstMaxBytes =
+        ircPrivmsgMaxPayloadBytes(target, extraSuffix: suffix);
+    final restMaxBytes = ircPrivmsgMaxPayloadBytes(target);
+
+    // Partir respetando el límite del protocolo (varios PRIVMSG si hace falta).
+    var remaining = payload;
+    var isFirst = true;
+    while (remaining.isNotEmpty) {
+      final maxBytes = isFirst ? firstMaxBytes : restMaxBytes;
+      final chunks = chunkUtf8ByBytes(remaining, maxBytes);
+      var chunk = chunks.first;
+      remaining = remaining.substring(chunk.length);
+      if (isFirst && suffix.isNotEmpty) {
+        chunk = '$chunk$suffix';
+      }
+      _sendCommand('PRIVMSG $target :$chunk');
+      isFirst = false;
+    }
+  }
+
+  void _sendWireNotice(String target, String message) {
+    final payload = _encodeMultilineForWire(message);
+    if (payload.trim().isEmpty) return;
+    final maxBytes = ircNoticeMaxPayloadBytes(target);
+    for (final chunk in chunkUtf8ByBytes(payload, maxBytes)) {
+      if (chunk.isEmpty) continue;
+      _sendCommand('NOTICE $target :$chunk');
+    }
+  }
+
   void sendMessage(
     String channel,
     String message, {
@@ -766,20 +878,11 @@ class IRCService {
         // debugLog('⏱️  [IRCService] Programando envío de mensaje $pendingId en ${delaySeconds}s');
         final timer = Timer(Duration(seconds: delaySeconds), () {
           // debugLog('⏱️  [IRCService] Timer ejecutado, enviando mensaje $pendingId');
-          // Dividir el mensaje en líneas y enviar cada línea como un PRIVMSG separado
-          final lines = message.split('\n');
-          for (int i = 0; i < lines.length; i++) {
-            var line = lines[i].trim();
-            if (line.isNotEmpty) {
-              // Si es la primera línea y hay replyToMessageId, añadirlo al final del mensaje
-              // Formato: mensaje [reply:messageId]
-              if (i == 0 && replyToMessageId != null) {
-                line = '$line [reply:$replyToMessageId]';
-              }
-              // debugLog('📤 [IRCService] Enviando línea: $line');
-              _sendCommand('PRIVMSG $normalized :$line');
-            }
-          }
+          _sendWirePrivmsg(
+            normalized,
+            message,
+            replyToMessageId: replyToMessageId,
+          );
           // debugLog('📤 [IRCService] Mensaje enviado al servidor después de delay: $pendingId');
           // Eliminar el timer del mapa después de ejecutarse
           _pendingMessageTimers.remove(pendingId);
@@ -802,19 +905,11 @@ class IRCService {
       } else {
         // Sin delay, enviar inmediatamente
         // debugLog('📤 [IRCService] Enviando mensaje sin delay inmediatamente: $pendingId');
-        final lines = message.split('\n');
-        for (int i = 0; i < lines.length; i++) {
-          var line = lines[i].trim();
-          if (line.isNotEmpty) {
-            // Si es la primera línea y hay replyToMessageId, añadirlo al final del mensaje
-            // Formato: mensaje [reply:messageId]
-            if (i == 0 && replyToMessageId != null) {
-              line = '$line [reply:$replyToMessageId]';
-            }
-            // debugLog('📤 [IRCService] Enviando línea sin delay: $line');
-            _sendCommand('PRIVMSG $normalized :$line');
-          }
-        }
+        _sendWirePrivmsg(
+          normalized,
+          message,
+          replyToMessageId: replyToMessageId,
+        );
         // debugLog('✅ [IRCService] Mensaje sin delay enviado, esperando confirmación del servidor (pendingId: $pendingId)');
 
         // Si el servidor no devuelve el PRIVMSG como eco, confirmar automáticamente después de un breve delay
@@ -928,14 +1023,7 @@ class IRCService {
 
     // Enviar el mensaje inmediatamente
     final message = pendingMsg.message;
-    final lines = message.split('\n');
-    for (var line in lines) {
-      line = line.trim();
-      if (line.isNotEmpty) {
-        // debugLog('📤 [IRCService] Enviando línea inmediatamente: $line');
-        _sendCommand('PRIVMSG $normalized :$line');
-      }
-    }
+    _sendWirePrivmsg(normalized, message);
 
     // NO confirmar aquí - esperar a que el servidor devuelva el PRIVMSG
     // confirmPendingMessage(normalized, message, DateTime.now());
@@ -976,14 +1064,7 @@ class IRCService {
 
     // Enviar el mensaje inmediatamente
     final message = pendingMsg.message;
-    final lines = message.split('\n');
-    for (var line in lines) {
-      line = line.trim();
-      if (line.isNotEmpty) {
-        // debugLog('📤 [IRCService] Enviando línea privada inmediatamente: $line');
-        _sendCommand('PRIVMSG $normalized :$line');
-      }
-    }
+    _sendWirePrivmsg(normalized, message);
 
     // Confirmar el mensaje inmediatamente
     confirmPendingMessage(normalized, message, DateTime.now());
@@ -1025,8 +1106,10 @@ class IRCService {
         // También verificar si el mensaje recibido contiene el mensaje pendiente o viceversa
         // (por si hay diferencias menores en el formato)
         if (normalizedPendingMessage == normalizedReceivedMessage ||
-            normalizedReceivedMessage.contains(normalizedPendingMessage) ||
-            normalizedPendingMessage.contains(normalizedReceivedMessage)) {
+            _multilineMessagesMatch(
+              normalizedPendingMessage,
+              normalizedReceivedMessage,
+            )) {
           // Confirmar el mensaje (marcar como no pendiente, preservando todos los campos)
           final confirmedMsg = msg.copyWith(
             isPending: false,
@@ -1301,14 +1384,7 @@ class IRCService {
     // Programar el envío después del delay
     if (delaySeconds > 0) {
       final timer = Timer(Duration(seconds: delaySeconds), () {
-        // Enviar el mensaje como NOTICE
-        final lines = message.split('\n');
-        for (var line in lines) {
-          line = line.trim();
-          if (line.isNotEmpty) {
-            _sendCommand('NOTICE $normalizedNick :$line');
-          }
-        }
+        _sendWireNotice(normalizedNick, message);
         _pendingMessageTimers.remove(pendingId);
 
         // Auto-confirmar después de 500ms si el servidor no hace eco
@@ -1327,13 +1403,7 @@ class IRCService {
       _pendingMessageTimers[pendingId] = timer;
     } else {
       // Sin delay, enviar inmediatamente como NOTICE
-      final lines = message.split('\n');
-      for (var line in lines) {
-        line = line.trim();
-        if (line.isNotEmpty) {
-          _sendCommand('NOTICE $normalizedNick :$line');
-        }
-      }
+      _sendWireNotice(normalizedNick, message);
 
       // Auto-confirmar después de 500ms si el servidor no hace eco
       Timer(const Duration(milliseconds: 500), () {
@@ -1887,15 +1957,7 @@ class IRCService {
       // debugLog('⏱️  [IRCService] Programando envío de mensaje privado $pendingId en ${delaySeconds}s');
       final timer = Timer(Duration(seconds: delaySeconds), () {
         // debugLog('⏱️  [IRCService] Timer ejecutado, enviando mensaje privado $pendingId');
-        // Enviar el mensaje
-        final lines = message.split('\n');
-        for (var line in lines) {
-          line = line.trim();
-          if (line.isNotEmpty) {
-            // debugLog('📤 [IRCService] Enviando línea privada: $line');
-            _sendCommand('PRIVMSG $normalizedNick :$line');
-          }
-        }
+        _sendWirePrivmsg(normalizedNick, message);
         // debugLog('📤 [IRCService] Mensaje privado enviado al servidor después de delay: $pendingId');
         // Eliminar el timer del mapa después de ejecutarse
         _pendingMessageTimers.remove(pendingId);
@@ -1918,14 +1980,7 @@ class IRCService {
     } else {
       // Sin delay, enviar inmediatamente
       // debugLog('📤 [IRCService] Enviando mensaje privado sin delay inmediatamente: $pendingId');
-      final lines = message.split('\n');
-      for (var line in lines) {
-        line = line.trim();
-        if (line.isNotEmpty) {
-          // debugLog('📤 [IRCService] Enviando línea privada sin delay: $line');
-          _sendCommand('PRIVMSG $normalizedNick :$line');
-        }
-      }
+      _sendWirePrivmsg(normalizedNick, message);
       // debugLog('✅ [IRCService] Mensaje privado sin delay enviado, esperando confirmación del servidor (pendingId: $pendingId)');
 
       // Auto-confirmar después de 500ms si el servidor no hace eco
@@ -2018,7 +2073,7 @@ class IRCService {
 
   void _sendCommand(String command) {
     if (_connection != null && _connection!.isConnected) {
-      debugLog('🔍 [DEBUG] Sending command: $command');
+      debugLog('🔍 [IRCService] ✅ Sending command: $command');
       // Agregar \r\n para compatibilidad IRC
       final ircCommand = command.endsWith('\r\n') ? command : '$command\r\n';
       try {
@@ -2029,7 +2084,7 @@ class IRCService {
       }
     } else {
       debugLog(
-        '🔍 [DEBUG] ⚠️  Cannot send command "$command": connection is null or not connected',
+        '🔍 [IRCService] ⚠️  Cannot send command "$command": connection is null or not connected',
       );
     }
   }
@@ -2097,44 +2152,48 @@ class IRCService {
   }
 
   void _handleData(String rawData) {
-    // Notificar a los listeners de debug
-    _notifyDebugLog(rawData);
-    _lastServerActivityAt = DateTime.now();
+    try {
+      // Notificar a los listeners de debug
+      _notifyDebugLog(rawData);
+      _lastServerActivityAt = DateTime.now();
 
-    final lines = rawData.split('\r\n');
+      final lines = rawData.split('\r\n');
 
-    for (var line in lines) {
-      if (line.isEmpty) continue;
+      for (var line in lines) {
+        if (line.isEmpty) continue;
 
-      // Log especial para comandos JOIN, 353, 366, 332 (TOPIC), NICK
-      if (line.contains(' JOIN ') ||
-          line.contains(' 353 ') ||
-          line.contains(' 366 ') ||
-          line.contains(' 332 ') ||
-          line.contains(' NICK ')) {
-        // debugLog('🔍 [DEBUG] ⭐ Important IRC message: $line');
+        // Log especial para comandos JOIN, 353, 366, 332 (TOPIC), NICK
+        if (line.contains(' JOIN ') ||
+            line.contains(' 353 ') ||
+            line.contains(' 366 ') ||
+            line.contains(' 332 ') ||
+            line.contains(' NICK ')) {
+          // debugLog('🔍 [DEBUG] ⭐ Important IRC message: $line');
+        }
+
+        // Log específico para TOPIC
+        if (line.contains(' 332 ')) {
+          // debugLog('🔍 [DEBUG] 📌📌📌 RAW TOPIC MESSAGE RECEIVED: $line');
+          // debugLog('🔍 [DEBUG] 📌📌📌 Full raw line length: ${line.length}');
+          // debugLog('🔍 [DEBUG] 📌📌📌 Line bytes: ${line.codeUnits}');
+        }
+
+        // Log específico para NICK
+        if (line.contains(' NICK ')) {
+          // debugLog('🔄 [DEBUG] 🔄🔴 RAW NICK MESSAGE RECEIVED: $line');
+        }
+
+        _parseIRCMessage(line);
       }
-
-      // Log específico para TOPIC
-      if (line.contains(' 332 ')) {
-        // debugLog('🔍 [DEBUG] 📌📌📌 RAW TOPIC MESSAGE RECEIVED: $line');
-        // debugLog('🔍 [DEBUG] 📌📌📌 Full raw line length: ${line.length}');
-        // debugLog('🔍 [DEBUG] 📌📌📌 Line bytes: ${line.codeUnits}');
-      }
-
-      // Log específico para NICK
-      if (line.contains(' NICK ')) {
-        // debugLog('🔄 [DEBUG] 🔄🔴 RAW NICK MESSAGE RECEIVED: $line');
-      }
-
-      _parseIRCMessage(line);
+    } catch (e, stack) {
+      debugLog('❌ [IRCService] Error en _handleData: $e\n$stack');
     }
   }
 
   void _parseIRCMessage(String line) {
     // Manejar PING del servidor
     if (line.startsWith('PING')) {
-      final pingToken = line.substring(5).trim();
+      final pingToken = line.length > 5 ? line.substring(5).trim() : '';
       _sendCommand('PONG $pingToken');
 
       // Si el servidor nos envía PING, también podemos medir el lag
@@ -2475,7 +2534,14 @@ class IRCService {
 
           // Buscar un nick alternativo
           String newNick;
-          if (_originalNickname != null && _nickAttempts < 10) {
+
+          // Si es ZNC, usar el username de ZNC directamente
+          if (_zncUsername != null && _zncUsername!.isNotEmpty) {
+            newNick = _zncUsername!;
+            debugLog(
+              '⚠️ [IRCService] Nick en uso (ZNC), usando username de ZNC: $_nickname -> $newNick',
+            );
+          } else if (_originalNickname != null && _nickAttempts < 10) {
             // Intentar con números: nick1, nick2, nick3, etc.
             _nickAttempts++;
             newNick = '$_originalNickname$_nickAttempts';
@@ -3829,6 +3895,8 @@ class IRCService {
                       .trim();
                 }
 
+                messageContent = _decodeMultilineFromWire(messageContent);
+
                 // Detectar y procesar mensajes ACTION (/me)
                 bool isAction = false;
                 String? actionText;
@@ -3961,9 +4029,7 @@ class IRCService {
                       // También verificar si ambos son mensajes ACTION
                       if (msg.isAction == isAction) {
                         // debugLog('🔍 [IRCService] Comparando pendiente[$i]: "$msgContent" con recibido: "$receivedContent" (isAction: $isAction)');
-                        if (msgContent == receivedContent ||
-                            receivedContent.contains(msgContent) ||
-                            msgContent.contains(receivedContent)) {
+                        if (_multilineMessagesMatch(msgContent, receivedContent)) {
                           pendingMsgIndex = i;
                           pendingMsg = msg;
                           // debugLog('✅ [IRCService] Mensaje pendiente encontrado en índice $i: "${msg.message}" (pendingId: ${msg.pendingId})');
@@ -4279,9 +4345,7 @@ class IRCService {
                           msg.isAction == true) {
                         final msgContent = msg.message.trim();
                         final receivedContent = actionText?.trim() ?? '';
-                        if (msgContent == receivedContent ||
-                            receivedContent.contains(msgContent) ||
-                            msgContent.contains(receivedContent)) {
+                        if (_multilineMessagesMatch(msgContent, receivedContent)) {
                           pendingMsgIndex = i;
                           pendingMsg = msg;
                           break;
@@ -4732,14 +4796,7 @@ class IRCService {
       if (!hasActiveTimer) {
         // El mensaje ya fue enviado, pero ahora tiene contenido nuevo, enviarlo inmediatamente
         // debugLog('📤 [IRCService] Mensaje ya fue enviado (fuerza envío), enviando contenido editado inmediatamente');
-        final lines = newMessage.split('\n');
-        for (var line in lines) {
-          line = line.trim();
-          if (line.isNotEmpty) {
-            // debugLog('📤 [IRCService] Enviando línea editada: $line');
-            _sendCommand('PRIVMSG $normalized :$line');
-          }
-        }
+        _sendWirePrivmsg(normalized, newMessage);
         // debugLog('✅ [IRCService] Mensaje editado enviado inmediatamente (mensaje ya estaba enviado)');
 
         // Auto-confirmar después de 500ms si el servidor no hace eco
@@ -4764,14 +4821,7 @@ class IRCService {
           // debugLog('⏱️  [IRCService] Programando envío de mensaje editado $pendingId en ${delaySeconds}s');
           final timer = Timer(Duration(seconds: delaySeconds), () {
             // debugLog('⏱️  [IRCService] Timer ejecutado, enviando mensaje editado $pendingId');
-            final lines = newMessage.split('\n');
-            for (var line in lines) {
-              line = line.trim();
-              if (line.isNotEmpty) {
-                // debugLog('📤 [IRCService] Enviando línea editada: $line');
-                _sendCommand('PRIVMSG $normalized :$line');
-              }
-            }
+            _sendWirePrivmsg(normalized, newMessage);
             // debugLog('📤 [IRCService] Mensaje editado enviado al servidor después de delay: $pendingId');
             _pendingMessageTimers.remove(pendingId);
 
@@ -4794,14 +4844,7 @@ class IRCService {
         } else {
           // Sin delay, enviar inmediatamente
           // debugLog('📤 [IRCService] Enviando mensaje editado inmediatamente (sin delay)');
-          final lines = newMessage.split('\n');
-          for (var line in lines) {
-            line = line.trim();
-            if (line.isNotEmpty) {
-              // debugLog('📤 [IRCService] Enviando línea editada: $line');
-              _sendCommand('PRIVMSG $normalized :$line');
-            }
-          }
+          _sendWirePrivmsg(normalized, newMessage);
           // debugLog('✅ [IRCService] Mensaje editado enviado inmediatamente');
 
           // Auto-confirmar después de 500ms si el servidor no hace eco

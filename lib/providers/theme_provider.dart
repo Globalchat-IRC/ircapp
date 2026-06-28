@@ -67,6 +67,9 @@ class ThemeNotifier extends Notifier<AppTheme> {
     'canalsur': 'Canal Sur',
     'nuestrasvoces': 'NuestrasVoces',
     'mirc': 'mIRC',
+    'qualia': 'Qualia Radio',
+    'qualiaradio': 'Qualia Radio',
+    'qualia_radio': 'Qualia Radio',
   };
 
   @override

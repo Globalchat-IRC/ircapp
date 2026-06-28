@@ -4,6 +4,7 @@ import '../providers/irc_provider.dart';
 import '../providers/theme_provider.dart';
 import '../models/app_theme.dart';
 import '../models/custom_robot.dart';
+import '../widgets/robot_avatar.dart';
 import 'icon_selector_screen.dart';
 
 /// Pantalla para gestionar robots personalizados
@@ -138,10 +139,12 @@ class _RobotsSettingsScreenState extends ConsumerState<RobotsSettingsScreen> {
             ],
           ),
           child: Center(
-            child: Text(
-              robot.icon,
-              style: const TextStyle(fontSize: 24),
-            ),
+            child: (robot.icon.trim().isEmpty || robot.icon.trim() == '🤖')
+                ? RobotAvatar(size: 50, seed: robot.nick)
+                : Text(
+                    robot.icon,
+                    style: const TextStyle(fontSize: 24),
+                  ),
           ),
         ),
         title: Text(

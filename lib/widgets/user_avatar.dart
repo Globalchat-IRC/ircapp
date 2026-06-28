@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../services/avatar_service.dart';
 import '../providers/irc_provider.dart';
 import '../utils/platform_utils.dart';
+import 'robot_avatar.dart';
 
 class UserAvatar extends ConsumerStatefulWidget {
   final String nick;
@@ -369,6 +370,15 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
 
   Widget _buildFallback(String fallback, bool isUrl, bool isAsset, {Key? key}) {
     Widget fallbackWidget;
+    // Robots con icono por defecto (🤖): usar el avatar vectorial moderno.
+    if (widget.isRobot && !isUrl && !isAsset && _isDefaultRobotIcon(fallback)) {
+      fallbackWidget = Center(
+        child: RobotAvatar(size: widget.size, seed: widget.nick),
+      );
+      return key != null
+          ? KeyedSubtree(key: key, child: fallbackWidget)
+          : fallbackWidget;
+    }
     if (isAsset && fallback.startsWith('asset:')) {
       final assetPath = fallback.substring(6);
       fallbackWidget = Image.asset(
@@ -425,5 +435,10 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
     return key != null
         ? KeyedSubtree(key: key, child: fallbackWidget)
         : fallbackWidget;
+  }
+
+  bool _isDefaultRobotIcon(String fallback) {
+    final trimmed = fallback.trim();
+    return trimmed.isEmpty || trimmed == '🤖';
   }
 }

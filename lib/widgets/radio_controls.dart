@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/radio_provider.dart';
+import '../providers/irc_provider.dart';
+import '../providers/qualia_radio_dj_provider.dart';
+import '../providers/qualia_radio_status_provider.dart';
+import '../models/qualia_radio_status.dart';
 import '../models/radio_station.dart';
 import '../models/app_theme.dart';
 import '../providers/theme_provider.dart';
@@ -16,22 +20,36 @@ class RadioControls extends ConsumerStatefulWidget {
 }
 
 class _RadioControlsState extends ConsumerState<RadioControls> {
-
   @override
   void initState() {
     super.initState();
     // debugLog('📻 RadioControls initState');
-    
+
     // Cargar estaciones al iniciar si no hay ninguna
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
       final state = ref.read(radioProvider);
       if (state.stations.isEmpty) {
         // debugLog('📻 No hay estaciones, cargando desde RadioControls...');
         ref.read(radioProvider.notifier).loadStations();
-      } else {
-        // debugLog('📻 Ya hay ${state.stations.length} estaciones cargadas');
       }
+      // Aplicar volumen guardado al servicio de audio.
+      final radioService = ref.read(radioServiceProvider);
+      await radioService.initialize();
+      await radioService.setVolume(state.volume);
     });
+  }
+
+  Future<void> _setVolume(double volume) async {
+    final clamped = volume.clamp(0.0, 1.0);
+    ref.read(radioProvider.notifier).setVolume(clamped);
+    await ref.read(radioServiceProvider).setVolume(clamped);
+  }
+
+  IconData _volumeIcon(double volume) {
+    if (volume <= 0) return Icons.volume_off;
+    if (volume < 0.35) return Icons.volume_mute;
+    if (volume < 0.7) return Icons.volume_down;
+    return Icons.volume_up;
   }
 
   void _playStation([RadioStation? station]) async {
@@ -224,6 +242,28 @@ class _RadioControlsState extends ConsumerState<RadioControls> {
   Widget build(BuildContext context) {
     final radioState = ref.watch(radioProvider);
     final appTheme = ref.watch(themeProvider);
+    final currentChannel = ref.watch(currentChannelProvider);
+    final isQualiaRadio = currentChannel?.toLowerCase() == '#qualiaradio';
+
+    // Al entrar en #QualiaRadio, refrescar estado y canción en curso.
+    ref.listen<String?>(currentChannelProvider, (previous, next) {
+      final statusNotifier = ref.read(qualiaRadioStatusProvider.notifier);
+      if (next?.toLowerCase() == '#qualiaradio') {
+        ref.read(radioProvider.notifier).refreshNowPlaying();
+        statusNotifier.startPolling();
+      } else {
+        statusNotifier.stopPolling();
+      }
+    });
+
+    if (isQualiaRadio) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        if (ref.read(currentChannelProvider)?.toLowerCase() == '#qualiaradio') {
+          ref.read(qualiaRadioStatusProvider.notifier).startPolling();
+        }
+      });
+    }
     
     // Debug: mostrar estado actual
     if (radioState.stations.isEmpty) {
@@ -239,10 +279,21 @@ class _RadioControlsState extends ConsumerState<RadioControls> {
       // debugLog('📻 [build] Estaciones: ${radioState.stations.length}, Activa: ${radioState.activeStation?.name ?? "ninguna"}, Reproduciendo: ${radioState.isPlaying}');
     }
 
-    return Container(
+    final apiState = ref.watch(qualiaRadioStatusProvider);
+    final ircLiveDj = ref.watch(qualiaRadioLiveDjProvider);
+    final fallbackSong = radioState.activeStation?.currentArtistSong?.trim();
+
+    // En #QualiaRadio la botonera usa el mismo diseño negro que el marquee.
+    final controlColor =
+        isQualiaRadio ? Colors.white : appTheme.textPrimary;
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: appTheme.surface,
+        color: isQualiaRadio ? const Color(0xFF1A1A1A) : appTheme.surface,
         borderRadius: BorderRadius.circular(4),
       ),
       child: Row(
@@ -254,6 +305,7 @@ class _RadioControlsState extends ConsumerState<RadioControls> {
             onPressed: () => _skipStation(-1),
             tooltip: 'Anterior Radio',
             appTheme: appTheme,
+            color: controlColor,
           ),
           const SizedBox(width: 4),
           
@@ -263,6 +315,7 @@ class _RadioControlsState extends ConsumerState<RadioControls> {
             onPressed: radioState.isPlaying ? _pauseStation : () => _playStation(),
             tooltip: radioState.isPlaying ? 'Pausa' : 'Reproducir',
             appTheme: appTheme,
+            color: controlColor,
           ),
           const SizedBox(width: 4),
           
@@ -272,6 +325,7 @@ class _RadioControlsState extends ConsumerState<RadioControls> {
             onPressed: radioState.isPlaying || radioState.activeStation != null ? _stopStation : null,
             tooltip: 'Detener',
             appTheme: appTheme,
+            color: controlColor,
           ),
           const SizedBox(width: 4),
           
@@ -281,6 +335,40 @@ class _RadioControlsState extends ConsumerState<RadioControls> {
             onPressed: () => _skipStation(1),
             tooltip: 'Siguiente Radio',
             appTheme: appTheme,
+            color: controlColor,
+          ),
+          const SizedBox(width: 4),
+
+          // Control de volumen compacto (justo después de Siguiente)
+          _buildControlButton(
+            icon: _volumeIcon(radioState.volume),
+            onPressed: () => _setVolume(radioState.volume <= 0 ? 0.85 : 0.0),
+            tooltip: radioState.volume <= 0 ? 'Activar sonido' : 'Silenciar',
+            appTheme: appTheme,
+            color: controlColor,
+          ),
+          SizedBox(
+            width: 80,
+            child: SliderTheme(
+              data: SliderTheme.of(context).copyWith(
+                trackHeight: 2,
+                thumbShape: const RoundSliderThumbShape(
+                  enabledThumbRadius: 6,
+                ),
+                overlayShape: const RoundSliderOverlayShape(overlayRadius: 10),
+              ),
+              child: Slider(
+                value: radioState.volume,
+                min: 0,
+                max: 1,
+                divisions: 20,
+                label: '${(radioState.volume * 100).round()}%',
+                activeColor: isQualiaRadio ? Colors.white : appTheme.primary,
+                inactiveColor: (isQualiaRadio ? Colors.white : appTheme.textSecondary)
+                    .withValues(alpha: 0.25),
+                onChanged: (v) => _setVolume(v),
+              ),
+            ),
           ),
           const SizedBox(width: 4),
           
@@ -295,25 +383,37 @@ class _RadioControlsState extends ConsumerState<RadioControls> {
             },
             tooltip: 'Buscar Radios',
             appTheme: appTheme,
+            color: controlColor,
           ),
           const SizedBox(width: 8),
           
-          // Nombre de la estación
-          Expanded(
-            child: Text(
-              radioState.activeStation?.name ?? 'Radio Nuestras Voces',
-              style: TextStyle(
-                color: radioState.hasError
-                    ? Colors.red
-                    : appTheme.textPrimary,
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
-              ),
-              overflow: TextOverflow.ellipsis,
+          // Nombre de la estación y, a continuación, el marquee en la misma línea.
+          Text(
+            radioState.activeStation?.name ?? 'Qualia Radio',
+            style: TextStyle(
+              color: radioState.hasError
+                  ? Colors.red
+                  : (isQualiaRadio ? Colors.white : appTheme.textPrimary),
+              fontSize: 14,
+              fontWeight: FontWeight.w500,
             ),
+            overflow: TextOverflow.ellipsis,
           ),
+          if (isQualiaRadio) ...[
+            const SizedBox(width: 8),
+            Expanded(
+              child: _QualiaNowPlayingMarquee(
+                status: apiState.status,
+                ircLiveDj: ircLiveDj,
+                fallbackSong: fallbackSong,
+                loading: apiState.loading && apiState.status == null,
+              ),
+            ),
+          ],
         ],
       ),
+    ),
+      ],
     );
   }
 
@@ -322,7 +422,9 @@ class _RadioControlsState extends ConsumerState<RadioControls> {
     required VoidCallback? onPressed,
     required String tooltip,
     required AppTheme appTheme,
+    Color? color,
   }) {
+    final baseColor = color ?? appTheme.textPrimary;
     return Tooltip(
       message: tooltip,
       child: Material(
@@ -335,9 +437,9 @@ class _RadioControlsState extends ConsumerState<RadioControls> {
             child: Icon(
               icon,
               size: 18,
-              color: onPressed != null 
-                  ? appTheme.textPrimary 
-                  : appTheme.textPrimary.withValues(alpha: 0.3),
+              color: onPressed != null
+                  ? baseColor
+                  : baseColor.withValues(alpha: 0.3),
             ),
           ),
         ),
@@ -348,3 +450,235 @@ class _RadioControlsState extends ConsumerState<RadioControls> {
 
 
 
+/// Marquee Qualia Radio con estado en vivo, canción e info del backend.
+class _QualiaNowPlayingMarquee extends ConsumerStatefulWidget {
+  const _QualiaNowPlayingMarquee({
+    required this.status,
+    required this.ircLiveDj,
+    required this.fallbackSong,
+    this.loading = false,
+  });
+
+  final QualiaRadioStatus? status;
+  final String? ircLiveDj;
+  final String? fallbackSong;
+  final bool loading;
+
+  @override
+  ConsumerState<_QualiaNowPlayingMarquee> createState() =>
+      _QualiaNowPlayingMarqueeState();
+}
+
+class _QualiaNowPlayingMarqueeState
+    extends ConsumerState<_QualiaNowPlayingMarquee>
+    with SingleTickerProviderStateMixin {
+  static const _textStyle = TextStyle(
+    color: Colors.white,
+    fontSize: 13,
+    fontWeight: FontWeight.w600,
+    letterSpacing: 0.3,
+  );
+
+  AnimationController? _controller;
+  double _scrollDistance = 0;
+  String _lastMarqueeKey = '';
+
+  bool get _isLive {
+    if (widget.ircLiveDj != null && widget.ircLiveDj!.trim().isNotEmpty) {
+      return true;
+    }
+    return widget.status?.isLive == true;
+  }
+
+  String get _djName {
+    final irc = widget.ircLiveDj?.trim() ?? '';
+    if (irc.isNotEmpty) return irc;
+    return widget.status?.streamerName.trim() ?? '';
+  }
+
+  String _buildMarqueeText() {
+    final status = widget.status;
+    final parts = <String>[];
+
+    if (_isLive) {
+      final dj = _djName;
+      parts.add(dj.isNotEmpty ? 'DJ $dj en directo' : 'En directo');
+    }
+
+    final song = (status?.nowPlayingDisplay.trim().isNotEmpty == true)
+        ? status!.nowPlayingDisplay.trim()
+        : (widget.fallbackSong?.trim().isNotEmpty == true
+            ? widget.fallbackSong!.trim()
+            : '');
+    if (song.isNotEmpty) {
+      parts.add('♪ $song');
+    }
+
+    if (status != null && status.isRequest) {
+      parts.add('Petición');
+    }
+
+    if (parts.isEmpty) {
+      if (widget.loading) return 'Qualia Radio — cargando estado…';
+      return 'Qualia Radio — En directo';
+    }
+    return parts.join('   ·   ');
+  }
+
+  @override
+  void didUpdateWidget(covariant _QualiaNowPlayingMarquee oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final newKey =
+        '${widget.status?.fetchedAt}_${widget.ircLiveDj}_${widget.fallbackSong}';
+    if (_lastMarqueeKey != newKey) {
+      _lastMarqueeKey = newKey;
+      _controller?.dispose();
+      _controller = null;
+      _scrollDistance = 0;
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller?.dispose();
+    super.dispose();
+  }
+
+  void _ensureAnimation(double containerWidth, double textWidth) {
+    final distance = textWidth - containerWidth + 32;
+    if (distance <= 0) {
+      if (_controller != null) {
+        _controller!.dispose();
+        _controller = null;
+        _scrollDistance = 0;
+      }
+      return;
+    }
+    if (_controller != null && _scrollDistance == distance) return;
+
+    _controller?.dispose();
+    _scrollDistance = distance;
+    final durationMs = (distance / 35 * 1000).clamp(8000, 28000).round();
+    _controller = AnimationController(
+      vsync: this,
+      duration: Duration(milliseconds: durationMs),
+    )..repeat();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final text = _buildMarqueeText();
+    final isLive = _isLive;
+
+    return Container(
+      width: double.infinity,
+      height: 24,
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.centerLeft,
+          end: Alignment.centerRight,
+          colors: [Color(0xFF000000), Color(0xFF1A1A1A), Color(0xFF2B2B2B)],
+        ),
+      ),
+      child: Row(
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 6),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: isLive
+                        ? Colors.red.withValues(alpha: 0.9)
+                        : Colors.white.withValues(alpha: 0.18),
+                    borderRadius: BorderRadius.circular(3),
+                  ),
+                  child: Text(
+                    isLive ? 'EN VIVO' : 'AUTO DJ',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 8,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 0.8,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 5),
+                Icon(
+                  isLive ? Icons.headphones : Icons.music_note,
+                  color: Colors.white,
+                  size: 14,
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final painter = TextPainter(
+                  text: TextSpan(text: text, style: _textStyle),
+                  textDirection: TextDirection.ltr,
+                  maxLines: 1,
+                )..layout(maxWidth: double.infinity);
+
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (!mounted) return;
+                  final hadController = _controller != null;
+                  _ensureAnimation(constraints.maxWidth, painter.width);
+                  final hasController = _controller != null;
+                  if (hadController != hasController ||
+                      (hasController && !_controller!.isAnimating)) {
+                    setState(() {});
+                    _controller?.repeat();
+                  }
+                });
+
+                if (_controller == null ||
+                    painter.width <= constraints.maxWidth) {
+                  return Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      text,
+                      style: _textStyle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  );
+                }
+
+                return ClipRect(
+                  child: AnimatedBuilder(
+                    animation: _controller!,
+                    builder: (context, child) {
+                      final offset = _controller!.value * _scrollDistance;
+                      return Transform.translate(
+                        offset: Offset(-offset, 0),
+                        child: Text(text, style: _textStyle, maxLines: 1),
+                      );
+                    },
+                  ),
+                );
+              },
+            ),
+          ),
+          if (widget.loading)
+            const Padding(
+              padding: EdgeInsets.only(right: 8),
+              child: SizedBox(
+                width: 14,
+                height: 14,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: Colors.white54,
+                ),
+              ),
+            )
+          else
+            const SizedBox(width: 8),
+        ],
+      ),
+    );
+  }
+}

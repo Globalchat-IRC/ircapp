@@ -6,6 +6,7 @@ import '../providers/radio_provider.dart';
 import '../models/app_theme.dart';
 import '../models/radio_station.dart';
 import '../widgets/user_avatar.dart';
+import '../widgets/qualia_radio_request_dialog.dart';
 import '../models/whois_info.dart';
 import '../models/user_role.dart';
 import '../providers/video_provider.dart';
@@ -546,6 +547,29 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
                                         ),
                                       );
                                     },
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 16),
+                            ],
+                          );
+                        },
+                      ),
+                      // Petición de canciones Qualia Radio (cualquier usuario)
+                      Consumer(
+                        builder: (context, ref, _) {
+                          return Column(
+                            children: [
+                              _buildSection(
+                                appTheme,
+                                'Qualia Radio',
+                                [
+                                  QualiaRadioRequestProfileCard(
+                                    onTap: () => showQualiaRadioRequestDialog(
+                                      context,
+                                      ref,
+                                      channel: '#QualiaRadio',
+                                    ),
                                   ),
                                 ],
                               ),
@@ -1220,12 +1244,8 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
   // Mapear estación de radio al canal correspondiente
   String? _getChannelForStation(String stationName) {
     final name = stationName.toLowerCase();
-    if (name == 'nuestrasvoces') {
-      return '#nuestrasvoces';
-    } else if (name == 'soundmusic') {
-      return '#soundmusic';
-    } else if (name == 'urbanflow') {
-      return '#urbanflow';
+    if (name == 'qualia_radio' || name == 'qualia radio') {
+      return '#QualiaRadio';
     }
     return null;
   }

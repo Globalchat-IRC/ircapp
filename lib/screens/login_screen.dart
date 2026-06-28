@@ -1238,9 +1238,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       return;
     }
 
-    // Si es el servidor ZNC (puerto 2000), pedir usuario:password
+    // Si es el servidor ZNC (puerto 2002), pedir usuario:password
     String? zncPassword;
-    if (port == 2000 || host.contains('znc')) {
+    if (port == 2002 || host.contains('znc')) {
       zncPassword = await _showZncPasswordDialog(context);
       if (zncPassword == null) {
         return; // Usuario canceló
@@ -1262,8 +1262,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       // globalLog('🔵 [LOGIN] Got IRCService instance');
       // globalLog('🔵 [LOGIN] Calling connect() with $host:$port as $nick');
 
-      // FORZAR SSL en todas las conexiones
-      final useSSL = true;
+      // Puerto 2002 (ZNC con SSL)
+      final useSSL = (port == 2002) ? true : true;
+      debugLog('🔐 [ZNC] Puerto: $port, SSL: $useSSL');
 
       // En web, el gateway maneja la conexión, así que siempre pasamos el puerto IRC real
       // El gateway se conecta internamente al servidor IRC usando este puerto
@@ -1281,15 +1282,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         port: port, // Siempre usar el puerto IRC real (6667 o 6697)
         nickname: nick,
         useSSL: useSSL,
+        zncPassword: zncPassword,
       );
 
       // globalLog('🔵 [LOGIN] connect() returned successfully');
 
-      // Si es servidor ZNC, enviar el comando PASS
-      if (zncPassword != null && zncPassword.isNotEmpty) {
-        await Future.delayed(const Duration(milliseconds: 1500));
-        ircService.sendRaw('PASS $zncPassword');
-      }
+      // El PASS ya se envía antes del NICK en connect() si es ZNC
 
       // Si hay contraseña (campo de identificación), enviar IDENTIFY al bot "nick" tras conectar
       final identifyPassword = _passwordController.text.trim();
@@ -1299,14 +1297,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         ircService.identifyNick(identifyPassword);
       }
 
-      // Si es servidor ZNC, enviar el comando PASS
+      // Marcar como conexión ZNC (el PASS ya se envió en connect())
       if (zncPassword != null && zncPassword.isNotEmpty) {
-        // Delay más largo para asegurar que la conexión esté lista
-        await Future.delayed(const Duration(milliseconds: 3000));
-        debugLog('🔐 [ZNC] Enviando PASS al servidor...');
-        ircService.sendRaw('PASS $zncPassword');
-        // Marcar como conexión ZNC
-        ref.read(isZncConnectionProvider.notifier).setZncConnection(true);
         // Mostrar mensaje de bienvenida ZNC
         ircService.addSystemMessage(
           channel,

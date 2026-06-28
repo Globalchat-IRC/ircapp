@@ -61,13 +61,13 @@
             audioElement.controls = false;
             audioElement.style.display = 'none';
             audioElement.preload = 'auto';
-            audioElement.volume = 0.7; // Volumen inicial (aumentado para mejor audibilidad)
+            audioElement.volume = 0.85; // Volumen inicial por defecto
             document.body.appendChild(audioElement);
           } else {
             console.log('🎵 [HLS.js] Usando elemento de audio existente:', audioElementId);
             // Asegurar que el volumen esté configurado
             if (audioElement.volume === 0 || audioElement.volume < 0.1) {
-              audioElement.volume = 0.7;
+              audioElement.volume = 0.85;
               console.log('🔊 [HLS.js] Volumen ajustado a:', audioElement.volume);
             }
           }

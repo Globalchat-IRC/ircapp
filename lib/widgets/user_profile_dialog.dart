@@ -10,6 +10,7 @@ import '../providers/radio_provider.dart';
 import 'reputation_badge.dart';
 import 'email_verification_dialog.dart';
 import 'user_avatar.dart';
+import 'qualia_radio_request_dialog.dart';
 
 /// Diálogo de perfil de usuario completo
 class UserProfileDialog extends ConsumerStatefulWidget {
@@ -389,6 +390,23 @@ class _UserProfileDialogState extends ConsumerState<UserProfileDialog>
           ),
           const Divider(height: 32),
           _buildPrivateNotesSection(),
+          // Petición de canciones Qualia Radio (cualquier usuario)
+          Consumer(
+            builder: (context, ref, _) {
+              return Column(
+                children: [
+                  const Divider(height: 32),
+                  QualiaRadioRequestProfileCard(
+                    onTap: () => showQualiaRadioRequestDialog(
+                      context,
+                      ref,
+                      channel: '#QualiaRadio',
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
           // Botón para compartir canción (solo si es el propio perfil y la radio está encendida)
           Consumer(
             builder: (context, ref, _) {
@@ -520,12 +538,8 @@ class _UserProfileDialogState extends ConsumerState<UserProfileDialog>
   // Mapear estación de radio al canal correspondiente
   String? _getChannelForStation(String stationName) {
     final name = stationName.toLowerCase();
-    if (name == 'nuestrasvoces') {
-      return '#nuestrasvoces';
-    } else if (name == 'soundmusic') {
-      return '#soundmusic';
-    } else if (name == 'urbanflow') {
-      return '#urbanflow';
+    if (name == 'qualia_radio' || name == 'qualia radio') {
+      return '#QualiaRadio';
     }
     return null;
   }

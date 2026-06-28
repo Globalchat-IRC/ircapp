@@ -13,7 +13,7 @@ class RadioService {
   web_audio.AudioPlayer? _webPlayer; // audioplayers para web
   RadioStation? _currentStation;
   bool _isPlaying = false;
-  double _currentVolume = 0.7; // Volumen actual (aumentado para mejor audibilidad)
+  double _currentVolume = 0.85;
 
   static final RadioService _instance = RadioService._internal();
   factory RadioService() => _instance;

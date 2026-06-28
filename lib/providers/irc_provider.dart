@@ -17,6 +17,7 @@ import '../services/avatar_service.dart';
 import '../utils/platform_utils.dart';
 import 'history_provider.dart';
 import '../config/debug_config.dart';
+import 'qualia_radio_dj_provider.dart';
 
 final ircServiceProvider = Provider<IRCService>((ref) {
   return IRCService();
@@ -810,6 +811,9 @@ class MessagesNotifier extends Notifier<List<IRCMessage>> {
 
     // Si no es una actualización, añadir como nuevo mensaje
     _updateStateAndSave([...state, message]);
+
+    // Actualizar DJ en vivo de Qualia Radio según mensajes de Orion.
+    ref.read(qualiaRadioLiveDjProvider.notifier).processOrionMessage(message);
   }
 
   void clearMessages() {
@@ -1798,15 +1802,24 @@ class AvatarRefreshNotifier extends Notifier<Map<String, int>> {
   int _currentRefreshIndex = 0;
   bool _isRefreshing = false;
 
+  // Intervalos del ciclo de refresco. Se mantienen amplios para que el refresco
+  // sea poco intrusivo: cada recarga fuerza una descarga real de la imagen
+  // (URL con ?t=timestamp), así que refrescar con frecuencia provoca parpadeos
+  // y sensación de "movimiento" en la lista y el chat.
+  static const Duration _initialDelay = Duration(seconds: 90);
+  // Tiempo entre el refresco de un avatar y el siguiente dentro de una vuelta.
+  static const Duration _perAvatarDelay = Duration(seconds: 20);
+  // Pausa entre vueltas completas a todos los avatares.
+  static const Duration _cyclePause = Duration(minutes: 5);
+
   @override
   Map<String, int> build() {
     _startRefreshCycle();
     return {};
   }
 
-  void _startRefreshCycle() {
-    // Esperar 60 segundos antes de empezar el ciclo de refresco
-    Future.delayed(const Duration(seconds: 60), () {
+  void _startRefreshCycle({Duration? delay}) {
+    Future.delayed(delay ?? _initialDelay, () {
       // Nota: Notifier no tiene 'mounted', usar ref.read para verificar si el provider está activo
       _refreshNextAvatar();
     });
@@ -1830,17 +1843,17 @@ class AvatarRefreshNotifier extends Notifier<Map<String, int>> {
       _currentRefreshIndex++;
       _isRefreshing = false;
 
-      // Esperar 2 segundos antes de actualizar el siguiente avatar
-      Future.delayed(const Duration(seconds: 2), () {
+      // Esperar antes de actualizar el siguiente avatar (refresco espaciado)
+      Future.delayed(_perAvatarDelay, () {
         // Nota: Notifier no tiene 'mounted'
         {
           _refreshNextAvatar();
         }
       });
     } else {
-      // Reiniciar el ciclo cuando se hayan actualizado todos
+      // Reiniciar el ciclo tras una pausa larga cuando se hayan actualizado todos
       _currentRefreshIndex = 0;
-      _startRefreshCycle();
+      _startRefreshCycle(delay: _cyclePause);
     }
   }
 
@@ -1923,7 +1936,37 @@ class ServerProfilesNotifier extends Notifier<List<ServerProfile>> {
 }
 
 /// Preferencias de formato de mensaje (burbuja vs texto plano)
-enum MessageFormat { bubble, plain }
+/// Formatos de presentación de mensajes:
+/// - bubble: burbujas de chat (estilo apps modernas)
+/// - plain: texto plano con tarjeta/caja por mensaje
+/// - compact: texto corrido sin cajas, estilo IRC clásico (mIRC/IRCap)
+enum MessageFormat { bubble, plain, compact }
+
+/// Convierte un MessageFormat a string para persistencia.
+String messageFormatToString(MessageFormat f) {
+  switch (f) {
+    case MessageFormat.bubble:
+      return 'bubble';
+    case MessageFormat.plain:
+      return 'plain';
+    case MessageFormat.compact:
+      return 'compact';
+  }
+}
+
+/// Convierte un string persistido a MessageFormat (con valor por defecto).
+MessageFormat messageFormatFromString(String? value, MessageFormat fallback) {
+  switch (value) {
+    case 'bubble':
+      return MessageFormat.bubble;
+    case 'plain':
+      return MessageFormat.plain;
+    case 'compact':
+      return MessageFormat.compact;
+    default:
+      return fallback;
+  }
+}
 
 class MessageFormatPreferences {
   final MessageFormat channelFormat;
@@ -1945,7 +1988,7 @@ class MessageFormatPreferences {
   final bool enableAnimatedAvatars;
 
   const MessageFormatPreferences({
-    this.channelFormat = MessageFormat.plain,
+    this.channelFormat = MessageFormat.compact,
     this.privateFormat = MessageFormat.plain,
     this.showTimestamp = true,
     this.showInlineChannelAvatar = true,
@@ -1955,8 +1998,8 @@ class MessageFormatPreferences {
     this.privateFontFamily = 'Roboto',
     this.emojiSize = 40.0,
     this.avatarScale = 1.0,
-    this.enableThreadsInChannels = true,
-    this.enableReactions = true,
+    this.enableThreadsInChannels = false,
+    this.enableReactions = false,
     this.enableAnimatedAvatars = false,
   });
 
@@ -2030,8 +2073,8 @@ class MessageFormatPreferencesNotifier
   Future<void> _loadFromPrefs() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final channelRaw = prefs.getString(_prefsKeyChannel) ?? 'plain';
-      final privateRaw = prefs.getString(_prefsKeyPrivate) ?? 'plain';
+      final channelRaw = prefs.getString(_prefsKeyChannel);
+      final privateRaw = prefs.getString(_prefsKeyPrivate);
       final showTimestamp = prefs.getBool(_prefsKeyShowTimestamp) ?? true;
       final showInlineChannelAvatar =
           prefs.getBool(_prefsKeyShowInlineChannelAvatar) ?? true;
@@ -2044,17 +2087,20 @@ class MessageFormatPreferencesNotifier
       final emojiSize = prefs.getDouble(_prefsKeyEmojiSize) ?? 40.0;
       final avatarScale = prefs.getDouble(_prefsKeyAvatarScale) ?? 1.0;
       final enableThreadsInChannels =
-          prefs.getBool(_prefsKeyEnableThreadsInChannels) ?? true;
-      final enableReactions = prefs.getBool(_prefsKeyEnableReactions) ?? true;
+          prefs.getBool(_prefsKeyEnableThreadsInChannels) ?? false;
+      final enableReactions = prefs.getBool(_prefsKeyEnableReactions) ?? false;
       final enableAnimatedAvatars =
           prefs.getBool(_prefsKeyEnableAnimatedAvatars) ?? false;
 
-      final channelFormat = channelRaw == 'plain'
-          ? MessageFormat.plain
-          : MessageFormat.bubble;
-      final privateFormat = privateRaw == 'plain'
-          ? MessageFormat.plain
-          : MessageFormat.bubble;
+      // Por defecto: canal = compacto (estilo IRC), privado = texto plano.
+      final channelFormat = messageFormatFromString(
+        channelRaw,
+        MessageFormat.compact,
+      );
+      final privateFormat = messageFormatFromString(
+        privateRaw,
+        MessageFormat.plain,
+      );
 
       state = MessageFormatPreferences(
         channelFormat: channelFormat,
@@ -2082,7 +2128,7 @@ class MessageFormatPreferencesNotifier
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(
         _prefsKeyChannel,
-        format == MessageFormat.plain ? 'plain' : 'bubble',
+        messageFormatToString(format),
       );
     } catch (_) {
       // Ignorar errores de guardado
@@ -2095,7 +2141,7 @@ class MessageFormatPreferencesNotifier
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(
         _prefsKeyPrivate,
-        format == MessageFormat.plain ? 'plain' : 'bubble',
+        messageFormatToString(format),
       );
     } catch (_) {
       // Ignorar errores de guardado
@@ -2392,6 +2438,7 @@ class CustomRobotsNotifier extends Notifier<List<CustomRobot>> {
         CustomRobot(nick: 'Ircop', icon: '🤖'),
         CustomRobot(nick: 'Global', icon: '🤖'),
         CustomRobot(nick: 'ipvirtual', icon: '🤖'),
+        CustomRobot(nick: 'botita', icon: '🤖'), // Robot oficial de #QualiaRadio
       ];
 
       if (robotsJson != null) {
@@ -2436,6 +2483,7 @@ class CustomRobotsNotifier extends Notifier<List<CustomRobot>> {
         CustomRobot(nick: 'Ircop', icon: '🤖'),
         CustomRobot(nick: 'Global', icon: '🤖'),
         CustomRobot(nick: 'ipvirtual', icon: '🤖'),
+        CustomRobot(nick: 'botita', icon: '🤖'), // Robot oficial de #QualiaRadio
       ];
     }
   }

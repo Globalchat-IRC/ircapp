@@ -337,7 +337,7 @@ BOTS DE GLOBALCHAT:
 - YoutubeBot: Bot para compartir videos de YouTube
 
 CANALES TEMÁTICOS:
-- Canales principales: #globalchat, #nuestrasvoces, #soundmusic, #urbanflow
+- Canales principales: #globalchat, #QualiaRadio
 - Cientos de canales de ocio, tecnología, idiomas, videojuegos, etc.
 
 TICKETS / CAU (SOPORTE):
@@ -348,7 +348,7 @@ TICKETS / CAU (SOPORTE):
 RADIOS:
 - Transmisión de música en canales dedicados
 - Los usuarios pueden solicitar canciones mediante RadioBot_GC
-- Estaciones disponibles: NuestrasVoces, SoundMusic, UrbanFlow
+- Estación disponible: Qualia_Radio (canal #QualiaRadio)
 - Se puede escuchar la stream a través del propio IRC o mediante URLs externas
 
 ROLES Y PERMISOS:
@@ -415,7 +415,7 @@ Responde de forma clara, concisa y en español. Si no sabes algo, admítelo y su
     
     // Radio
     if (lowerQuestion.contains('radio')) {
-      return 'GlobalChat tiene tres estaciones de radio: NuestrasVoces, SoundMusic y UrbanFlow. Puedes escucharlas desde el panel de radio en la aplicación.';
+      return 'GlobalChat tiene la estación Qualia Radio. Puedes escucharla desde el panel de radio en la aplicación, en el canal #QualiaRadio.';
     }
     
     // Videollamadas

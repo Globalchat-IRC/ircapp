@@ -165,10 +165,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           context,
                           ref,
                           appTheme,
-                          'Burbuja',
-                          MessageFormat.bubble,
-                          formatPrefs.channelFormat == MessageFormat.bubble,
-                          Icons.chat_bubble,
+                          'Texto plano',
+                          MessageFormat.compact,
+                          formatPrefs.channelFormat == MessageFormat.compact,
+                          Icons.notes,
                           (format) {
                             ref
                                 .read(messageFormatPreferencesProvider.notifier)
@@ -182,10 +182,27 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           context,
                           ref,
                           appTheme,
-                          'Texto Plano',
+                          'Tablas',
                           MessageFormat.plain,
                           formatPrefs.channelFormat == MessageFormat.plain,
-                          Icons.text_fields,
+                          Icons.table_rows,
+                          (format) {
+                            ref
+                                .read(messageFormatPreferencesProvider.notifier)
+                                .setChannelFormat(format);
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _buildFormatOption(
+                          context,
+                          ref,
+                          appTheme,
+                          'Burbuja',
+                          MessageFormat.bubble,
+                          formatPrefs.channelFormat == MessageFormat.bubble,
+                          Icons.chat_bubble,
                           (format) {
                             ref
                                 .read(messageFormatPreferencesProvider.notifier)
@@ -213,10 +230,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           context,
                           ref,
                           appTheme,
-                          'Burbuja',
-                          MessageFormat.bubble,
-                          formatPrefs.privateFormat == MessageFormat.bubble,
-                          Icons.chat_bubble,
+                          'Texto plano',
+                          MessageFormat.compact,
+                          formatPrefs.privateFormat == MessageFormat.compact,
+                          Icons.notes,
                           (format) {
                             ref
                                 .read(messageFormatPreferencesProvider.notifier)
@@ -230,10 +247,27 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           context,
                           ref,
                           appTheme,
-                          'Texto Plano',
+                          'Tablas',
                           MessageFormat.plain,
                           formatPrefs.privateFormat == MessageFormat.plain,
-                          Icons.text_fields,
+                          Icons.table_rows,
+                          (format) {
+                            ref
+                                .read(messageFormatPreferencesProvider.notifier)
+                                .setPrivateFormat(format);
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _buildFormatOption(
+                          context,
+                          ref,
+                          appTheme,
+                          'Burbuja',
+                          MessageFormat.bubble,
+                          formatPrefs.privateFormat == MessageFormat.bubble,
+                          Icons.chat_bubble,
                           (format) {
                             ref
                                 .read(messageFormatPreferencesProvider.notifier)
