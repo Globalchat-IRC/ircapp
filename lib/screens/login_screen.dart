@@ -2313,7 +2313,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                       style: ElevatedButton.styleFrom(
                                         backgroundColor: appTheme.primary,
                                         disabledBackgroundColor: Colors.grey,
-                                        foregroundColor: appTheme.textPrimary,
+                                        foregroundColor: AppTheme.contrastOn(
+                                          appTheme.primary,
+                                        ),
                                         elevation: 4,
                                         shape: RoundedRectangleBorder(
                                           borderRadius: BorderRadius.circular(
@@ -2330,7 +2332,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                                 valueColor:
                                                     AlwaysStoppedAnimation<
                                                       Color
-                                                    >(appTheme.textPrimary),
+                                                    >(
+                                                      AppTheme.contrastOn(
+                                                        appTheme.primary,
+                                                      ),
+                                                    ),
                                               ),
                                             )
                                           : Text(
@@ -2338,7 +2344,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                               style: TextStyle(
                                                 fontSize: 16,
                                                 fontWeight: FontWeight.bold,
-                                                color: appTheme.textPrimary,
+                                                color: AppTheme.contrastOn(
+                                                  appTheme.primary,
+                                                ),
                                               ),
                                             ),
                                     ),
