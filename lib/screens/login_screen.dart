@@ -1460,6 +1460,27 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       }
       // globalLog('🔵 [LOGIN] Set channel in provider: "$channel" -> normalized: "$normalizedChannel"');
 
+      // Forzar JOIN explícito al canal de la URL si venimos con autojoin=true.
+      // No dependemos del ChatScreen (que lee currentChannelProvider con delay
+      // de 1500ms) para garantizar la entrada en el canal de la URL.
+      if (PlatformUtils.isWeb &&
+          _urlChannel != null &&
+          _urlChannel!.trim().isNotEmpty) {
+        String urlJoinChannel = _urlChannel!.trim();
+        if (!urlJoinChannel.startsWith('#')) {
+          urlJoinChannel = '#$urlJoinChannel';
+        }
+        urlJoinChannel = urlJoinChannel.toLowerCase();
+        Future.delayed(const Duration(milliseconds: 750), () {
+          if (ircService.isConnected && mounted) {
+            debugLog(
+              '🚪 [AUTOJOIN_URL] JOIN explícito al canal de la URL: $urlJoinChannel',
+            );
+            ircService.joinChannel(urlJoinChannel);
+          }
+        });
+      }
+
       // globalLog('🔵 [LOGIN] About to navigate to ChatScreen');
 
       if (mounted) {
