@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
+
 class ServerProfile {
   final String id;
   final String name;
@@ -71,5 +73,27 @@ class ServerProfile {
       port: 2002,
       useSSL: true,
     ),
+    const ServerProfile(
+      id: 'gc-irc-6667',
+      name: 'GlobalChat · IRC (6667)',
+      host: 'irc.globalchat.org',
+      port: 6667,
+      useSSL: false,
+    ),
   ];
+
+  /// ponytail: migración red web — en web solo ceres + irc.globalchat.org (random).
+  /// Quitar el filtro cuando termine la migración de arquitectura.
+  static const _webMigrationHiddenIds = {
+    'gc-apolo-6697',
+    'gc-caliope-6697',
+    'gc-znc-2002',
+  };
+
+  static List<ServerProfile> get activeProfiles {
+    if (!kIsWeb) return defaultGlobalChatProfiles;
+    return defaultGlobalChatProfiles
+        .where((p) => !_webMigrationHiddenIds.contains(p.id))
+        .toList();
+  }
 }

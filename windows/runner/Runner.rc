@@ -90,12 +90,12 @@ BEGIN
         BLOCK "040904e4"
         BEGIN
             VALUE "CompanyName", "com.irclient" "\0"
-            VALUE "FileDescription", "irc_app" "\0"
+            VALUE "FileDescription", "GlobalChat" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "irc_app" "\0"
+            VALUE "InternalName", "GlobalChat" "\0"
             VALUE "LegalCopyright", "Copyright (C) 2025 com.irclient. All rights reserved." "\0"
-            VALUE "OriginalFilename", "irc_app.exe" "\0"
-            VALUE "ProductName", "irc_app" "\0"
+            VALUE "OriginalFilename", "GlobalChat.exe" "\0"
+            VALUE "ProductName", "GlobalChat" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

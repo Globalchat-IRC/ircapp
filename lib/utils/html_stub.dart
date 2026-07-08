@@ -18,7 +18,9 @@ class Location {
   String? get search => null;
   String? get hash => null;
   String? get href => null;
-  void reload([bool forceGet = false]) {} // Stub: en web usa dart:html y forceGet fuerza recarga sin caché
+  void reload([
+    bool forceGet = false,
+  ]) {} // Stub: en web usa dart:html y forceGet fuerza recarga sin caché
 }
 
 class _Navigator {
@@ -45,13 +47,13 @@ class Element {
 class Notification {
   static bool get supported => false;
   static String get permission => 'denied';
-  
+
   static Future<String> requestPermission() async => 'denied';
-  
+
   Notification(String title, {String? body, String? icon}) {
     // Constructor vacío
   }
-  
+
   Stream<dynamic> get onClick => const Stream.empty();
   void close() {}
 }

@@ -91,7 +91,7 @@ final messageSendDelayProvider =
 
 class MessageSendDelayNotifier extends Notifier<int> {
   static const _prefsKey = 'message_send_delay_seconds';
-  static const int _defaultDelay = 10; // 10 segundos por defecto
+  static const int _defaultDelay = 0; // ponytail: 10s era el default viejo; el mensaje se veía en chat antes de ir al servidor
 
   @override
   int build() {
@@ -102,7 +102,13 @@ class MessageSendDelayNotifier extends Notifier<int> {
   Future<void> _loadFromPrefs() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final delay = prefs.getInt(_prefsKey) ?? _defaultDelay;
+      var delay = prefs.getInt(_prefsKey) ?? _defaultDelay;
+      // ponytail: migrar instalaciones con el default antiguo (10s)
+      if (delay == 10 && !(prefs.getBool('message_send_delay_migrated_v5050') ?? false)) {
+        delay = 0;
+        await prefs.setInt(_prefsKey, 0);
+        await prefs.setBool('message_send_delay_migrated_v5050', true);
+      }
       state = delay;
     } catch (_) {
       // Ignorar errores de carga
@@ -434,11 +440,11 @@ class CurrentServerProfileNotifier extends Notifier<ServerProfile?> {
       debugLog('🔍 [SERVER_PROFILE] Leyendo desde prefs, serverId: $serverId');
       if (serverId != null && serverId.isNotEmpty) {
         // Buscar el perfil por ID en la lista de perfiles por defecto
-        final profile = ServerProfile.defaultGlobalChatProfiles.firstWhere(
+        final profile = ServerProfile.activeProfiles.firstWhere(
           (p) => p.id == serverId,
-          orElse: () => ServerProfile.defaultGlobalChatProfiles.firstWhere(
+          orElse: () => ServerProfile.activeProfiles.firstWhere(
             (p) => p.isDefault,
-            orElse: () => ServerProfile.defaultGlobalChatProfiles.first,
+            orElse: () => ServerProfile.activeProfiles.first,
           ),
         );
         state = profile;
@@ -1918,7 +1924,7 @@ class EmojiConfigNotifier extends Notifier<EmojiConfig> {
 class ServerProfilesNotifier extends Notifier<List<ServerProfile>> {
   @override
   List<ServerProfile> build() =>
-      List<ServerProfile>.from(ServerProfile.defaultGlobalChatProfiles);
+      List<ServerProfile>.from(ServerProfile.activeProfiles);
 
   void addProfile(ServerProfile profile) {
     state = [...state, profile];

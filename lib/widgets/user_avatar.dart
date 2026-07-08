@@ -182,13 +182,17 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
       return;
     }
 
+    // En web mantenemos la cadena GIF→PNG vía errorBuilder (el <img> HTML es
+    // tolerante). En nativo el errorBuilder conmutando estado durante el paint
+    // dentro de un ListView no se asienta de forma fiable, así que resolvemos
+    // la URL buena por HTTP ANTES de pintar y la mostramos directa.
+    final gifUrl = AvatarService.getAvatarGifUrl(cleanNick);
+
     if (PlatformUtils.isWeb) {
       final staticUrl = AvatarService.getAvatarUrl(cleanNick);
-      final gifUrl = AvatarService.getAvatarGifUrl(cleanNick);
       final hasCustomStatic = await AvatarService.hasLikelyCustomStaticAvatar(
         cleanNick,
       );
-
       if (mounted) {
         setState(() {
           _staticAvatarUrl = staticUrl;
@@ -201,15 +205,19 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
       return;
     }
 
-    final staticUrl = await AvatarService.getCorrectAvatarUrl(cleanNick);
-    final gifUrl = AvatarService.getAvatarGifUrl(cleanNick);
-    final initialUrl = PlatformUtils.isWeb ? staticUrl : gifUrl;
+    // Nativo: resolver explícitamente. GIF custom si existe; si no, PNG hash solo si
+    // supera el umbral de tamaño (evita placeholders xmlrpc de ~3 KB).
+    final hasGif = await AvatarService.avatarGifExists(cleanNick);
+    final resolvedUrl = hasGif
+        ? gifUrl
+        : await AvatarService.getCorrectAvatarUrl(cleanNick);
     if (mounted) {
       setState(() {
-        _staticAvatarUrl = staticUrl;
-        _avatarUrl = initialUrl;
-        _gifPreferred = !PlatformUtils.isWeb;
-        _triedDefaultAvatar = false;
+        _staticAvatarUrl = resolvedUrl;
+        _avatarUrl = resolvedUrl;
+        _gifPreferred = false;
+        _shouldTryStaticFallback = false;
+        _triedDefaultAvatar = true;
       });
     }
   }
@@ -275,7 +283,7 @@ class _UserAvatarState extends ConsumerState<UserAvatar> {
                     _avatarUrl!,
                     width: widget.size,
                     height: widget.size,
-                    fit: BoxFit.contain,
+                    fit: BoxFit.cover,
                     gaplessPlayback: true,
                     // En web, preferimos <img> HTML para que entren mejor los PNG hash de xmlrpc.
                     webHtmlElementStrategy: PlatformUtils.isWeb

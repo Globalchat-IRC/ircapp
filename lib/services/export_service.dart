@@ -1,16 +1,16 @@
 import 'dart:io';
 import 'dart:convert';
-import 'dart:js_interop';
 import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:web/web.dart' as web;
 import '../models/irc_message.dart';
 import 'package:intl/intl.dart';
 import 'package:archive/archive.dart';
 import 'package:pointycastle/export.dart';
 import '../utils/platform_utils.dart';
 import '../config/debug_config.dart';
+import '../utils/export_web_bridge_stub.dart'
+    if (dart.library.html) '../utils/export_web_bridge_web.dart';
 
 /// Servicio para exportar conversaciones y logs
 class ExportService {
@@ -281,13 +281,10 @@ class ExportService {
       // Guardar archivo encriptado
       if (PlatformUtils.isWeb) {
         // Para web, usar descarga directa
-        final blob = web.Blob([encryptedData.toJS].toJS);
-        final url = web.URL.createObjectURL(blob);
-        web.HTMLAnchorElement()
-          ..href = url
-          ..download = '${channelClean}_logs_encrypted_$timestamp.enc'
-          ..click();
-        web.URL.revokeObjectURL(url);
+        downloadBytesOnWeb(
+          encryptedData,
+          '${channelClean}_logs_encrypted_$timestamp.enc',
+        );
         return 'Descargado';
       } else {
         // Para nativo, guardar en disco

@@ -16,7 +16,10 @@ import '../models/server_profile.dart';
 import 'chat_screen.dart';
 import 'rules_screen.dart';
 import '../utils/platform_utils.dart';
+import '../utils/web_text_input.dart';
+import '../widgets/web_paste_text_field.dart';
 import '../services/geoip_service.dart';
+import '../services/irc_service.dart';
 import '../config/debug_config.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
@@ -35,6 +38,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _passwordController =
       TextEditingController(); // Contraseña para identificación
   final _channelFocusNode = FocusNode();
+  late final IRCService _ircService;
   Function(String)? _nickChangeListener; // Listener para cambios de nick
   bool _isLoading = false;
   String? _errorMessage;
@@ -121,6 +125,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   @override
   void initState() {
     super.initState();
+    _ircService = ref.read(ircServiceProvider);
 
     // Logs de consola desactivados para rendimiento
     // debugPrint('🔍 [INIT] LoginScreen initState iniciado');
@@ -260,8 +265,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             if (mounted) {
               setState(() {
                 if (_urlAge18Validated) _confirmOver14 = true;
-                if (_urlAge18Validated || _urlRulesAccepted)
+                if (_urlAge18Validated || _urlRulesAccepted) {
                   _acceptRules = true;
+                }
               });
             }
           });
@@ -287,8 +293,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     // Asegurarse de que el nick de la URL esté limpio (sin guiones al final)
     final cleanUrlNick = urlNick?.trim();
     final defaultNick = cleanUrlNick ?? 'GlobalChat-$randomNumber';
-    if (cleanUrlNick != null && cleanUrlNick.isNotEmpty)
+    if (cleanUrlNick != null && cleanUrlNick.isNotEmpty) {
       _urlNickProvided = true;
+    }
     _nickController = TextEditingController(
       text: _guestFromUrl
           ? 'Invitado${random.nextInt(90000) + 10000}'
@@ -302,8 +309,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     // Si es la primera vez y no hay servidor seleccionado aún,
     // preseleccionar un servidor SSL aleatorio en el desplegable.
     if (_selectedServer == null) {
-      final sslServers = ServerProfile.defaultGlobalChatProfiles
-          .where((profile) => profile.port == 6697 && profile.useSSL)
+      final sslServers = ServerProfile.activeProfiles
+          .where((profile) => profile.port != 2002)
           .toList();
       if (sslServers.isNotEmpty) {
         final randomIndex = random.nextInt(sslServers.length);
@@ -560,8 +567,67 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         } else {
           if (autoJoin && PlatformUtils.isWeb) {
             debugLog(
-              '🔍 [LOGIN] Autojoin desde URL tiene prioridad, no se ejecuta autojoin desde provider',
+              '🔍 [LOGIN] Autojoin desde URL con servidor guardado: conectando al canal de la URL',
             );
+            // Asegurar que el canal de la URL esté normalizado en el controlador.
+            // El servidor ya viene del perfil guardado (_updateServerFields arriba).
+            var channelToUse = _urlChannel?.trim();
+            if (channelToUse == null || channelToUse.isEmpty) {
+              channelToUse = _channelController.text.trim();
+            }
+            if (channelToUse.isNotEmpty) {
+              String finalChannel = channelToUse;
+              if (!finalChannel.startsWith('#')) {
+                finalChannel = '#$finalChannel';
+              }
+              _channelController.text = finalChannel;
+              debugLog(
+                '🔍 [AUTOJOIN_URL] Canal normalizado (servidor guardado): $finalChannel',
+              );
+
+              // Esperar un momento para que los campos se actualicen
+              Future.delayed(const Duration(milliseconds: 500), () async {
+                if (!mounted) return;
+
+                final host = _hostController.text.trim();
+                final portText = _portController.text.trim();
+                final port = int.tryParse(portText) ?? 6697;
+                final nick = _nickController.text.trim();
+                final channel = _channelController.text.trim();
+
+                debugLog(
+                  '🔍 [AUTOJOIN_URL] Verificando campos (servidor guardado): host=$host, port=$port, nick=$nick, channel=$channel',
+                );
+
+                if (host.isNotEmpty && nick.isNotEmpty && channel.isNotEmpty) {
+                  setState(() {
+                    _isAutoJoining = true;
+                    _isLoading = true;
+                  });
+                  try {
+                    await _connect();
+                    debugLog(
+                      '🔍 [AUTOJOIN_URL] ✅ Conexión exitosa (servidor guardado)',
+                    );
+                  } catch (e) {
+                    debugLog(
+                      '🔍 [AUTOJOIN_URL] ❌ Error en conexión (servidor guardado): $e',
+                    );
+                    if (mounted) {
+                      setState(() {
+                        _errorMessage = 'Error en auto-join: $e';
+                        _isLoading = false;
+                        _isAutoJoining = false;
+                      });
+                    }
+                  }
+                } else {
+                  debugLog(
+                    '🔍 [AUTOJOIN_URL] ⚠️ Campos incompletos - host: ${host.isNotEmpty}, nick: ${nick.isNotEmpty}, channel: ${channel.isNotEmpty}',
+                  );
+                }
+              });
+            }
           } else {
             debugLog(
               '🔍 [LOGIN] No se cumplen condiciones para autojoin - nick: ${currentNick != null && currentNick.isNotEmpty}, canal: ${currentChannel != null && currentChannel.isNotEmpty}, canales autojoin: ${autoJoinChannels.isNotEmpty}',
@@ -596,15 +662,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             _channelController.text = finalChannel;
             debugLog('🔍 [AUTOJOIN_URL] Canal normalizado: $finalChannel');
 
-            // Filtrar servidores con puerto 6697 (SSL)
-            final sslServers = ServerProfile.defaultGlobalChatProfiles
-                .where((profile) => profile.port == 6697 && profile.useSSL)
+            // Servidores IRC disponibles (excluir ZNC)
+            final sslServers = ServerProfile.activeProfiles
+                .where((profile) => profile.port != 2002)
                 .toList();
 
             if (sslServers.isNotEmpty) {
-              // Asegurar que el puerto sea 6697
-              _portController.text = '6697';
-
               // Detectar ubicación geográfica usando GeoIP y seleccionar servidor (o aleatorio si geolocation=false)
               if (_geolocationEnabled) {
                 await _selectServerByGeoIPFromList(sslServers);
@@ -663,8 +726,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               if (_geolocationEnabled) {
                 await _selectServerByGeoIP();
               } else {
-                final sslServers = ServerProfile.defaultGlobalChatProfiles
-                    .where((p) => p.port == 6697 && p.useSSL)
+                final sslServers = ServerProfile.activeProfiles
+                    .where((p) => p.port != 2002)
                     .toList();
                 if (sslServers.isNotEmpty) {
                   final random = Random();
@@ -680,8 +743,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             if (_geolocationEnabled) {
               await _selectServerByGeoIP();
             } else {
-              final sslServers = ServerProfile.defaultGlobalChatProfiles
-                  .where((p) => p.port == 6697 && p.useSSL)
+              final sslServers = ServerProfile.activeProfiles
+                  .where((p) => p.port != 2002)
                   .toList();
               if (sslServers.isNotEmpty) {
                 final random = Random();
@@ -722,12 +785,23 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   }
 
   /// Seleccionar servidor basado en GeoIP desde una lista específica
-  /// América → caliope.globalchat.org
-  /// Resto del mundo → otros servidores (ceres, creta, apolo)
   Future<void> _selectServerByGeoIPFromList(
     List<ServerProfile> sslServers,
   ) async {
     late ServerProfile selectedServer;
+
+    // ponytail: migración red web — random entre ceres/irc, sin GeoIP por nodo
+    if (PlatformUtils.isWeb && sslServers.isNotEmpty) {
+      selectedServer = sslServers[Random().nextInt(sslServers.length)];
+      debugLog('🌎 [GEOIP] Web migración: ${selectedServer.host} (aleatorio)');
+      if (mounted) {
+        setState(() {
+          _selectedServer = selectedServer;
+          _updateServerFields(_selectedServer!);
+        });
+      }
+      return;
+    }
 
     try {
       final isAmericas = await GeoIPService.isInAmericas();
@@ -807,19 +881,25 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   }
 
   /// Seleccionar servidor basado en GeoIP
-  /// América → caliope.globalchat.org
-  /// Resto del mundo → otros servidores (ceres, creta, apolo)
   Future<void> _selectServerByGeoIP() async {
-    final sslServers = ServerProfile.defaultGlobalChatProfiles
-        .where((profile) => profile.port == 6697 && profile.useSSL)
+    final sslServers = ServerProfile.activeProfiles
+        .where((profile) => profile.port != 2002)
         .toList();
 
     if (sslServers.isEmpty) {
       // Fallback si no hay servidores SSL
-      _selectedServer = ServerProfile.defaultGlobalChatProfiles.firstWhere(
+      _selectedServer = ServerProfile.activeProfiles.firstWhere(
         (profile) => profile.isDefault,
-        orElse: () => ServerProfile.defaultGlobalChatProfiles.first,
+        orElse: () => ServerProfile.activeProfiles.first,
       );
+      _updateServerFields(_selectedServer!);
+      return;
+    }
+
+    // ponytail: migración red web — random entre ceres/irc, sin GeoIP por nodo
+    if (PlatformUtils.isWeb) {
+      _selectedServer = sslServers[Random().nextInt(sslServers.length)];
+      debugLog('🌎 [GEOIP] Web migración: ${_selectedServer!.host} (aleatorio)');
       _updateServerFields(_selectedServer!);
       return;
     }
@@ -1016,12 +1096,22 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         setState(() => _serverStatus = null);
         return;
       }
-      final s = await io.Socket.connect(
-        host,
-        port,
-        timeout: const Duration(seconds: 3),
-      );
-      s.destroy();
+      if (port == 6697) {
+        final s = await io.SecureSocket.connect(
+          host,
+          port,
+          timeout: const Duration(seconds: 5),
+          onBadCertificate: (_) => true,
+        );
+        await s.close();
+      } else {
+        final s = await io.Socket.connect(
+          host,
+          port,
+          timeout: const Duration(seconds: 3),
+        );
+        s.destroy();
+      }
       if (mounted) setState(() => _serverStatus = 'available');
     } catch (_) {
       if (mounted) setState(() => _serverStatus = 'unavailable');
@@ -1174,8 +1264,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     _autoConnectTimer = null;
     // Eliminar listener de cambio de nick si existe
     if (_nickChangeListener != null) {
-      final ircService = ref.read(ircServiceProvider);
-      ircService.removeNickChangeListener(_nickChangeListener!);
+      _ircService.removeNickChangeListener(_nickChangeListener!);
     }
     _hostController.dispose();
     _portController.dispose();
@@ -1263,7 +1352,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       // globalLog('🔵 [LOGIN] Calling connect() with $host:$port as $nick');
 
       // Puerto 2002 (ZNC con SSL)
-      final useSSL = (port == 2002) ? true : true;
+      final useSSL = port == 2002 || port == 6697;
       debugLog('🔐 [ZNC] Puerto: $port, SSL: $useSSL');
 
       // En web, el gateway maneja la conexión, así que siempre pasamos el puerto IRC real
@@ -1284,6 +1373,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         useSSL: useSSL,
         zncPassword: zncPassword,
       );
+      await ircService.waitForRegistration();
 
       // globalLog('🔵 [LOGIN] connect() returned successfully');
 
@@ -1355,38 +1445,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       );
 
       if (autoJoinChannels.isNotEmpty) {
-        // Si hay canales guardados, hacer JOIN a todos ellos después de conectarse
+        final channelToSet =
+            currentChannelFromProvider ?? autoJoinChannels.first;
+        ref.read(currentChannelProvider.notifier).state = channelToSet;
         debugLog(
-          '🔍 [AUTOJOIN] ✅ Hay ${autoJoinChannels.length} canales para autojoin: $autoJoinChannels',
+          '🔍 [AUTOJOIN] ✅ ${autoJoinChannels.length} canales: $autoJoinChannels (actual: $channelToSet)',
         );
-
-        // Esperar a que la conexión esté completamente establecida antes de hacer JOIN
-        Future.delayed(const Duration(milliseconds: 2000), () {
-          if (mounted && ircService.isConnected) {
-            // Hacer JOIN a cada canal con un pequeño delay
-            for (int i = 0; i < autoJoinChannels.length; i++) {
-              final channelToJoin = autoJoinChannels[i];
-              Future.delayed(Duration(milliseconds: 500 + (i * 300)), () {
-                if (mounted && ircService.isConnected) {
-                  debugLog('🔍 [AUTOJOIN] Uniéndose a canal: $channelToJoin');
-                  ircService.joinChannel(channelToJoin);
-                }
-              });
-            }
-
-            // Establecer el canal actual como el primero de la lista (o el que estaba antes)
-            final channelToSet =
-                currentChannelFromProvider ?? autoJoinChannels.first;
-            Future.delayed(const Duration(milliseconds: 1000), () {
-              if (mounted) {
-                ref.read(currentChannelProvider.notifier).state = channelToSet;
-                debugLog(
-                  '🔍 [AUTOJOIN] Canal actual establecido: $channelToSet',
-                );
-              }
-            });
-          }
-        });
       } else {
         // Si no hay canales guardados, usar el canal del formulario (comportamiento normal)
         ref.read(currentChannelProvider.notifier).state = normalizedChannel;
@@ -1427,8 +1491,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           e.toString().contains('Connection refused')) {
         errorMessage =
             'No se pudo conectar al servidor. Verifica el host y puerto.';
-      } else if (e.toString().contains('TimeoutException')) {
-        errorMessage = 'Tiempo de espera agotado. El servidor no respondió.';
+      } else if (e.toString().contains('TimeoutException') ||
+          e.toString().contains('001')) {
+        errorMessage =
+            'Tiempo de espera agotado. El servidor no completó el registro.';
       } else if (e.toString().contains('TlsException') ||
           e.toString().contains('SSL')) {
         errorMessage =
@@ -1543,9 +1609,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             if (_autoConnectCountdown != null && !_autoConnectCancelled)
               _buildAutoConnectBanner(appTheme),
             Expanded(
-              child: Center(
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.all(24),
+              child: SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(24, 24, 24, 12),
                   child: Card(
                     elevation: 8,
                     color: appTheme.background,
@@ -1694,7 +1759,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                 ),
                                 dropdownColor: appTheme.surface,
                                 style: TextStyle(color: appTheme.textPrimary),
-                                items: ServerProfile.defaultGlobalChatProfiles
+                                items: ServerProfile.activeProfiles
                                     .map((profile) {
                                       return DropdownMenuItem<ServerProfile>(
                                         value: profile,
@@ -1800,7 +1865,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                   ),
                                   child: Column(
                                     children: [
-                                      TextField(
+                                      WebPasteTextField(
                                         controller: _hostController,
                                         onChanged: (_) => _checkServerStatus(),
                                         style: TextStyle(
@@ -1827,7 +1892,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                         ),
                                       ),
                                       const SizedBox(height: 12),
-                                      TextField(
+                                      WebPasteTextField(
                                         controller: _portController,
                                         onChanged: (_) => _checkServerStatus(),
                                         keyboardType: TextInputType.number,
@@ -1864,7 +1929,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Expanded(
-                                  child: TextField(
+                                  child: WebPasteTextField(
                                     controller: _nickController,
                                     style: TextStyle(
                                       color: appTheme.textPrimary,
@@ -2023,7 +2088,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                             // Campo de contraseña (solo visible si se marca el checkbox)
                             if (_identifyWithNick) ...[
                               const SizedBox(height: 8),
-                              TextField(
+                              WebPasteTextField(
                                 controller: _passwordController,
                                 obscureText: _obscurePassword,
                                 style: TextStyle(color: appTheme.textPrimary),
@@ -2170,62 +2235,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                               loadingChannels: _loadingChannels,
                               appTheme: appTheme,
                             ),
-                            const SizedBox(height: 16),
-                            CheckboxListTile(
-                              value: _confirmOver14,
-                              onChanged: (value) => setState(
-                                () => _confirmOver14 = value ?? false,
-                              ),
-                              title: Text(
-                                'Confirmo que soy mayor de 14 años',
-                                style: TextStyle(
-                                  color: appTheme.textPrimary,
-                                  fontSize: 14,
-                                ),
-                              ),
-                              activeColor: appTheme.primary,
-                              checkColor: appTheme.textPrimary,
-                              contentPadding: EdgeInsets.zero,
-                              controlAffinity: ListTileControlAffinity.leading,
-                            ),
-                            CheckboxListTile(
-                              value: _acceptRules,
-                              onChanged: (value) =>
-                                  setState(() => _acceptRules = value ?? false),
-                              title: Wrap(
-                                children: [
-                                  Text(
-                                    'Acepto las ',
-                                    style: TextStyle(
-                                      color: appTheme.textPrimary,
-                                      fontSize: 14,
-                                    ),
-                                  ),
-                                  GestureDetector(
-                                    onTap: () {
-                                      Navigator.of(context).push(
-                                        MaterialPageRoute(
-                                          builder: (_) => const RulesScreen(),
-                                        ),
-                                      );
-                                    },
-                                    child: Text(
-                                      'reglas del canal/red',
-                                      style: TextStyle(
-                                        color: appTheme.primary,
-                                        fontSize: 14,
-                                        decoration: TextDecoration.underline,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              activeColor: appTheme.primary,
-                              checkColor: appTheme.textPrimary,
-                              contentPadding: EdgeInsets.zero,
-                              controlAffinity: ListTileControlAffinity.leading,
-                            ),
-                            const SizedBox(height: 12),
+                            const SizedBox(height: 8),
                             Row(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
@@ -2261,106 +2271,160 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                 ),
                               ],
                             ),
-                            const SizedBox(height: 16),
-                            if (_errorMessage != null)
-                              Container(
-                                padding: const EdgeInsets.all(12),
-                                decoration: BoxDecoration(
-                                  color: Colors.red.shade100,
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: Text(
-                                  _errorMessage!,
-                                  style: TextStyle(color: Colors.red.shade700),
-                                ),
-                              ),
-                            if (_errorMessage != null)
-                              const SizedBox(height: 16),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: OutlinedButton.icon(
-                                    onPressed: _isLoading
-                                        ? null
-                                        : _enterAsGuest,
-                                    icon: Icon(
-                                      Icons.person_outline,
-                                      size: 20,
-                                      color: appTheme.primary,
-                                    ),
-                                    label: const Text('Entrar como invitado'),
-                                    style: OutlinedButton.styleFrom(
-                                      foregroundColor: appTheme.primary,
-                                      side: BorderSide(color: appTheme.primary),
-                                      padding: const EdgeInsets.symmetric(
-                                        vertical: 14,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  flex: 2,
-                                  child: SizedBox(
-                                    height: 48,
-                                    child: ElevatedButton(
-                                      onPressed:
-                                          (_isLoading ||
-                                              !_confirmOver14 ||
-                                              !_acceptRules)
-                                          ? null
-                                          : _connect,
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor: appTheme.primary,
-                                        disabledBackgroundColor: Colors.grey,
-                                        foregroundColor: AppTheme.contrastOn(
-                                          appTheme.primary,
-                                        ),
-                                        elevation: 4,
-                                        shape: RoundedRectangleBorder(
-                                          borderRadius: BorderRadius.circular(
-                                            8,
-                                          ),
-                                        ),
-                                      ),
-                                      child: _isLoading
-                                          ? SizedBox(
-                                              height: 24,
-                                              width: 24,
-                                              child: CircularProgressIndicator(
-                                                strokeWidth: 2,
-                                                valueColor:
-                                                    AlwaysStoppedAnimation<
-                                                      Color
-                                                    >(
-                                                      AppTheme.contrastOn(
-                                                        appTheme.primary,
-                                                      ),
-                                                    ),
-                                              ),
-                                            )
-                                          : Text(
-                                              'Conectar',
-                                              style: TextStyle(
-                                                fontSize: 16,
-                                                fontWeight: FontWeight.bold,
-                                                color: AppTheme.contrastOn(
-                                                  appTheme.primary,
-                                                ),
-                                              ),
-                                            ),
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
                           ],
                         ),
                       ),
                     ),
                   ),
                 ),
+            ),
+            _buildLoginActionBar(appTheme),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Casillas obligatorias + botones siempre visibles al pie (móvil/iOS).
+  Widget _buildLoginActionBar(AppTheme appTheme) {
+    return SafeArea(
+      top: false,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.fromLTRB(24, 8, 24, 12),
+        decoration: BoxDecoration(
+          color: appTheme.background.withValues(alpha: 0.98),
+          border: Border(
+            top: BorderSide(color: appTheme.primary.withValues(alpha: 0.25)),
+          ),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CheckboxListTile(
+              value: _confirmOver14,
+              onChanged: (value) =>
+                  setState(() => _confirmOver14 = value ?? false),
+              title: Text(
+                'Confirmo que soy mayor de 14 años',
+                style: TextStyle(color: appTheme.textPrimary, fontSize: 14),
               ),
+              activeColor: appTheme.primary,
+              checkColor: appTheme.textPrimary,
+              contentPadding: EdgeInsets.zero,
+              controlAffinity: ListTileControlAffinity.leading,
+              dense: true,
+              visualDensity: VisualDensity.compact,
+            ),
+            CheckboxListTile(
+              value: _acceptRules,
+              onChanged: (value) =>
+                  setState(() => _acceptRules = value ?? false),
+              title: Wrap(
+                children: [
+                  Text(
+                    'Acepto las ',
+                    style: TextStyle(color: appTheme.textPrimary, fontSize: 14),
+                  ),
+                  GestureDetector(
+                    onTap: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => const RulesScreen()),
+                      );
+                    },
+                    child: Text(
+                      'reglas del canal/red',
+                      style: TextStyle(
+                        color: appTheme.primary,
+                        fontSize: 14,
+                        decoration: TextDecoration.underline,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              activeColor: appTheme.primary,
+              checkColor: appTheme.textPrimary,
+              contentPadding: EdgeInsets.zero,
+              controlAffinity: ListTileControlAffinity.leading,
+              dense: true,
+              visualDensity: VisualDensity.compact,
+            ),
+            if (_errorMessage != null) ...[
+              const SizedBox(height: 8),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.red.shade100,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  _errorMessage!,
+                  style: TextStyle(color: Colors.red.shade700),
+                ),
+              ),
+            ],
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _isLoading ? null : _enterAsGuest,
+                    icon: Icon(
+                      Icons.person_outline,
+                      size: 20,
+                      color: appTheme.primary,
+                    ),
+                    label: const Text('Invitado'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: appTheme.primary,
+                      side: BorderSide(color: appTheme.primary),
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  flex: 2,
+                  child: SizedBox(
+                    height: 48,
+                    child: ElevatedButton(
+                      onPressed: (_isLoading || !_confirmOver14 || !_acceptRules)
+                          ? null
+                          : _connect,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: appTheme.primary,
+                        disabledBackgroundColor: Colors.grey,
+                        foregroundColor: AppTheme.contrastOn(appTheme.primary),
+                        elevation: 4,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                      child: _isLoading
+                          ? SizedBox(
+                              height: 24,
+                              width: 24,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                valueColor: AlwaysStoppedAnimation<Color>(
+                                  AppTheme.contrastOn(appTheme.primary),
+                                ),
+                              ),
+                            )
+                          : Text(
+                              'Conectar',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                                color: AppTheme.contrastOn(appTheme.primary),
+                              ),
+                            ),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ],
         ),
@@ -2564,7 +2628,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               style: TextStyle(color: appTheme.textTheme.bodyMedium?.color),
             ),
             const SizedBox(height: 16),
-            TextField(
+            WebPasteTextField(
               controller: userController,
               decoration: const InputDecoration(
                 labelText: 'Usuario',
@@ -2574,7 +2638,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               autofocus: true,
             ),
             const SizedBox(height: 12),
-            TextField(
+            WebPasteTextField(
               controller: passController,
               decoration: const InputDecoration(
                 labelText: 'Contraseña',
@@ -2752,13 +2816,22 @@ class _ChannelSelector extends StatefulWidget {
 }
 
 class _ChannelSelectorState extends State<_ChannelSelector> {
-  final FocusNode _focusNode = FocusNode();
+  late final FocusNode _focusNode;
   List<ChannelInfo> _filteredChannels = [];
   bool _showDropdown = false;
 
   @override
   void initState() {
     super.initState();
+    _focusNode = FocusNode(
+      onKeyEvent: (PlatformUtils.isWeb || PlatformUtils.isDesktop)
+          ? (node, event) => WebTextInput.handlePasteKey(
+                event,
+                widget.controller,
+                hasFocus: node.hasFocus,
+              )
+          : null,
+    );
     _updateFilteredChannels();
     _focusNode.addListener(_onFocusChange);
     widget.controller.addListener(_onTextChanged);
@@ -2874,7 +2947,7 @@ class _ChannelSelectorState extends State<_ChannelSelector> {
                 child: Builder(
                   builder: (context) {
                     final customChannelController = TextEditingController();
-                    return TextField(
+                    return WebPasteTextField(
                       controller: customChannelController,
                       autofocus: false,
                       decoration: InputDecoration(
@@ -3191,7 +3264,7 @@ class _ChannelSelectorState extends State<_ChannelSelector> {
               style: TextStyle(color: appTheme.textTheme.bodyMedium?.color),
             ),
             const SizedBox(height: 16),
-            TextField(
+            WebPasteTextField(
               controller: userController,
               decoration: const InputDecoration(
                 labelText: 'Usuario',
@@ -3201,7 +3274,7 @@ class _ChannelSelectorState extends State<_ChannelSelector> {
               autofocus: true,
             ),
             const SizedBox(height: 12),
-            TextField(
+            WebPasteTextField(
               controller: passController,
               decoration: const InputDecoration(
                 labelText: 'Contraseña',

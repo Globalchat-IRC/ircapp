@@ -1,17 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
-import 'package:web/web.dart' as web;
 import 'dart:ui_web' if (dart.library.io) '../utils/ui_web_stub.dart' as ui;
 import '../services/voice_assistant_service.dart';
 import '../models/app_theme.dart';
 import '../utils/platform_utils.dart';
+import '../utils/iframe_web_bridge_stub.dart'
+    if (dart.library.html) '../utils/iframe_web_bridge_web.dart';
 import '../config/debug_config.dart';
 
 /// Diálogo del asistente de voz
 class VoiceAssistantDialog extends ConsumerStatefulWidget {
   final AppTheme appTheme;
-  final String? helpChannel; // Canal de ayuda desde el cual se abrió automáticamente (#ayuda o #cau)
+  final String?
+  helpChannel; // Canal de ayuda desde el cual se abrió automáticamente (#ayuda o #cau)
 
   const VoiceAssistantDialog({
     super.key,
@@ -20,7 +22,8 @@ class VoiceAssistantDialog extends ConsumerStatefulWidget {
   });
 
   @override
-  ConsumerState<VoiceAssistantDialog> createState() => _VoiceAssistantDialogState();
+  ConsumerState<VoiceAssistantDialog> createState() =>
+      _VoiceAssistantDialogState();
 }
 
 class _VoiceAssistantDialogState extends ConsumerState<VoiceAssistantDialog> {
@@ -44,7 +47,8 @@ class _VoiceAssistantDialogState extends ConsumerState<VoiceAssistantDialog> {
     final available = await _assistant.isAvailable();
     if (!available && mounted) {
       setState(() {
-        _error = 'El reconocimiento de voz no está disponible en este navegador o dispositivo. Por favor, verifica que tu navegador soporte reconocimiento de voz y que el micro tiene permisos.';
+        _error =
+            'El reconocimiento de voz no está disponible en este navegador o dispositivo. Por favor, verifica que tu navegador soporte reconocimiento de voz y que el micro tiene permisos.';
       });
     }
   }
@@ -64,22 +68,23 @@ class _VoiceAssistantDialogState extends ConsumerState<VoiceAssistantDialog> {
       debugLog('🎤 [VoiceDialog] Iniciando escucha...');
       final stream = _assistant.startListening();
       String? finalTranscription;
-      
+
       await for (final text in stream) {
         debugLog('📝 [VoiceDialog] Texto recibido del stream: "$text"');
-        
+
         // Verificar si es un marcador de error
         if (text == '__ERROR__') {
           debugLog('❌ [VoiceDialog] Error detectado en el stream');
           if (mounted) {
             setState(() {
-              _error = 'Error de reconocimiento de voz. Por favor, verifica tu conexión a internet y los permisos del micrófono, e intenta de nuevo.';
+              _error =
+                  'Error de reconocimiento de voz. Por favor, verifica tu conexión a internet y los permisos del micrófono, e intenta de nuevo.';
               _isListening = false;
             });
           }
           return; // Salir sin procesar
         }
-        
+
         if (mounted) {
           setState(() {
             _transcription = text;
@@ -87,14 +92,19 @@ class _VoiceAssistantDialogState extends ConsumerState<VoiceAssistantDialog> {
           });
         }
       }
-      
-      debugLog('🔚 [VoiceDialog] Stream terminado. Transcripción final: "$finalTranscription"');
+
+      debugLog(
+        '🔚 [VoiceDialog] Stream terminado. Transcripción final: "$finalTranscription"',
+      );
 
       // Cuando termine de escuchar, procesar la pregunta
       final questionToProcess = finalTranscription ?? _transcription;
       debugLog('❓ [VoiceDialog] Pregunta a procesar: "$questionToProcess"');
-      
-      if (mounted && questionToProcess.isNotEmpty && questionToProcess.trim().isNotEmpty && questionToProcess != '__ERROR__') {
+
+      if (mounted &&
+          questionToProcess.isNotEmpty &&
+          questionToProcess.trim().isNotEmpty &&
+          questionToProcess != '__ERROR__') {
         debugLog('🔄 [VoiceDialog] Iniciando procesamiento de IA...');
         setState(() {
           _isProcessing = true;
@@ -102,7 +112,7 @@ class _VoiceAssistantDialogState extends ConsumerState<VoiceAssistantDialog> {
 
         final response = await _assistant.getAIResponse(questionToProcess);
         debugLog('💬 [VoiceDialog] Respuesta recibida: "$response"');
-        
+
         if (mounted) {
           setState(() {
             _response = response;
@@ -118,7 +128,8 @@ class _VoiceAssistantDialogState extends ConsumerState<VoiceAssistantDialog> {
         debugLog('⚠️ [VoiceDialog] No hay transcripción para procesar');
         if (mounted) {
           setState(() {
-            _error = 'No se pudo reconocer tu voz. Por favor, intenta de nuevo o verifica tu conexión a internet.';
+            _error =
+                'No se pudo reconocer tu voz. Por favor, intenta de nuevo o verifica tu conexión a internet.';
             _isListening = false;
           });
         }
@@ -207,9 +218,7 @@ class _VoiceAssistantDialogState extends ConsumerState<VoiceAssistantDialog> {
     if (PlatformUtils.isWeb && kIsWeb) {
       return Dialog(
         backgroundColor: widget.appTheme.surface,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         child: Container(
           width: 800,
           height: 600,
@@ -219,7 +228,10 @@ class _VoiceAssistantDialogState extends ConsumerState<VoiceAssistantDialog> {
             children: [
               // Barra superior con título y cerrar
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 12,
+                ),
                 decoration: BoxDecoration(
                   color: widget.appTheme.surface,
                   borderRadius: const BorderRadius.only(
@@ -229,17 +241,13 @@ class _VoiceAssistantDialogState extends ConsumerState<VoiceAssistantDialog> {
                 ),
                 child: Row(
                   children: [
-                    Icon(
-                      Icons.mic,
-                      color: widget.appTheme.accent,
-                      size: 24,
-                    ),
+                    Icon(Icons.mic, color: widget.appTheme.accent, size: 24),
                     const SizedBox(width: 12),
                     Expanded(
                       child: Text(
-                        widget.helpChannel != null 
-                          ? 'Asistente AI - ${widget.helpChannel}'
-                          : 'Asistente de Voz AI',
+                        widget.helpChannel != null
+                            ? 'Asistente AI - ${widget.helpChannel}'
+                            : 'Asistente de Voz AI',
                         style: TextStyle(
                           fontSize: 20,
                           fontWeight: FontWeight.bold,
@@ -310,9 +318,7 @@ class _VoiceAssistantDialogState extends ConsumerState<VoiceAssistantDialog> {
                   ),
                 ),
               // Iframe con ai.globalchat.org
-              Expanded(
-                child: _WebViewWidget(url: 'https://ai.globalchat.org'),
-              ),
+              Expanded(child: _WebViewWidget(url: 'https://ai.globalchat.org')),
             ],
           ),
         ),
@@ -322,9 +328,7 @@ class _VoiceAssistantDialogState extends ConsumerState<VoiceAssistantDialog> {
     // Versión nativa (sin cambios)
     return Dialog(
       backgroundColor: widget.appTheme.surface,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(20),
-      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       child: Container(
         width: 400,
         padding: const EdgeInsets.all(24),
@@ -334,11 +338,7 @@ class _VoiceAssistantDialogState extends ConsumerState<VoiceAssistantDialog> {
             // Título
             Row(
               children: [
-                Icon(
-                  Icons.mic,
-                  color: widget.appTheme.accent,
-                  size: 28,
-                ),
+                Icon(Icons.mic, color: widget.appTheme.accent, size: 28),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Text(
@@ -532,7 +532,11 @@ class _VoiceAssistantDialogState extends ConsumerState<VoiceAssistantDialog> {
                 ),
                 child: Row(
                   children: [
-                    const Icon(Icons.error_outline, color: Colors.red, size: 20),
+                    const Icon(
+                      Icons.error_outline,
+                      color: Colors.red,
+                      size: 20,
+                    ),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
@@ -579,7 +583,9 @@ class _VoiceAssistantDialogState extends ConsumerState<VoiceAssistantDialog> {
                           decoration: InputDecoration(
                             hintText: 'Escribe tu pregunta aquí...',
                             hintStyle: TextStyle(
-                              color: widget.appTheme.textSecondary.withValues(alpha: 0.5),
+                              color: widget.appTheme.textSecondary.withValues(
+                                alpha: 0.5,
+                              ),
                             ),
                             border: InputBorder.none,
                             contentPadding: const EdgeInsets.symmetric(
@@ -593,7 +599,10 @@ class _VoiceAssistantDialogState extends ConsumerState<VoiceAssistantDialog> {
                       ),
                       const SizedBox(width: 8),
                       IconButton(
-                        onPressed: (!_isProcessing && !_isListening && _textController.text.trim().isNotEmpty)
+                        onPressed:
+                            (!_isProcessing &&
+                                !_isListening &&
+                                _textController.text.trim().isNotEmpty)
                             ? _sendTextQuestion
                             : null,
                         icon: const Icon(Icons.send),
@@ -711,19 +720,11 @@ class _WebViewWidgetState extends State<_WebViewWidget> {
 
   void _registerIframe() {
     if (!kIsWeb) return;
-    
+
     // Registrar el factory para crear el iframe
     ui.platformViewRegistry.registerViewFactory(
       _viewType,
-      (int viewId) {
-        final iframe = web.HTMLIFrameElement()
-          ..src = widget.url
-          ..style.border = 'none'
-          ..style.width = '100%'
-          ..style.height = '100%'
-          ..allow = 'microphone';
-        return iframe;
-      },
+      (int viewId) => createIframeElement(widget.url, allow: 'microphone'),
     );
   }
 

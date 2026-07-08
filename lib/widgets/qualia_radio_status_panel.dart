@@ -179,7 +179,7 @@ class _QualiaRadioStatusPanelState extends ConsumerState<QualiaRadioStatusPanel>
                   width: 56,
                   height: 56,
                   fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) => _artPlaceholder(appTheme),
+                  errorBuilder: (_, _, _) => _artPlaceholder(appTheme),
                 ),
               )
             else

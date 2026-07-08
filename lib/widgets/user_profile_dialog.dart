@@ -668,14 +668,15 @@ class _UserProfileDialogState extends ConsumerState<UserProfileDialog>
   ) async {
     try {
       final ircService = ref.read(ircServiceProvider);
-      final channels = ref.read(channelsProvider);
 
       // Verificar si el usuario está en el canal
       final normalizedChannel = channelName.toLowerCase();
-      final isInChannel = channels.containsKey(normalizedChannel);
+      final isInChannel = ircService.isChannelJoined(normalizedChannel);
 
-      // Si no está en el canal, unirse primero
       if (!isInChannel) {
+        if (ircService.channels.containsKey(normalizedChannel)) {
+          ircService.abandonLocalChannel(normalizedChannel);
+        }
         ircService.joinChannel(channelName);
         // Esperar un poco para que el servidor procese el JOIN
         await Future.delayed(const Duration(milliseconds: 500));

@@ -11,7 +11,7 @@ class NativeLog {
       // Si falla escribir al archivo, ignorar
     }
   }
-  
+
   static void clearLogFile() {
     try {
       final logFile = File('/tmp/irc_app.log');
@@ -21,9 +21,3 @@ class NativeLog {
     }
   }
 }
-
-
-
-
-
-

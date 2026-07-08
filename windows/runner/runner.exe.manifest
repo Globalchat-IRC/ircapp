@@ -23,7 +23,7 @@
       <appExecutionAlias xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10">
         <desktopApp>
           <desktopAppExecutionAlias>
-            <desktopAppExecutionAliasEntry executable="irc_app.exe" />
+            <desktopAppExecutionAliasEntry executable="GlobalChat.exe" />
           </desktopAppExecutionAlias>
         </desktopApp>
       </appExecutionAlias>

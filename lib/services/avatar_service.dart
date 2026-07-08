@@ -177,16 +177,16 @@ class AvatarService {
         return getAvatarUrl(cleanNick);
       }
 
-      // En otras plataformas, verificar primero si existe
-      final customAvatarExists = await avatarExists(cleanNick);
+      // En otras plataformas, verificar primero si existe un PNG realmente personalizado.
+      // Los PNG hash pequeños (~3-4 KB) son placeholders de xmlrpc con letra minúscula
+      // sobre fondo blanco; se ven mal con BoxFit.contain sobre el gradiente local.
+      final customAvatarExists = await hasLikelyCustomStaticAvatar(cleanNick);
 
       if (customAvatarExists) {
-        // Si existe el avatar personalizado, usarlo
         return getAvatarUrl(cleanNick);
-      } else {
-        // Si no existe, usar el generador por defecto
-        return getDefaultAvatarUrl(cleanNick);
       }
+      // Sin avatar custom: el widget pinta la inicial sobre el gradiente del canal.
+      return null;
     } catch (e) {
       // Si hay algún error al verificar, intentar primero el avatar personalizado
       // y dejar que el widget maneje el fallback si falla

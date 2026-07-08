@@ -32,7 +32,9 @@ List<String> chunkUtf8ByBytes(String text, int maxBytes) {
   while (start < encoded.length) {
     var end = (start + maxBytes).clamp(0, encoded.length);
     // Retroceder si cortamos en mitad de un carácter multibyte.
-    while (end > start && end < encoded.length && (encoded[end] & 0xC0) == 0x80) {
+    while (end > start &&
+        end < encoded.length &&
+        (encoded[end] & 0xC0) == 0x80) {
       end--;
     }
     if (end <= start) {

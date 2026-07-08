@@ -3,6 +3,8 @@ import 'dart:typed_data';
 
 typedef RemoveListener = void Function();
 
-RemoveListener? setupWebDropListener(void Function(Uint8List bytes, String name) onFileDropped) {
+RemoveListener? setupWebDropListener(
+  void Function(Uint8List bytes, String name) onFileDropped,
+) {
   return null;
 }

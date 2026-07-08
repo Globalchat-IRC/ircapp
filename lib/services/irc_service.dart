@@ -1,7 +1,5 @@
 import 'dart:async';
-import 'dart:js_interop';
 import 'package:flutter/widgets.dart';
-import 'package:web/web.dart' as web;
 import '../models/irc_message.dart';
 import 'chat_history_service.dart';
 import '../models/whois_info.dart';
@@ -11,6 +9,8 @@ import 'irc_connection_factory.dart';
 import '../utils/platform_utils.dart';
 import '../config/debug_config.dart';
 import '../utils/irc_message_limits.dart';
+import '../utils/web_lifecycle_listener_stub.dart'
+    if (dart.library.html) '../utils/web_lifecycle_listener_web.dart';
 
 class IRCService {
   IRCConnection? _connection;
@@ -32,6 +32,8 @@ class IRCService {
       []; // Listeners para cambios de nick
   final List<Function(String, String)> _kickListeners =
       []; // Listeners para cuando el usuario es expulsado (channel, reason)
+  final List<Function(String channel, String reason, int code)>
+      _joinFailListeners = []; // JOIN rechazado (ban, +i, +k, etc.)
   final List<Function()> _ircopListeners =
       []; // Listeners para cuando se identifica como IRCop
   final List<Function(int)> _lagListeners =
@@ -99,6 +101,10 @@ class IRCService {
   String? _sessionNickname;
   String? _sessionIdentifyPassword;
   final List<String> _sessionChannels = [];
+  // Canales donde el servidor confirmó nuestro JOIN (eco propio).
+  final Set<String> _serverConfirmedChannels = {};
+  /// JOIN enviado, aún sin confirmación del servidor (eco JOIN o error).
+  final Set<String> _pendingJoinChannels = {};
   bool _autoReconnectEnabled = false;
   bool _isReconnecting = false;
   bool _manualDisconnectRequested = false;
@@ -120,6 +126,7 @@ class IRCService {
   static const Duration _lagPingInterval = Duration(seconds: 20);
 
   bool get isConnected => _isConnected;
+  bool get isRegistered => _isRegistered;
   String? get currentChannel => _currentChannel;
   String? get nickname => _nickname;
   Map<String, IRCChannel> get allChannels => channels;
@@ -175,24 +182,9 @@ class IRCService {
   void _setupWebVisibilityListener() {
     if (!PlatformUtils.isWeb) return;
     if (_webLifecycleHandlersRegistered) return;
-    try {
-      web.document.onvisibilitychange = ((web.Event _) {
-        if (web.document.visibilityState == 'visible') {
-          unawaited(_revalidateConnectionAfterResume('visibility_change'));
-        }
-      }).toJS;
-
-      web.window.onfocus = ((web.Event _) {
-        unawaited(_revalidateConnectionAfterResume('window_focus'));
-      }).toJS;
-
-      web.window.ononline = ((web.Event _) {
-        unawaited(_revalidateConnectionAfterResume('browser_online'));
-      }).toJS;
-      _webLifecycleHandlersRegistered = true;
-    } catch (_) {
-      // Ignorar fallos de integración con lifecycle web
-    }
+    _webLifecycleHandlersRegistered = registerWebLifecycleListener((source) {
+      unawaited(_revalidateConnectionAfterResume(source));
+    });
   }
 
   void _probeConnectionThenReconnect(String source) {
@@ -334,6 +326,8 @@ class IRCService {
     _isConnected = false;
     _isRegistered = false;
     _currentHost = null;
+    _serverConfirmedChannels.clear();
+    _pendingJoinChannels.clear();
 
     try {
       await connect(
@@ -342,6 +336,7 @@ class IRCService {
         nickname: _sessionNickname!,
         useSSL: _sessionUseSSL,
       );
+      await waitForRegistration();
 
       _reconnectAttempts = 0;
       _isReconnecting = false;
@@ -418,6 +413,254 @@ class IRCService {
     }
   }
 
+  /// Espera el mensaje 001 del servidor antes de hacer JOIN o navegar al chat.
+  Future<void> waitForRegistration({
+    Duration timeout = const Duration(seconds: 30),
+  }) async {
+    if (_isRegistered) return;
+    await _connectionCompleter.future.timeout(
+      timeout,
+      onTimeout: () {
+        throw TimeoutException(
+          'El servidor no confirmó el registro IRC (001) a tiempo',
+          timeout,
+        );
+      },
+    );
+  }
+
+  /// Espera conexión registrada y estable (p. ej. tras volver del carrete en iOS).
+  Future<bool> waitForSendReady({
+    Duration timeout = const Duration(seconds: 12),
+  }) async {
+    final deadline = DateTime.now().add(timeout);
+    while (DateTime.now().isBefore(deadline)) {
+      if (_hasActiveConnection && _isRegistered && !_isReconnecting) {
+        return true;
+      }
+      await Future.delayed(const Duration(milliseconds: 150));
+    }
+    return _hasActiveConnection && _isRegistered && !_isReconnecting;
+  }
+
+  /// Garantiza JOIN confirmado por el servidor antes de PRIVMSG a canal.
+  Future<bool> ensureJoinedChannel(
+    String channel, {
+    Duration timeout = const Duration(seconds: 12),
+  }) async {
+    final normalized = _normalizeChannelName(channel);
+    if (!normalized.startsWith('#')) return true;
+
+    if (!await waitForSendReady(timeout: timeout)) {
+      debugLog('⚠️ [IRCService] ensureJoinedChannel: conexión no lista');
+      return false;
+    }
+
+    if (_channelJoinConfirmed(normalized)) return true;
+
+    debugLog(
+      '⚠️ [IRCService] Re-JOIN en $normalized antes de enviar (sin eco previo)',
+    );
+    _doJoinChannel(normalized);
+
+    final deadline = DateTime.now().add(timeout);
+    while (DateTime.now().isBefore(deadline)) {
+      if (_channelJoinConfirmed(normalized)) return true;
+      await Future.delayed(const Duration(milliseconds: 150));
+    }
+
+    debugLog('⚠️ [IRCService] Timeout esperando JOIN en $normalized');
+    return false;
+  }
+
+  bool _isListedInChannelUsers(String normalized) {
+    final nick = _nickname;
+    if (nick == null) return false;
+    final channelObj = channels[normalized];
+    if (channelObj == null) return false;
+    final nickLower = nick.toLowerCase();
+    return channelObj.users.any((u) => u.toLowerCase() == nickLower);
+  }
+
+  bool isChannelJoined(String channelName) {
+    return _channelJoinConfirmed(_normalizeChannelName(channelName));
+  }
+
+  bool isJoinPending(String channelName) {
+    return _pendingJoinChannels.contains(_normalizeChannelName(channelName));
+  }
+
+  /// Quita un canal creado localmente sin confirmación del servidor (JOIN fallido).
+  void abandonLocalChannel(String channelName) {
+    final normalized = _normalizeChannelName(channelName);
+    _pendingJoinChannels.remove(normalized);
+    _serverConfirmedChannels.remove(normalized);
+    _untrackSessionChannel(normalized);
+    channels.remove(normalized);
+    if (_getChannelKey(_currentChannel) == normalized) {
+      _currentChannel = null;
+    }
+    _notifyUserListListeners(normalized);
+  }
+
+  void _handleJoinRejected(String channel, String reason, int code) {
+    final normalized = _normalizeChannelName(channel);
+    debugLog(
+      '🚫 [IRC] JOIN rechazado en $normalized (código $code): $reason',
+    );
+    abandonLocalChannel(normalized);
+    for (var listener in _joinFailListeners) {
+      try {
+        listener(normalized, reason, code);
+      } catch (e) {
+        debugLog('⚠️ [IRCService] Error en listener de JOIN fallido: $e');
+      }
+    }
+  }
+
+  static String joinRejectTitle(int code) {
+    switch (code) {
+      case 474:
+        return 'Baneado del canal';
+      case 471:
+      case 473:
+        return 'Canal solo por invitación';
+      case 475:
+        return 'Clave de canal incorrecta';
+      case 477:
+        return 'Nick registrado requerido';
+      case 404:
+        return 'No puedes acceder al canal';
+      default:
+        return 'No puedes entrar al canal';
+    }
+  }
+
+
+  bool _shouldAutoConfirmPending(String message) {
+    final trimmed = message.trim().toLowerCase();
+    // ponytail: URLs de media exigen eco del servidor; auto-confirm da falso positivo
+    return !trimmed.startsWith('http://') && !trimmed.startsWith('https://');
+  }
+
+  void _removePendingMatchingMessage(String normalized, String message) {
+    final channelObj = channels[normalized];
+    if (channelObj == null) return;
+    for (var i = channelObj.messages.length - 1; i >= 0; i--) {
+      final msg = channelObj.messages[i];
+      if (msg.isPending && _multilineMessagesMatch(msg.message, message)) {
+        if (msg.pendingId != null) {
+          removePendingMessage(normalized, msg.pendingId!);
+        } else {
+          channelObj.messages.removeAt(i);
+        }
+        return;
+      }
+    }
+  }
+
+  void _failLatestPendingInChannel(String normalized) {
+    final channelObj = channels[normalized];
+    if (channelObj == null) return;
+    for (var i = channelObj.messages.length - 1; i >= 0; i--) {
+      final msg = channelObj.messages[i];
+      if (msg.isPending && msg.pendingId != null) {
+        removePendingMessage(normalized, msg.pendingId!);
+        return;
+      }
+    }
+  }
+
+  Future<bool> _awaitMessageEcho(
+    String normalized,
+    String message, {
+    Duration timeout = const Duration(seconds: 10),
+  }) async {
+    final deadline = DateTime.now().add(timeout);
+    while (DateTime.now().isBefore(deadline)) {
+      final channelObj = channels[normalized];
+      if (channelObj != null) {
+        final stillPending = channelObj.messages.any(
+          (m) =>
+              m.isPending &&
+              m.nick.toLowerCase() == (_nickname ?? '').toLowerCase() &&
+              _multilineMessagesMatch(m.message, message),
+        );
+        if (!stillPending) {
+          return channelObj.messages.any(
+            (m) =>
+                !m.isPending &&
+                m.nick.toLowerCase() == (_nickname ?? '').toLowerCase() &&
+                _multilineMessagesMatch(m.message, message),
+          );
+        }
+      }
+      await Future.delayed(const Duration(milliseconds: 150));
+    }
+    _removePendingMatchingMessage(normalized, message);
+    return false;
+  }
+
+  /// Envía al canal y espera eco del servidor (obligatorio para URLs de media).
+  Future<bool> sendMessageAwaitingEcho(
+    String channel,
+    String message, {
+    Duration timeout = const Duration(seconds: 10),
+  }) async {
+    final normalized = _normalizeChannelName(channel);
+    if (!await ensureJoinedChannel(normalized, timeout: timeout)) return false;
+    if (!sendMessage(normalized, message, delaySeconds: 0)) return false;
+    return _awaitMessageEcho(normalized, message, timeout: timeout);
+  }
+
+  /// Envía PM y espera eco del servidor (obligatorio para URLs de media).
+  Future<bool> sendPrivateMessageAwaitingEcho(
+    String nick,
+    String message, {
+    Duration timeout = const Duration(seconds: 10),
+  }) async {
+    final normalizedNick = nick.trim();
+    if (normalizedNick.isEmpty) return false;
+    final queryChannel = normalizedNick.toLowerCase();
+    if (!sendPrivateMessage(normalizedNick, message, delaySeconds: 0)) {
+      return false;
+    }
+    return _awaitMessageEcho(queryChannel, message, timeout: timeout);
+  }
+
+  Future<void> _openConnection(
+    String host,
+    int port, {
+    required bool useSSL,
+    int attempts = 3,
+  }) async {
+    Object? lastError;
+    for (var attempt = 1; attempt <= attempts; attempt++) {
+      try {
+        await _connection!.connect(host, port, useSSL: useSSL);
+        debugLog(
+          '✅ [IRCService] Connection established to $host:$port '
+          '(intento $attempt/$attempts) using ${_connection.runtimeType}',
+        );
+        return;
+      } catch (e) {
+        lastError = e;
+        debugLog(
+          '❌ [IRCService] Connection failed to $host:$port '
+          '(intento $attempt/$attempts): $e',
+        );
+        try {
+          await _connection?.disconnect();
+        } catch (_) {}
+        if (attempt < attempts) {
+          await Future.delayed(Duration(milliseconds: 400 * attempt));
+          _connection = IRCConnectionFactory.create();
+        }
+      }
+    }
+    throw lastError ?? StateError('No se pudo conectar a $host:$port');
+  }
+
   Future<void> connect({
     required String host,
     required int port,
@@ -428,6 +671,31 @@ class IRCService {
     try {
       _manualDisconnectRequested = false;
       _reconnectTimer?.cancel();
+
+      // ponytail: evitar sockets huérfanos si connect() se llama estando ya conectado.
+      // Hay que ESPERAR el cierre del socket viejo (disconnect() es async); con el
+      // close() fire-and-forget el socket seguía vivo y el servidor rechazaba el
+      // re-registro por nick en uso, dejando la app en "Conectando...".
+      if (_connection != null) {
+        debugLog(
+          '📡 [IRCService.connect] Cerrando conexión previa antes de abrir otra',
+        );
+        final previous = _connection;
+        _connection = null;
+        _isConnected = false;
+        _isRegistered = false;
+        _currentHost = null;
+        try {
+          await _socketSubscription?.cancel();
+        } catch (_) {}
+        _socketSubscription = null;
+        try {
+          await previous?.disconnect();
+        } catch (_) {}
+        // Margen para que el servidor libere el nick del socket anterior.
+        await Future.delayed(const Duration(milliseconds: 300));
+      }
+
       _sessionHost = host;
       _sessionPort = port;
       _sessionUseSSL = useSSL;
@@ -464,18 +732,15 @@ class IRCService {
 
       // Host de respaldo si falla el servidor elegido (todos los nodos detrás)
       const String fallbackHost = 'irc.globalchat.org';
-      const int fallbackPort = 6697;
+      const int fallbackPort = 6667;
 
-      // Conectar usando la interfaz abstracta; si falla, intentar irc.globalchat.org
+      // Conectar usando la interfaz abstracta; reintentar el host elegido antes del fallback.
       try {
-        await _connection!.connect(host, port, useSSL: useSSL);
-        debugLog(
-          '✅ [IRCService] Connection established to $host:$port using ${_connection.runtimeType}',
-        );
+        await _openConnection(host, port, useSSL: useSSL);
         _sessionHost = host;
         _sessionPort = port;
       } catch (e) {
-        debugLog('❌ [IRCService] Connection failed to $host:$port: $e');
+        debugLog('❌ [IRCService] Connection failed to $host:$port tras reintentos: $e');
         if (host == fallbackHost) {
           debugLog('❌ [IRCService] Fallback host also failed.');
           rethrow;
@@ -484,18 +749,23 @@ class IRCService {
           '🔄 [IRCService] Retrying with $fallbackHost:$fallbackPort...',
         );
         try {
-          _connection?.disconnect();
+          await _connection?.disconnect();
         } catch (_) {}
         _connection = IRCConnectionFactory.create();
         _currentHost = fallbackHost;
         try {
-          await _connection!.connect(fallbackHost, fallbackPort, useSSL: true);
+          await _openConnection(
+            fallbackHost,
+            fallbackPort,
+            useSSL: false,
+            attempts: 2,
+          );
           debugLog(
             '✅ [IRCService] Connection established to $fallbackHost:$fallbackPort (fallback)',
           );
           _sessionHost = fallbackHost;
           _sessionPort = fallbackPort;
-          _sessionUseSSL = true;
+          _sessionUseSSL = false;
         } catch (e2) {
           debugLog('❌ [IRCService] Fallback connection also failed: $e2');
           rethrow;
@@ -606,23 +876,39 @@ class IRCService {
     }
   }
 
-  void disconnect() {
+  Future<void> disconnect() async {
     _manualDisconnectRequested = true;
     _reconnectTimer?.cancel();
     _isReconnecting = false;
-    if (_connection != null && _connection!.isConnected) {
-      _sendCommand('QUIT :Goodbye');
-      _socketSubscription?.cancel();
+    if (_connection != null) {
+      if (_connection!.isConnected) {
+        try {
+          _sendCommand('QUIT :Goodbye');
+        } catch (_) {}
+      }
+      try {
+        await _socketSubscription?.cancel();
+      } catch (_) {}
+      _socketSubscription = null;
       // Cancelar todos los timers pendientes
       for (final timer in _pendingMessageTimers.values) {
         timer.cancel();
       }
       _pendingMessageTimers.clear();
-      _connection!.close();
+      try {
+        await _connection!.disconnect();
+      } catch (_) {}
       _connection = null;
       _isConnected = false;
+      _isRegistered = false;
       _currentHost = null;
     }
+    // Limpiar estado de sesión para que la próxima conexión empiece limpia.
+    channels.clear();
+    _currentChannel = null;
+    _sessionChannels.clear();
+    _serverConfirmedChannels.clear();
+    _pendingJoinChannels.clear();
     // Detener timers
     _stopLagPingTimer();
     _stopHeartbeatWatchdog();
@@ -691,6 +977,10 @@ class IRCService {
 
     // Normalizar el nombre del canal
     final normalized = _normalizeChannelName(channelName);
+    if (_channelJoinConfirmed(normalized)) {
+      _currentChannel = normalized;
+      return;
+    }
     _trackSessionChannel(normalized);
 
     // debugLog('🔍 [DEBUG] joinChannel called with: "$channelName" -> normalized: "$normalized"');
@@ -718,6 +1008,7 @@ class IRCService {
     debugLog(
       '🚪 [IRC] Estado: isRegistered=$_isRegistered, isConnected=$_isConnected',
     );
+    _pendingJoinChannels.add(normalized);
     _currentChannel = normalized;
     _sendCommand('JOIN $normalized');
     debugLog('🚪 [IRC] Comando JOIN enviado: JOIN $normalized');
@@ -725,7 +1016,9 @@ class IRCService {
     // Initialize channel if not exists (usar nombre normalizado)
     if (!channels.containsKey(normalized)) {
       channels[normalized] = IRCChannel(name: normalized);
-      // debugLog('🔍 [DEBUG] Created new channel entry: $normalized');
+      // ponytail: avisar al provider en cuanto creamos el canal localmente,
+      // no solo cuando llega el eco JOIN del servidor.
+      _notifyUserListListeners(normalized);
     } else {
       // debugLog('🔍 [DEBUG] Channel already exists: $normalized');
     }
@@ -802,24 +1095,26 @@ class IRCService {
     return left == right || right.contains(left) || left.contains(right);
   }
 
-  void _sendWirePrivmsg(
+  bool _sendWirePrivmsg(
     String target,
     String message, {
     String? replyToMessageId,
   }) {
     final payload = _encodeMultilineForWire(message);
-    if (payload.trim().isEmpty) return;
-    final suffix =
-        replyToMessageId != null ? ' [reply:$replyToMessageId]' : '';
+    if (payload.trim().isEmpty) return false;
+    final suffix = replyToMessageId != null ? ' [reply:$replyToMessageId]' : '';
     // El [reply:...] sólo debe ir en el primer trozo, así que reservamos sus
     // bytes únicamente para ese cálculo.
-    final firstMaxBytes =
-        ircPrivmsgMaxPayloadBytes(target, extraSuffix: suffix);
+    final firstMaxBytes = ircPrivmsgMaxPayloadBytes(
+      target,
+      extraSuffix: suffix,
+    );
     final restMaxBytes = ircPrivmsgMaxPayloadBytes(target);
 
     // Partir respetando el límite del protocolo (varios PRIVMSG si hace falta).
     var remaining = payload;
     var isFirst = true;
+    var sent = true;
     while (remaining.isNotEmpty) {
       final maxBytes = isFirst ? firstMaxBytes : restMaxBytes;
       final chunks = chunkUtf8ByBytes(remaining, maxBytes);
@@ -828,9 +1123,10 @@ class IRCService {
       if (isFirst && suffix.isNotEmpty) {
         chunk = '$chunk$suffix';
       }
-      _sendCommand('PRIVMSG $target :$chunk');
+      sent = _trySendCommand('PRIVMSG $target :$chunk') && sent;
       isFirst = false;
     }
+    return sent;
   }
 
   void _sendWireNotice(String target, String message) {
@@ -843,14 +1139,31 @@ class IRCService {
     }
   }
 
-  void sendMessage(
+  bool sendMessage(
     String channel,
     String message, {
     int delaySeconds = 0,
     String? replyToMessageId,
   }) {
+    if (!_hasActiveConnection || !_isRegistered || _isReconnecting) {
+      debugLog(
+        '⚠️ [IRCService] sendMessage abortado: conexión no lista '
+        '(active=$_hasActiveConnection, registered=$_isRegistered, '
+        'reconnecting=$_isReconnecting)',
+      );
+      return false;
+    }
+
     // Normalizar el nombre del canal
     final normalized = _normalizeChannelName(channel);
+
+    if (normalized.startsWith('#') && !_channelJoinConfirmed(normalized)) {
+      debugLog(
+        '⚠️ [IRCService] sendMessage abortado: sin JOIN confirmado en $normalized',
+      );
+      _doJoinChannel(normalized);
+      return false;
+    }
 
     // Generar un ID único para este mensaje pendiente
     final pendingId =
@@ -878,17 +1191,22 @@ class IRCService {
         // debugLog('⏱️  [IRCService] Programando envío de mensaje $pendingId en ${delaySeconds}s');
         final timer = Timer(Duration(seconds: delaySeconds), () {
           // debugLog('⏱️  [IRCService] Timer ejecutado, enviando mensaje $pendingId');
-          _sendWirePrivmsg(
+          final sent = _sendWirePrivmsg(
             normalized,
             message,
             replyToMessageId: replyToMessageId,
           );
+          if (!sent) {
+            removePendingMessage(normalized, pendingId);
+            return;
+          }
           // debugLog('📤 [IRCService] Mensaje enviado al servidor después de delay: $pendingId');
           // Eliminar el timer del mapa después de ejecutarse
           _pendingMessageTimers.remove(pendingId);
 
           // Auto-confirmar después de 500ms si el servidor no hace eco
           Timer(const Duration(milliseconds: 500), () {
+            if (!_shouldAutoConfirmPending(message)) return;
             final channelObj = channels[normalized];
             if (channelObj != null) {
               final currentPendingMessages = channelObj.messages
@@ -902,52 +1220,59 @@ class IRCService {
           });
         });
         _pendingMessageTimers[pendingId] = timer;
-      } else {
-        // Sin delay, enviar inmediatamente
-        // debugLog('📤 [IRCService] Enviando mensaje sin delay inmediatamente: $pendingId');
+        return true;
+      }
+    } else if (delaySeconds > 0) {
+      final timer = Timer(Duration(seconds: delaySeconds), () {
         _sendWirePrivmsg(
           normalized,
           message,
           replyToMessageId: replyToMessageId,
         );
-        // debugLog('✅ [IRCService] Mensaje sin delay enviado, esperando confirmación del servidor (pendingId: $pendingId)');
-
-        // Si el servidor no devuelve el PRIVMSG como eco, confirmar automáticamente después de un breve delay
-        // Esto es necesario porque algunos servidores IRC no devuelven el PRIVMSG como eco
-        Timer(const Duration(milliseconds: 500), () {
-          // Verificar si el mensaje aún está pendiente (no fue confirmado por el servidor)
-          final channelObj = channels[normalized];
-          if (channelObj != null) {
-            final pendingMsg = channelObj.messages.firstWhere(
-              (msg) => msg.pendingId == pendingId && msg.isPending,
-              orElse: () => IRCMessage(
-                nick: _nickname ?? 'You',
-                channel: normalized,
-                message: '',
-                timestamp: DateTime.now(),
-              ),
-            );
-
-            // Si el mensaje aún está pendiente, confirmarlo automáticamente
-            if (pendingMsg.isPending && pendingMsg.pendingId == pendingId) {
-              // debugLog('⏰ [IRCService] Servidor no devolvió PRIVMSG, confirmando automáticamente después de 500ms');
-              final confirmed = confirmPendingMessage(
-                normalized,
-                message,
-                DateTime.now(),
-              );
-              if (confirmed) {
-                // debugLog('✅ [IRCService] Mensaje confirmado automáticamente: $pendingId');
-              } else {
-                // debugLog('⚠️  [IRCService] No se pudo confirmar automáticamente el mensaje: $pendingId');
-              }
-            } else {
-              // debugLog('✅ [IRCService] Mensaje ya fue confirmado por el servidor: $pendingId');
-            }
-          }
-        });
-      }
+        _pendingMessageTimers.remove(pendingId);
+      });
+      _pendingMessageTimers[pendingId] = timer;
+      return true;
     }
+
+    // Sin delay, enviar inmediatamente
+    // debugLog('📤 [IRCService] Enviando mensaje sin delay inmediatamente: $pendingId');
+    final sent = _sendWirePrivmsg(
+      normalized,
+      message,
+      replyToMessageId: replyToMessageId,
+    );
+    if (!sent) {
+      if (channels.containsKey(normalized)) {
+        removePendingMessage(normalized, pendingId);
+      }
+      return false;
+    }
+    // debugLog('✅ [IRCService] Mensaje sin delay enviado, esperando confirmación del servidor (pendingId: $pendingId)');
+
+    if (channels.containsKey(normalized)) {
+      // Si el servidor no devuelve el PRIVMSG como eco, confirmar automáticamente
+      Timer(const Duration(milliseconds: 500), () {
+        if (!_shouldAutoConfirmPending(message)) return;
+        final channelObj = channels[normalized];
+        if (channelObj != null) {
+          final pendingMsg = channelObj.messages.firstWhere(
+            (msg) => msg.pendingId == pendingId && msg.isPending,
+            orElse: () => IRCMessage(
+              nick: _nickname ?? 'You',
+              channel: normalized,
+              message: '',
+              timestamp: DateTime.now(),
+            ),
+          );
+
+          if (pendingMsg.isPending && pendingMsg.pendingId == pendingId) {
+            confirmPendingMessage(normalized, message, DateTime.now());
+          }
+        }
+      });
+    }
+    return true;
   }
 
   // Eliminar un mensaje pendiente antes de que llegue al servidor
@@ -1921,9 +2246,16 @@ class IRCService {
     // debugLog('🔧 [IRCService] Comando ChanServ enviado: $fullCommand');
   }
 
-  void sendPrivateMessage(String nick, String message, {int delaySeconds = 0}) {
+  bool sendPrivateMessage(String nick, String message, {int delaySeconds = 0}) {
+    if (!_hasActiveConnection || !_isRegistered || _isReconnecting) {
+      debugLog(
+        '⚠️ [IRCService] sendPrivateMessage abortado: conexión no lista',
+      );
+      return false;
+    }
+
     final normalizedNick = nick.trim();
-    if (normalizedNick.isEmpty) return;
+    if (normalizedNick.isEmpty) return false;
 
     // Crear un canal privado si no existe (los queries usan el nick como "canal")
     final queryChannel = normalizedNick.toLowerCase();
@@ -1957,13 +2289,19 @@ class IRCService {
       // debugLog('⏱️  [IRCService] Programando envío de mensaje privado $pendingId en ${delaySeconds}s');
       final timer = Timer(Duration(seconds: delaySeconds), () {
         // debugLog('⏱️  [IRCService] Timer ejecutado, enviando mensaje privado $pendingId');
-        _sendWirePrivmsg(normalizedNick, message);
+        final sent = _sendWirePrivmsg(normalizedNick, message);
+        if (!sent) {
+          removePendingMessage(queryChannel, pendingId);
+          _pendingMessageTimers.remove(pendingId);
+          return;
+        }
         // debugLog('📤 [IRCService] Mensaje privado enviado al servidor después de delay: $pendingId');
         // Eliminar el timer del mapa después de ejecutarse
         _pendingMessageTimers.remove(pendingId);
 
         // Auto-confirmar después de 500ms si el servidor no hace eco
         Timer(const Duration(milliseconds: 500), () {
+          if (!_shouldAutoConfirmPending(message)) return;
           final channelObj = channels[queryChannel];
           if (channelObj != null) {
             final currentPendingMessages = channelObj.messages
@@ -1977,26 +2315,33 @@ class IRCService {
         });
       });
       _pendingMessageTimers[pendingId] = timer;
-    } else {
-      // Sin delay, enviar inmediatamente
-      // debugLog('📤 [IRCService] Enviando mensaje privado sin delay inmediatamente: $pendingId');
-      _sendWirePrivmsg(normalizedNick, message);
-      // debugLog('✅ [IRCService] Mensaje privado sin delay enviado, esperando confirmación del servidor (pendingId: $pendingId)');
-
-      // Auto-confirmar después de 500ms si el servidor no hace eco
-      Timer(const Duration(milliseconds: 500), () {
-        final channelObj = channels[queryChannel];
-        if (channelObj != null) {
-          final currentPendingMessages = channelObj.messages
-              .where((m) => m.isPending && m.pendingId == pendingId)
-              .toList();
-          if (currentPendingMessages.isNotEmpty) {
-            // debugLog('⚠️  [IRCService] Mensaje privado $pendingId aún pendiente después de 500ms, auto-confirmando.');
-            confirmPendingMessage(queryChannel, message, DateTime.now());
-          }
-        }
-      });
+      return true;
     }
+
+    // Sin delay, enviar inmediatamente
+    // debugLog('📤 [IRCService] Enviando mensaje privado sin delay inmediatamente: $pendingId');
+    final sent = _sendWirePrivmsg(normalizedNick, message);
+    if (!sent) {
+      removePendingMessage(queryChannel, pendingId);
+      return false;
+    }
+    // debugLog('✅ [IRCService] Mensaje privado sin delay enviado, esperando confirmación del servidor (pendingId: $pendingId)');
+
+    // Auto-confirmar después de 500ms si el servidor no hace eco
+    Timer(const Duration(milliseconds: 500), () {
+      if (!_shouldAutoConfirmPending(message)) return;
+      final channelObj = channels[queryChannel];
+      if (channelObj != null) {
+        final currentPendingMessages = channelObj.messages
+            .where((m) => m.isPending && m.pendingId == pendingId)
+            .toList();
+        if (currentPendingMessages.isNotEmpty) {
+          // debugLog('⚠️  [IRCService] Mensaje privado $pendingId aún pendiente después de 500ms, auto-confirmando.');
+          confirmPendingMessage(queryChannel, message, DateTime.now());
+        }
+      }
+    });
+    return true;
   }
 
   // Cambiar el nickname
@@ -2086,6 +2431,26 @@ class IRCService {
       debugLog(
         '🔍 [IRCService] ⚠️  Cannot send command "$command": connection is null or not connected',
       );
+    }
+  }
+
+  /// Envía un comando IRC y devuelve si la conexión estaba activa al enviar.
+  bool _trySendCommand(String command) {
+    if (_connection == null || !_connection!.isConnected) {
+      debugLog(
+        '🔍 [IRCService] ⚠️  Cannot send command "$command": connection is null or not connected',
+      );
+      return false;
+    }
+    debugLog('🔍 [IRCService] ✅ Sending command: $command');
+    final ircCommand = command.endsWith('\r\n') ? command : '$command\r\n';
+    try {
+      _connection!.send(ircCommand);
+      return true;
+    } catch (e) {
+      debugLog('❌ [IRCService] Error enviando comando "$command": $e');
+      _forceReconnect(reason: 'send_command_failed');
+      return false;
     }
   }
 
@@ -2612,8 +2977,9 @@ class IRCService {
               channel = args[1];
             }
           }
-          if (channel == null || channel.isEmpty || !channel.startsWith('#'))
+          if (channel == null || channel.isEmpty || !channel.startsWith('#')) {
             break;
+          }
           String originalChannel = channel;
           channel = _normalizeChannelName(channel);
 
@@ -2815,6 +3181,10 @@ class IRCService {
             var channel = args[1];
             channel = _normalizeChannelName(channel);
             if (channels.containsKey(channel)) {
+              if (_isListedInChannelUsers(channel)) {
+                _serverConfirmedChannels.add(channel);
+                _pendingJoinChannels.remove(channel);
+              }
               _notifyUserListListeners(channel);
               Future.delayed(const Duration(milliseconds: 500), () {
                 if (channels.containsKey(channel)) sendWho(channel);
@@ -2987,6 +3357,8 @@ class IRCService {
             if (nick == _nickname) {
               debugLog('✅ [IRC] ¡Nos unimos exitosamente al canal: $channel!');
               _currentChannel = channel;
+              _serverConfirmedChannels.add(channel);
+              _pendingJoinChannels.remove(channel);
             }
 
             // Validar que el nick no sea un servidor/host antes de agregarlo
@@ -3142,6 +3514,7 @@ class IRCService {
               _notifyUserListListeners(channel);
 
               if (isOurPart) {
+                _serverConfirmedChannels.remove(channel);
                 if (isGlobalChat) {
                   _manuallyClosedChannels.add(channel.toLowerCase());
                   debugLog(
@@ -3191,6 +3564,9 @@ class IRCService {
               // Si somos nosotros los expulsados, cerrar el canal y notificar
               if (_nickname != null &&
                   kickedNick.toLowerCase() == _nickname!.toLowerCase()) {
+                _pendingJoinChannels.remove(channel);
+                _serverConfirmedChannels.remove(channel);
+                _untrackSessionChannel(channel);
                 if (channels.containsKey(channel)) {
                   channels.remove(channel);
                   _notifyUserListListeners(channel);
@@ -3223,8 +3599,9 @@ class IRCService {
             final nicks = args.sublist(2);
             if (!channels.containsKey(channel) ||
                 modeStr.isEmpty ||
-                nicks.isEmpty)
+                nicks.isEmpty) {
               break;
+            }
             final channelObj = channels[channel]!;
             // Mapeo modo IRC -> prefijo UI: v=+, o=@, h=%, a=!, q=&
             const addMap = {'v': '+', 'o': '@', 'h': '%', 'a': '!', 'q': '&'};
@@ -3276,8 +3653,9 @@ class IRCService {
                       break;
                     }
                   }
-                  if (keyToRemove != null)
+                  if (keyToRemove != null) {
                     channelObj.userModes.remove(keyToRemove);
+                  }
                 }
               }
             }
@@ -3599,6 +3977,56 @@ class IRCService {
             _whoisCache[targetNick.toLowerCase()] = errorInfo;
             _notifyWhoisListeners(errorInfo);
             _pendingWhois.remove(targetNick);
+          }
+          break;
+
+        case '404': // ERR_CANNOTSENDTOCHAN
+          if (args.length >= 2) {
+            final channel = _normalizeChannelName(args[1]);
+            final reason = args.length > 2
+                ? args.sublist(2).join(' ').replaceFirst(':', '').trim()
+                : '';
+            debugLog(
+              '⚠️ [IRCService] 404 Cannot send to channel: $channel',
+            );
+            if (!_channelJoinConfirmed(channel)) {
+              _handleJoinRejected(
+                channel,
+                reason.isNotEmpty
+                    ? reason
+                    : 'No puedes acceder a este canal',
+                404,
+              );
+            } else {
+              _failLatestPendingInChannel(channel);
+            }
+          }
+          break;
+
+        case '405': // ERR_TOOMANYCHANNELS
+        case '471': // ERR_CHANNELISFULL
+        case '473': // ERR_INVITEONLYCHAN
+        case '474': // ERR_BANNEDFROMCHAN
+        case '475': // ERR_BADCHANNELKEY
+        case '476': // ERR_BADCHANMASK
+        case '477': // ERR_NEEDREGGEDNICK
+          if (args.length >= 2) {
+            final targetNick = args[0].replaceFirst(':', '').trim();
+            if (_nickname != null &&
+                targetNick.toLowerCase() != _nickname!.toLowerCase()) {
+              break;
+            }
+            final channel = _normalizeChannelName(args[1]);
+            final reason = args.length > 2
+                ? args.sublist(2).join(' ').replaceFirst(':', '').trim()
+                : '';
+            _handleJoinRejected(
+              channel,
+              reason.isNotEmpty
+                  ? reason
+                  : joinRejectTitle(int.parse(command)),
+              int.parse(command),
+            );
           }
           break;
 
@@ -4029,7 +4457,10 @@ class IRCService {
                       // También verificar si ambos son mensajes ACTION
                       if (msg.isAction == isAction) {
                         // debugLog('🔍 [IRCService] Comparando pendiente[$i]: "$msgContent" con recibido: "$receivedContent" (isAction: $isAction)');
-                        if (_multilineMessagesMatch(msgContent, receivedContent)) {
+                        if (_multilineMessagesMatch(
+                          msgContent,
+                          receivedContent,
+                        )) {
                           pendingMsgIndex = i;
                           pendingMsg = msg;
                           // debugLog('✅ [IRCService] Mensaje pendiente encontrado en índice $i: "${msg.message}" (pendingId: ${msg.pendingId})');
@@ -4345,7 +4776,10 @@ class IRCService {
                           msg.isAction == true) {
                         final msgContent = msg.message.trim();
                         final receivedContent = actionText?.trim() ?? '';
-                        if (_multilineMessagesMatch(msgContent, receivedContent)) {
+                        if (_multilineMessagesMatch(
+                          msgContent,
+                          receivedContent,
+                        )) {
                           pendingMsgIndex = i;
                           pendingMsg = msg;
                           break;
@@ -4435,9 +4869,15 @@ class IRCService {
     _stopAwayStatusUpdateTimer();
     _isConnected = false;
     _isRegistered = false;
+    if (!_connectionCompleter.isCompleted) {
+      _connectionCompleter.completeError(
+        StateError('Conexión cerrada antes del registro IRC ($reason)'),
+      );
+    }
     // Resetear el lag al desconectar
     _notifyLagListeners(0); // Notificar lag 0 para resetear
     channels.clear();
+    _pendingJoinChannels.clear();
     _currentChannel = null;
     _connection = null;
     _currentHost = null;
@@ -4498,6 +4938,23 @@ class IRCService {
 
   void removeKickListener(Function(String, String) listener) {
     _kickListeners.remove(listener);
+  }
+
+  void addJoinFailListener(
+    void Function(String channel, String reason, int code) listener,
+  ) {
+    _joinFailListeners.add(listener);
+  }
+
+  void removeJoinFailListener(
+    void Function(String channel, String reason, int code) listener,
+  ) {
+    _joinFailListeners.remove(listener);
+  }
+
+  bool _channelJoinConfirmed(String normalized) {
+    return _serverConfirmedChannels.contains(normalized) ||
+        _isListedInChannelUsers(normalized);
   }
 
   void addWhoisListener(Function(WhoisInfo) listener) {
@@ -4849,6 +5306,7 @@ class IRCService {
 
           // Auto-confirmar después de 500ms si el servidor no hace eco
           Timer(const Duration(milliseconds: 500), () {
+            if (!_shouldAutoConfirmPending(newMessage)) return;
             final channelObj = channels[normalized];
             if (channelObj != null) {
               final currentPendingMessages = channelObj.messages

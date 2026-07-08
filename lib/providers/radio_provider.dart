@@ -247,6 +247,9 @@ class RadioNotifier extends Notifier<RadioState> {
 
       if (response == null || response.statusCode != 200) return;
 
+      // El servidor a veces responde una página HTML de error; evitar parsearla.
+      if (!response.body.trimLeft().startsWith('[')) return;
+
       final List<dynamic> jsonList = jsonDecode(response.body);
       final allStations = jsonList
           .map((json) => RadioStation.fromJson(json))

@@ -135,19 +135,29 @@ class _ChannelListDialogState extends ConsumerState<ChannelListDialog> {
   }
 
   void _joinChannel(String channelName) {
-    final normalizedChannel = (channelName.startsWith('#') 
-        ? channelName 
-        : '#$channelName').toLowerCase();
-    
-    // Unirse al canal
+    final normalizedChannel = (channelName.startsWith('#')
+            ? channelName
+            : '#$channelName')
+        .toLowerCase();
+
+    if (widget.ircService.isChannelJoined(normalizedChannel)) {
+      ref.read(currentChannelProvider.notifier).state = normalizedChannel;
+      ref.read(lastChannelProvider.notifier).state = normalizedChannel;
+      ref.read(recentChannelsProvider.notifier).addRecent(normalizedChannel);
+      Navigator.pop(context);
+      return;
+    }
+
+    if (widget.ircService.channels.containsKey(normalizedChannel)) {
+      widget.ircService.abandonLocalChannel(normalizedChannel);
+    }
+
     widget.ircService.joinChannel(normalizedChannel);
-    
-    // Cambiar el foco al canal seleccionado
+
     ref.read(currentChannelProvider.notifier).state = normalizedChannel;
     ref.read(lastChannelProvider.notifier).state = normalizedChannel;
     ref.read(recentChannelsProvider.notifier).addRecent(normalizedChannel);
-    
-    // Cerrar el diálogo
+
     Navigator.pop(context);
   }
 

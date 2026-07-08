@@ -51,3 +51,11 @@ app.*.map.json
 *.exe
 installers/
 instalador_windows/
+
+# Credenciales locales de bots
+bots/futbol/config.env
+bots/spotify-icecast/config.env
+bots/spotify-icecast/spotify_state.json
+
+# Samples DJ (binarios grandes; ver samples/LEEME.md para re-descargar)
+samples/dj-fx-pack/

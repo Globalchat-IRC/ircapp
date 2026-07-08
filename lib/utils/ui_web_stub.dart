@@ -2,7 +2,10 @@
 // Evita errores de compilación al usar platformViewRegistry solo en web.
 
 class _PlatformViewRegistry {
-  void registerViewFactory(String viewType, dynamic Function(int viewId) callback) {}
+  void registerViewFactory(
+    String viewType,
+    dynamic Function(int viewId) callback,
+  ) {}
 }
 
 final platformViewRegistry = _PlatformViewRegistry();

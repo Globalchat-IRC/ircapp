@@ -52,6 +52,62 @@ class _RadioControlsState extends ConsumerState<RadioControls> {
     return Icons.volume_up;
   }
 
+  /// En movil el slider en linea (80px) compite con los gestos de los drawers
+  /// y es dificil de arrastrar; abrimos un dialogo con un slider ancho.
+  void _showVolumeDialog(AppTheme appTheme) {
+    showDialog<void>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: appTheme.surface,
+          title: Text(
+            'Volumen',
+            style: TextStyle(color: appTheme.textPrimary),
+          ),
+          content: Consumer(
+            builder: (context, ref, _) {
+              final volume = ref.watch(radioProvider).volume;
+              return Row(
+                children: [
+                  IconButton(
+                    icon: Icon(_volumeIcon(volume), color: appTheme.primary),
+                    onPressed: () =>
+                        _setVolume(volume <= 0 ? 0.85 : 0.0),
+                  ),
+                  Expanded(
+                    child: Slider(
+                      value: volume,
+                      min: 0,
+                      max: 1,
+                      divisions: 20,
+                      label: '${(volume * 100).round()}%',
+                      activeColor: appTheme.primary,
+                      onChanged: (v) => _setVolume(v),
+                    ),
+                  ),
+                  SizedBox(
+                    width: 44,
+                    child: Text(
+                      '${(volume * 100).round()}%',
+                      textAlign: TextAlign.end,
+                      style: TextStyle(color: appTheme.textPrimary),
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Cerrar'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   void _playStation([RadioStation? station]) async {
     final radioState = ref.read(radioProvider);
     final radioService = ref.read(radioServiceProvider);
@@ -339,38 +395,48 @@ class _RadioControlsState extends ConsumerState<RadioControls> {
           ),
           const SizedBox(width: 4),
 
-          // Control de volumen compacto (justo después de Siguiente)
+          // Control de volumen. En movil: boton que abre dialogo con slider
+          // ancho (evita el conflicto de gestos del slider diminuto). En
+          // escritorio/web: boton mute + slider en linea.
           _buildControlButton(
             icon: _volumeIcon(radioState.volume),
-            onPressed: () => _setVolume(radioState.volume <= 0 ? 0.85 : 0.0),
-            tooltip: radioState.volume <= 0 ? 'Activar sonido' : 'Silenciar',
+            onPressed: PlatformUtils.isMobile
+                ? () => _showVolumeDialog(appTheme)
+                : () => _setVolume(radioState.volume <= 0 ? 0.85 : 0.0),
+            tooltip: PlatformUtils.isMobile
+                ? 'Ajustar volumen'
+                : (radioState.volume <= 0 ? 'Activar sonido' : 'Silenciar'),
             appTheme: appTheme,
             color: controlColor,
           ),
-          SizedBox(
-            width: 80,
-            child: SliderTheme(
-              data: SliderTheme.of(context).copyWith(
-                trackHeight: 2,
-                thumbShape: const RoundSliderThumbShape(
-                  enabledThumbRadius: 6,
+          if (!PlatformUtils.isMobile) ...[
+            SizedBox(
+              width: 80,
+              child: SliderTheme(
+                data: SliderTheme.of(context).copyWith(
+                  trackHeight: 2,
+                  thumbShape: const RoundSliderThumbShape(
+                    enabledThumbRadius: 6,
+                  ),
+                  overlayShape:
+                      const RoundSliderOverlayShape(overlayRadius: 10),
                 ),
-                overlayShape: const RoundSliderOverlayShape(overlayRadius: 10),
-              ),
-              child: Slider(
-                value: radioState.volume,
-                min: 0,
-                max: 1,
-                divisions: 20,
-                label: '${(radioState.volume * 100).round()}%',
-                activeColor: isQualiaRadio ? Colors.white : appTheme.primary,
-                inactiveColor: (isQualiaRadio ? Colors.white : appTheme.textSecondary)
-                    .withValues(alpha: 0.25),
-                onChanged: (v) => _setVolume(v),
+                child: Slider(
+                  value: radioState.volume,
+                  min: 0,
+                  max: 1,
+                  divisions: 20,
+                  label: '${(radioState.volume * 100).round()}%',
+                  activeColor: isQualiaRadio ? Colors.white : appTheme.primary,
+                  inactiveColor:
+                      (isQualiaRadio ? Colors.white : appTheme.textSecondary)
+                          .withValues(alpha: 0.25),
+                  onChanged: (v) => _setVolume(v),
+                ),
               ),
             ),
-          ),
-          const SizedBox(width: 4),
+            const SizedBox(width: 4),
+          ],
           
           // Botón lista
           _buildControlButton(

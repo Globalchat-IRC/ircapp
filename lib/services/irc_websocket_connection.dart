@@ -22,6 +22,14 @@ bool _isGlobalChatHost(String host) {
   return host.toLowerCase().trim().endsWith(_globalChatHostSuffix);
 }
 
+/// ponytail: irc.globalchat.org comparte IP con ceres pero el cert TLS de :4443
+/// es CN=ceres.globalchat.org; el navegador rechaza wss://irc...:4443.
+String _webSocketTlsHost(String ircHost) {
+  final h = ircHost.toLowerCase().trim();
+  if (h == 'irc.globalchat.org') return 'ceres.globalchat.org';
+  return h;
+}
+
 /// Implementación de conexión IRC usando WebSocket (web).
 /// - Nodos GlobalChat: siempre conexión directa a wss://host:4443; el IRC ve la IP de cada usuario.
 /// - Otros servidores: gateway ceres:4444 + handshake JSON.
@@ -80,9 +88,10 @@ class IRCWebSocketConnection implements IRCConnection {
         final bool pageIsHTTPS = Uri.base.scheme == 'https';
         final bool forceSSL = pageIsHTTPS || port == kZNCPort;
         final String protocol = (useSSL || forceSSL) ? 'wss' : 'ws';
-        final uri = Uri.parse('$protocol://$host:$wsPort');
+        final String wsHost = _isGlobalChatHost(host) ? _webSocketTlsHost(host) : host;
+        final uri = Uri.parse('$protocol://$wsHost:$wsPort');
         debugLog(
-          '🔌 [WebSocket] Connecting to $uri (forceSSL=$forceSSL, useSSL=$useSSL, pageIsHTTPS=$pageIsHTTPS, directMode=$_directMode)',
+          '🔌 [WebSocket] Connecting to $uri (ircHost=$host, forceSSL=$forceSSL, useSSL=$useSSL, pageIsHTTPS=$pageIsHTTPS, directMode=$_directMode)',
         );
         _channel = WebSocketChannel.connect(uri);
 

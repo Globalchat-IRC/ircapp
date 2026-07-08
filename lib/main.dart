@@ -1,12 +1,9 @@
 import 'dart:convert';
-import 'dart:js_interop';
-import 'dart:js_interop_unsafe';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
-import 'package:web/web.dart' as web;
 import 'screens/login_screen.dart';
 import 'providers/theme_provider.dart';
 import 'providers/update_provider.dart';
@@ -15,6 +12,8 @@ import 'providers/irc_provider.dart';
 import 'services/radio_service.dart';
 import 'services/chat_history_service.dart';
 import 'utils/platform_utils.dart';
+import 'utils/main_web_bridge_stub.dart'
+    if (dart.library.html) 'utils/main_web_bridge_web.dart';
 import 'models/app_theme.dart';
 
 void globalLog(String message) {
@@ -23,7 +22,7 @@ void globalLog(String message) {
   // final logMessage = '[$timestamp] $message\n';
   // debugPrint(logMessage);
   // print(logMessage);
-  
+
   // Solo escribir a archivo en nativo (no disponible en web)
   // En web simplemente no escribimos a archivo
 }
@@ -36,7 +35,7 @@ void main() async {
     final didReload = await _checkWebVersionAndReload();
     if (didReload) return;
   }
-  
+
   // Configurar manejo de errores global para evitar errores no capturados
   FlutterError.onError = (FlutterErrorDetails details) {
     // Capturar todos los errores de Flutter
@@ -53,7 +52,7 @@ void main() async {
       // Si hay error al manejar el error, al menos evitar que se propague
     }
   };
-  
+
   // Manejar errores de la plataforma (Dart errors)
   PlatformDispatcher.instance.onError = (error, stack) {
     try {
@@ -67,7 +66,7 @@ void main() async {
       return true;
     }
   };
-  
+
   // En web, también capturar errores de JavaScript
   if (PlatformUtils.isWeb) {
     try {
@@ -77,12 +76,12 @@ void main() async {
       // Ignorar errores de configuración
     }
   }
-  
+
   // En web, agregar listeners para detener la radio al cerrar la página
   if (PlatformUtils.isWeb) {
     _setupWebLifecycleListeners();
   }
-  
+
   // Leer parámetro de tema de la URL si estamos en web
   String? urlTheme;
   if (PlatformUtils.isWeb) {
@@ -95,12 +94,8 @@ void main() async {
       // Si hay error, continuar sin tema de URL
     }
   }
-  
-  runApp(
-    ProviderScope(
-      child: MyApp(initialTheme: urlTheme),
-    ),
-  );
+
+  runApp(ProviderScope(child: MyApp(initialTheme: urlTheme)));
 }
 
 /// En web, comprueba si el servidor tiene una versión distinta a la actual (nueva versión desplegada).
@@ -110,14 +105,16 @@ Future<bool> _checkWebVersionAndReload() async {
   try {
     final packageInfo = await PackageInfo.fromPlatform();
     final currentVersion = packageInfo.version;
-    final uri = Uri.base.resolve('version.json?bust=${DateTime.now().millisecondsSinceEpoch}');
+    final uri = Uri.base.resolve(
+      'version.json?bust=${DateTime.now().millisecondsSinceEpoch}',
+    );
     final response = await http.get(uri).timeout(const Duration(seconds: 5));
     if (response.statusCode != 200) return false;
     final data = jsonDecode(response.body) as Map<String, dynamic>?;
     final serverVersion = data?['version'] as String?;
     if (serverVersion == null || serverVersion == currentVersion) return false;
     // Nueva versión desplegada: recarga para cargar el nuevo JS.
-    web.window.location.reload();
+    reloadWebWindow();
     return true;
   } catch (_) {
     return false;
@@ -129,25 +126,10 @@ void _setupWebLifecycleListeners() {
   try {
     // Solo ejecutar en web
     if (!PlatformUtils.isWeb) return;
-    
-    web.window.addEventListener(
-      'beforeunload',
-      ((web.Event _) {
-        RadioService().stop();
-      }).toJS,
-    );
-    web.window.addEventListener(
-      'pagehide',
-      ((web.Event _) {
-        RadioService().stop();
-      }).toJS,
-    );
-    web.window.addEventListener(
-      'unload',
-      ((web.Event _) {
-        RadioService().stop();
-      }).toJS,
-    );
+
+    setupWebUnloadListeners(() {
+      RadioService().stop();
+    });
   } catch (e) {
     // Si hay algún error, simplemente continuar
     // Esto puede pasar si no estamos en web o si hay problemas con dart:html
@@ -156,7 +138,7 @@ void _setupWebLifecycleListeners() {
 
 class MyApp extends ConsumerStatefulWidget {
   final String? initialTheme;
-  
+
   const MyApp({super.key, this.initialTheme});
 
   @override
@@ -165,7 +147,7 @@ class MyApp extends ConsumerStatefulWidget {
 
 class _MyAppState extends ConsumerState<MyApp> with WidgetsBindingObserver {
   bool _showPwaBanner = false;
-  JSObject? _pwaPromptEvent;
+  Object? _pwaPromptEvent;
 
   @override
   void initState() {
@@ -174,17 +156,17 @@ class _MyAppState extends ConsumerState<MyApp> with WidgetsBindingObserver {
     ref.read(ircServiceProvider);
     if (PlatformUtils.isWeb) {
       try {
-        web.window.addEventListener('beforeinstallprompt', ((web.Event e) {
+        registerPwaInstallPrompt((event) {
           if (mounted) {
-            final dismissed = web.window.localStorage.getItem('pwa_install_dismissed');
+            final dismissed = getWebLocalStorage('pwa_install_dismissed');
             if (dismissed != '1') {
               setState(() {
-                _pwaPromptEvent = e as JSObject;
+                _pwaPromptEvent = event;
                 _showPwaBanner = true;
               });
             }
           }
-        }).toJS);
+        });
       } catch (_) {}
     }
 
@@ -240,24 +222,36 @@ class _MyAppState extends ConsumerState<MyApp> with WidgetsBindingObserver {
 
   void _cleanupPrivateMessages() {
     // Limpiar mensajes privados de la memoria
-    ref.read(messagesProvider.notifier).clearPrivateMessages(); // async, pero no esperamos
-    
+    ref
+        .read(messagesProvider.notifier)
+        .clearPrivateMessages(); // async, pero no esperamos
+
     // Limpiar específicamente mensajes del privado de "nick" y "nickserv"
     final messages = ref.read(messagesProvider);
-    final cleanedMessages = messages.where((m) => 
-      !(m.channel.toLowerCase() == 'nick' || 
-        m.channel.toLowerCase() == 'nickserv' ||
-        (m.nick.toLowerCase() == 'nick' && !m.channel.startsWith('#')) ||
-        (m.nick.toLowerCase() == 'nickserv' && !m.channel.startsWith('#')))
-    ).toList();
+    final cleanedMessages = messages
+        .where(
+          (m) =>
+              !(m.channel.toLowerCase() == 'nick' ||
+                  m.channel.toLowerCase() == 'nickserv' ||
+                  (m.nick.toLowerCase() == 'nick' &&
+                      !m.channel.startsWith('#')) ||
+                  (m.nick.toLowerCase() == 'nickserv' &&
+                      !m.channel.startsWith('#'))),
+        )
+        .toList();
     ref.read(messagesProvider.notifier).replaceAll(cleanedMessages);
-    
+
     // También limpiar de la base de datos si existe (solo en nativo)
     if (!PlatformUtils.isWeb) {
       try {
         // Limpiar mensajes privados de todos los servidores
         // Obtener todos los servidores posibles y limpiar cada uno
-        final servers = ['default', 'ceres.globalchat.org', 'apolo.globalchat.org', 'artemis.globalchat.org'];
+        final servers = [
+          'default',
+          'ceres.globalchat.org',
+          'apolo.globalchat.org',
+          'artemis.globalchat.org',
+        ];
         for (final server in servers) {
           ChatHistoryService().deletePrivateMessages(server: server);
         }
@@ -266,29 +260,33 @@ class _MyAppState extends ConsumerState<MyApp> with WidgetsBindingObserver {
       }
     }
   }
-  
+
   @override
   Widget build(BuildContext context) {
     final appTheme = ref.watch(themeProvider);
-    
+
     // Inicializar el sistema de actualizaciones
     ref.watch(updateProvider);
-    
+
     // Inicializar el servidor de moderación
     ref.watch(moderationServerProvider);
-    
+
     // Inicializar sincronización de reputación con UnrealIRCd
     ref.watch(unrealircdReputationSyncProvider);
-    
+
     // NO inicializar el servicio de radio aquí - se inicializará solo en ChatScreen
     // RadioService().initialize();
-    
+
     final useSystemTheme = appTheme.name == AppTheme.kSystemThemeName;
     final lightTheme = useSystemTheme
-        ? AppTheme.themes.firstWhere((t) => t.name == 'Claro', orElse: () => appTheme).toThemeData()
+        ? AppTheme.themes
+              .firstWhere((t) => t.name == 'Claro', orElse: () => appTheme)
+              .toThemeData()
         : appTheme.toThemeData();
     final darkTheme = useSystemTheme
-        ? AppTheme.themes.firstWhere((t) => t.name == 'Oscuro', orElse: () => appTheme).toDarkThemeData()
+        ? AppTheme.themes
+              .firstWhere((t) => t.name == 'Oscuro', orElse: () => appTheme)
+              .toDarkThemeData()
         : appTheme.toDarkThemeData();
     return MaterialApp(
       title: 'Cliente IRC',
@@ -308,11 +306,11 @@ class _MyAppState extends ConsumerState<MyApp> with WidgetsBindingObserver {
                     onInstall: () async {
                       try {
                         final e = _pwaPromptEvent;
-                        if (e != null && e.has('prompt')) {
-                          e.callMethodVarArgs<JSAny?>('prompt'.toJS);
+                        if (e != null) {
+                          await promptPwaInstall(e);
                           if (mounted) {
                             try {
-                              web.window.localStorage.setItem('pwa_install_dismissed', '1');
+                              setWebLocalStorage('pwa_install_dismissed', '1');
                             } catch (_) {}
                             setState(() {
                               _showPwaBanner = false;
@@ -324,7 +322,7 @@ class _MyAppState extends ConsumerState<MyApp> with WidgetsBindingObserver {
                     },
                     onDismiss: () {
                       try {
-                        web.window.localStorage.setItem('pwa_install_dismissed', '1');
+                        setWebLocalStorage('pwa_install_dismissed', '1');
                       } catch (_) {}
                       if (mounted) {
                         setState(() {
@@ -360,22 +358,22 @@ class _PwaInstallBanner extends StatelessWidget {
           bottom: false,
           child: Row(
             children: [
-              Icon(Icons.add_to_home_screen, color: theme.colorScheme.onPrimaryContainer),
+              Icon(
+                Icons.add_to_home_screen,
+                color: theme.colorScheme.onPrimaryContainer,
+              ),
               const SizedBox(width: 12),
               Expanded(
                 child: Text(
                   'Añade GlobalChat a la pantalla de inicio para usarlo como app',
-                  style: TextStyle(color: theme.colorScheme.onPrimaryContainer, fontSize: 14),
+                  style: TextStyle(
+                    color: theme.colorScheme.onPrimaryContainer,
+                    fontSize: 14,
+                  ),
                 ),
               ),
-              TextButton(
-                onPressed: onInstall,
-                child: const Text('Añadir'),
-              ),
-              TextButton(
-                onPressed: onDismiss,
-                child: const Text('Ahora no'),
-              ),
+              TextButton(onPressed: onInstall, child: const Text('Añadir')),
+              TextButton(onPressed: onDismiss, child: const Text('Ahora no')),
             ],
           ),
         ),

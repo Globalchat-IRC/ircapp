@@ -5,7 +5,9 @@ import 'package:web/web.dart' as web;
 
 typedef RemoveListener = void Function();
 
-RemoveListener? setupWebDropListener(void Function(Uint8List bytes, String name) onFileDropped) {
+RemoveListener? setupWebDropListener(
+  void Function(Uint8List bytes, String name) onFileDropped,
+) {
   final body = web.document.body;
   if (body == null) return null;
 
