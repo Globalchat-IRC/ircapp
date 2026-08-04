@@ -42,7 +42,6 @@ class ServerProfile {
       host: 'ceres.globalchat.org',
       port: 6697,
       useSSL: true,
-      isDefault: true,
     ),
     const ServerProfile(
       id: 'gc-apolo-6697',
@@ -50,6 +49,7 @@ class ServerProfile {
       host: 'apolo.globalchat.org',
       port: 6697,
       useSSL: true,
+      isDefault: true,
     ),
     // Comentado temporalmente - servidor con problemas
     // const ServerProfile(
@@ -82,12 +82,12 @@ class ServerProfile {
     ),
   ];
 
-  /// ponytail: migración red web — en web solo ceres + irc.globalchat.org (random).
+  /// migración red web — en web solo Apolo + Caliope (el resto en migración).
   /// Quitar el filtro cuando termine la migración de arquitectura.
   static const _webMigrationHiddenIds = {
-    'gc-apolo-6697',
-    'gc-caliope-6697',
+    'gc-ceres-6697',
     'gc-znc-2002',
+    'gc-irc-6667',
   };
 
   static List<ServerProfile> get activeProfiles {

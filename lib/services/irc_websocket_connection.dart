@@ -22,11 +22,11 @@ bool _isGlobalChatHost(String host) {
   return host.toLowerCase().trim().endsWith(_globalChatHostSuffix);
 }
 
-/// ponytail: irc.globalchat.org comparte IP con ceres pero el cert TLS de :4443
-/// es CN=ceres.globalchat.org; el navegador rechaza wss://irc...:4443.
+/// irc.globalchat.org comparte IP con apolo y el cert TLS de :4443
+/// es CN=apolo.globalchat.org; el navegador rechaza wss://irc...:4443.
 String _webSocketTlsHost(String ircHost) {
   final h = ircHost.toLowerCase().trim();
-  if (h == 'irc.globalchat.org') return 'ceres.globalchat.org';
+  if (h == 'irc.globalchat.org') return 'apolo.globalchat.org';
   return h;
 }
 
@@ -197,11 +197,12 @@ class IRCWebSocketConnection implements IRCConnection {
           if (data is String) {
             message = data;
           } else if (data is List<int>) {
-            // Decodificar como UTF-8 (no usar String.fromCharCodes, que
-            // interpreta cada byte como un carácter y rompe caracteres
-            // multibyte como ñ, á, emojis, etc.). allowMalformed evita
-            // excepciones si llega algún byte no UTF-8 (p. ej. Latin-1).
-            message = utf8.decode(data, allowMalformed: true);
+            try {
+              message = utf8.decode(data, allowMalformed: false);
+            } catch (_) {
+              // Si no es UTF-8 válido (ej. Latin-1), decodificar como Latin-1
+              message = latin1.decode(data);
+            }
           } else {
             message = data.toString();
           }

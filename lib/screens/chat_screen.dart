@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 import 'dart:ui' as ui;
 import 'dart:convert';
 // Conditional import for Platform (native only)
@@ -28,9 +29,11 @@ import '../services/irc_service.dart';
 import '../services/chat_history_service.dart';
 import '../services/sound_service.dart';
 import '../services/translation_service.dart';
+import '../utils/nick_color.dart';
 import '../config/debug_config.dart';
 import 'login_screen.dart';
 import 'user_profile_screen.dart';
+import 'staff_admin_screen.dart';
 import 'emoji_config_screen.dart';
 import 'settings_screen.dart';
 import '../widgets/animated_topic_text.dart';
@@ -47,11 +50,17 @@ import '../utils/main_web_bridge_stub.dart'
 import '../utils/drop_handler_web.dart'
     if (dart.library.io) '../utils/drop_handler_stub.dart'
     as drop_handler;
+import '../utils/paste_handler_web.dart'
+    if (dart.library.io) '../utils/paste_handler_stub.dart'
+    as paste_handler;
 import '../widgets/qualia_radio_request_dialog.dart';
 import '../widgets/radio_controls.dart';
+import '../widgets/kick_animation.dart';
 import '../services/emoji_service.dart';
 import '../models/whois_info.dart';
 import '../widgets/whois_dialog.dart';
+import '../widgets/channel_modes_dialog.dart';
+import '../widgets/channel_ban_list_dialog.dart';
 import '../widgets/emoji_picker.dart';
 import '../widgets/update_banner.dart'; // Sistema de actualizaciones
 import '../providers/update_provider.dart'; // Provider de actualizaciones
@@ -73,6 +82,18 @@ import '../widgets/media_preview.dart';
 import '../widgets/markdown_message.dart';
 import '../widgets/link_preview.dart';
 import '../widgets/message_reactions.dart';
+import '../widgets/voice_recorder_button.dart';
+import '../widgets/message_aura.dart';
+import '../widgets/connected_time_panel.dart';
+import '../models/nick_aura.dart';
+import '../widgets/giphy_picker.dart';
+import '../widgets/gift_picker.dart';
+import '../widgets/gift_popup.dart';
+import '../models/gift_config.dart';
+import '../widgets/poke_animation.dart';
+import '../widgets/kiss_animation.dart';
+import '../widgets/action_animation.dart';
+import '../services/global_points_service.dart';
 import '../services/encryption_service.dart';
 import '../services/scheduled_messages_service.dart';
 import '../services/privacy_service.dart';
@@ -81,6 +102,7 @@ import '../providers/tags_provider.dart';
 import '../providers/radio_provider.dart';
 import '../services/radio_service.dart';
 import '../models/message_tag.dart';
+import '../models/custom_action.dart';
 
 // Clase auxiliar para items del menú IRCop
 class _IRCOpMenuItem {
@@ -269,6 +291,26 @@ class PasteImageIntent extends Intent {
   const PasteImageIntent();
 }
 
+/// Paleta estándar de colores mIRC (índices 0-15).
+const List<Color> kMircColors = [
+  Color(0xFFFFFFFF), // 00 Blanco
+  Color(0xFF000000), // 01 Negro
+  Color(0xFF00007F), // 02 Azul marino
+  Color(0xFF009300), // 03 Verde
+  Color(0xFFFF0000), // 04 Rojo
+  Color(0xFF7F0000), // 05 Marrón
+  Color(0xFF9C009C), // 06 Púrpura
+  Color(0xFFFC7F00), // 07 Naranja
+  Color(0xFFFFFF00), // 08 Amarillo
+  Color(0xFF00FC00), // 09 Verde claro
+  Color(0xFF009393), // 10 Azul turquesa
+  Color(0xFF00FFFF), // 11 Cian
+  Color(0xFF0000FC), // 12 Azul
+  Color(0xFFFF00FF), // 13 Magenta
+  Color(0xFF7F7F7F), // 14 Gris
+  Color(0xFFD2D2D2), // 15 Gris claro
+];
+
 class ChatScreen extends ConsumerStatefulWidget {
   const ChatScreen({super.key});
 
@@ -279,21 +321,39 @@ class ChatScreen extends ConsumerStatefulWidget {
 class _ChatScreenState extends ConsumerState<ChatScreen> {
   final _messageController = TextEditingController();
   final _channelController = TextEditingController();
+  // Historial de mensajes enviados (↑/↓) y borrador por canal (estilo Revolution IRC)
+  final Map<String, List<String>> _sentHistoryByChannel = {};
+  final Map<String, String> _draftByChannel = {};
+  int _historyIndex = -1;
+  String _pendingDraft = '';
+  bool _settingHistoryText = false;
   late IRCService _ircService;
   final ImagePicker _imagePicker = ImagePicker();
   bool _initialJoinDone = false;
   final Map<String, List<IRCMessage>> _loadedHistoryByChannel = {};
   bool _showEmojiPicker = false;
+  bool _showGiphyPicker = false;
+  bool _showGiftPicker = false;
+  bool _showFormatToolbar = false; // Barra de formato mIRC (B/I/U/color)
+  String _giftTargetNick = '';
+  // Multisala privada: nicks invitados aún no presentes por canal (auto-op al entrar todos)
+  final Map<String, Set<String>> _multisalaPendingOps = {};
+  final Map<String, List<String>> _multisalaInvitedNicks = {};
   late final FocusNode _messageFocusNode;
   bool _showSearch = false;
   final TextEditingController _searchController = TextEditingController();
   List<IRCMessage> _searchResults = [];
   bool _showUserList = true; // Control de visibilidad de la lista de usuarios
+  String _userSearchQuery = ''; // Filtro de búsqueda de usuarios
   // Para abrir los drawers de canales/usuarios en movil (estilo Revolution IRC).
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   late final ScrollController _chatScrollController;
   bool _showChannelsSidebar =
       true; // Control de visibilidad del sidebar de canales
+  double _channelsSidebarWidth = 220;
+  double _usersSidebarWidth = 290;
+
+  final GlobalPointsService _globalPointsService = GlobalPointsService();
 
   // Tamaño de emoji en línea para el mensaje que se está construyendo. Lo fija
   // _buildMessageContent y lo lee _buildTextWithEmojis (su único llamador) para
@@ -511,6 +571,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   Timer? _inactivityTimer;
   static const _inactivityDuration = Duration(minutes: 30);
   void Function()? _webDropCleanup;
+  paste_handler.PasteRemoveListener? _webPasteCleanup;
+
+  // Listeners de poke, kiss, gift
+  Function(String)? _onPokeReceived;
+  Function(String)? _onKissReceived;
+  Function(IRCMessage)? _onGiftReceived;
+  Function(String, String)? _onActionReceived;
 
   void _resetInactivityTimer() {
     _inactivityTimer?.cancel();
@@ -535,6 +602,27 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     _chatScrollController = ScrollController();
     _ircService = ref.read(ircServiceProvider);
 
+    // Dimensionar sidebars según el ancho de pantalla
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final screenWidth = MediaQuery.of(context).size.width;
+      setState(() {
+        if (screenWidth < 600) {
+          _channelsSidebarWidth = 180;
+          _usersSidebarWidth = 220;
+        } else if (screenWidth < 900) {
+          _channelsSidebarWidth = 200;
+          _usersSidebarWidth = 240;
+        } else if (screenWidth < 1200) {
+          _channelsSidebarWidth = 220;
+          _usersSidebarWidth = 260;
+        } else {
+          _channelsSidebarWidth = 250;
+          _usersSidebarWidth = 290;
+        }
+      });
+    });
+
     // En movil las columnas laterales estan desactivadas (se usan drawers
     // deslizantes), pero mantenemos las flags en true para que el contenido
     // de canales/usuarios se renderice dentro del Drawer.
@@ -553,6 +641,21 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         if (channel == null) return;
         _handleDroppedFileBytes(bytes, name, channel);
       });
+      _webPasteCleanup = paste_handler.setupWebPasteListener(
+        onFilePasted: (bytes, name) {
+          if (!mounted) return;
+          final channel = ref.read(currentChannelProvider);
+          if (channel == null) return;
+          _handleDroppedFileBytes(bytes, name, channel);
+        },
+        onTextPasted: (text) {
+          if (!mounted) return;
+          _messageController.text = text;
+          _messageController.selection = TextSelection.collapsed(
+            offset: text.length,
+          );
+        },
+      );
     }
 
     // Inicializar servicios v2.1.0
@@ -562,6 +665,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     RadioService().initialize();
 
     _resetInactivityTimer();
+    // Iniciar GlobalPoints
+    _globalPointsService.start();
     // Inicializar servicio de mensajes programados
     _scheduledMessagesService = ScheduledMessagesService();
     _scheduledMessagesService.onSendMessage = (channel, message) {
@@ -607,6 +712,73 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
     // Listen for lag updates
     _ircService.addLagListener(_onLagUpdated);
+
+    // Listen for poke notifications
+    _onPokeReceived = (fromNick) {
+      if (mounted) {
+        PokeAnimation.show(context, fromNick);
+      }
+    };
+    _ircService.addPokeListener(_onPokeReceived!);
+
+    // Listen for kiss notifications
+    _onKissReceived = (fromNick) {
+      if (mounted) {
+        KissAnimation.show(context, fromNick);
+      }
+    };
+    _ircService.addKissListener(_onKissReceived!);
+
+    // Listen for gift messages
+    _onGiftReceived = (IRCMessage message) {
+      if (mounted) {
+        final clean = message.message.replaceAll('\u200B', '').trim();
+        if (clean.startsWith('GIFT ') && clean.split('|').length >= 4) {
+          final parts = clean.split('|');
+          // GIFT|sender|giftId|giftName
+          if (parts.length >= 4) {
+            final sender = parts[1];
+            final giftId = int.tryParse(parts[2]);
+            final giftName = parts[3];
+            final giftValue = parts.length >= 5
+                ? int.tryParse(parts[4]) ?? 30
+                : 30;
+            final recipientNick = parts.length >= 6 ? parts[5] : '';
+            final currentNick = ref.read(currentNicknameProvider);
+            final isForMe =
+                currentNick != null &&
+                (recipientNick.isEmpty ||
+                    recipientNick.toLowerCase() == currentNick.toLowerCase());
+            if (isForMe && currentNick != sender) {
+              _globalPointsService.add(giftValue);
+            }
+            final giftItem = giftId != null
+                ? GiftConfig.findById(giftId)
+                : null;
+            if (isForMe) {
+              GiftPopup.show(
+                context,
+                senderNick: sender,
+                giftIcon: giftItem?.icon ?? '🎁',
+                giftName: giftItem?.name ?? giftName,
+              );
+            }
+          }
+        }
+      }
+    };
+    _ircService.addMessageListener(_onGiftReceived!);
+
+    // Listen for generic actions (slap, hug, highfive, wave, spray, coffee, beer, fire)
+    _onActionReceived = (action, fromNick) {
+      if (mounted) {
+        final config = ActionConfig.actions[action];
+        if (config != null) {
+          ActionAnimation.show(context, fromNick, config);
+        }
+      }
+    };
+    _ircService.addActionListener(_onActionReceived!);
 
     // Listen for away status changes
     _ircService.addAwayStatusListener((isAway, awayMessage) {
@@ -685,7 +857,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       // Esperar un poco más para asegurar que el servidor haya terminado de registrar al usuario
       // El servidor envía el 001 (Welcome) cuando el usuario está registrado
       // debugLog('📍 [ChatScreen] Waiting for server registration before joining initial channels');
-      Future.delayed(const Duration(milliseconds: 1500), () async {
+      Future.delayed(const Duration(milliseconds: 400), () async {
         if (!mounted) return;
         if (_initialJoinDone) return;
 
@@ -703,7 +875,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         }
 
         // Esperar un poco más para asegurar que los favoritos se hayan cargado completamente
-        await Future.delayed(const Duration(milliseconds: 300));
+        await Future.delayed(const Duration(milliseconds: 50));
 
         // debugLog('📍 [ChatScreen] ========== AUTOJOIN DE CANALES ==========');
         // debugLog('📍 [ChatScreen] Favoritos cargados del provider: ${ref.read(favoritesProvider).toList()}');
@@ -823,48 +995,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   void _onKicked(String channel, String reason) {
     if (!mounted) return;
-    // Actualizar UI al instante; el postFrame solo para el diálogo.
     _switchAwayFromChannel(channel);
     ref.read(channelsProvider.notifier).updateChannels();
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-
-      final title = 'Expulsado del canal';
-      final detail = reason.isNotEmpty ? reason : 'Un operador te ha expulsado.';
-      showDialog<void>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: Text(title),
-          content: Text(
-            'Has sido expulsado de $channel.\n\n'
-            '$detail\n\n'
-            'Sigues conectado a la red: puedes entrar en otros canales '
-            'o hablar por privado.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.of(ctx).pop();
-              },
-              child: const Text('Entendido'),
-            ),
-            TextButton.icon(
-              onPressed: () {
-                Navigator.of(ctx).pop();
-                showDialog(
-                  context: context,
-                  builder: (ctx) => ChannelListDialog(
-                    ircService: _ircService,
-                  ),
-                );
-              },
-              icon: const Icon(Icons.add, size: 18),
-              label: const Text('Unirse a un canal'),
-            ),
-          ],
-        ),
-      );
+      final appTheme = ref.read(themeProvider);
+      KickAnimation.show(context, channel: channel, reason: reason);
     });
   }
 
@@ -1162,6 +1299,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final text = _messageController.text;
     final cursorPosition = _messageController.selection.baseOffset;
 
+    // Si el usuario edita el texto a mano, salir de la navegación de historial
+    if (!_settingHistoryText) {
+      _historyIndex = -1;
+      _pendingDraft = '';
+    }
+
     // Autocompletado de comandos (si empieza con "/")
     if (text.startsWith('/') && text.length > 1) {
       final commandPart = text.substring(1).toLowerCase().trim();
@@ -1191,6 +1334,20 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           })
           .take(10) // Limitar a 10 sugerencias
           .toList();
+
+      // Añadir aliases de comandos personalizados como sugerencias
+      if (suggestions.length < 10) {
+        final aliases = ref.read(commandAliasesProvider);
+        aliases.keys
+            .where((name) => name.startsWith(commandPart))
+            .take(10 - suggestions.length)
+            .forEach((name) {
+          suggestions.add({
+            'command': name,
+            'description': 'Alias: ${aliases[name]}',
+          });
+        });
+      }
 
       setState(() {
         _commandSuggestions = suggestions;
@@ -1311,11 +1468,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       return;
     }
 
-    // Filtrar nicks que coincidan
+    // Filtrar nicks que coincidan, ordenados alfabéticamente para que el
+    // ciclo con Tab recorra los nicks (p. ej. globalchat001..999) en orden.
     final suggestions = channelUsers
         .where((nick) => nick.toLowerCase().startsWith(searchTerm))
-        .take(10) // Limitar a 10 sugerencias
-        .toList();
+        .toList()
+      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
 
     if (suggestions.isNotEmpty) {
       setState(() {
@@ -1440,20 +1598,24 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   // Métodos v2.0.0 - Búsqueda
   void _showSearchDialogV2() {
-    final currentChannel = ref.read(currentChannelProvider);
-    if (currentChannel == null) return;
-
+    // Búsqueda global: todos los mensajes de todos los canales y privados
     final messages = ref.read(messagesProvider);
-    final channelMessages = messages
-        .where((m) => m.channel.toLowerCase() == currentChannel.toLowerCase())
-        .toList();
 
     showDialog(
       context: context,
       builder: (context) => SearchDialog(
-        messages: channelMessages,
+        messages: messages,
         onMessageSelected: (message) {
-          // debugLog('Mensaje seleccionado: ${message.message}');
+          final ch = message.channel;
+          ref.read(currentChannelProvider.notifier).state = ch;
+          ref.read(lastChannelProvider.notifier).state = ch;
+          ref.read(recentChannelsProvider.notifier).addRecent(ch);
+          Future.delayed(const Duration(milliseconds: 100), () {
+            if (mounted) {
+              ref.read(channelsProvider.notifier).updateChannels();
+              setState(() {});
+            }
+          });
         },
       ),
     );
@@ -1716,7 +1878,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final userIcon = _getUserIcon(userMode, isRobot, nick: nickname);
     final userColor = isRobot
         ? const Color(0xFFFFD700)
-        : _getUserColor(nickname.hashCode);
+        : colorForNick(nickname);
 
     return GestureDetector(
       onTap: () {
@@ -2484,8 +2646,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   void dispose() {
     _inactivityTimer?.cancel();
     _webDropCleanup?.call();
+    _webPasteCleanup?.call();
     // Detener la radio cuando se sale del chat
     RadioService().stop();
+
+    // Detener GlobalPoints
+    _globalPointsService.dispose();
 
     // Limpiar servicio de mensajes programados
     _scheduledMessagesService.dispose();
@@ -2514,6 +2680,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     _ircService.removeKickListener(_onKicked);
     _ircService.removeJoinFailListener(_onJoinFailed);
     _ircService.removeLagListener(_onLagUpdated);
+
+    // Remover listeners de poke, kiss, gift
+    if (_onPokeReceived != null)
+      _ircService.removePokeListener(_onPokeReceived!);
+    if (_onKissReceived != null)
+      _ircService.removeKissListener(_onKissReceived!);
+    if (_onGiftReceived != null)
+      _ircService.removeMessageListener(_onGiftReceived!);
+    if (_onActionReceived != null)
+      _ircService.removeActionListener(_onActionReceived!);
     _messageController.removeListener(_onMessageTextChanged);
     _messageController.dispose();
     _channelController.dispose();
@@ -2546,6 +2722,254 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         setState(() {});
       }
     });
+  }
+
+  void _showGiftConfirmation(GiftItem gift, String channel, String recipient) {
+    final currentNick = ref.read(currentNicknameProvider) ?? '';
+    final appTheme = ref.read(themeProvider);
+    final remaining = _globalPointsService.points - gift.value;
+    final target = recipient.isNotEmpty
+        ? recipient
+        : channel.replaceAll('#', '');
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: appTheme.surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            Text(gift.icon, style: const TextStyle(fontSize: 28)),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'Enviar ${gift.name}',
+                    style: TextStyle(
+                      color: appTheme.textPrimary,
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  Text(
+                    'a $target',
+                    style: TextStyle(
+                      color: appTheme.textSecondary,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: appTheme.background,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Coste:',
+                    style: TextStyle(
+                      color: appTheme.textSecondary,
+                      fontSize: 13,
+                    ),
+                  ),
+                  Row(
+                    children: [
+                      const Text(
+                        '\u2666',
+                        style: TextStyle(
+                          color: Color(0xFFFFD700),
+                          fontSize: 14,
+                        ),
+                      ),
+                      const SizedBox(width: 3),
+                      Text(
+                        '${gift.value}',
+                        style: const TextStyle(
+                          color: Color(0xFFFFD700),
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 6),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Te quedarán:',
+                  style: TextStyle(color: appTheme.textSecondary, fontSize: 13),
+                ),
+                Row(
+                  children: [
+                    const Text(
+                      '\u2666',
+                      style: TextStyle(color: Color(0xFFFFD700), fontSize: 12),
+                    ),
+                    const SizedBox(width: 3),
+                    Text(
+                      '$remaining GP',
+                      style: TextStyle(
+                        color: remaining >= 0
+                            ? const Color(0xFF4CAF50)
+                            : appTheme.error,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: Text(
+              'Cancelar',
+              style: TextStyle(color: appTheme.textSecondary),
+            ),
+          ),
+          FilledButton(
+            onPressed: remaining < 0
+                ? null
+                : () {
+                    Navigator.of(ctx).pop();
+                    final spent = _globalPointsService.spend(
+                      gift.value,
+                      isGift: true,
+                    );
+                    if (!spent) return;
+                    final currentNickSend =
+                        ref.read(currentNicknameProvider) ?? '';
+                    final giftMsg =
+                        '\u200BGIFT ${gift.icon}|${gift.name}|${gift.value}|$currentNickSend|$target\u200B';
+                    _ircService.sendMessage(channel, giftMsg);
+                    setState(() => _showGiftPicker = false);
+                    if (mounted) {
+                      GiftPopup.show(
+                        context,
+                        senderNick: currentNickSend,
+                        giftIcon: gift.icon,
+                        giftName: gift.name,
+                      );
+                    }
+                  },
+            style: FilledButton.styleFrom(
+              backgroundColor: appTheme.primary,
+              foregroundColor: AppTheme.contrastOn(appTheme.primary),
+            ),
+            child: const Text('Enviar regalo'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _sendPrivateKiss(String target) {
+    if (target.isEmpty) return;
+    _ircService.sendMessage(target, '\u200BACCION kiss\u200B');
+    _triggerVibration();
+    KissAnimation.show(context, target);
+  }
+
+  void _sendMassKiss(BuildContext context) {
+    final channel = ref.read(currentChannelProvider);
+    if (channel == null || channel.startsWith('@')) return;
+    _ircService.sendMessage(channel, '\u200BACCION kiss\u200B');
+    _triggerVibration();
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('💋 Beso masivo enviado'),
+        duration: Duration(seconds: 2),
+      ),
+    );
+  }
+
+  void _triggerVibration() {
+    try {
+      HapticFeedback.lightImpact();
+    } catch (_) {}
+  }
+
+  void _showCustomActionDialog(BuildContext context, String nick) {
+    final appTheme = ref.read(themeProvider);
+    final emojiController = TextEditingController();
+    final labelController = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: appTheme.surface,
+        title: Text(
+          'Acción Personalizada',
+          style: TextStyle(color: appTheme.textPrimary),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: emojiController,
+              decoration: const InputDecoration(
+                labelText: 'Emoji',
+                hintText: 'Ej: 🎉',
+              ),
+              maxLength: 10,
+              style: TextStyle(color: appTheme.textPrimary),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: labelController,
+              decoration: const InputDecoration(
+                labelText: 'Etiqueta',
+                hintText: 'Ej: Fiesta',
+              ),
+              maxLength: 30,
+              style: TextStyle(color: appTheme.textPrimary),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancelar'),
+          ),
+          TextButton(
+            onPressed: () {
+              final emoji = emojiController.text.trim();
+              final label = labelController.text.trim();
+              if (emoji.isNotEmpty && label.isNotEmpty) {
+                ref
+                    .read(notificationSettingsProvider.notifier)
+                    .addCustomAction(emoji, label);
+                final channel = _ircService.currentChannel;
+                if (channel != null) {
+                  _ircService.sendActionToUser(channel, emoji, nick);
+                }
+                Navigator.pop(ctx);
+              }
+            },
+            child: const Text('Guardar y enviar'),
+          ),
+        ],
+      ),
+    );
   }
 
   void _joinChannel(String channel) {
@@ -3033,7 +3457,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                 ),
                                 onTap: () {
                                   Navigator.pop(context);
-                                  // Saltar al canal del mensaje
                                   _joinChannel(msg.channel);
                                 },
                               );
@@ -3053,8 +3476,47 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     WebTextInput.insertAtSelection(_messageController, '\n');
   }
 
+  int _nextSuggestionIndex(int current, int length) =>
+      current < 0 ? 0 : (current + 1) % length;
+
+  /// Índice anterior de sugerencia (cicla al final). -1 o 0 -> último.
+  int _prevSuggestionIndex(int current, int length) =>
+      current <= 0 ? length - 1 : current - 1;
+
   KeyEventResult _handleMessageInputKey(FocusNode node, KeyEvent event) {
     if (!_messageFocusNode.hasFocus) return KeyEventResult.ignored;
+
+    // Nunca consumir Ctrl+C (copy), Ctrl+A (select all) — dejar al navegador/Flutter
+    if (event is KeyDownEvent || event is KeyUpEvent) {
+      final kb = HardwareKeyboard.instance;
+      if (kb.isControlPressed || kb.isMetaPressed) {
+        if (event.logicalKey == LogicalKeyboardKey.keyC ||
+            event.logicalKey == LogicalKeyboardKey.keyA) {
+          return KeyEventResult.ignored;
+        }
+      }
+    }
+
+    // Atajos de formato mIRC (Ctrl/Cmd+B, I, U, K) cuando el input tiene el foco
+    if (event is KeyDownEvent) {
+      final kb = HardwareKeyboard.instance;
+      if (kb.isControlPressed || kb.isMetaPressed) {
+        switch (event.logicalKey) {
+          case LogicalKeyboardKey.keyB:
+            _applyWrapFormat('\x02');
+            return KeyEventResult.handled;
+          case LogicalKeyboardKey.keyI:
+            _applyWrapFormat('\x1D');
+            return KeyEventResult.handled;
+          case LogicalKeyboardKey.keyU:
+            _applyWrapFormat('\x1F');
+            return KeyEventResult.handled;
+          case LogicalKeyboardKey.keyK:
+            _openFormatColorPicker();
+            return KeyEventResult.handled;
+        }
+      }
+    }
 
     final pasteResult = WebTextInput.handlePasteKey(
       event,
@@ -3083,9 +3545,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         return KeyEventResult.handled;
       }
       if (event.logicalKey == LogicalKeyboardKey.tab) {
-        _selectCommandSuggestion(
-          _selectedSuggestionIndex >= 0 ? _selectedSuggestionIndex : 0,
-        );
+        final shiftTab = HardwareKeyboard.instance.isShiftPressed;
+        setState(() {
+          _selectedSuggestionIndex = shiftTab
+              ? _prevSuggestionIndex(
+                  _selectedSuggestionIndex, _commandSuggestions.length)
+              : _nextSuggestionIndex(
+                  _selectedSuggestionIndex, _commandSuggestions.length);
+        });
         return KeyEventResult.handled;
       }
       if (event.logicalKey == LogicalKeyboardKey.escape) {
@@ -3113,7 +3580,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         return KeyEventResult.handled;
       }
       if (event.logicalKey == LogicalKeyboardKey.tab) {
-        _selectNickSuggestion(_selectedNickIndex >= 0 ? _selectedNickIndex : 0);
+        final shiftTab = HardwareKeyboard.instance.isShiftPressed;
+        setState(() {
+          _selectedNickIndex = shiftTab
+              ? _prevSuggestionIndex(_selectedNickIndex, _nickSuggestions.length)
+              : _nextSuggestionIndex(_selectedNickIndex, _nickSuggestions.length);
+        });
         return KeyEventResult.handled;
       }
       if (event.logicalKey == LogicalKeyboardKey.escape) {
@@ -3125,6 +3597,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         });
         return KeyEventResult.handled;
       }
+    }
+
+    // Historial de mensajes enviados (estilo Revolution): ↑ recupera, ↓ avanza
+    if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
+      return _recallPreviousMessage();
+    }
+    if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
+      return _recallNextMessage();
     }
 
     if (event.logicalKey == LogicalKeyboardKey.enter ||
@@ -3161,6 +3641,49 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     return KeyEventResult.ignored;
   }
 
+  // Recuperar el mensaje anterior enviado en el canal actual (↑)
+  KeyEventResult _recallPreviousMessage() {
+    final channel = ref.read(currentChannelProvider);
+    if (channel == null) return KeyEventResult.ignored;
+    final history =
+        _sentHistoryByChannel[channel.toLowerCase()] ?? const <String>[];
+    if (history.isEmpty) return KeyEventResult.ignored;
+
+    _settingHistoryText = true;
+    if (_historyIndex < 0) {
+      _pendingDraft = _messageController.text;
+      _historyIndex = history.length - 1;
+    } else if (_historyIndex > 0) {
+      _historyIndex--;
+    }
+    _setInputText(history[_historyIndex]);
+    return KeyEventResult.handled;
+  }
+
+  // Avanzar en el historial o volver al borrador pendiente (↓)
+  KeyEventResult _recallNextMessage() {
+    if (_historyIndex < 0) return KeyEventResult.ignored;
+    final channel = ref.read(currentChannelProvider);
+    if (channel == null) return KeyEventResult.ignored;
+    final history =
+        _sentHistoryByChannel[channel.toLowerCase()] ?? const <String>[];
+    _settingHistoryText = true;
+    if (_historyIndex < history.length - 1) {
+      _historyIndex++;
+      _setInputText(history[_historyIndex]);
+    } else {
+      _historyIndex = -1;
+      _setInputText(_pendingDraft);
+    }
+    return KeyEventResult.handled;
+  }
+
+  void _setInputText(String text) {
+    _messageController.text = text;
+    _messageController.selection = TextSelection.collapsed(offset: text.length);
+    _settingHistoryText = false;
+  }
+
   void _sendMessage({bool forceImmediate = false}) {
     final channel = ref.read(currentChannelProvider);
     if (channel == null || _messageController.text.isEmpty) return;
@@ -3168,8 +3691,22 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final message = _messageController.text.trim();
     _messageController.clear();
 
-    // Volver a enfocar el campo de texto después de enviar
-    _messageFocusNode.requestFocus();
+    // Guardar en el historial de enviados por canal (máx. 24, estilo Revolution)
+    final normalizedHistory = channel.toLowerCase();
+    final history =
+        _sentHistoryByChannel.putIfAbsent(normalizedHistory, () => []);
+    if (history.isEmpty || history.last != message) {
+      history.add(message);
+      if (history.length > 24) history.removeAt(0);
+    }
+    _historyIndex = -1;
+    _pendingDraft = '';
+    _draftByChannel.remove(normalizedHistory);
+
+    // Volver a enfocar el campo de texto después de enviar (con delay para asegurar que el UI se actualice)
+    Future.delayed(const Duration(milliseconds: 50), () {
+      if (mounted) _messageFocusNode.requestFocus();
+    });
 
     // Detectar comandos que empiezan con /
     if (message.startsWith('/')) {
@@ -3177,18 +3714,26 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       return;
     }
 
+    _sendPlainMessage(message, forceImmediate: forceImmediate);
+  }
+
+  /// Envía un mensaje de texto plano al canal/query actual (reutilizable por
+  /// la expansión de aliases).
+  void _sendPlainMessage(String message, {bool forceImmediate = false}) {
+    final channel = ref.read(currentChannelProvider);
+    if (channel == null || message.isEmpty) return;
+    _resetInactivityTimer();
+
     // Obtener el delay configurado (0 si se fuerza envío inmediato)
     final delaySeconds = forceImmediate
         ? 0
         : ref.read(messageSendDelayProvider);
-    // debugLog('🔍 [ChatScreen] Delay configurado: ${delaySeconds}s ${forceImmediate ? "(forzado inmediato)" : ""}');
 
     // Normalizar el nombre del canal antes de enviar
     final normalizedChannel = channel.toLowerCase();
 
     // Si el canal no empieza con #, es un query (mensaje privado)
     if (normalizedChannel.startsWith('#')) {
-      // Plantillas de moderación: permitir atajos tipo /warn, /rules, etc. ya resueltos en el input
       _ircService.sendMessage(
         normalizedChannel,
         message,
@@ -3216,6 +3761,267 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
     // Trigger UI update
     ref.read(messagesProvider.notifier);
+  }
+
+  /// Códigos de control mIRC.
+  static const String _kBoldCode = '\x02';
+  static const String _kItalicCode = '\x1D';
+  static const String _kUnderlineCode = '\x1F';
+  static const String _kStrikeCode = '\x1E';
+  static const String _kReverseCode = '\x16';
+  static const String _kColorCode = '\x03';
+  static const String _kResetCode = '\x0F';
+
+  /// Inserta un formato mIRC envolviendo la selección (o abre/cierra el código
+  /// en la posición del cursor si no hay selección).
+  void _applyWrapFormat(String code) {
+    final controller = _messageController;
+    final text = controller.text;
+    final sel = controller.selection;
+    if (sel.isValid && sel.start < sel.end) {
+      final selected = text.substring(sel.start, sel.end);
+      final newText = text.replaceRange(
+        sel.start,
+        sel.end,
+        '$code$selected$code',
+      );
+      controller.text = newText;
+      controller.selection = TextSelection.collapsed(
+        offset: sel.end + code.length * 2,
+      );
+    } else {
+      final pos = sel.isValid && sel.baseOffset >= 0 ? sel.baseOffset : text.length;
+      final newText = text.replaceRange(pos, pos, '$code$code');
+      controller.text = newText;
+      controller.selection = TextSelection.collapsed(offset: pos + code.length);
+    }
+    _messageFocusNode.requestFocus();
+  }
+
+  /// Aplica un color mIRC (p. ej. '04' o '04,12') envolviendo la selección.
+  /// Si no hay selección, deja el color abierto para escribir.
+  void _applyColorFormat(String colorSpec) {
+    final controller = _messageController;
+    final text = controller.text;
+    final sel = controller.selection;
+    final open = '$_kColorCode$colorSpec';
+    if (sel.isValid && sel.start < sel.end) {
+      final selected = text.substring(sel.start, sel.end);
+      final newText = text.replaceRange(sel.start, sel.end, '$open$selected$_kColorCode');
+      controller.text = newText;
+      controller.selection = TextSelection.collapsed(
+        offset: sel.end + open.length + _kColorCode.length,
+      );
+    } else {
+      final pos = sel.isValid && sel.baseOffset >= 0 ? sel.baseOffset : text.length;
+      final newText = text.replaceRange(pos, pos, open);
+      controller.text = newText;
+      controller.selection = TextSelection.collapsed(
+        offset: pos + open.length,
+      );
+    }
+    _messageFocusNode.requestFocus();
+  }
+
+  /// Elimina todos los códigos de control mIRC de la selección (o de todo el
+  /// texto si no hay selección).
+  void _removeFormatting() {
+    final controller = _messageController;
+    final text = controller.text;
+    final clean = text.replaceAll(
+      RegExp(r'[\x02\x03\x0F\x16\x1D\x1E\x1F]'),
+      '',
+    );
+    if (clean == text) return;
+    final sel = controller.selection;
+    controller.text = clean;
+    if (sel.isValid) {
+      controller.selection = TextSelection.collapsed(
+        offset: sel.baseOffset.clamp(0, clean.length),
+      );
+    }
+    _messageFocusNode.requestFocus();
+  }
+
+  /// Abre el selector de colores mIRC (16 colores) y aplica el elegido.
+  void _openFormatColorPicker() {
+    final appTheme = ref.read(themeProvider);
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: appTheme.surface,
+        title: Text(
+          'Color mIRC',
+          style: TextStyle(color: appTheme.textPrimary),
+        ),
+        content: SizedBox(
+          width: 320,
+          child: GridView.count(
+            crossAxisCount: 4,
+            shrinkWrap: true,
+            mainAxisSpacing: 8,
+            crossAxisSpacing: 8,
+            children: [
+              for (var i = 0; i < kMircColors.length; i++)
+                _buildMircColorCell(dialogContext, i),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: Text(
+              'Cancelar',
+              style: TextStyle(color: appTheme.textSecondary),
+            ),
+          ),
+          TextButton(
+            onPressed: () {
+              _applyColorFormat('');
+              Navigator.pop(dialogContext);
+            },
+            child: Text('Sin color', style: TextStyle(color: appTheme.primary)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMircColorCell(BuildContext dialogContext, int index) {
+    if (index >= kMircColors.length) return const SizedBox.shrink();
+    final color = kMircColors[index];
+    final appTheme = ref.read(themeProvider);
+    final code = index.toRadixString(16).padLeft(2, '0');
+    return InkWell(
+      borderRadius: BorderRadius.circular(6),
+      onTap: () {
+        _applyColorFormat(code);
+        Navigator.pop(dialogContext);
+      },
+      child: Container(
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: color,
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(
+            color: appTheme.textSecondary.withValues(alpha: 0.6),
+          ),
+        ),
+        child: Text(
+          code,
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.bold,
+            color: _colorTextContrast(color),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Color _colorTextContrast(Color background) {
+    return background.computeLuminance() > 0.5
+        ? Colors.black
+        : Colors.white;
+  }
+
+  /// Barra de formato mIRC (B, I, U, S, color, limpiar) sobre el campo de texto.
+  Widget _buildFormatToolbar(AppTheme appTheme) {
+    Widget toolButton({
+      required Widget child,
+      required String tooltip,
+      required VoidCallback onTap,
+    }) {
+      return Tooltip(
+        message: tooltip,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(4),
+          child: Container(
+            width: 30,
+            height: 26,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: appTheme.background.withValues(alpha: 0.4),
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: child,
+          ),
+        ),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          toolButton(
+            tooltip: 'Negrita (Ctrl+B)',
+            onTap: () => _applyWrapFormat(_kBoldCode),
+            child: const Text(
+              'B',
+              style: TextStyle(fontWeight: FontWeight.w900, fontSize: 13),
+            ),
+          ),
+          const SizedBox(width: 2),
+          toolButton(
+            tooltip: 'Cursiva (Ctrl+I)',
+            onTap: () => _applyWrapFormat(_kItalicCode),
+            child: const Text(
+              'I',
+              style: TextStyle(fontStyle: FontStyle.italic, fontSize: 13),
+            ),
+          ),
+          const SizedBox(width: 2),
+          toolButton(
+            tooltip: 'Subrayado (Ctrl+U)',
+            onTap: () => _applyWrapFormat(_kUnderlineCode),
+            child: const Text(
+              'U',
+              style: TextStyle(
+                decoration: TextDecoration.underline,
+                fontSize: 13,
+              ),
+            ),
+          ),
+          const SizedBox(width: 2),
+          toolButton(
+            tooltip: 'Tachado (Ctrl+S)',
+            onTap: () => _applyWrapFormat(_kStrikeCode),
+            child: const Text(
+              'S',
+              style: TextStyle(
+                decoration: TextDecoration.lineThrough,
+                fontSize: 13,
+              ),
+            ),
+          ),
+          const SizedBox(width: 2),
+          toolButton(
+            tooltip: 'Color (Ctrl+K)',
+            onTap: _openFormatColorPicker,
+            child: Icon(Icons.palette_outlined, size: 16, color: appTheme.primary),
+          ),
+          const SizedBox(width: 2),
+          toolButton(
+            tooltip: 'Invertir (Ctrl+R)',
+            onTap: () => _applyWrapFormat(_kReverseCode),
+            child: const Text(
+              'R',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+            ),
+          ),
+          const SizedBox(width: 2),
+          toolButton(
+            tooltip: 'Limpiar formato',
+            onTap: _removeFormatting,
+            child: Icon(Icons.format_clear, size: 16, color: appTheme.error),
+          ),
+        ],
+      ),
+    );
   }
 
   // Forzar el envío inmediato del mensaje pendiente más reciente
@@ -3274,12 +4080,33 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     return null;
   }
 
-  void _handleCommand(String command) {
+  void _handleCommand(String command, {int aliasDepth = 0}) {
     final parts = command.substring(1).split(' '); // Remover el / inicial
     if (parts.isEmpty) return;
 
     final cmd = parts[0].toLowerCase();
     final args = parts.length > 1 ? parts.sublist(1) : <String>[];
+
+    // Alias de comandos personalizados (estilo Revolution IRC)
+    if (cmd == 'alias' || cmd == 'unalias') {
+      _handleAliasCommand(cmd, args);
+      return;
+    }
+    final aliases = ref.read(commandAliasesProvider);
+    final aliasTemplate = aliases[cmd];
+    if (aliasTemplate != null) {
+      if (aliasDepth > 10) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Alias demasiado anidado (máx. 10)'),
+            duration: Duration(seconds: 2),
+          ),
+        );
+        return;
+      }
+      _expandAlias(aliasTemplate, args, depth: aliasDepth + 1);
+      return;
+    }
 
     switch (cmd) {
       case 'query':
@@ -4389,6 +5216,152 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     }
   }
 
+  // ─── Alias de comandos personalizados (estilo Revolution IRC) ───────────────
+
+  void _handleAliasCommand(String cmd, List<String> args) {
+    if (cmd == 'unalias') {
+      if (args.isEmpty) {
+        _showSnack('Uso: /unalias <nombre>');
+        return;
+      }
+      final name = args[0].toLowerCase();
+      if (ref.read(commandAliasesProvider).containsKey(name)) {
+        ref.read(commandAliasesProvider.notifier).removeAlias(name);
+        _showSnack('Alias /$name eliminado');
+      } else {
+        _showSnack('No existe el alias /$name');
+      }
+      return;
+    }
+
+    // /alias sin argumentos -> listar aliases en un diálogo
+    if (args.isEmpty) {
+      _showAliasListDialog();
+      return;
+    }
+
+    final name = args[0].toLowerCase().trim();
+    if (!_isValidAliasName(name)) {
+      _showSnack('Nombre de alias no válido (letras, números y _)');
+      return;
+    }
+
+    // /alias <nombre> sin plantilla -> mostrar la plantilla actual
+    if (args.length == 1) {
+      final template = ref.read(commandAliasesProvider)[name];
+      if (template == null) {
+        _showSnack('No existe el alias /$name');
+      } else {
+        _showSnack('Alias /$name = $template');
+      }
+      return;
+    }
+
+    final template = args.sublist(1).join(' ').trim();
+    if (template.isEmpty) {
+      _showSnack('La plantilla del alias no puede estar vacía');
+      return;
+    }
+    ref.read(commandAliasesProvider.notifier).setAlias(name, template);
+    _showSnack('Alias /$name guardado: $template');
+  }
+
+  bool _isValidAliasName(String name) {
+    if (name.isEmpty || name.length > 20) return false;
+    return RegExp(r'^[a-z0-9_]+$').hasMatch(name);
+  }
+
+  void _expandAlias(String template, List<String> args, {required int depth}) {
+    final channel = ref.read(currentChannelProvider);
+    final myNick = ref.read(currentNicknameProvider) ?? '';
+    var expanded = template;
+    expanded = expanded.replaceAll(r'${nick}', myNick);
+    expanded = expanded.replaceAll(r'${channel}', channel ?? '');
+    expanded = expanded.replaceAll(r'${args}', args.join(' '));
+    for (var i = 1; i <= 9; i++) {
+      final value = i <= args.length ? args[i - 1] : '';
+      expanded = expanded.replaceAll('\${$i}', value);
+    }
+    if (expanded.trim().isEmpty) return;
+
+    if (expanded.trimLeft().startsWith('/')) {
+      _handleCommand(expanded.trimLeft(), aliasDepth: depth);
+    } else {
+      _sendPlainMessage(expanded.trim());
+    }
+  }
+
+  void _showAliasListDialog() {
+    final aliases = ref.read(commandAliasesProvider);
+    if (aliases.isEmpty) {
+      _showSnack(
+        'No hay aliases. Crea uno: /alias <nombre> <plantilla>',
+      );
+      return;
+    }
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        final entries = aliases.entries.toList()..sort(
+              (a, b) => a.key.compareTo(b.key),
+            );
+        return AlertDialog(
+          title: const Text('Alias de comandos (/alias)'),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: ListView.builder(
+              shrinkWrap: true,
+              itemCount: entries.length,
+              itemBuilder: (context, index) {
+                final entry = entries[index];
+                return ListTile(
+                  dense: true,
+                  leading: Text(
+                    '/${entry.key}',
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  title: Text(
+                    entry.value,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 13),
+                  ),
+                  trailing: IconButton(
+                    icon: const Icon(Icons.delete_outline, size: 20),
+                    tooltip: 'Eliminar',
+                    onPressed: () {
+                      ref
+                          .read(commandAliasesProvider.notifier)
+                          .removeAlias(entry.key);
+                      Navigator.of(dialogContext).pop();
+                      _showSnack('Alias /${entry.key} eliminado');
+                    },
+                  ),
+                );
+              },
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Cerrar'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _showSnack(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
   void _handleTraducirCommand(List<String> args) {
     final channel = ref.read(currentChannelProvider);
     if (channel == null || !channel.startsWith('#')) {
@@ -5455,79 +6428,84 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   onPressed: selected == null
                       ? null
                       : () {
-                      // Guardar nick y canales actuales antes de desconectar
-                      final currentNick = ref.read(currentNicknameProvider);
-                      final currentChannel = ref.read(currentChannelProvider);
-                      final channels = ref.read(channelsProvider);
+                          // Guardar nick y canales actuales antes de desconectar
+                          final currentNick = ref.read(currentNicknameProvider);
+                          final currentChannel = ref.read(
+                            currentChannelProvider,
+                          );
+                          final channels = ref.read(channelsProvider);
 
-                      // Obtener todos los canales abiertos (solo los que empiezan con #)
-                      final openChannels = channels.keys
-                          .where((channel) => channel.startsWith('#'))
-                          .toList();
+                          // Obtener todos los canales abiertos (solo los que empiezan con #)
+                          final openChannels = channels.keys
+                              .where((channel) => channel.startsWith('#'))
+                              .toList();
 
-                      debugLog(
-                        '🔍 [SERVER_SWITCH] Guardando estado antes de cambiar servidor:',
-                      );
-                      debugLog('🔍 [SERVER_SWITCH] Nick: $currentNick');
-                      debugLog(
-                        '🔍 [SERVER_SWITCH] Canal actual: $currentChannel',
-                      );
-                      debugLog(
-                        '🔍 [SERVER_SWITCH] Canales abiertos: $openChannels',
-                      );
+                          debugLog(
+                            '🔍 [SERVER_SWITCH] Guardando estado antes de cambiar servidor:',
+                          );
+                          debugLog('🔍 [SERVER_SWITCH] Nick: $currentNick');
+                          debugLog(
+                            '🔍 [SERVER_SWITCH] Canal actual: $currentChannel',
+                          );
+                          debugLog(
+                            '🔍 [SERVER_SWITCH] Canales abiertos: $openChannels',
+                          );
 
-                      // Guardar perfil seleccionado (selected ya está verificado que no es null por el onPressed)
-                      final serverToSave = selected!;
-                      debugLog(
-                        '🔍 [SERVER_SWITCH] Servidor seleccionado: ${serverToSave.name} (${serverToSave.host}:${serverToSave.port})',
-                      );
-                      ref
-                          .read(currentServerProfileProvider.notifier)
-                          .setServerProfile(serverToSave);
+                          // Guardar perfil seleccionado (selected ya está verificado que no es null por el onPressed)
+                          final serverToSave = selected!;
+                          debugLog(
+                            '🔍 [SERVER_SWITCH] Servidor seleccionado: ${serverToSave.name} (${serverToSave.host}:${serverToSave.port})',
+                          );
+                          ref
+                              .read(currentServerProfileProvider.notifier)
+                              .setServerProfile(serverToSave);
 
-                      // Verificar que se guardó correctamente
-                      final savedProfile = ref.read(
-                        currentServerProfileProvider,
-                      );
-                      debugLog(
-                        '🔍 [SERVER_SWITCH] Servidor guardado en provider: ${savedProfile?.name} (${savedProfile?.host}:${savedProfile?.port})',
-                      );
+                          // Verificar que se guardó correctamente
+                          final savedProfile = ref.read(
+                            currentServerProfileProvider,
+                          );
+                          debugLog(
+                            '🔍 [SERVER_SWITCH] Servidor guardado en provider: ${savedProfile?.name} (${savedProfile?.host}:${savedProfile?.port})',
+                          );
 
-                      // Asegurar que el nick y canal estén guardados en los providers
-                      if (currentNick != null && currentNick.isNotEmpty) {
-                        ref.read(currentNicknameProvider.notifier).state =
-                            currentNick;
-                        debugLog(
-                          '🔍 [SERVER_SWITCH] ✅ Nick guardado en provider: $currentNick',
-                        );
-                      }
+                          // Asegurar que el nick y canal estén guardados en los providers
+                          if (currentNick != null && currentNick.isNotEmpty) {
+                            ref.read(currentNicknameProvider.notifier).state =
+                                currentNick;
+                            debugLog(
+                              '🔍 [SERVER_SWITCH] ✅ Nick guardado en provider: $currentNick',
+                            );
+                          }
 
-                      // Guardar todos los canales abiertos para autojoin
-                      if (openChannels.isNotEmpty) {
-                        ref.read(autoJoinChannelsProvider.notifier).state =
-                            openChannels;
-                        debugLog(
-                          '🔍 [SERVER_SWITCH] ✅ Canales guardados para autojoin: $openChannels',
-                        );
-                      }
+                          // Guardar todos los canales abiertos para autojoin
+                          if (openChannels.isNotEmpty) {
+                            ref.read(autoJoinChannelsProvider.notifier).state =
+                                openChannels;
+                            debugLog(
+                              '🔍 [SERVER_SWITCH] ✅ Canales guardados para autojoin: $openChannels',
+                            );
+                          }
 
-                      if (currentChannel != null && currentChannel.isNotEmpty) {
-                        ref.read(currentChannelProvider.notifier).state =
-                            currentChannel;
-                        ref.read(lastChannelProvider.notifier).state =
-                            currentChannel;
-                        debugLog(
-                          '🔍 [SERVER_SWITCH] ✅ Canal actual guardado en provider: $currentChannel',
-                        );
-                      }
+                          if (currentChannel != null &&
+                              currentChannel.isNotEmpty) {
+                            ref.read(currentChannelProvider.notifier).state =
+                                currentChannel;
+                            ref.read(lastChannelProvider.notifier).state =
+                                currentChannel;
+                            debugLog(
+                              '🔍 [SERVER_SWITCH] ✅ Canal actual guardado en provider: $currentChannel',
+                            );
+                          }
 
-                      Navigator.of(context).pop();
-                      _disconnect();
-                      // Volver al login para reconectar con el nuevo servidor
-                      Navigator.of(context).pushReplacement(
-                        MaterialPageRoute(builder: (_) => const LoginScreen()),
-                      );
-                    },
+                          Navigator.of(context).pop();
+                          _disconnect();
+                          // Volver al login para reconectar con el nuevo servidor
+                          Navigator.of(context).pushReplacement(
+                            MaterialPageRoute(
+                              builder: (_) => const LoginScreen(),
+                            ),
+                          );
+                        },
                   child: const Text('Cambiar y reconectar'),
                 ),
               ],
@@ -5553,13 +6531,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     }
 
     // Verificar que realmente estamos en el canal (no fue kickeado)
-    final isJoined = !currentChannel.startsWith('#') ||
+    final isJoined =
+        !currentChannel.startsWith('#') ||
         _ircService.isChannelJoined(currentChannel);
     if (!isJoined) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('No estás en $currentChannel. No puedes enviar imágenes.'),
+            content: Text(
+              'No estás en $currentChannel. No puedes enviar imágenes.',
+            ),
             duration: const Duration(seconds: 3),
           ),
         );
@@ -5654,9 +6635,17 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     }
     final media = resolveUploadMediaType(fileName, bytes);
     if (media.isVideo) {
-      await _uploadAndSendVideoToCloudinary(bytes, media.mimeType, normalizedChannel);
+      await _uploadAndSendVideoToCloudinary(
+        bytes,
+        media.mimeType,
+        normalizedChannel,
+      );
     } else {
-      await _uploadAndSendToCloudinary(bytes, media.mimeType, normalizedChannel);
+      await _uploadAndSendToCloudinary(
+        bytes,
+        media.mimeType,
+        normalizedChannel,
+      );
     }
   }
 
@@ -5667,6 +6656,88 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       return _ircService.sendMessageAwaitingEcho(normalized, url);
     }
     return _ircService.sendPrivateMessageAwaitingEcho(normalized, url);
+  }
+
+  Future<void> _sendRecordedAudio(String channel, Uint8List bytes) async {
+    if (mounted) {
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Row(
+            children: [
+              SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+              SizedBox(width: 12),
+              Expanded(child: Text('Subiendo audio a Cloudinary...')),
+            ],
+          ),
+          duration: Duration(seconds: 60),
+        ),
+      );
+    }
+
+    try {
+      final audioUrl = await _uploadAudioToCloudinary(bytes);
+
+      if (audioUrl != null) {
+        final normalizedChannel = channel.toLowerCase();
+        if (mounted) {
+          ScaffoldMessenger.of(context).hideCurrentSnackBar();
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Row(
+                children: [
+                  SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                  SizedBox(width: 12),
+                  Expanded(child: Text('Enviando audio al canal...')),
+                ],
+              ),
+              duration: Duration(seconds: 60),
+            ),
+          );
+        }
+        final sent = await _sendMediaUrlToChat(normalizedChannel, audioUrl);
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).hideCurrentSnackBar();
+          if (sent) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('✅ Audio enviado')),
+            );
+          } else {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text(
+                  'Audio subido, pero no se pudo enviar al chat. '
+                  'Comprueba la conexión e inténtalo de nuevo.',
+                ),
+                duration: Duration(seconds: 6),
+              ),
+            );
+          }
+        }
+      } else {
+        throw Exception('No se pudo subir el audio a Cloudinary');
+      }
+    } catch (e) {
+      debugLog('❌ Error al subir audio: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error al subir audio: ${e.toString()}'),
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
+    }
   }
 
   Future<void> _uploadAndSendToCloudinary(
@@ -5877,7 +6948,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       }
 
       // Validar extensiones permitidas
-      final allowedExtensions = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'heic', 'heif'];
+      final allowedExtensions = [
+        'jpg',
+        'jpeg',
+        'png',
+        'gif',
+        'webp',
+        'heic',
+        'heif',
+      ];
       if (!allowedExtensions.contains(extension.toLowerCase())) {
         extension = 'jpg'; // Fallback a jpg
       }
@@ -6101,6 +7180,101 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     }
   }
 
+  Future<String?> _uploadAudioToCloudinary(Uint8List audioBytes) async {
+    try {
+      // Configuración de Cloudinary (del plugin web)
+      const cloudName = 'dxwvhgy2r';
+      const uploadPreset = 'GCupload';
+      const maxSize = 20 * 1024 * 1024; // 20MB para audio
+
+      // Verificar tamaño
+      if (audioBytes.length > maxSize) {
+        debugLog(
+          '❌ [Cloudinary] Audio demasiado grande: ${(audioBytes.length / 1024 / 1024).toStringAsFixed(2)} MB (máximo 20MB)',
+        );
+        throw Exception('Audio demasiado grande (máximo 20MB)');
+      }
+
+      final uri = Uri.parse(
+        'https://api.cloudinary.com/v1_1/$cloudName/video/upload',
+      );
+
+      // Crear el body como multipart
+      final request = http.MultipartRequest('POST', uri);
+
+      // Añadir el audio (webm/opus por defecto desde MediaRecorder)
+      const extension = 'webm';
+      const mimeType = 'audio/webm';
+
+      final contentType = MediaType('audio', extension);
+
+      request.files.add(
+        http.MultipartFile.fromBytes(
+          'file',
+          audioBytes,
+          filename: 'audio.$extension',
+          contentType: contentType,
+        ),
+      );
+
+      // Añadir el upload preset
+      request.fields['upload_preset'] = uploadPreset;
+
+      debugLog(
+        '📤 [Cloudinary] Subiendo audio... (${(audioBytes.length / 1024).toStringAsFixed(2)} KB, tipo: $mimeType)',
+      );
+
+      final streamedResponse = await request.send().timeout(
+        const Duration(seconds: 120),
+        onTimeout: () {
+          throw TimeoutException('Timeout al subir audio a Cloudinary');
+        },
+      );
+      final response = await http.Response.fromStream(streamedResponse);
+
+      debugLog('📥 [Cloudinary] Respuesta: ${response.statusCode}');
+
+      if (response.statusCode == 200) {
+        try {
+          final jsonResponse =
+              jsonDecode(response.body) as Map<String, dynamic>;
+          if (jsonResponse['secure_url'] != null) {
+            final audioUrl = jsonResponse['secure_url'] as String;
+            debugLog('✅ [Cloudinary] Audio subido: $audioUrl');
+            return audioUrl;
+          } else {
+            final errorMsg =
+                jsonResponse['error']?.toString() ?? 'Error desconocido';
+            debugLog('❌ [Cloudinary] Error en respuesta: $errorMsg');
+            debugLog('❌ [Cloudinary] Respuesta completa: ${response.body}');
+            throw Exception('Error de Cloudinary: $errorMsg');
+          }
+        } catch (e) {
+          debugLog('❌ [Cloudinary] Error parseando respuesta JSON: $e');
+          debugLog('❌ [Cloudinary] Respuesta: ${response.body}');
+          throw Exception('Error parseando respuesta de Cloudinary: $e');
+        }
+      } else {
+        String errorMsg = 'Error HTTP ${response.statusCode}';
+        try {
+          final jsonResponse =
+              jsonDecode(response.body) as Map<String, dynamic>;
+          errorMsg = jsonResponse['error']?.toString() ?? errorMsg;
+        } catch (_) {
+          errorMsg = response.body.isNotEmpty ? response.body : errorMsg;
+        }
+        debugLog('❌ [Cloudinary] Error HTTP: ${response.statusCode}');
+        debugLog('❌ [Cloudinary] Mensaje: $errorMsg');
+        debugLog('❌ [Cloudinary] Upload Preset usado: $uploadPreset');
+        debugLog('❌ [Cloudinary] Cloud Name: $cloudName');
+        throw Exception('Error HTTP ${response.statusCode}: $errorMsg');
+      }
+    } catch (e) {
+      debugLog('❌ [Cloudinary] Excepción al subir audio: $e');
+      rethrow; // Re-lanzar para que el error se muestre al usuario
+    }
+  }
+
   Future<void> _pasteImageFromClipboard() async {
     // En web, esta función no está disponible
     if (PlatformUtils.isWeb) {
@@ -6218,6 +7392,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
     // Listener para establecer el foco en el campo de texto cuando cambia el canal
     ref.listen<String?>(currentChannelProvider, (previous, next) {
+      // Guardar borrador del canal anterior y restaurar el del nuevo (Revolution)
+      if (previous != null && next != null && previous != next) {
+        _draftByChannel[previous.toLowerCase()] = _messageController.text;
+        _historyIndex = -1;
+        _pendingDraft = '';
+        _settingHistoryText = true;
+        _messageController.text = _draftByChannel[next.toLowerCase()] ?? '';
+        _settingHistoryText = false;
+      }
       // Cuando cambia el canal, establecer el foco en el campo de texto
       if (next != null && next != previous) {
         // Usar un pequeño delay para asegurar que el widget esté completamente construido
@@ -6369,7 +7552,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     // debugLog('🔍 [DEBUG] Final channelUsers list: $channelUsers');
 
     // Pantalla de carga solo mientras hay JOIN pendiente de confirmar
-    final bool waitingForJoin = currentChannel != null &&
+    final bool waitingForJoin =
+        currentChannel != null &&
         currentChannel!.startsWith('#') &&
         _ircService.isJoinPending(currentChannel!);
 
@@ -6385,1866 +7569,1618 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     // Paneles de canales y usuarios: columnas fijas en escritorio,
     // drawers deslizantes estilo Revolution IRC en movil.
     final Widget channelsSidebarContent = Container(
-                                    // Fondo oscuro igual que el panel de usuarios (lista de la
-                                    // derecha), de modo que ambos paneles laterales sean
-                                    // consistentes. Los textos del panel usan colores claros.
-                                    color: Colors.grey[900],
-                                    child: Column(
-                                      children: [
-                                        // Header con gradiente
-                                        Container(
-                                          padding: const EdgeInsets.all(12),
-                                          decoration: BoxDecoration(
-                                            gradient: LinearGradient(
-                                              colors: [
-                                                appTheme.primary,
-                                                appTheme.secondary,
-                                              ],
-                                            ),
-                                          ),
-                                          child: Row(
-                                            children: [
-                                              const Expanded(
+      // Fondo oscuro igual que el panel de usuarios (lista de la
+      // derecha), de modo que ambos paneles laterales sean
+      // consistentes. Los textos del panel usan colores claros.
+      color: Colors.grey[900],
+      child: Column(
+        children: [
+          // Header con gradiente
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [appTheme.primary, appTheme.secondary],
+              ),
+            ),
+            child: Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    'Canales y Mensajes',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                    ),
+                  ),
+                ),
+                // Botón para ocultar/mostrar sidebar
+                IconButton(
+                  icon: Icon(
+                    _showChannelsSidebar
+                        ? Icons.chevron_left
+                        : Icons.chevron_right,
+                    color: Colors.white,
+                    size: 20,
+                  ),
+                  tooltip: _showChannelsSidebar
+                      ? 'Ocultar canales'
+                      : 'Mostrar canales',
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                  onPressed: () {
+                    if (PlatformUtils.isMobile) {
+                      Navigator.of(context).pop();
+                      return;
+                    }
+                    setState(() {
+                      _showChannelsSidebar = !_showChannelsSidebar;
+                    });
+                  },
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: Builder(
+              builder: (context) {
+                // Separar canales y queries
+                final channelList = <String>[];
+                final queryList = <String>[];
+
+                for (var channel in channels.keys) {
+                  if (channel.startsWith('#')) {
+                    // Filtrar canales que coincidan con el nickname del usuario
+                    final currentNick = ref.read(currentNicknameProvider);
+                    if (currentNick != null) {
+                      final channelWithoutHash = channel
+                          .toLowerCase()
+                          .replaceFirst('#', '');
+                      final normalizedNick = currentNick.toLowerCase();
+                      if (channelWithoutHash == normalizedNick ||
+                          channel.toLowerCase() == '#$normalizedNick') {
+                        continue; // Saltar este canal
+                      }
+                    }
+                    channelList.add(channel);
+                  } else {
+                    queryList.add(channel);
+                  }
+                }
+
+                // Ordenar por última actividad (último mensaje)
+                final messages = ref.watch(messagesProvider);
+                DateTime lastActivity(String ch) {
+                  final norm = ch.toLowerCase();
+                  final list = messages
+                      .where((m) => m.channel.toLowerCase() == norm)
+                      .toList();
+                  if (list.isEmpty) {
+                    return DateTime(0);
+                  }
+                  return list
+                      .map((m) => m.timestamp)
+                      .reduce((a, b) => a.isAfter(b) ? a : b);
+                }
+
+                channelList.sort(
+                  (a, b) => lastActivity(b).compareTo(lastActivity(a)),
+                );
+                queryList.sort(
+                  (a, b) => lastActivity(b).compareTo(lastActivity(a)),
+                );
+
+                // Favoritos, archivados y recientes
+                final favorites = ref.watch(favoritesProvider);
+                final recent = ref.watch(recentChannelsProvider);
+                final archivedPrivates = ref.watch(archivedPrivatesProvider);
+
+                // Separar queries activos y archivados
+                final archivedQueries = queryList
+                    .where((c) => archivedPrivates.contains(c.toLowerCase()))
+                    .toList();
+                final activeQueries = queryList
+                    .where((c) => !archivedPrivates.contains(c.toLowerCase()))
+                    .toList();
+
+                final favoriteChannels = channelList
+                    .where((c) => favorites.contains(c.toLowerCase()))
+                    .toList();
+                final favoriteQueries = activeQueries
+                    .where((c) => favorites.contains(c.toLowerCase()))
+                    .toList();
+
+                final nonFavoriteChannels = channelList
+                    .where((c) => !favorites.contains(c.toLowerCase()))
+                    .toList();
+                final nonFavoriteQueries = activeQueries
+                    .where((c) => !favorites.contains(c.toLowerCase()))
+                    .toList();
+
+                // Recientes que ya no están abiertos
+                final openKeys = {
+                  ...channelList.map((e) => e.toLowerCase()),
+                  ...queryList.map((e) => e.toLowerCase()),
+                };
+                final recentOnly = recent
+                    .where((c) => !openKeys.contains(c.toLowerCase()))
+                    .toList();
+
+                return ListView(
+                  children: [
+                    // Sección de Favoritos (canales y privados)
+                    if (favoriteChannels.isNotEmpty ||
+                        favoriteQueries.isNotEmpty) ...[
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 8,
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(
+                              Icons.star,
+                              size: 16,
+                              color: Colors.amber,
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              'FAVORITOS',
+                              style: TextStyle(
+                                color: Colors.white.withValues(alpha: 0.7),
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: 1.2,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      ...favoriteChannels.map(
+                        (channel) => _buildChannelItem(
+                          context,
+                          channel,
+                          false,
+                          appTheme,
+                          currentChannel,
+                          ref,
+                          false,
+                        ),
+                      ),
+                      ...favoriteQueries.map(
+                        (channel) => _buildChannelItem(
+                          context,
+                          channel,
+                          true,
+                          appTheme,
+                          currentChannel,
+                          ref,
+                          false,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                    ],
+
+                    // Sección de Canales (no favoritos)
+                    if (nonFavoriteChannels.isNotEmpty) ...[
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 8,
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.tag,
+                              size: 16,
+                              color: Colors.white.withValues(alpha: 0.6),
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              'CANALES',
+                              style: TextStyle(
+                                color: Colors.white.withValues(alpha: 0.6),
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: 1.2,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      ...nonFavoriteChannels.map(
+                        (channel) => _buildChannelItem(
+                          context,
+                          channel,
+                          false,
+                          appTheme,
+                          currentChannel,
+                          ref,
+                          false,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                    ],
+
+                    // Botón para cerrar todos los canales (si hay alguno abierto)
+                    if (channelList.isNotEmpty) ...[
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        child: TextButton.icon(
+                          onPressed: () {
+                            final toPart = _ircService.allChannels.keys
+                                .where((k) => k.startsWith('#'))
+                                .toList();
+                            for (final ch in toPart) {
+                              _ircService.partChannel(ch);
+                              ref
+                                  .read(recentChannelsProvider.notifier)
+                                  .removeRecent(ch);
+                              ref
+                                  .read(unreadMessagesProvider.notifier)
+                                  .markAsRead(ch);
+                            }
+                            ref
+                                .read(channelsProvider.notifier)
+                                .updateChannels();
+                            final cur = ref.read(currentChannelProvider);
+                            if (cur != null && cur.startsWith('#')) {
+                              final remaining = _ircService.allChannels.keys
+                                  .where((k) => !k.startsWith('#'))
+                                  .toList();
+                              ref.read(currentChannelProvider.notifier).state =
+                                  remaining.isNotEmpty ? remaining.first : null;
+                            }
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Todos los canales cerrados'),
+                                ),
+                              );
+                            }
+                          },
+                          icon: Icon(
+                            Icons.label_off,
+                            size: 18,
+                            color: Colors.white.withValues(alpha: 0.7),
+                          ),
+                          label: Text(
+                            'Cerrar todos los canales',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.white.withValues(alpha: 0.7),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                    ],
+
+                    // Sección de Mensajes Privados (no favoritos, activos)
+                    if (nonFavoriteQueries.isNotEmpty) ...[
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 8,
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.person,
+                              size: 16,
+                              color: Colors.white.withValues(alpha: 0.85),
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              'MENSAJES PRIVADOS',
+                              style: TextStyle(
+                                color: Colors.white.withValues(alpha: 0.85),
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: 1.2,
+                              ),
+                            ),
+                            const Spacer(),
+                            _buildIgnoreAllPrivatesBadge(context, ref),
+                          ],
+                        ),
+                      ),
+                      ...nonFavoriteQueries.map(
+                        (channel) => _buildChannelItem(
+                          context,
+                          channel,
+                          true,
+                          appTheme,
+                          currentChannel,
+                          ref,
+                          false,
+                        ),
+                      ),
+                    ],
+
+                    // Sección de Privados archivados
+                    if (archivedQueries.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 8,
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.archive,
+                              size: 16,
+                              color: Colors.white.withValues(alpha: 0.6),
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              'PRIVADOS ARCHIVADOS',
+                              style: TextStyle(
+                                color: Colors.white.withValues(alpha: 0.6),
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: 1.2,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      ...archivedQueries.map(
+                        (channel) => _buildChannelItem(
+                          context,
+                          channel,
+                          true,
+                          appTheme,
+                          currentChannel,
+                          ref,
+                          true,
+                        ),
+                      ),
+                    ],
+
+                    // Botón para cerrar todos los privados (activos y archivados)
+                    if (queryList.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        child: TextButton.icon(
+                          onPressed: () {
+                            final toRemove = _ircService.allChannels.keys
+                                .where((k) => !k.startsWith('#'))
+                                .toList();
+                            final recentPrivates = List<String>.from(
+                              ref.read(recentChannelsProvider),
+                            ).where((c) => !c.startsWith('#')).toList();
+                            final robotNicks = ref
+                                .read(customRobotsProvider)
+                                .map((robot) => robot.nick.toLowerCase())
+                                .toSet();
+                            for (final k in toRemove) {
+                              _ircService.allChannels.remove(k);
+                            }
+                            ref
+                                .read(messagesProvider.notifier)
+                                .clearPrivateMessages();
+                            ref
+                                .read(channelsProvider.notifier)
+                                .updateChannels();
+                            for (final ch in toRemove) {
+                              ref
+                                  .read(unreadMessagesProvider.notifier)
+                                  .markAsRead(ch);
+                            }
+                            for (final recentPrivate in recentPrivates) {
+                              if (robotNicks.contains(
+                                recentPrivate.toLowerCase(),
+                              )) {
+                                ref
+                                    .read(recentChannelsProvider.notifier)
+                                    .removeRecent(recentPrivate);
+                              }
+                            }
+                            final cur = ref.read(currentChannelProvider);
+                            if (cur != null && !cur.startsWith('#')) {
+                              final remaining = _ircService.allChannels.keys
+                                  .where((k) => k.startsWith('#'))
+                                  .toList();
+                              ref.read(currentChannelProvider.notifier).state =
+                                  remaining.isNotEmpty ? remaining.first : null;
+                            }
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text(
+                                    'Todos los mensajes privados cerrados',
+                                  ),
+                                ),
+                              );
+                            }
+                          },
+                          icon: Icon(
+                            Icons.close_fullscreen,
+                            size: 18,
+                            color: Colors.white.withValues(alpha: 0.7),
+                          ),
+                          label: Text(
+                            'Cerrar todos los privados',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.white.withValues(alpha: 0.7),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+
+                    // Sección de Recientes cerrados
+                    if (recentOnly.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 8,
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.history,
+                              size: 16,
+                              color: appTheme.textPrimary.withValues(
+                                alpha: 0.6,
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              'RECIENTES',
+                              style: TextStyle(
+                                color: appTheme.textPrimary.withValues(
+                                  alpha: 0.6,
+                                ),
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: 1.2,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      ...recentOnly.map(
+                        (channel) => _buildChannelItem(
+                          context,
+                          channel,
+                          !channel.startsWith('#'),
+                          appTheme,
+                          currentChannel,
+                          ref,
+                          false,
+                        ),
+                      ),
+                    ],
+                  ],
+                );
+              },
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              children: [
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: () {
+                      showDialog(
+                        context: context,
+                        builder: (context) =>
+                            ChannelListDialog(ircService: _ircService),
+                      );
+                    },
+                    icon: Icon(
+                      Icons.add,
+                      color: AppTheme.contrastOn(appTheme.primary),
+                    ),
+                    label: Text(
+                      'Unirse',
+                      style: TextStyle(
+                        color: AppTheme.contrastOn(appTheme.primary),
+                      ),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: appTheme.primary,
+                      foregroundColor: AppTheme.contrastOn(appTheme.primary),
+                      elevation: 4,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: () =>
+                        _showMultisalaDialog(context, appTheme, currentChannel),
+                    icon: Icon(
+                      Icons.group_add,
+                      color: appTheme.primary,
+                      size: 20,
+                    ),
+                    label: Text(
+                      'Unirse multisala',
+                      style: TextStyle(fontSize: 12, color: appTheme.primary),
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      side: BorderSide(
+                        color: appTheme.primary.withValues(alpha: 0.5),
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+    final Widget usersSidebarContent = Container(
+      color: Colors.grey[900],
+      child: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [appTheme.primary, appTheme.secondary],
+              ),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Usuarios',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                        ),
+                      ),
+                      Text(
+                        '${channelUsers.length} usuarios',
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 11,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                // Botón para ocultar/mostrar lista de usuarios
+                IconButton(
+                  icon: Icon(
+                    _showUserList ? Icons.visibility_off : Icons.visibility,
+                    color: Colors.white,
+                    size: 20,
+                  ),
+                  tooltip: _showUserList
+                      ? 'Ocultar lista de usuarios'
+                      : 'Mostrar lista de usuarios',
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                  onPressed: () {
+                    if (PlatformUtils.isMobile) {
+                      Navigator.of(context).pop();
+                      return;
+                    }
+                    setState(() {
+                      _showUserList = !_showUserList;
+                    });
+                  },
+                ),
+                // Icono de configuración del canal
+                IconButton(
+                  icon: const Icon(
+                    Icons.settings,
+                    color: Colors.white,
+                    size: 20,
+                  ),
+                  tooltip: 'Configuración del canal',
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                  onPressed: () {
+                    _showChannelSettingsMenu(context, currentChannel!);
+                  },
+                ),
+              ],
+            ),
+          ),
+          if (_showUserList && channelUsers.isNotEmpty)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              color: appTheme.primary.withValues(alpha: 0.8),
+              child: TextField(
+                style: const TextStyle(color: Colors.white, fontSize: 12),
+                decoration: InputDecoration(
+                  hintText: '🔍 Buscar usuario...',
+                  hintStyle: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.6),
+                    fontSize: 12,
+                  ),
+                  isDense: true,
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 6,
+                  ),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: BorderSide(
+                      color: Colors.white.withValues(alpha: 0.3),
+                    ),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: BorderSide(
+                      color: Colors.white.withValues(alpha: 0.3),
+                    ),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: const BorderSide(color: Colors.white),
+                  ),
+                  suffixIcon: _userSearchQuery.isNotEmpty
+                      ? IconButton(
+                          icon: const Icon(
+                            Icons.clear,
+                            color: Colors.white,
+                            size: 16,
+                          ),
+                          onPressed: () =>
+                              setState(() => _userSearchQuery = ''),
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(
+                            minWidth: 24,
+                            minHeight: 24,
+                          ),
+                        )
+                      : null,
+                ),
+                onChanged: (v) => setState(() => _userSearchQuery = v),
+              ),
+            ),
+          if (_showUserList)
+            if (channelUsers.isEmpty)
+              const Expanded(
+                child: Center(
+                  child: Text(
+                    'Aún no hay usuarios',
+                    style: TextStyle(color: Colors.white70),
+                  ),
+                ),
+              )
+            else
+              Expanded(
+                child: Builder(
+                  builder: (context) {
+                    // Obtener el canal actual del provider
+                    final currentChannel = ref.read(currentChannelProvider);
+                    final liveDjNick = ref.watch(qualiaRadioLiveDjProvider);
+                    final isQualiaChannel =
+                        currentChannel?.toLowerCase() == '#qualiaradio';
+                    bool isQualiaLiveDj(String nick) =>
+                        isQualiaChannel &&
+                        liveDjNick != null &&
+                        nick.toLowerCase() == liveDjNick.toLowerCase();
+                    // Obtener el canal para acceder a los modos
+                    IRCChannel? currentChannelData;
+                    if (channelKey != null &&
+                        channels.containsKey(channelKey)) {
+                      currentChannelData = channels[channelKey];
+                    }
+
+                    // Organizar usuarios por tipo y ordenar
+                    // Función para obtener la prioridad del modo
+                    // Orden: Dueño (~) > Dueño (&) > Operador > Voz > Hop > Robots > Usuarios normales
+                    int getModePriority(
+                      String? mode,
+                      bool isRobot, {
+                      bool isLiveDj = false,
+                    }) {
+                      // DJ en vivo (Qualia Radio), antes de robots.
+                      if (isLiveDj && !isRobot) {
+                        return 5;
+                      }
+                      // Si es robot, va después de moderadores pero antes de usuarios normales
+                      if (isRobot) {
+                        return 6; // Robots después de moderadores
+                      }
+
+                      // Si no es robot, verificar el modo
+                      if (mode != null && mode.isNotEmpty) {
+                        switch (mode) {
+                          case '~':
+                            return 0; // Dueño (más alto, encima de todos)
+                          case '&':
+                            return 1; // Dueño
+                          case '@':
+                            return 2; // Operador
+                          case '+':
+                            return 3; // Voz
+                          case '%':
+                            return 4; // Hop
+                          default:
+                            break; // Si el modo no es reconocido, continuar
+                        }
+                      }
+                      // Si no tiene modo ni es robot, es usuario normal (al final)
+                      return 7;
+                    }
+
+                    // Obtener robots personalizados para la detección
+                    final customRobots = ref.read(customRobotsProvider);
+                    final customRobotsData = customRobots
+                        .map(
+                          (r) => {
+                            'nick': r.nick,
+                            'icon': r.icon,
+                            'host': r.host,
+                          },
+                        )
+                        .toList();
+
+                    // Usar la lista de usuarios del canal actual (currentChannelData) en lugar de channelUsers
+                    // para asegurar que tenemos la lista más actualizada con los modos correctos
+                    final usersToSort =
+                        currentChannelData?.users ?? channelUsers;
+
+                    // Crear lista ordenada de usuarios
+                    final sortedUsers = <String>[];
+                    sortedUsers.addAll(usersToSort);
+
+                    // Ordenar usuarios por prioridad y luego alfabéticamente
+                    // Asegurarse de que el ordenamiento siempre se ejecute
+                    sortedUsers.sort((a, b) {
+                      // Obtener modos de forma robusta
+                      String? modeA;
+                      String? modeB;
+                      bool isRobotA = false;
+                      bool isRobotB = false;
+
+                      // Siempre intentar obtener los datos del canal si está disponible
+                      if (currentChannelData != null) {
+                        modeA = currentChannelData.getUserMode(a);
+                        modeB = currentChannelData.getUserMode(b);
+                        isRobotA = currentChannelData.isRobot(
+                          a,
+                          customRobots: customRobotsData,
+                        );
+                        isRobotB = currentChannelData.isRobot(
+                          b,
+                          customRobots: customRobotsData,
+                        );
+                      } else if (channelKey != null &&
+                          channels.containsKey(channelKey)) {
+                        // Fallback: usar el canal del mapa directamente
+                        final channelData = channels[channelKey]!;
+                        modeA = channelData.getUserMode(a);
+                        modeB = channelData.getUserMode(b);
+                        isRobotA = channelData.isRobot(
+                          a,
+                          customRobots: customRobotsData,
+                        );
+                        isRobotB = channelData.isRobot(
+                          b,
+                          customRobots: customRobotsData,
+                        );
+                      }
+
+                      final priorityA = getModePriority(
+                        modeA,
+                        isRobotA,
+                        isLiveDj: isQualiaLiveDj(a),
+                      );
+                      final priorityB = getModePriority(
+                        modeB,
+                        isRobotB,
+                        isLiveDj: isQualiaLiveDj(b),
+                      );
+
+                      // Primero ordenar por prioridad
+                      if (priorityA != priorityB) {
+                        return priorityA.compareTo(priorityB);
+                      }
+                      // Si tienen la misma prioridad, ordenar alfabéticamente
+                      return a.toLowerCase().compareTo(b.toLowerCase());
+                    });
+
+                    // Build sectioned list with role headers
+                    final List<MapEntry<String, bool>> sectionedUsers = [];
+                    String? prevSection;
+                    for (final user in sortedUsers) {
+                      if (_userSearchQuery.isNotEmpty &&
+                          !user.toLowerCase().contains(
+                            _userSearchQuery.toLowerCase(),
+                          ))
+                        continue;
+                      String? curSection;
+                      if (currentChannelData != null) {
+                        final mode = currentChannelData.getUserMode(user);
+                        final isRobotUser = currentChannelData.isRobot(
+                          user,
+                          customRobots: customRobotsData,
+                        );
+                        if (isRobotUser) {
+                          curSection = '🤖 Bots';
+                        } else if (mode == '~' || mode == '&') {
+                          curSection = '👑 Dueños';
+                        } else if (mode == '!') {
+                          curSection = '🛡️ Admins';
+                        } else if (mode == '@') {
+                          curSection = '⚡ Ops';
+                        } else if (mode == '%') {
+                          curSection = '🎵 Halfops';
+                        } else if (mode == '+') {
+                          curSection = '🎙️ Voice';
+                        } else {
+                          curSection = '👤 Usuarios';
+                        }
+                      } else {
+                        curSection = '👤 Usuarios';
+                      }
+                      if (curSection != prevSection) {
+                        sectionedUsers.add(MapEntry(curSection, true));
+                        prevSection = curSection;
+                      }
+                      sectionedUsers.add(MapEntry(user, false));
+                    }
+
+                    return ListView.builder(
+                      itemCount: sectionedUsers.length,
+                      cacheExtent: 500, // Cache para mejor scroll
+                      itemBuilder: (context, index) {
+                        final entry = sectionedUsers[index];
+                        final isSectionHeader = entry.value;
+                        if (isSectionHeader) {
+                          final sectionTheme = ref.read(themeProvider);
+                          return Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 4,
+                            ),
+                            color: sectionTheme.primary.withValues(alpha: 0.15),
+                            child: Text(
+                              entry.key,
+                              style: TextStyle(
+                                color: sectionTheme.textSecondary,
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          );
+                        }
+                        final user = entry.key;
+                        // Obtener el modo del usuario con fallback
+                        String? userMode;
+                        bool isRobot = false;
+                        final isLiveDj = isQualiaLiveDj(user);
+
+                        if (currentChannelData != null) {
+                          userMode = currentChannelData.getUserMode(user);
+                          isRobot = currentChannelData.isRobot(
+                            user,
+                            customRobots: customRobotsData,
+                          );
+                          // Debug para todos los usuarios (temporal para diagnosticar)
+                          debugLog(
+                            '🔍 [DEBUG USER LIST] Usuario: "$user", isRobot: $isRobot, userMode: $userMode, customRobots: ${customRobotsData.length}',
+                          );
+                        } else if (channelKey != null &&
+                            channels.containsKey(channelKey)) {
+                          final channelData = channels[channelKey]!;
+                          userMode = channelData.getUserMode(user);
+                          isRobot = channelData.isRobot(
+                            user,
+                            customRobots: customRobotsData,
+                          );
+                          // Debug para todos los usuarios (temporal para diagnosticar)
+                          debugLog(
+                            '🔍 [DEBUG USER LIST] Usuario: "$user", isRobot: $isRobot, userMode: $userMode (usando channelData), customRobots: ${customRobotsData.length}',
+                          );
+                        } else {
+                          // Si no hay channelData, asegurarse de que isRobot sea false
+                          isRobot = false;
+                          debugLog(
+                            '🔍 [DEBUG USER LIST] Usuario: "$user", isRobot: $isRobot (sin channelData)',
+                          );
+                        }
+
+                        // Debug: verificar detección de robot para "globalchat"
+                        if (user.toLowerCase() == 'globalchat' &&
+                            currentChannel?.toLowerCase() == '#globalchat') {
+                          debugLog(
+                            '🔍 [DEBUG] Usuario: $user, Canal: $currentChannel, isRobot: $isRobot, userMode: $userMode',
+                          );
+                          debugLog(
+                            '🔍 [DEBUG] currentChannelData?.name: ${currentChannelData?.name}',
+                          );
+                        }
+
+                        final userIcon = _getUserIcon(
+                          userMode,
+                          isRobot,
+                          nick: user,
+                        );
+
+                        // Debug adicional para robots
+                        if (isRobot && user.toLowerCase() == 'globalchat') {
+                          debugLog(
+                            '🤖 [DEBUG] userIcon generado para robot "$user": "$userIcon"',
+                          );
+                        }
+
+                        final appTheme = ref.read(themeProvider);
+                        // Generar color para el avatar
+                        final userColor = isRobot
+                            ? const Color(0xFFFFD700)
+                            : colorForNick(user);
+
+                        return GestureDetector(
+                          onDoubleTap: () {
+                            // Abrir mensaje privado con doble clic (excepto si es el propio nick)
+                            final currentNick = ref.read(
+                              currentNicknameProvider,
+                            );
+                            if (currentNick != null &&
+                                user.toLowerCase() !=
+                                    currentNick.toLowerCase()) {
+                              _openPrivateMessage(user);
+                            }
+                          },
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 2.0),
+                            child: ListTile(
+                              dense: true,
+                              leading: UserAvatar(
+                                nick: user,
+                                size: 32,
+                                roleBadge: userMode,
+                                auraEmoji: (() {
+                                  final currentNick = ref.read(
+                                    currentNicknameProvider,
+                                  );
+                                  final ownAura = ref
+                                      .read(notificationSettingsProvider)
+                                      .nickAura;
+                                  final isOwn =
+                                      currentNick != null &&
+                                      user.toLowerCase() ==
+                                          currentNick.toLowerCase();
+                                  if (isOwn && ownAura != 'none') {
+                                    for (final a in NickAura.values) {
+                                      if (a.name == ownAura) return a.emoji;
+                                    }
+                                  }
+                                  return null;
+                                })(),
+                                fallbackIcon: isRobot ? userIcon : null,
+                                isRobot: isRobot,
+                                gradient: isRobot
+                                    ? LinearGradient(
+                                        colors: [
+                                          const Color(0xFFFFD700),
+                                          const Color(0xFFFFA500),
+                                        ],
+                                        begin: Alignment.topLeft,
+                                        end: Alignment.bottomRight,
+                                      )
+                                    : LinearGradient(
+                                        colors: [
+                                          userColor,
+                                          userColor.withValues(alpha: 0.7),
+                                        ],
+                                        begin: Alignment.topLeft,
+                                        end: Alignment.bottomRight,
+                                      ),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: isRobot
+                                        ? const Color(
+                                            0xFFFFD700,
+                                          ).withValues(alpha: 0.5)
+                                        : userColor.withValues(alpha: 0.4),
+                                    blurRadius: 4,
+                                    offset: const Offset(0, 1),
+                                  ),
+                                ],
+                                border: isRobot
+                                    ? Border.all(
+                                        color: const Color(
+                                          0xFFFFD700,
+                                        ).withValues(alpha: 0.6),
+                                        width: 1.5,
+                                      )
+                                    : null,
+                              ),
+                              title: Builder(
+                                builder: (context) {
+                                  // Detectar si es GlobalChat (bot oficial)
+                                  final isGlobalChatBot =
+                                      user.toLowerCase() == 'globalchat';
+                                  return Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      if (isLiveDj) ...[
+                                        const Text(
+                                          '🎧',
+                                          style: TextStyle(fontSize: 12),
+                                        ),
+                                        const SizedBox(width: 4),
+                                      ],
+                                      // Aura emoji del usuario actual (tema visual)
+                                      Builder(
+                                        builder: (ctx) {
+                                          final auraId = ref
+                                              .read(
+                                                notificationSettingsProvider,
+                                              )
+                                              .nickAura;
+                                          if (auraId != 'none') {
+                                            final aura = NickAura.values
+                                                .where((a) => a.name == auraId)
+                                                .firstOrNull;
+                                            if (aura != null &&
+                                                aura.emoji.isNotEmpty) {
+                                              return Padding(
+                                                padding: const EdgeInsets.only(
+                                                  right: 4,
+                                                ),
                                                 child: Text(
-                                                  'Canales y Mensajes',
-                                                  style: TextStyle(
-                                                    color: Colors.white,
-                                                    fontWeight: FontWeight.bold,
-                                                    fontSize: 14,
+                                                  aura.emoji,
+                                                  style: const TextStyle(
+                                                    fontSize: 12,
                                                   ),
                                                 ),
+                                              );
+                                            }
+                                          }
+                                          return const SizedBox.shrink();
+                                        },
+                                      ),
+                                      Flexible(
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Text(
+                                              user,
+                                              style: TextStyle(
+                                                color: Colors.white,
+                                                fontSize: 12,
+                                                fontWeight:
+                                                    (isRobot ||
+                                                        userMode != null ||
+                                                        isLiveDj)
+                                                    ? FontWeight.bold
+                                                    : FontWeight.normal,
                                               ),
-                                              // Botón para ocultar/mostrar sidebar
-                                              IconButton(
-                                                icon: Icon(
-                                                  _showChannelsSidebar
-                                                      ? Icons.chevron_left
-                                                      : Icons.chevron_right,
-                                                  color: Colors.white,
-                                                  size: 20,
-                                                ),
-                                                tooltip: _showChannelsSidebar
-                                                    ? 'Ocultar canales'
-                                                    : 'Mostrar canales',
-                                                padding: EdgeInsets.zero,
-                                                constraints:
-                                                    const BoxConstraints(),
-                                                onPressed: () {
-                                                  if (PlatformUtils.isMobile) {
-                                                    Navigator.of(context).pop();
-                                                    return;
-                                                  }
-                                                  setState(() {
-                                                    _showChannelsSidebar =
-                                                        !_showChannelsSidebar;
-                                                  });
-                                                },
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                        Expanded(
-                                          child: Builder(
-                                            builder: (context) {
-                                              // Separar canales y queries
-                                              final channelList = <String>[];
-                                              final queryList = <String>[];
-
-                                              for (var channel
-                                                  in channels.keys) {
-                                                if (channel.startsWith('#')) {
-                                                  // Filtrar canales que coincidan con el nickname del usuario
-                                                  final currentNick = ref.read(
-                                                    currentNicknameProvider,
-                                                  );
-                                                  if (currentNick != null) {
-                                                    final channelWithoutHash =
-                                                        channel
-                                                            .toLowerCase()
-                                                            .replaceFirst(
-                                                              '#',
-                                                              '',
-                                                            );
-                                                    final normalizedNick =
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                            // Gender badge for current user
+                                            Builder(
+                                              builder: (ctx) {
+                                                final currentNick = ref.watch(
+                                                  currentNicknameProvider,
+                                                );
+                                                final gender = ref
+                                                    .watch(
+                                                      notificationSettingsProvider,
+                                                    )
+                                                    .gender;
+                                                final isSelf =
+                                                    currentNick != null &&
+                                                    user.toLowerCase() ==
                                                         currentNick
                                                             .toLowerCase();
-                                                    if (channelWithoutHash ==
-                                                            normalizedNick ||
-                                                        channel.toLowerCase() ==
-                                                            '#$normalizedNick') {
-                                                      continue; // Saltar este canal
-                                                    }
-                                                  }
-                                                  channelList.add(channel);
-                                                } else {
-                                                  queryList.add(channel);
-                                                }
-                                              }
-
-                                              // Ordenar por última actividad (último mensaje)
-                                              final messages = ref.watch(
-                                                messagesProvider,
-                                              );
-                                              DateTime lastActivity(String ch) {
-                                                final norm = ch.toLowerCase();
-                                                final list = messages
-                                                    .where(
-                                                      (m) =>
-                                                          m.channel
-                                                              .toLowerCase() ==
-                                                          norm,
-                                                    )
-                                                    .toList();
-                                                if (list.isEmpty) {
-                                                  return DateTime(0);
-                                                }
-                                                return list
-                                                    .map((m) => m.timestamp)
-                                                    .reduce(
-                                                      (a, b) =>
-                                                          a.isAfter(b) ? a : b,
-                                                    );
-                                              }
-
-                                              channelList.sort(
-                                                (a, b) => lastActivity(
-                                                  b,
-                                                ).compareTo(lastActivity(a)),
-                                              );
-                                              queryList.sort(
-                                                (a, b) => lastActivity(
-                                                  b,
-                                                ).compareTo(lastActivity(a)),
-                                              );
-
-                                              // Favoritos, archivados y recientes
-                                              final favorites = ref.watch(
-                                                favoritesProvider,
-                                              );
-                                              final recent = ref.watch(
-                                                recentChannelsProvider,
-                                              );
-                                              final archivedPrivates = ref
-                                                  .watch(
-                                                    archivedPrivatesProvider,
+                                                if (isSelf) {
+                                                  final genderCode =
+                                                      gender.isNotEmpty
+                                                      ? gender.codeUnitAt(0)
+                                                      : 0;
+                                                  final genderIcon =
+                                                      genderCode == 0x2642
+                                                      ? Icons.male
+                                                      : (genderCode == 0x2640
+                                                            ? Icons.female
+                                                            : Icons
+                                                                  .transgender);
+                                                  final genderColor =
+                                                      genderCode == 0x2642
+                                                      ? Colors
+                                                            .lightBlue
+                                                            .shade300
+                                                      : (genderCode == 0x2640
+                                                            ? Colors
+                                                                  .pink
+                                                                  .shade300
+                                                            : Colors
+                                                                  .purple
+                                                                  .shade300);
+                                                  debugPrint(
+                                                    '[GENDER DEBUG] gender=$gender, codeUnit=0x${genderCode.toRadixString(16)}',
                                                   );
-
-                                              // Separar queries activos y archivados
-                                              final archivedQueries = queryList
-                                                  .where(
-                                                    (c) => archivedPrivates
-                                                        .contains(
-                                                          c.toLowerCase(),
+                                                  return Padding(
+                                                    padding:
+                                                        const EdgeInsets.only(
+                                                          left: 4,
                                                         ),
-                                                  )
-                                                  .toList();
-                                              final activeQueries = queryList
-                                                  .where(
-                                                    (c) => !archivedPrivates
-                                                        .contains(
-                                                          c.toLowerCase(),
-                                                        ),
-                                                  )
-                                                  .toList();
-
-                                              final favoriteChannels =
-                                                  channelList
-                                                      .where(
-                                                        (c) =>
-                                                            favorites.contains(
-                                                              c.toLowerCase(),
-                                                            ),
-                                                      )
-                                                      .toList();
-                                              final favoriteQueries =
-                                                  activeQueries
-                                                      .where(
-                                                        (c) =>
-                                                            favorites.contains(
-                                                              c.toLowerCase(),
-                                                            ),
-                                                      )
-                                                      .toList();
-
-                                              final nonFavoriteChannels =
-                                                  channelList
-                                                      .where(
-                                                        (c) =>
-                                                            !favorites.contains(
-                                                              c.toLowerCase(),
-                                                            ),
-                                                      )
-                                                      .toList();
-                                              final nonFavoriteQueries =
-                                                  activeQueries
-                                                      .where(
-                                                        (c) =>
-                                                            !favorites.contains(
-                                                              c.toLowerCase(),
-                                                            ),
-                                                      )
-                                                      .toList();
-
-                                              // Recientes que ya no están abiertos
-                                              final openKeys = {
-                                                ...channelList.map(
-                                                  (e) => e.toLowerCase(),
-                                                ),
-                                                ...queryList.map(
-                                                  (e) => e.toLowerCase(),
-                                                ),
-                                              };
-                                              final recentOnly = recent
-                                                  .where(
-                                                    (c) => !openKeys.contains(
-                                                      c.toLowerCase(),
-                                                    ),
-                                                  )
-                                                  .toList();
-
-                                              return ListView(
-                                                children: [
-                                                  // Sección de Favoritos (canales y privados)
-                                                  if (favoriteChannels
-                                                          .isNotEmpty ||
-                                                      favoriteQueries
-                                                          .isNotEmpty) ...[
-                                                    Container(
+                                                    child: Container(
                                                       padding:
                                                           const EdgeInsets.symmetric(
-                                                            horizontal: 12,
-                                                            vertical: 8,
+                                                            horizontal: 5,
+                                                            vertical: 2,
                                                           ),
-                                                      child: Row(
-                                                        children: [
-                                                          const Icon(
-                                                            Icons.star,
-                                                            size: 16,
-                                                            color: Colors.amber,
-                                                          ),
-                                                          const SizedBox(
-                                                            width: 6,
-                                                          ),
-                                                          Text(
-                                                            'FAVORITOS',
-                                                            style: TextStyle(
-                                                              color: Colors
-                                                                  .white
-                                                                  .withValues(
-                                                                    alpha: 0.7,
-                                                                  ),
-                                                              fontSize: 11,
-                                                              fontWeight:
-                                                                  FontWeight
-                                                                      .bold,
-                                                              letterSpacing:
-                                                                  1.2,
+                                                      decoration: BoxDecoration(
+                                                        color: genderColor
+                                                            .withValues(
+                                                              alpha: 0.25,
                                                             ),
-                                                          ),
-                                                        ],
-                                                      ),
-                                                    ),
-                                                    ...favoriteChannels.map(
-                                                      (channel) =>
-                                                          _buildChannelItem(
-                                                            context,
-                                                            channel,
-                                                            false,
-                                                            appTheme,
-                                                            currentChannel,
-                                                            ref,
-                                                            false,
-                                                          ),
-                                                    ),
-                                                    ...favoriteQueries.map(
-                                                      (channel) =>
-                                                          _buildChannelItem(
-                                                            context,
-                                                            channel,
-                                                            true,
-                                                            appTheme,
-                                                            currentChannel,
-                                                            ref,
-                                                            false,
-                                                          ),
-                                                    ),
-                                                    const SizedBox(height: 8),
-                                                  ],
-
-                                                  // Sección de Canales (no favoritos)
-                                                  if (nonFavoriteChannels
-                                                      .isNotEmpty) ...[
-                                                    Container(
-                                                      padding:
-                                                          const EdgeInsets.symmetric(
-                                                            horizontal: 12,
-                                                            vertical: 8,
-                                                          ),
-                                                      child: Row(
-                                                        children: [
-                                                          Icon(
-                                                            Icons.tag,
-                                                            size: 16,
-                                                            color: Colors.white
-                                                                .withValues(
-                                                                  alpha: 0.6,
-                                                                ),
-                                                          ),
-                                                          const SizedBox(
-                                                            width: 6,
-                                                          ),
-                                                          Text(
-                                                            'CANALES',
-                                                            style: TextStyle(
-                                                              color: Colors
-                                                                  .white
-                                                                  .withValues(
-                                                                    alpha: 0.6,
-                                                                  ),
-                                                              fontSize: 11,
-                                                              fontWeight:
-                                                                  FontWeight
-                                                                      .bold,
-                                                              letterSpacing:
-                                                                  1.2,
+                                                        borderRadius:
+                                                            BorderRadius.circular(
+                                                              10,
                                                             ),
-                                                          ),
-                                                        ],
-                                                      ),
-                                                    ),
-                                                    ...nonFavoriteChannels.map(
-                                                      (channel) =>
-                                                          _buildChannelItem(
-                                                            context,
-                                                            channel,
-                                                            false,
-                                                            appTheme,
-                                                            currentChannel,
-                                                            ref,
-                                                            false,
-                                                          ),
-                                                    ),
-                                                    const SizedBox(height: 8),
-                                                  ],
-
-                                                  // Botón para cerrar todos los canales (si hay alguno abierto)
-                                                  if (channelList
-                                                      .isNotEmpty) ...[
-                                                    Padding(
-                                                      padding:
-                                                          const EdgeInsets.symmetric(
-                                                            horizontal: 8,
-                                                          ),
-                                                      child: TextButton.icon(
-                                                        onPressed: () {
-                                                          final toPart = _ircService
-                                                              .allChannels
-                                                              .keys
-                                                              .where(
-                                                                (k) => k
-                                                                    .startsWith(
-                                                                      '#',
-                                                                    ),
-                                                              )
-                                                              .toList();
-                                                          for (final ch
-                                                              in toPart) {
-                                                            _ircService
-                                                                .partChannel(
-                                                                  ch,
-                                                                );
-                                                            ref
-                                                                .read(
-                                                                  recentChannelsProvider
-                                                                      .notifier,
-                                                                )
-                                                                .removeRecent(
-                                                                  ch,
-                                                                );
-                                                            ref
-                                                                .read(
-                                                                  unreadMessagesProvider
-                                                                      .notifier,
-                                                                )
-                                                                .markAsRead(ch);
-                                                          }
-                                                          ref
-                                                              .read(
-                                                                channelsProvider
-                                                                    .notifier,
-                                                              )
-                                                              .updateChannels();
-                                                          final cur = ref.read(
-                                                            currentChannelProvider,
-                                                          );
-                                                          if (cur != null &&
-                                                              cur.startsWith(
-                                                                '#',
-                                                              )) {
-                                                            final remaining =
-                                                                _ircService
-                                                                    .allChannels
-                                                                    .keys
-                                                                    .where(
-                                                                      (k) => !k
-                                                                          .startsWith(
-                                                                            '#',
-                                                                          ),
-                                                                    )
-                                                                    .toList();
-                                                            ref
-                                                                    .read(
-                                                                      currentChannelProvider
-                                                                          .notifier,
-                                                                    )
-                                                                    .state =
-                                                                remaining
-                                                                    .isNotEmpty
-                                                                ? remaining
-                                                                      .first
-                                                                : null;
-                                                          }
-                                                          if (mounted) {
-                                                            ScaffoldMessenger.of(
-                                                              context,
-                                                            ).showSnackBar(
-                                                              const SnackBar(
-                                                                content: Text(
-                                                                  'Todos los canales cerrados',
-                                                                ),
-                                                              ),
-                                                            );
-                                                          }
-                                                        },
-                                                        icon: Icon(
-                                                          Icons.label_off,
-                                                          size: 18,
-                                                          color: Colors.white
+                                                        border: Border.all(
+                                                          color: genderColor
                                                               .withValues(
                                                                 alpha: 0.7,
                                                               ),
-                                                        ),
-                                                        label: Text(
-                                                          'Cerrar todos los canales',
-                                                          style: TextStyle(
-                                                            fontSize: 12,
-                                                            color: Colors.white
-                                                                .withValues(
-                                                                  alpha: 0.7,
-                                                                ),
-                                                          ),
+                                                          width: 1.2,
                                                         ),
                                                       ),
-                                                    ),
-                                                    const SizedBox(height: 8),
-                                                  ],
-
-                                                  // Sección de Mensajes Privados (no favoritos, activos)
-                                                  if (nonFavoriteQueries
-                                                      .isNotEmpty) ...[
-                                                    Container(
-                                                      padding:
-                                                          const EdgeInsets.symmetric(
-                                                            horizontal: 12,
-                                                            vertical: 8,
-                                                          ),
-                                                      child: Row(
-                                                        children: [
-                                                          Icon(
-                                                            Icons.person,
-                                                            size: 16,
-                                                            color: Colors.white
-                                                                .withValues(
-                                                                  alpha: 0.85,
-                                                                ),
-                                                          ),
-                                                          const SizedBox(
-                                                            width: 6,
-                                                          ),
-                                                          Text(
-                                                            'MENSAJES PRIVADOS',
-                                                            style: TextStyle(
-                                                              color: Colors
-                                                                  .white
-                                                                  .withValues(
-                                                                    alpha: 0.85,
-                                                                  ),
-                                                              fontSize: 11,
-                                                              fontWeight:
-                                                                  FontWeight
-                                                                      .bold,
-                                                              letterSpacing:
-                                                                  1.2,
-                                                            ),
-                                                          ),
-                                                        ],
+                                                      child: Icon(
+                                                        genderIcon,
+                                                        size: 13,
+                                                        color: genderColor,
                                                       ),
                                                     ),
-                                                    ...nonFavoriteQueries.map(
-                                                      (channel) =>
-                                                          _buildChannelItem(
-                                                            context,
-                                                            channel,
-                                                            true,
-                                                            appTheme,
-                                                            currentChannel,
-                                                            ref,
-                                                            false,
-                                                          ),
-                                                    ),
-                                                  ],
-
-                                                  // Sección de Privados archivados
-                                                  if (archivedQueries
-                                                      .isNotEmpty) ...[
-                                                    const SizedBox(height: 8),
-                                                    Container(
-                                                      padding:
-                                                          const EdgeInsets.symmetric(
-                                                            horizontal: 12,
-                                                            vertical: 8,
-                                                          ),
-                                                      child: Row(
-                                                        children: [
-                                                          Icon(
-                                                            Icons.archive,
-                                                            size: 16,
-                                                            color: Colors.white
-                                                                .withValues(
-                                                                  alpha: 0.6,
-                                                                ),
-                                                          ),
-                                                          const SizedBox(
-                                                            width: 6,
-                                                          ),
-                                                          Text(
-                                                            'PRIVADOS ARCHIVADOS',
-                                                            style: TextStyle(
-                                                              color: Colors
-                                                                  .white
-                                                                  .withValues(
-                                                                    alpha: 0.6,
-                                                                  ),
-                                                              fontSize: 11,
-                                                              fontWeight:
-                                                                  FontWeight
-                                                                      .bold,
-                                                              letterSpacing:
-                                                                  1.2,
-                                                            ),
-                                                          ),
-                                                        ],
-                                                      ),
-                                                    ),
-                                                    ...archivedQueries.map(
-                                                      (channel) =>
-                                                          _buildChannelItem(
-                                                            context,
-                                                            channel,
-                                                            true,
-                                                            appTheme,
-                                                            currentChannel,
-                                                            ref,
-                                                            true,
-                                                          ),
-                                                    ),
-                                                  ],
-
-                                                  // Botón para cerrar todos los privados (activos y archivados)
-                                                  if (queryList.isNotEmpty) ...[
-                                                    const SizedBox(height: 8),
-                                                    Padding(
-                                                      padding:
-                                                          const EdgeInsets.symmetric(
-                                                            horizontal: 8,
-                                                          ),
-                                                      child: TextButton.icon(
-                                                        onPressed: () {
-                                                          final toRemove =
-                                                              _ircService
-                                                                  .allChannels
-                                                                  .keys
-                                                                  .where(
-                                                                    (k) => !k
-                                                                        .startsWith(
-                                                                          '#',
-                                                                        ),
-                                                                  )
-                                                                  .toList();
-                                                          final recentPrivates =
-                                                              List<String>.from(
-                                                                    ref.read(
-                                                                      recentChannelsProvider,
-                                                                    ),
-                                                                  )
-                                                                  .where(
-                                                                    (c) => !c
-                                                                        .startsWith(
-                                                                          '#',
-                                                                        ),
-                                                                  )
-                                                                  .toList();
-                                                          final robotNicks = ref
-                                                              .read(
-                                                                customRobotsProvider,
-                                                              )
-                                                              .map(
-                                                                (robot) => robot
-                                                                    .nick
-                                                                    .toLowerCase(),
-                                                              )
-                                                              .toSet();
-                                                          for (final k
-                                                              in toRemove) {
-                                                            _ircService
-                                                                .allChannels
-                                                                .remove(k);
-                                                          }
-                                                          ref
-                                                              .read(
-                                                                messagesProvider
-                                                                    .notifier,
-                                                              )
-                                                              .clearPrivateMessages();
-                                                          ref
-                                                              .read(
-                                                                channelsProvider
-                                                                    .notifier,
-                                                              )
-                                                              .updateChannels();
-                                                          for (final ch
-                                                              in toRemove) {
-                                                            ref
-                                                                .read(
-                                                                  unreadMessagesProvider
-                                                                      .notifier,
-                                                                )
-                                                                .markAsRead(ch);
-                                                          }
-                                                          for (final recentPrivate
-                                                              in recentPrivates) {
-                                                            if (robotNicks.contains(
-                                                              recentPrivate
-                                                                  .toLowerCase(),
-                                                            )) {
-                                                              ref
-                                                                  .read(
-                                                                    recentChannelsProvider
-                                                                        .notifier,
-                                                                  )
-                                                                  .removeRecent(
-                                                                    recentPrivate,
-                                                                  );
-                                                            }
-                                                          }
-                                                          final cur = ref.read(
-                                                            currentChannelProvider,
-                                                          );
-                                                          if (cur != null &&
-                                                              !cur.startsWith(
-                                                                '#',
-                                                              )) {
-                                                            final remaining =
-                                                                _ircService
-                                                                    .allChannels
-                                                                    .keys
-                                                                    .where(
-                                                                      (k) => k
-                                                                          .startsWith(
-                                                                            '#',
-                                                                          ),
-                                                                    )
-                                                                    .toList();
-                                                            ref
-                                                                    .read(
-                                                                      currentChannelProvider
-                                                                          .notifier,
-                                                                    )
-                                                                    .state =
-                                                                remaining
-                                                                    .isNotEmpty
-                                                                ? remaining
-                                                                      .first
-                                                                : null;
-                                                          }
-                                                          if (mounted) {
-                                                            ScaffoldMessenger.of(
-                                                              context,
-                                                            ).showSnackBar(
-                                                              const SnackBar(
-                                                                content: Text(
-                                                                  'Todos los mensajes privados cerrados',
-                                                                ),
-                                                              ),
-                                                            );
-                                                          }
-                                                        },
-                                                        icon: Icon(
-                                                          Icons
-                                                              .close_fullscreen,
-                                                          size: 18,
-                                                          color: Colors.white
-                                                              .withValues(
-                                                                alpha: 0.7,
-                                                              ),
-                                                        ),
-                                                        label: Text(
-                                                          'Cerrar todos los privados',
-                                                          style: TextStyle(
-                                                            fontSize: 12,
-                                                            color: Colors.white
-                                                                .withValues(
-                                                                  alpha: 0.7,
-                                                                ),
-                                                          ),
-                                                        ),
-                                                      ),
-                                                    ),
-                                                  ],
-
-                                                  // Sección de Recientes cerrados
-                                                  if (recentOnly
-                                                      .isNotEmpty) ...[
-                                                    const SizedBox(height: 8),
-                                                    Container(
-                                                      padding:
-                                                          const EdgeInsets.symmetric(
-                                                            horizontal: 12,
-                                                            vertical: 8,
-                                                          ),
-                                                      child: Row(
-                                                        children: [
-                                                          Icon(
-                                                            Icons.history,
-                                                            size: 16,
-                                                            color: appTheme
-                                                                .textPrimary
-                                                                .withValues(
-                                                                  alpha: 0.6,
-                                                                ),
-                                                          ),
-                                                          const SizedBox(
-                                                            width: 6,
-                                                          ),
-                                                          Text(
-                                                            'RECIENTES',
-                                                            style: TextStyle(
-                                                              color: appTheme
-                                                                  .textPrimary
-                                                                  .withValues(
-                                                                    alpha: 0.6,
-                                                                  ),
-                                                              fontSize: 11,
-                                                              fontWeight:
-                                                                  FontWeight
-                                                                      .bold,
-                                                              letterSpacing:
-                                                                  1.2,
-                                                            ),
-                                                          ),
-                                                        ],
-                                                      ),
-                                                    ),
-                                                    ...recentOnly.map(
-                                                      (channel) =>
-                                                          _buildChannelItem(
-                                                            context,
-                                                            channel,
-                                                            !channel.startsWith(
-                                                              '#',
-                                                            ),
-                                                            appTheme,
-                                                            currentChannel,
-                                                            ref,
-                                                            false,
-                                                          ),
-                                                    ),
-                                                  ],
-                                                ],
-                                              );
-                                            },
-                                          ),
-                                        ),
-                                        Container(
-                                          padding: const EdgeInsets.all(12),
-                                          child: SizedBox(
-                                            width: double.infinity,
-                                            child: ElevatedButton.icon(
-                                              onPressed: () {
-                                                // Abrir el listado completo de canales en lugar del diálogo simple
-                                                showDialog(
-                                                  context: context,
-                                                  builder: (context) =>
-                                                      ChannelListDialog(
-                                                        ircService: _ircService,
-                                                      ),
-                                                );
+                                                  );
+                                                }
+                                                return const SizedBox.shrink();
                                               },
-                                              icon: Icon(
-                                                Icons.add,
-                                                color: AppTheme.contrastOn(
-                                                  appTheme.primary,
-                                                ),
-                                              ),
-                                              label: Text(
-                                                'Unirse',
-                                                style: TextStyle(
-                                                  color: AppTheme.contrastOn(
-                                                    appTheme.primary,
-                                                  ),
-                                                ),
-                                              ),
-                                              style: ElevatedButton.styleFrom(
-                                                backgroundColor:
-                                                    appTheme.primary,
-                                                foregroundColor:
-                                                    AppTheme.contrastOn(
-                                                      appTheme.primary,
-                                                    ),
-                                                elevation: 4,
-                                                shape: RoundedRectangleBorder(
-                                                  borderRadius:
-                                                      BorderRadius.circular(8),
-                                                ),
-                                              ),
                                             ),
-                                          ),
+                                          ],
                                         ),
-                                      ],
-                                    ),
-                                  );
-    final Widget usersSidebarContent = Container(
-                                    color: Colors.grey[900],
-                                    child: Column(
-                                      children: [
+                                      ),
+                                      // Mostrar etiqueta de Dueño
+                                      if ((userMode == '&' ||
+                                              userMode == '~') &&
+                                          !isGlobalChatBot &&
+                                          !isRobot) ...[
+                                        const SizedBox(width: 6),
                                         Container(
-                                          padding: const EdgeInsets.all(12),
-                                          decoration: BoxDecoration(
-                                            gradient: LinearGradient(
-                                              colors: [
-                                                appTheme.primary,
-                                                appTheme.secondary,
-                                              ],
-                                            ),
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 6,
+                                            vertical: 2,
                                           ),
-                                          child: Row(
-                                            children: [
-                                              Expanded(
-                                                child: Column(
-                                                  crossAxisAlignment:
-                                                      CrossAxisAlignment.start,
-                                                  children: [
-                                                    const Text(
-                                                      'Usuarios',
-                                                      style: TextStyle(
-                                                        color: Colors.white,
-                                                        fontWeight:
-                                                            FontWeight.bold,
-                                                        fontSize: 14,
-                                                      ),
-                                                    ),
-                                                    Text(
-                                                      '${channelUsers.length} usuarios',
-                                                      style: const TextStyle(
-                                                        color: Colors.white70,
-                                                        fontSize: 11,
-                                                      ),
-                                                    ),
-                                                  ],
-                                                ),
-                                              ),
-                                              // Botón para ocultar/mostrar lista de usuarios
-                                              IconButton(
-                                                icon: Icon(
-                                                  _showUserList
-                                                      ? Icons.visibility_off
-                                                      : Icons.visibility,
-                                                  color: Colors.white,
-                                                  size: 20,
-                                                ),
-                                                tooltip: _showUserList
-                                                    ? 'Ocultar lista de usuarios'
-                                                    : 'Mostrar lista de usuarios',
-                                                padding: EdgeInsets.zero,
-                                                constraints:
-                                                    const BoxConstraints(),
-                                                onPressed: () {
-                                                  if (PlatformUtils.isMobile) {
-                                                    Navigator.of(context).pop();
-                                                    return;
-                                                  }
-                                                  setState(() {
-                                                    _showUserList =
-                                                        !_showUserList;
-                                                  });
-                                                },
-                                              ),
-                                              // Icono de configuración del canal
-                                              IconButton(
-                                                icon: const Icon(
-                                                  Icons.settings,
-                                                  color: Colors.white,
-                                                  size: 20,
-                                                ),
-                                                tooltip:
-                                                    'Configuración del canal',
-                                                padding: EdgeInsets.zero,
-                                                constraints:
-                                                    const BoxConstraints(),
-                                                onPressed: () {
-                                                  _showChannelSettingsMenu(
-                                                    context,
-                                                    currentChannel!,
-                                                  );
-                                                },
+                                          decoration: BoxDecoration(
+                                            // Usar color rojo/naranja para Dueño
+                                            color: const Color(
+                                              0xFFFF5722,
+                                            ).withValues(alpha: 0.25),
+                                            borderRadius: BorderRadius.circular(
+                                              8,
+                                            ),
+                                            border: Border.all(
+                                              color: const Color(
+                                                0xFFFF5722,
+                                              ).withValues(alpha: 0.8),
+                                              width: 1.5,
+                                            ),
+                                            // Añadir sombra sutil para mejor contraste
+                                            boxShadow: [
+                                              BoxShadow(
+                                                color: const Color(
+                                                  0xFFFF5722,
+                                                ).withValues(alpha: 0.3),
+                                                blurRadius: 4,
+                                                spreadRadius: 0.5,
                                               ),
                                             ],
                                           ),
+                                          child: Text(
+                                            'Dueño',
+                                            style: TextStyle(
+                                              // Usar color rojo/naranja para Dueño
+                                              color: const Color(0xFFFF5722),
+                                              fontSize: 9,
+                                              fontWeight: FontWeight.bold,
+                                              letterSpacing: 0.3,
+                                              // Añadir sombra al texto para mejor legibilidad
+                                              shadows: [
+                                                Shadow(
+                                                  color: appTheme.background
+                                                      .withValues(alpha: 0.8),
+                                                  blurRadius: 2,
+                                                  offset: const Offset(0, 0.5),
+                                                ),
+                                              ],
+                                            ),
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
                                         ),
-                                        if (_showUserList)
-                                          if (channelUsers.isEmpty)
-                                            const Expanded(
-                                              child: Center(
-                                                child: Text(
-                                                  'Aún no hay usuarios',
-                                                  style: TextStyle(
-                                                    color: Colors.white70,
-                                                  ),
+                                      ],
+                                      // Mostrar etiqueta de Operador
+                                      if (userMode == '@' &&
+                                          !isGlobalChatBot &&
+                                          !isRobot) ...[
+                                        const SizedBox(width: 6),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 6,
+                                            vertical: 2,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            // Usar accent o primary con mayor opacidad para mejor visibilidad
+                                            color: appTheme.accent.withValues(
+                                              alpha: 0.25,
+                                            ),
+                                            borderRadius: BorderRadius.circular(
+                                              8,
+                                            ),
+                                            border: Border.all(
+                                              color: appTheme.accent.withValues(
+                                                alpha: 0.8,
+                                              ),
+                                              width: 1.5,
+                                            ),
+                                            // Añadir sombra sutil para mejor contraste
+                                            boxShadow: [
+                                              BoxShadow(
+                                                color: appTheme.accent
+                                                    .withValues(alpha: 0.3),
+                                                blurRadius: 4,
+                                                spreadRadius: 0.5,
+                                              ),
+                                            ],
+                                          ),
+                                          child: Text(
+                                            'Operador',
+                                            style: TextStyle(
+                                              // Usar accent o primary más brillante para mejor contraste
+                                              color: appTheme.accent,
+                                              fontSize: 9,
+                                              fontWeight: FontWeight.bold,
+                                              letterSpacing: 0.3,
+                                              // Añadir sombra al texto para mejor legibilidad
+                                              shadows: [
+                                                Shadow(
+                                                  color: appTheme.background
+                                                      .withValues(alpha: 0.8),
+                                                  blurRadius: 2,
+                                                  offset: const Offset(0, 0.5),
+                                                ),
+                                              ],
+                                            ),
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                      ],
+                                      // Mostrar etiqueta de Voz (+v)
+                                      if (userMode == '+' &&
+                                          !isGlobalChatBot &&
+                                          !isRobot) ...[
+                                        const SizedBox(width: 6),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 6,
+                                            vertical: 2,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            // Usar color morado para Voz
+                                            color: const Color(
+                                              0xFF9C27B0,
+                                            ).withValues(alpha: 0.25),
+                                            borderRadius: BorderRadius.circular(
+                                              8,
+                                            ),
+                                            border: Border.all(
+                                              color: const Color(
+                                                0xFF9C27B0,
+                                              ).withValues(alpha: 0.8),
+                                              width: 1.5,
+                                            ),
+                                            // Añadir sombra sutil para mejor contraste
+                                            boxShadow: [
+                                              BoxShadow(
+                                                color: const Color(
+                                                  0xFF9C27B0,
+                                                ).withValues(alpha: 0.3),
+                                                blurRadius: 4,
+                                                spreadRadius: 0.5,
+                                              ),
+                                            ],
+                                          ),
+                                          child: Text(
+                                            'Voz',
+                                            style: TextStyle(
+                                              // Usar color morado para Voz
+                                              color: const Color(0xFF9C27B0),
+                                              fontSize: 9,
+                                              fontWeight: FontWeight.bold,
+                                              letterSpacing: 0.3,
+                                              // Añadir sombra al texto para mejor legibilidad
+                                              shadows: [
+                                                Shadow(
+                                                  color: appTheme.background
+                                                      .withValues(alpha: 0.8),
+                                                  blurRadius: 2,
+                                                  offset: const Offset(0, 0.5),
+                                                ),
+                                              ],
+                                            ),
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                      ],
+                                      // Mostrar etiqueta de Hop (+h o %)
+                                      if ((userMode == '%' ||
+                                              userMode == 'h') &&
+                                          !isGlobalChatBot &&
+                                          !isRobot) ...[
+                                        const SizedBox(width: 6),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 6,
+                                            vertical: 2,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            // Usar color verde para Hop
+                                            color: const Color(
+                                              0xFF4CAF50,
+                                            ).withValues(alpha: 0.25),
+                                            borderRadius: BorderRadius.circular(
+                                              8,
+                                            ),
+                                            border: Border.all(
+                                              color: const Color(
+                                                0xFF4CAF50,
+                                              ).withValues(alpha: 0.8),
+                                              width: 1.5,
+                                            ),
+                                            // Añadir sombra sutil para mejor contraste
+                                            boxShadow: [
+                                              BoxShadow(
+                                                color: const Color(
+                                                  0xFF4CAF50,
+                                                ).withValues(alpha: 0.3),
+                                                blurRadius: 4,
+                                                spreadRadius: 0.5,
+                                              ),
+                                            ],
+                                          ),
+                                          child: Text(
+                                            'Hop',
+                                            style: TextStyle(
+                                              // Usar color verde para Hop
+                                              color: const Color(0xFF4CAF50),
+                                              fontSize: 9,
+                                              fontWeight: FontWeight.bold,
+                                              letterSpacing: 0.3,
+                                              // Añadir sombra al texto para mejor legibilidad
+                                              shadows: [
+                                                Shadow(
+                                                  color: appTheme.background
+                                                      .withValues(alpha: 0.8),
+                                                  blurRadius: 2,
+                                                  offset: const Offset(0, 0.5),
+                                                ),
+                                              ],
+                                            ),
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                      ],
+                                      // Mostrar etiqueta de Robot si es robot (incluso si también es operador)
+                                      if (isRobot) ...[
+                                        const SizedBox(width: 6),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 6,
+                                            vertical: 2,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            // Usar color dorado para robots
+                                            color: const Color(
+                                              0xFFFFD700,
+                                            ).withValues(alpha: 0.25),
+                                            borderRadius: BorderRadius.circular(
+                                              8,
+                                            ),
+                                            border: Border.all(
+                                              color: const Color(
+                                                0xFFFFD700,
+                                              ).withValues(alpha: 0.8),
+                                              width: 1.5,
+                                            ),
+                                            // Añadir sombra sutil para mejor contraste
+                                            boxShadow: [
+                                              BoxShadow(
+                                                color: const Color(
+                                                  0xFFFFD700,
+                                                ).withValues(alpha: 0.3),
+                                                blurRadius: 4,
+                                                spreadRadius: 0.5,
+                                              ),
+                                            ],
+                                          ),
+                                          child: Text(
+                                            'Robot',
+                                            style: TextStyle(
+                                              // Usar color dorado para robots
+                                              color: const Color(0xFFFFD700),
+                                              fontSize: 9,
+                                              fontWeight: FontWeight.bold,
+                                              letterSpacing: 0.3,
+                                              // Añadir sombra al texto para mejor legibilidad
+                                              shadows: [
+                                                Shadow(
+                                                  color: appTheme.background
+                                                      .withValues(alpha: 0.8),
+                                                  blurRadius: 2,
+                                                  offset: const Offset(0, 0.5),
+                                                ),
+                                              ],
+                                            ),
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                      ],
+                                      // Etiqueta DJ en vivo (Qualia Radio)
+                                      if (isLiveDj && !isRobot) ...[
+                                        const SizedBox(width: 6),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 6,
+                                            vertical: 2,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: const Color(
+                                              0xFF8E44AD,
+                                            ).withValues(alpha: 0.35),
+                                            borderRadius: BorderRadius.circular(
+                                              8,
+                                            ),
+                                            border: Border.all(
+                                              color: const Color(
+                                                0xFFCE93D8,
+                                              ).withValues(alpha: 0.9),
+                                              width: 1.5,
+                                            ),
+                                            boxShadow: [
+                                              BoxShadow(
+                                                color: const Color(
+                                                  0xFF8E44AD,
+                                                ).withValues(alpha: 0.35),
+                                                blurRadius: 4,
+                                                spreadRadius: 0.5,
+                                              ),
+                                            ],
+                                          ),
+                                          child: const Text(
+                                            'DJ',
+                                            style: TextStyle(
+                                              color: Color(0xFFCE93D8),
+                                              fontSize: 9,
+                                              fontWeight: FontWeight.bold,
+                                              letterSpacing: 0.3,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ],
+                                  );
+                                },
+                              ),
+                              trailing: Builder(
+                                builder: (ctx) {
+                                  final cNick = ref.read(
+                                    currentNicknameProvider,
+                                  );
+                                  final isSelf =
+                                      cNick != null &&
+                                      user.toLowerCase() == cNick.toLowerCase();
+                                  return Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      if (!isSelf)
+                                        GestureDetector(
+                                          onTap: () => _sendPrivateKiss(user),
+                                          child: Padding(
+                                            padding: const EdgeInsets.all(8.0),
+                                            child: const Text(
+                                              '💋',
+                                              style: TextStyle(fontSize: 16),
+                                            ),
+                                          ),
+                                        ),
+                                      GestureDetector(
+                                        onTap: () {
+                                          if (!isSelf) {
+                                            _ircService.sendPoke(user);
+                                            ScaffoldMessenger.of(
+                                              context,
+                                            ).showSnackBar(
+                                              SnackBar(
+                                                content: Row(
+                                                  children: [
+                                                    const Icon(
+                                                      Icons.vibration,
+                                                      color: Colors.white,
+                                                      size: 20,
+                                                    ),
+                                                    const SizedBox(width: 8),
+                                                    Text(
+                                                      'Zumbido enviado a $user',
+                                                    ),
+                                                  ],
+                                                ),
+                                                duration: const Duration(
+                                                  seconds: 2,
+                                                ),
+                                                backgroundColor:
+                                                    Colors.teal.shade700,
+                                                behavior:
+                                                    SnackBarBehavior.floating,
+                                                shape: RoundedRectangleBorder(
+                                                  borderRadius:
+                                                      BorderRadius.circular(10),
                                                 ),
                                               ),
-                                            )
-                                          else
-                                            Expanded(
-                                              child: Builder(
-                                                builder: (context) {
-                                                  // Obtener el canal actual del provider
-                                                  final currentChannel = ref
-                                                      .read(
-                                                        currentChannelProvider,
-                                                      );
-                                                  final liveDjNick = ref.watch(
-                                                    qualiaRadioLiveDjProvider,
-                                                  );
-                                                  final isQualiaChannel =
-                                                      currentChannel
-                                                          ?.toLowerCase() ==
-                                                      '#qualiaradio';
-                                                  bool isQualiaLiveDj(
-                                                    String nick,
-                                                  ) =>
-                                                      isQualiaChannel &&
-                                                      liveDjNick != null &&
-                                                      nick.toLowerCase() ==
-                                                          liveDjNick
-                                                              .toLowerCase();
-                                                  // Obtener el canal para acceder a los modos
-                                                  IRCChannel?
-                                                  currentChannelData;
-                                                  if (channelKey != null &&
-                                                      channels.containsKey(
-                                                        channelKey,
-                                                      )) {
-                                                    currentChannelData =
-                                                        channels[channelKey];
-                                                  }
-
-                                                  // Organizar usuarios por tipo y ordenar
-                                                  // Función para obtener la prioridad del modo
-                                                  // Orden: Dueño (~) > Dueño (&) > Operador > Voz > Hop > Robots > Usuarios normales
-                                                  int getModePriority(
-                                                    String? mode,
-                                                    bool isRobot, {
-                                                    bool isLiveDj = false,
-                                                  }) {
-                                                    // DJ en vivo (Qualia Radio), antes de robots.
-                                                    if (isLiveDj && !isRobot) {
-                                                      return 5;
-                                                    }
-                                                    // Si es robot, va después de moderadores pero antes de usuarios normales
-                                                    if (isRobot) {
-                                                      return 6; // Robots después de moderadores
-                                                    }
-
-                                                    // Si no es robot, verificar el modo
-                                                    if (mode != null &&
-                                                        mode.isNotEmpty) {
-                                                      switch (mode) {
-                                                        case '~':
-                                                          return 0; // Dueño (más alto, encima de todos)
-                                                        case '&':
-                                                          return 1; // Dueño
-                                                        case '@':
-                                                          return 2; // Operador
-                                                        case '+':
-                                                          return 3; // Voz
-                                                        case '%':
-                                                          return 4; // Hop
-                                                        default:
-                                                          break; // Si el modo no es reconocido, continuar
-                                                      }
-                                                    }
-                                                    // Si no tiene modo ni es robot, es usuario normal (al final)
-                                                    return 7;
-                                                  }
-
-                                                  // Obtener robots personalizados para la detección
-                                                  final customRobots = ref.read(
-                                                    customRobotsProvider,
-                                                  );
-                                                  final customRobotsData =
-                                                      customRobots
-                                                          .map(
-                                                            (r) => {
-                                                              'nick': r.nick,
-                                                              'icon': r.icon,
-                                                              'host': r.host,
-                                                            },
-                                                          )
-                                                          .toList();
-
-                                                  // Usar la lista de usuarios del canal actual (currentChannelData) en lugar de channelUsers
-                                                  // para asegurar que tenemos la lista más actualizada con los modos correctos
-                                                  final usersToSort =
-                                                      currentChannelData
-                                                          ?.users ??
-                                                      channelUsers;
-
-                                                  // Crear lista ordenada de usuarios
-                                                  final sortedUsers =
-                                                      <String>[];
-                                                  sortedUsers.addAll(
-                                                    usersToSort,
-                                                  );
-
-                                                  // Ordenar usuarios por prioridad y luego alfabéticamente
-                                                  // Asegurarse de que el ordenamiento siempre se ejecute
-                                                  sortedUsers.sort((a, b) {
-                                                    // Obtener modos de forma robusta
-                                                    String? modeA;
-                                                    String? modeB;
-                                                    bool isRobotA = false;
-                                                    bool isRobotB = false;
-
-                                                    // Siempre intentar obtener los datos del canal si está disponible
-                                                    if (currentChannelData !=
-                                                        null) {
-                                                      modeA = currentChannelData
-                                                          .getUserMode(a);
-                                                      modeB = currentChannelData
-                                                          .getUserMode(b);
-                                                      isRobotA = currentChannelData
-                                                          .isRobot(
-                                                            a,
-                                                            customRobots:
-                                                                customRobotsData,
-                                                          );
-                                                      isRobotB = currentChannelData
-                                                          .isRobot(
-                                                            b,
-                                                            customRobots:
-                                                                customRobotsData,
-                                                          );
-                                                    } else if (channelKey !=
-                                                            null &&
-                                                        channels.containsKey(
-                                                          channelKey,
-                                                        )) {
-                                                      // Fallback: usar el canal del mapa directamente
-                                                      final channelData =
-                                                          channels[channelKey]!;
-                                                      modeA = channelData
-                                                          .getUserMode(a);
-                                                      modeB = channelData
-                                                          .getUserMode(b);
-                                                      isRobotA = channelData
-                                                          .isRobot(
-                                                            a,
-                                                            customRobots:
-                                                                customRobotsData,
-                                                          );
-                                                      isRobotB = channelData
-                                                          .isRobot(
-                                                            b,
-                                                            customRobots:
-                                                                customRobotsData,
-                                                          );
-                                                    }
-
-                                                    final priorityA =
-                                                        getModePriority(
-                                                          modeA,
-                                                          isRobotA,
-                                                          isLiveDj:
-                                                              isQualiaLiveDj(a),
-                                                        );
-                                                    final priorityB =
-                                                        getModePriority(
-                                                          modeB,
-                                                          isRobotB,
-                                                          isLiveDj:
-                                                              isQualiaLiveDj(b),
-                                                        );
-
-                                                    // Primero ordenar por prioridad
-                                                    if (priorityA !=
-                                                        priorityB) {
-                                                      return priorityA
-                                                          .compareTo(priorityB);
-                                                    }
-                                                    // Si tienen la misma prioridad, ordenar alfabéticamente
-                                                    return a
-                                                        .toLowerCase()
-                                                        .compareTo(
-                                                          b.toLowerCase(),
-                                                        );
-                                                  });
-
-                                                  return ListView.builder(
-                                                    itemCount:
-                                                        sortedUsers.length,
-                                                    cacheExtent:
-                                                        500, // Cache para mejor scroll
-                                                    itemBuilder: (context, index) {
-                                                      final user =
-                                                          sortedUsers[index];
-                                                      // Obtener el modo del usuario con fallback
-                                                      String? userMode;
-                                                      bool isRobot = false;
-                                                      final isLiveDj =
-                                                          isQualiaLiveDj(user);
-
-                                                      if (currentChannelData !=
-                                                          null) {
-                                                        userMode =
-                                                            currentChannelData
-                                                                .getUserMode(
-                                                                  user,
-                                                                );
-                                                        isRobot = currentChannelData
-                                                            .isRobot(
-                                                              user,
-                                                              customRobots:
-                                                                  customRobotsData,
-                                                            );
-                                                        // Debug para todos los usuarios (temporal para diagnosticar)
-                                                        debugLog(
-                                                          '🔍 [DEBUG USER LIST] Usuario: "$user", isRobot: $isRobot, userMode: $userMode, customRobots: ${customRobotsData.length}',
-                                                        );
-                                                      } else if (channelKey !=
-                                                              null &&
-                                                          channels.containsKey(
-                                                            channelKey,
-                                                          )) {
-                                                        final channelData =
-                                                            channels[channelKey]!;
-                                                        userMode = channelData
-                                                            .getUserMode(user);
-                                                        isRobot = channelData
-                                                            .isRobot(
-                                                              user,
-                                                              customRobots:
-                                                                  customRobotsData,
-                                                            );
-                                                        // Debug para todos los usuarios (temporal para diagnosticar)
-                                                        debugLog(
-                                                          '🔍 [DEBUG USER LIST] Usuario: "$user", isRobot: $isRobot, userMode: $userMode (usando channelData), customRobots: ${customRobotsData.length}',
-                                                        );
-                                                      } else {
-                                                        // Si no hay channelData, asegurarse de que isRobot sea false
-                                                        isRobot = false;
-                                                        debugLog(
-                                                          '🔍 [DEBUG USER LIST] Usuario: "$user", isRobot: $isRobot (sin channelData)',
-                                                        );
-                                                      }
-
-                                                      // Debug: verificar detección de robot para "globalchat"
-                                                      if (user.toLowerCase() ==
-                                                              'globalchat' &&
-                                                          currentChannel
-                                                                  ?.toLowerCase() ==
-                                                              '#globalchat') {
-                                                        debugLog(
-                                                          '🔍 [DEBUG] Usuario: $user, Canal: $currentChannel, isRobot: $isRobot, userMode: $userMode',
-                                                        );
-                                                        debugLog(
-                                                          '🔍 [DEBUG] currentChannelData?.name: ${currentChannelData?.name}',
-                                                        );
-                                                      }
-
-                                                      final userIcon =
-                                                          _getUserIcon(
-                                                            userMode,
-                                                            isRobot,
-                                                            nick: user,
-                                                          );
-
-                                                      // Debug adicional para robots
-                                                      if (isRobot &&
-                                                          user.toLowerCase() ==
-                                                              'globalchat') {
-                                                        debugLog(
-                                                          '🤖 [DEBUG] userIcon generado para robot "$user": "$userIcon"',
-                                                        );
-                                                      }
-
-                                                      final appTheme = ref.read(
-                                                        themeProvider,
-                                                      );
-                                                      // Generar color para el avatar
-                                                      final nickHash =
-                                                          user.hashCode;
-                                                      final userColor = isRobot
-                                                          ? const Color(
-                                                              0xFFFFD700,
-                                                            )
-                                                          : _getUserColor(
-                                                              nickHash,
-                                                            );
-
-                                                      return GestureDetector(
-                                                        onDoubleTap: () {
-                                                          // Abrir mensaje privado con doble clic (excepto si es el propio nick)
-                                                          final currentNick =
-                                                              ref.read(
-                                                                currentNicknameProvider,
-                                                              );
-                                                          if (currentNick !=
-                                                                  null &&
-                                                              user
-                                                                      .toLowerCase() !=
-                                                                  currentNick
-                                                                      .toLowerCase()) {
-                                                            _openPrivateMessage(
-                                                              user,
-                                                            );
-                                                          }
-                                                        },
-                                                        child: Padding(
-                                                          padding:
-                                                              const EdgeInsets.symmetric(
-                                                                vertical: 4.0,
-                                                              ),
-                                                          child: ListTile(
-                                                            dense: true,
-                                                            leading: UserAvatar(
-                                                              nick: user,
-                                                              size: 48,
-                                                              fallbackIcon:
-                                                                  isRobot
-                                                                  ? userIcon
-                                                                  : null,
-                                                              isRobot: isRobot,
-                                                              gradient: isRobot
-                                                                  ? LinearGradient(
-                                                                      colors: [
-                                                                        const Color(
-                                                                          0xFFFFD700,
-                                                                        ),
-                                                                        const Color(
-                                                                          0xFFFFA500,
-                                                                        ),
-                                                                      ],
-                                                                      begin: Alignment
-                                                                          .topLeft,
-                                                                      end: Alignment
-                                                                          .bottomRight,
-                                                                    )
-                                                                  : LinearGradient(
-                                                                      colors: [
-                                                                        userColor,
-                                                                        userColor.withValues(
-                                                                          alpha:
-                                                                              0.7,
-                                                                        ),
-                                                                      ],
-                                                                      begin: Alignment
-                                                                          .topLeft,
-                                                                      end: Alignment
-                                                                          .bottomRight,
-                                                                    ),
-                                                              boxShadow: [
-                                                                BoxShadow(
-                                                                  color: isRobot
-                                                                      ? const Color(
-                                                                          0xFFFFD700,
-                                                                        ).withValues(
-                                                                          alpha:
-                                                                              0.5,
-                                                                        )
-                                                                      : userColor.withValues(
-                                                                          alpha:
-                                                                              0.4,
-                                                                        ),
-                                                                  blurRadius: 4,
-                                                                  offset:
-                                                                      const Offset(
-                                                                        0,
-                                                                        1,
-                                                                      ),
-                                                                ),
-                                                              ],
-                                                              border: isRobot
-                                                                  ? Border.all(
-                                                                      color:
-                                                                          const Color(
-                                                                            0xFFFFD700,
-                                                                          ).withValues(
-                                                                            alpha:
-                                                                                0.6,
-                                                                          ),
-                                                                      width:
-                                                                          1.5,
-                                                                    )
-                                                                  : null,
-                                                            ),
-                                                            title: Builder(
-                                                              builder: (context) {
-                                                                // Detectar si es GlobalChat (bot oficial)
-                                                                final isGlobalChatBot =
-                                                                    user.toLowerCase() ==
-                                                                    'globalchat';
-                                                                return Row(
-                                                                  mainAxisSize:
-                                                                      MainAxisSize
-                                                                          .min,
-                                                                  children: [
-                                                                    if (isLiveDj) ...[
-                                                                      const Text(
-                                                                        '🎧',
-                                                                        style: TextStyle(
-                                                                          fontSize:
-                                                                              12,
-                                                                        ),
-                                                                      ),
-                                                                      const SizedBox(
-                                                                        width:
-                                                                            4,
-                                                                      ),
-                                                                    ],
-                                                                    Flexible(
-                                                                      child: Text(
-                                                                        user,
-                                                                        style: TextStyle(
-                                                                          color:
-                                                                              Colors.white,
-                                                                          fontSize:
-                                                                              12,
-                                                                          fontWeight:
-                                                                              (isRobot ||
-                                                                                  userMode !=
-                                                                                      null ||
-                                                                                  isLiveDj)
-                                                                              ? FontWeight.bold
-                                                                              : FontWeight.normal,
-                                                                        ),
-                                                                        overflow:
-                                                                            TextOverflow.ellipsis,
-                                                                      ),
-                                                                    ),
-                                                                    // Mostrar etiqueta de Dueño
-                                                                    if ((userMode ==
-                                                                                '&' ||
-                                                                            userMode ==
-                                                                                '~') &&
-                                                                        !isGlobalChatBot &&
-                                                                        !isRobot) ...[
-                                                                      const SizedBox(
-                                                                        width:
-                                                                            6,
-                                                                      ),
-                                                                      Container(
-                                                                        padding: const EdgeInsets.symmetric(
-                                                                          horizontal:
-                                                                              6,
-                                                                          vertical:
-                                                                              2,
-                                                                        ),
-                                                                        decoration: BoxDecoration(
-                                                                          // Usar color rojo/naranja para Dueño
-                                                                          color:
-                                                                              const Color(
-                                                                                0xFFFF5722,
-                                                                              ).withValues(
-                                                                                alpha: 0.25,
-                                                                              ),
-                                                                          borderRadius:
-                                                                              BorderRadius.circular(
-                                                                                8,
-                                                                              ),
-                                                                          border: Border.all(
-                                                                            color:
-                                                                                const Color(
-                                                                                  0xFFFF5722,
-                                                                                ).withValues(
-                                                                                  alpha: 0.8,
-                                                                                ),
-                                                                            width:
-                                                                                1.5,
-                                                                          ),
-                                                                          // Añadir sombra sutil para mejor contraste
-                                                                          boxShadow: [
-                                                                            BoxShadow(
-                                                                              color:
-                                                                                  const Color(
-                                                                                    0xFFFF5722,
-                                                                                  ).withValues(
-                                                                                    alpha: 0.3,
-                                                                                  ),
-                                                                              blurRadius: 4,
-                                                                              spreadRadius: 0.5,
-                                                                            ),
-                                                                          ],
-                                                                        ),
-                                                                        child: Text(
-                                                                          'Dueño',
-                                                                          style: TextStyle(
-                                                                            // Usar color rojo/naranja para Dueño
-                                                                            color: const Color(
-                                                                              0xFFFF5722,
-                                                                            ),
-                                                                            fontSize:
-                                                                                9,
-                                                                            fontWeight:
-                                                                                FontWeight.bold,
-                                                                            letterSpacing:
-                                                                                0.3,
-                                                                            // Añadir sombra al texto para mejor legibilidad
-                                                                            shadows: [
-                                                                              Shadow(
-                                                                                color: appTheme.background.withValues(
-                                                                                  alpha: 0.8,
-                                                                                ),
-                                                                                blurRadius: 2,
-                                                                                offset: const Offset(
-                                                                                  0,
-                                                                                  0.5,
-                                                                                ),
-                                                                              ),
-                                                                            ],
-                                                                          ),
-                                                                          overflow:
-                                                                              TextOverflow.ellipsis,
-                                                                        ),
-                                                                      ),
-                                                                    ],
-                                                                    // Mostrar etiqueta de Operador
-                                                                    if (userMode ==
-                                                                            '@' &&
-                                                                        !isGlobalChatBot &&
-                                                                        !isRobot) ...[
-                                                                      const SizedBox(
-                                                                        width:
-                                                                            6,
-                                                                      ),
-                                                                      Container(
-                                                                        padding: const EdgeInsets.symmetric(
-                                                                          horizontal:
-                                                                              6,
-                                                                          vertical:
-                                                                              2,
-                                                                        ),
-                                                                        decoration: BoxDecoration(
-                                                                          // Usar accent o primary con mayor opacidad para mejor visibilidad
-                                                                          color: appTheme.accent.withValues(
-                                                                            alpha:
-                                                                                0.25,
-                                                                          ),
-                                                                          borderRadius:
-                                                                              BorderRadius.circular(
-                                                                                8,
-                                                                              ),
-                                                                          border: Border.all(
-                                                                            color: appTheme.accent.withValues(
-                                                                              alpha: 0.8,
-                                                                            ),
-                                                                            width:
-                                                                                1.5,
-                                                                          ),
-                                                                          // Añadir sombra sutil para mejor contraste
-                                                                          boxShadow: [
-                                                                            BoxShadow(
-                                                                              color: appTheme.accent.withValues(
-                                                                                alpha: 0.3,
-                                                                              ),
-                                                                              blurRadius: 4,
-                                                                              spreadRadius: 0.5,
-                                                                            ),
-                                                                          ],
-                                                                        ),
-                                                                        child: Text(
-                                                                          'Operador',
-                                                                          style: TextStyle(
-                                                                            // Usar accent o primary más brillante para mejor contraste
-                                                                            color:
-                                                                                appTheme.accent,
-                                                                            fontSize:
-                                                                                9,
-                                                                            fontWeight:
-                                                                                FontWeight.bold,
-                                                                            letterSpacing:
-                                                                                0.3,
-                                                                            // Añadir sombra al texto para mejor legibilidad
-                                                                            shadows: [
-                                                                              Shadow(
-                                                                                color: appTheme.background.withValues(
-                                                                                  alpha: 0.8,
-                                                                                ),
-                                                                                blurRadius: 2,
-                                                                                offset: const Offset(
-                                                                                  0,
-                                                                                  0.5,
-                                                                                ),
-                                                                              ),
-                                                                            ],
-                                                                          ),
-                                                                          overflow:
-                                                                              TextOverflow.ellipsis,
-                                                                        ),
-                                                                      ),
-                                                                    ],
-                                                                    // Mostrar etiqueta de Voz (+v)
-                                                                    if (userMode ==
-                                                                            '+' &&
-                                                                        !isGlobalChatBot &&
-                                                                        !isRobot) ...[
-                                                                      const SizedBox(
-                                                                        width:
-                                                                            6,
-                                                                      ),
-                                                                      Container(
-                                                                        padding: const EdgeInsets.symmetric(
-                                                                          horizontal:
-                                                                              6,
-                                                                          vertical:
-                                                                              2,
-                                                                        ),
-                                                                        decoration: BoxDecoration(
-                                                                          // Usar color morado para Voz
-                                                                          color:
-                                                                              const Color(
-                                                                                0xFF9C27B0,
-                                                                              ).withValues(
-                                                                                alpha: 0.25,
-                                                                              ),
-                                                                          borderRadius:
-                                                                              BorderRadius.circular(
-                                                                                8,
-                                                                              ),
-                                                                          border: Border.all(
-                                                                            color:
-                                                                                const Color(
-                                                                                  0xFF9C27B0,
-                                                                                ).withValues(
-                                                                                  alpha: 0.8,
-                                                                                ),
-                                                                            width:
-                                                                                1.5,
-                                                                          ),
-                                                                          // Añadir sombra sutil para mejor contraste
-                                                                          boxShadow: [
-                                                                            BoxShadow(
-                                                                              color:
-                                                                                  const Color(
-                                                                                    0xFF9C27B0,
-                                                                                  ).withValues(
-                                                                                    alpha: 0.3,
-                                                                                  ),
-                                                                              blurRadius: 4,
-                                                                              spreadRadius: 0.5,
-                                                                            ),
-                                                                          ],
-                                                                        ),
-                                                                        child: Text(
-                                                                          'Voz',
-                                                                          style: TextStyle(
-                                                                            // Usar color morado para Voz
-                                                                            color: const Color(
-                                                                              0xFF9C27B0,
-                                                                            ),
-                                                                            fontSize:
-                                                                                9,
-                                                                            fontWeight:
-                                                                                FontWeight.bold,
-                                                                            letterSpacing:
-                                                                                0.3,
-                                                                            // Añadir sombra al texto para mejor legibilidad
-                                                                            shadows: [
-                                                                              Shadow(
-                                                                                color: appTheme.background.withValues(
-                                                                                  alpha: 0.8,
-                                                                                ),
-                                                                                blurRadius: 2,
-                                                                                offset: const Offset(
-                                                                                  0,
-                                                                                  0.5,
-                                                                                ),
-                                                                              ),
-                                                                            ],
-                                                                          ),
-                                                                          overflow:
-                                                                              TextOverflow.ellipsis,
-                                                                        ),
-                                                                      ),
-                                                                    ],
-                                                                    // Mostrar etiqueta de Hop (+h o %)
-                                                                    if ((userMode ==
-                                                                                '%' ||
-                                                                            userMode ==
-                                                                                'h') &&
-                                                                        !isGlobalChatBot &&
-                                                                        !isRobot) ...[
-                                                                      const SizedBox(
-                                                                        width:
-                                                                            6,
-                                                                      ),
-                                                                      Container(
-                                                                        padding: const EdgeInsets.symmetric(
-                                                                          horizontal:
-                                                                              6,
-                                                                          vertical:
-                                                                              2,
-                                                                        ),
-                                                                        decoration: BoxDecoration(
-                                                                          // Usar color verde para Hop
-                                                                          color:
-                                                                              const Color(
-                                                                                0xFF4CAF50,
-                                                                              ).withValues(
-                                                                                alpha: 0.25,
-                                                                              ),
-                                                                          borderRadius:
-                                                                              BorderRadius.circular(
-                                                                                8,
-                                                                              ),
-                                                                          border: Border.all(
-                                                                            color:
-                                                                                const Color(
-                                                                                  0xFF4CAF50,
-                                                                                ).withValues(
-                                                                                  alpha: 0.8,
-                                                                                ),
-                                                                            width:
-                                                                                1.5,
-                                                                          ),
-                                                                          // Añadir sombra sutil para mejor contraste
-                                                                          boxShadow: [
-                                                                            BoxShadow(
-                                                                              color:
-                                                                                  const Color(
-                                                                                    0xFF4CAF50,
-                                                                                  ).withValues(
-                                                                                    alpha: 0.3,
-                                                                                  ),
-                                                                              blurRadius: 4,
-                                                                              spreadRadius: 0.5,
-                                                                            ),
-                                                                          ],
-                                                                        ),
-                                                                        child: Text(
-                                                                          'Hop',
-                                                                          style: TextStyle(
-                                                                            // Usar color verde para Hop
-                                                                            color: const Color(
-                                                                              0xFF4CAF50,
-                                                                            ),
-                                                                            fontSize:
-                                                                                9,
-                                                                            fontWeight:
-                                                                                FontWeight.bold,
-                                                                            letterSpacing:
-                                                                                0.3,
-                                                                            // Añadir sombra al texto para mejor legibilidad
-                                                                            shadows: [
-                                                                              Shadow(
-                                                                                color: appTheme.background.withValues(
-                                                                                  alpha: 0.8,
-                                                                                ),
-                                                                                blurRadius: 2,
-                                                                                offset: const Offset(
-                                                                                  0,
-                                                                                  0.5,
-                                                                                ),
-                                                                              ),
-                                                                            ],
-                                                                          ),
-                                                                          overflow:
-                                                                              TextOverflow.ellipsis,
-                                                                        ),
-                                                                      ),
-                                                                    ],
-                                                                    // Mostrar etiqueta de Robot si es robot (incluso si también es operador)
-                                                                    if (isRobot) ...[
-                                                                      const SizedBox(
-                                                                        width:
-                                                                            6,
-                                                                      ),
-                                                                      Container(
-                                                                        padding: const EdgeInsets.symmetric(
-                                                                          horizontal:
-                                                                              6,
-                                                                          vertical:
-                                                                              2,
-                                                                        ),
-                                                                        decoration: BoxDecoration(
-                                                                          // Usar color dorado para robots
-                                                                          color:
-                                                                              const Color(
-                                                                                0xFFFFD700,
-                                                                              ).withValues(
-                                                                                alpha: 0.25,
-                                                                              ),
-                                                                          borderRadius:
-                                                                              BorderRadius.circular(
-                                                                                8,
-                                                                              ),
-                                                                          border: Border.all(
-                                                                            color:
-                                                                                const Color(
-                                                                                  0xFFFFD700,
-                                                                                ).withValues(
-                                                                                  alpha: 0.8,
-                                                                                ),
-                                                                            width:
-                                                                                1.5,
-                                                                          ),
-                                                                          // Añadir sombra sutil para mejor contraste
-                                                                          boxShadow: [
-                                                                            BoxShadow(
-                                                                              color:
-                                                                                  const Color(
-                                                                                    0xFFFFD700,
-                                                                                  ).withValues(
-                                                                                    alpha: 0.3,
-                                                                                  ),
-                                                                              blurRadius: 4,
-                                                                              spreadRadius: 0.5,
-                                                                            ),
-                                                                          ],
-                                                                        ),
-                                                                        child: Text(
-                                                                          'Robot',
-                                                                          style: TextStyle(
-                                                                            // Usar color dorado para robots
-                                                                            color: const Color(
-                                                                              0xFFFFD700,
-                                                                            ),
-                                                                            fontSize:
-                                                                                9,
-                                                                            fontWeight:
-                                                                                FontWeight.bold,
-                                                                            letterSpacing:
-                                                                                0.3,
-                                                                            // Añadir sombra al texto para mejor legibilidad
-                                                                            shadows: [
-                                                                              Shadow(
-                                                                                color: appTheme.background.withValues(
-                                                                                  alpha: 0.8,
-                                                                                ),
-                                                                                blurRadius: 2,
-                                                                                offset: const Offset(
-                                                                                  0,
-                                                                                  0.5,
-                                                                                ),
-                                                                              ),
-                                                                            ],
-                                                                          ),
-                                                                          overflow:
-                                                                              TextOverflow.ellipsis,
-                                                                        ),
-                                                                      ),
-                                                                    ],
-                                                                    // Etiqueta DJ en vivo (Qualia Radio)
-                                                                    if (isLiveDj &&
-                                                                        !isRobot) ...[
-                                                                      const SizedBox(
-                                                                        width:
-                                                                            6,
-                                                                      ),
-                                                                      Container(
-                                                                        padding: const EdgeInsets.symmetric(
-                                                                          horizontal:
-                                                                              6,
-                                                                          vertical:
-                                                                              2,
-                                                                        ),
-                                                                        decoration: BoxDecoration(
-                                                                          color:
-                                                                              const Color(
-                                                                                0xFF8E44AD,
-                                                                              ).withValues(
-                                                                                alpha: 0.35,
-                                                                              ),
-                                                                          borderRadius:
-                                                                              BorderRadius.circular(
-                                                                                8,
-                                                                              ),
-                                                                          border: Border.all(
-                                                                            color:
-                                                                                const Color(
-                                                                                  0xFFCE93D8,
-                                                                                ).withValues(
-                                                                                  alpha: 0.9,
-                                                                                ),
-                                                                            width:
-                                                                                1.5,
-                                                                          ),
-                                                                          boxShadow: [
-                                                                            BoxShadow(
-                                                                              color:
-                                                                                  const Color(
-                                                                                    0xFF8E44AD,
-                                                                                  ).withValues(
-                                                                                    alpha: 0.35,
-                                                                                  ),
-                                                                              blurRadius: 4,
-                                                                              spreadRadius: 0.5,
-                                                                            ),
-                                                                          ],
-                                                                        ),
-                                                                        child: const Text(
-                                                                          'DJ',
-                                                                          style: TextStyle(
-                                                                            color: Color(
-                                                                              0xFFCE93D8,
-                                                                            ),
-                                                                            fontSize:
-                                                                                9,
-                                                                            fontWeight:
-                                                                                FontWeight.bold,
-                                                                            letterSpacing:
-                                                                                0.3,
-                                                                          ),
-                                                                        ),
-                                                                      ),
-                                                                    ],
-                                                                  ],
-                                                                );
-                                                              },
-                                                            ),
-                                                            onTap: () {
-                                                              // debugLog('🔍 [DEBUG] Tapped on user: $user (mode: $userMode)');
-                                                              // debugLog('🔍 [DEBUG] Calling _showUserContextMenu for: $user');
-                                                              try {
-                                                                _showUserContextMenu(
-                                                                  context,
-                                                                  user,
-                                                                );
-                                                                // debugLog('🔍 [DEBUG] _showUserContextMenu called successfully');
-                                                              } catch (e) {
-                                                                // debugLog('🔍 [ERROR] Error showing user context menu: $e');
-                                                              }
-                                                            },
-                                                          ),
-                                                        ),
-                                                      );
-                                                    },
-                                                  );
-                                                },
-                                              ),
+                                            );
+                                          }
+                                        },
+                                        child: Padding(
+                                          padding: const EdgeInsets.all(8.0),
+                                          child: Icon(
+                                            Icons.vibration,
+                                            size: 18,
+                                            color: Colors.teal.withValues(
+                                              alpha: 0.7,
                                             ),
-                                      ],
-                                    ),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
                                   );
+                                },
+                              ),
+                              onTap: () {
+                                // debugLog('🔍 [DEBUG] Tapped on user: $user (mode: $userMode)');
+                                // debugLog('🔍 [DEBUG] Calling _showUserContextMenu for: $user');
+                                try {
+                                  _showUserContextMenu(context, user);
+                                  // debugLog('🔍 [DEBUG] _showUserContextMenu called successfully');
+                                } catch (e) {
+                                  // debugLog('🔍 [ERROR] Error showing user context menu: $e');
+                                }
+                              },
+                            ),
+                          ),
+                        );
+                      },
+                    );
+                  },
+                ),
+              ),
+        ],
+      ),
+    );
 
     return PopScope(
       canPop: false,
@@ -8272,8 +9208,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             // izquierda = canales, derecha = usuarios. En escritorio van como columnas.
             drawer: PlatformUtils.isMobile
                 ? Drawer(
-                    width:
-                        MediaQuery.of(context).size.width * 0.82,
+                    width: MediaQuery.of(context).size.width * 0.82,
                     backgroundColor: Colors.grey[900],
                     child: SafeArea(child: channelsSidebarContent),
                   )
@@ -8283,10 +9218,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     currentChannel != null &&
                     currentChannel.startsWith('#'))
                 ? Drawer(
-                    width:
-                        MediaQuery.of(context).size.width * 0.82,
+                    width: MediaQuery.of(context).size.width * 0.82,
                     backgroundColor: Colors.grey[900],
-                    child: SafeArea(child: usersSidebarContent),
+                    child: SafeArea(
+                      child: Column(
+                        children: [
+                          Expanded(child: usersSidebarContent),
+                          RadioControls(),
+                        ],
+                      ),
+                    ),
                   )
                 : null,
             appBar: AppBar(
@@ -8316,6 +9257,42 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                               forceColor: AppTheme.contrastOn(appTheme.primary),
                             ),
                           ),
+                          if (currentChannel != null &&
+                              !currentChannel.startsWith('#'))
+                            IconButton(
+                              icon: Icon(
+                                Icons.close,
+                                color: AppTheme.contrastOn(appTheme.primary),
+                                size: 18,
+                              ),
+                              tooltip: 'Cerrar mensaje privado',
+                              onPressed: () {
+                                final nick = currentChannel;
+                                _ircService.allChannels.remove(nick);
+                                ref
+                                    .read(channelsProvider.notifier)
+                                    .updateChannels();
+                                ref
+                                    .read(recentChannelsProvider.notifier)
+                                    .removeRecent(nick);
+                                final channels = _ircService.allChannels.keys
+                                    .toList();
+                                if (channels.isNotEmpty) {
+                                  final next = channels.first;
+                                  ref
+                                          .read(currentChannelProvider.notifier)
+                                          .state =
+                                      next;
+                                  ref.read(lastChannelProvider.notifier).state =
+                                      next;
+                                } else {
+                                  ref
+                                          .read(currentChannelProvider.notifier)
+                                          .state =
+                                      null;
+                                }
+                              },
+                            ),
                         ],
                       ),
                       if (nickname != null)
@@ -8344,658 +9321,43 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       context,
                       appTheme,
                       currentChannel,
-                      isConnected,
                       appBarIconColor,
                     )
                   : [
-                // Botón de lista de canales (siempre visible, primera posición)
-                IconButton(
-                  icon: Icon(Icons.list, color: appBarIconColor),
-                  tooltip: 'Lista de canales',
-                  onPressed: () {
-                    showDialog(
-                      context: context,
-                      builder: (context) =>
-                          ChannelListDialog(ircService: _ircService),
-                    );
-                  },
-                ),
-                // Botón de Asistente de Voz
-                IconButton(
-                  icon: Icon(
-                    Icons.mic,
-                    color: AppTheme.contrastOn(appTheme.primary),
-                  ),
-                  tooltip: 'Asistente de Voz con IA',
-                  onPressed: () {
-                    showDialog(
-                      context: context,
-                      builder: (context) =>
-                          VoiceAssistantDialog(appTheme: appTheme),
-                    );
-                  },
-                ),
-                // Botón de Debug (siempre visible, segunda posición)
-                IconButton(
-                  icon: Icon(Icons.bug_report, color: Colors.orange),
-                  tooltip: 'Ventana de Debug (Conexión)',
-                  onPressed: () {
-                    showDialog(
-                      context: context,
-                      builder: (context) {
-                        final debugLogs = ref.watch(debugLogProvider);
-                        return DebugConnectionWindow(
-                          appTheme: appTheme,
-                          logs: debugLogs,
-                        );
-                      },
-                    );
-                  },
-                ),
-                // Refresco completo del navegador para cargar la versión actual sin
-                // caché. Solo tiene sentido en web; en movil/escritorio se oculta.
-                if (PlatformUtils.isWeb)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 4),
-                    child: AnimatedServiceButton(
-                      appTheme: appTheme,
-                      tooltip: 'Refrescar caché (recargar versión actual)',
-                      emoji: '🔄',
-                      label: 'Caché',
-                      onPressed: () => _hardRefreshBrowserCache(context),
-                    ),
-                  ),
-                LayoutBuilder(
-                  builder: (context, constraints) {
-                    final screenWidth = MediaQuery.of(context).size.width;
-                    final showFullButtons = screenWidth > 800;
-
-                    return Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 8),
-                          child: InkWell(
-                            borderRadius: BorderRadius.circular(12),
-                            onTap: () {
-                              // Permitir cambiar de servidor desde el botón de estado
-                              _showServerSwitchDialog();
-                            },
-                            child: Container(
-                              decoration: BoxDecoration(
-                                color: isConnected ? Colors.green : Colors.red,
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 4,
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Text(
-                                    isConnected
-                                        ? '● Conectado'
-                                        : '● Desconectado',
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 11,
-                                    ),
-                                  ),
-                                  if (isConnected) ...[
-                                    const SizedBox(width: 8),
-                                    Consumer(
-                                      builder: (context, ref, child) {
-                                        final isZnc = ref.watch(
-                                          isZncConnectionProvider,
-                                        );
-                                        if (isZnc) {
-                                          return Container(
-                                            padding: const EdgeInsets.symmetric(
-                                              horizontal: 6,
-                                              vertical: 2,
-                                            ),
-                                            decoration: BoxDecoration(
-                                              color: Colors.purple,
-                                              borderRadius:
-                                                  BorderRadius.circular(8),
-                                            ),
-                                            child: const Text(
-                                              'ZNC',
-                                              style: TextStyle(
-                                                color: Colors.white,
-                                                fontSize: 10,
-                                                fontWeight: FontWeight.bold,
-                                              ),
-                                            ),
-                                          );
-                                        }
-                                        return const SizedBox.shrink();
-                                      },
-                                    ),
-                                    const SizedBox(width: 8),
-                                    Consumer(
-                                      builder: (context, ref, child) {
-                                        final lag = ref.watch(lagProvider);
-
-                                        // Siempre mostrar la barra cuando hay conexión
-                                        // Si no hay lag aún, mostrar indicador de "calculando"
-                                        Color lagColor;
-                                        double lagPercent;
-
-                                        if (lag == null) {
-                                          // Calculando - mostrar barra azul animada
-                                          lagColor = Colors.blue;
-                                          lagPercent =
-                                              0.3; // Barra parcial para indicar que está calculando
-                                        } else {
-                                          // Color según el lag: verde (<100ms), amarillo (100-300ms), naranja (300-500ms), rojo (>500ms)
-                                          if (lag < 100) {
-                                            lagColor = Colors.green;
-                                          } else if (lag < 300) {
-                                            lagColor = Colors.yellow;
-                                          } else if (lag < 500) {
-                                            lagColor = Colors.orange;
-                                          } else {
-                                            lagColor = Colors.red;
-                                          }
-
-                                          // Calcular el ancho de la barra (máximo 500ms = 100%)
-                                          lagPercent = (lag / 500).clamp(
-                                            0.0,
-                                            1.0,
-                                          );
-                                        }
-
-                                        return Container(
-                                          width: 60,
-                                          height: 4,
-                                          decoration: BoxDecoration(
-                                            color: Colors.white.withValues(
-                                              alpha: 0.2,
-                                            ),
-                                            borderRadius: BorderRadius.circular(
-                                              2,
-                                            ),
-                                          ),
-                                          child: Stack(
-                                            children: [
-                                              FractionallySizedBox(
-                                                widthFactor: lagPercent,
-                                                child: Container(
-                                                  decoration: BoxDecoration(
-                                                    color: lagColor,
-                                                    borderRadius:
-                                                        BorderRadius.circular(
-                                                          2,
-                                                        ),
-                                                  ),
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        );
-                                      },
-                                    ),
-                                    const SizedBox(width: 4),
-                                    Consumer(
-                                      builder: (context, ref, child) {
-                                        final lag = ref.watch(lagProvider);
-                                        // Siempre mostrar texto, incluso si está calculando
-                                        if (lag == null) {
-                                          return Text(
-                                            '...',
-                                            style: TextStyle(
-                                              color: Colors.white.withValues(
-                                                alpha: 0.7,
-                                              ),
-                                              fontSize: 9,
-                                              fontWeight: FontWeight.w500,
-                                            ),
-                                          );
-                                        }
-                                        return Text(
-                                          '${lag}ms',
-                                          style: TextStyle(
-                                            color: Colors.white.withValues(
-                                              alpha: 0.9,
-                                            ),
-                                            fontSize: 9,
-                                            fontWeight: FontWeight.w500,
-                                          ),
-                                        );
-                                      },
-                                    ),
-                                  ],
-                                  if (_appVersion.isNotEmpty) ...[
-                                    const SizedBox(width: 12),
-                                    Consumer(
-                                      builder: (context, ref, child) {
-                                        final updateState = ref.watch(
-                                          updateProvider,
-                                        );
-                                        return InkWell(
-                                          onTap: () {
-                                            // Verificar actualizaciones al hacer click
-                                            ref
-                                                .read(updateProvider.notifier)
-                                                .checkForUpdates(
-                                                  forceCheck: true,
-                                                );
-                                            ScaffoldMessenger.of(
-                                              context,
-                                            ).showSnackBar(
-                                              SnackBar(
-                                                backgroundColor:
-                                                    Colors.blue.shade700,
-                                                content: Row(
-                                                  mainAxisSize:
-                                                      MainAxisSize.min,
-                                                  children: [
-                                                    const SizedBox(
-                                                      width: 16,
-                                                      height: 16,
-                                                      child: CircularProgressIndicator(
-                                                        strokeWidth: 2,
-                                                        valueColor:
-                                                            AlwaysStoppedAnimation<
-                                                              Color
-                                                            >(Colors.white),
-                                                      ),
-                                                    ),
-                                                    const SizedBox(width: 12),
-                                                    const Text(
-                                                      'Verificando actualizaciones...',
-                                                      style: TextStyle(
-                                                        color: Colors.white,
-                                                        fontSize: 14,
-                                                        fontWeight:
-                                                            FontWeight.w500,
-                                                      ),
-                                                    ),
-                                                  ],
-                                                ),
-                                                duration: const Duration(
-                                                  seconds: 3,
-                                                ),
-                                              ),
-                                            );
-                                          },
-                                          borderRadius: BorderRadius.circular(
-                                            8,
-                                          ),
-                                          child: Container(
-                                            padding: const EdgeInsets.symmetric(
-                                              horizontal: 8,
-                                              vertical: 4,
-                                            ),
-                                            decoration: BoxDecoration(
-                                              color: Colors.white.withValues(
-                                                alpha: 0.2,
-                                              ),
-                                              borderRadius:
-                                                  BorderRadius.circular(8),
-                                              border: Border.all(
-                                                color: Colors.white.withValues(
-                                                  alpha: 0.3,
-                                                ),
-                                                width: 1,
-                                              ),
-                                            ),
-                                            child: Row(
-                                              mainAxisSize: MainAxisSize.min,
-                                              children: [
-                                                if (updateState.isChecking)
-                                                  const SizedBox(
-                                                    width: 12,
-                                                    height: 12,
-                                                    child: CircularProgressIndicator(
-                                                      strokeWidth: 2,
-                                                      valueColor:
-                                                          AlwaysStoppedAnimation<
-                                                            Color
-                                                          >(Colors.white),
-                                                    ),
-                                                  )
-                                                else
-                                                  const Icon(
-                                                    Icons.system_update,
-                                                    color: Colors.white,
-                                                    size: 12,
-                                                  ),
-                                                const SizedBox(width: 4),
-                                                Text(
-                                                  _appVersion,
-                                                  style: const TextStyle(
-                                                    color: Colors.white,
-                                                    fontSize: 10,
-                                                    fontWeight: FontWeight.bold,
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                          ),
-                                        );
-                                      },
-                                    ),
-                                  ],
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                        // Botones v2.0.0 - Búsqueda, Lista de Canales y Exportar (macOS)
-                        if (!PlatformUtils.isWeb && PlatformUtils.isMacOS) ...[
-                          IconButton(
-                            icon: const Icon(Icons.search),
-                            tooltip: 'Buscar (⌘F)',
-                            onPressed: _handleFind,
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.list),
-                            tooltip: 'Lista de canales (⌘L)',
-                            onPressed: () {
-                              showDialog(
-                                context: context,
-                                builder: (context) =>
-                                    ChannelListDialog(ircService: _ircService),
-                              );
-                            },
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.file_download),
-                            tooltip: 'Exportar conversación (⌘E)',
-                            onPressed: _handleExportLogs,
-                          ),
-                        ],
-                        // Botón de búsqueda v2.0.0
-                        IconButton(
-                          icon: Icon(
-                            Icons.search,
-                            color: AppTheme.contrastOn(appTheme.primary),
-                          ),
-                          tooltip:
-                              (!PlatformUtils.isWeb && PlatformUtils.isMacOS)
-                              ? 'Buscar mensajes (⌘F)'
-                              : 'Buscar mensajes',
-                          onPressed: _handleFind,
-                        ),
-                        // Botón para mostrar/ocultar lista de usuarios (solo en canales)
-                        if (currentChannel != null &&
-                            currentChannel.startsWith('#'))
-                          IconButton(
-                            icon: Icon(
-                              _showUserList
-                                  ? Icons.people_outline
-                                  : Icons.people,
-                              color: AppTheme.contrastOn(appTheme.primary),
-                            ),
-                            tooltip: _showUserList
-                                ? 'Ocultar lista de usuarios'
-                                : 'Mostrar lista de usuarios',
-                            onPressed: () {
-                              setState(() {
-                                _showUserList = !_showUserList;
-                              });
-                            },
-                          ),
-                        // Botón de IRCop (solo personal autorizado)
-                        if (isAuthorizedStaffNick(
-                          ref.watch(currentNicknameProvider),
-                        ))
-                          Builder(
-                            builder: (context) {
-                              final isIRCOp = _ircService.isIRCOp;
-                              return IconButton(
-                                icon: Icon(
-                                  Icons.admin_panel_settings,
-                                  // Contraste sobre la AppBar (blanco en temas claros
-                                  // como Qualia, cuyo primary es oscuro); ámbar cuando
-                                  // está identificado como IRCop.
-                                  color: isIRCOp
-                                      ? Colors.amber
-                                      : AppTheme.contrastOn(appTheme.primary),
-                                ),
-                                tooltip: isIRCOp
-                                    ? 'Menú IRCop (Identificado)'
-                                    : 'Menú IRCop',
-                                onPressed: () {
-                                  _showIRCOpMenu(context);
-                                },
-                              );
-                            },
-                          ),
-                        if (showFullButtons) ...[
-                          AnimatedServiceButton(
-                            appTheme: appTheme,
-                            tooltip: 'Centro de Atención a Usuarios',
-                            emoji: '💬',
-                            label: 'CAU',
-                            onPressed: () {
-                              // Solo mostrar el diálogo de soporte, sin unirse automáticamente a los canales
-                              // para evitar que se abra el asistente AI
-                              _showSupportDialog(context);
-                            },
-                          ),
-                          AnimatedServiceButton(
-                            appTheme: appTheme,
-                            tooltip: 'Registro de Nick',
-                            emoji: '📝',
-                            label: 'Nick',
-                            onPressed: () {
-                              _showNickRegistrationDialog(context);
-                            },
-                          ),
-                          AnimatedServiceButton(
-                            appTheme: appTheme,
-                            tooltip: 'Registro de Canal',
-                            emoji: '📢',
-                            label: 'Canal',
-                            onPressed: () {
-                              _showChannelRegistrationDialog(context);
-                            },
-                          ),
-                          AnimatedServiceButton(
-                            appTheme: appTheme,
-                            tooltip: 'Petición de IP Virtual',
-                            emoji: '🌐',
-                            label: 'IP Virtual',
-                            onPressed: () {
-                              _showVirtualIPDialog(context);
-                            },
-                          ),
-                        ] else ...[
-                          // Menú para pantallas pequeñas
-                          PopupMenuButton<String>(
-                            icon: Icon(
-                              Icons.more_vert,
-                              color: AppTheme.contrastOn(appTheme.primary),
-                            ),
-                            onSelected: (value) {
-                              switch (value) {
-                                case 'cau':
-                                  // Solo mostrar el diálogo de soporte, sin unirse automáticamente a los canales
-                                  // para evitar que se abra el asistente AI
-                                  _showSupportDialog(context);
-                                  break;
-                                case 'nick':
-                                  _showNickRegistrationDialog(context);
-                                  break;
-                                case 'canal':
-                                  _ircService.sendServiceMessage(
-                                    'ChanServ',
-                                    'HELP',
-                                  );
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(
-                                      content: Text(
-                                        'Solicitando ayuda de registro de canal a ChanServ...',
-                                      ),
-                                      duration: Duration(seconds: 2),
-                                    ),
-                                  );
-                                  break;
-                                case 'ip':
-                                  _showVirtualIPDialog(context);
-                                  break;
-                              }
-                            },
-                            itemBuilder: (context) => [
-                              const PopupMenuItem(
-                                value: 'cau',
-                                child: Row(
-                                  children: [
-                                    Text('💬'),
-                                    SizedBox(width: 8),
-                                    Text('CAU'),
-                                  ],
-                                ),
-                              ),
-                              const PopupMenuItem(
-                                value: 'nick',
-                                child: Row(
-                                  children: [
-                                    Text('📝'),
-                                    SizedBox(width: 8),
-                                    Text('Registro de Nick'),
-                                  ],
-                                ),
-                              ),
-                              const PopupMenuItem(
-                                value: 'canal',
-                                child: Row(
-                                  children: [
-                                    Text('📢'),
-                                    SizedBox(width: 8),
-                                    Text('Registro de Canal'),
-                                  ],
-                                ),
-                              ),
-                              const PopupMenuItem(
-                                value: 'ip',
-                                child: Row(
-                                  children: [
-                                    Text('🌐'),
-                                    SizedBox(width: 8),
-                                    Text('IP Virtual'),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                        IconButton(
-                          icon: Icon(Icons.search, color: appBarIconColor),
-                          tooltip: 'Buscar en historial',
-                          onPressed: () => _showSearchDialog(context),
-                        ),
-                        IconButton(
-                          icon: Icon(Icons.settings, color: appBarIconColor),
-                          tooltip: 'Ajustes Globales',
-                          onPressed: () async {
-                            await Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (context) => const SettingsScreen(),
-                              ),
-                            );
-                            final currentNick = ref.read(
-                              currentNicknameProvider,
-                            );
-                            if (currentNick != null &&
-                                currentNick.trim().isNotEmpty) {
-                              ref
-                                  .read(avatarRefreshProvider.notifier)
-                                  .refreshAvatar(currentNick.trim());
-                              Future.delayed(const Duration(seconds: 3), () {
-                                ref
-                                    .read(avatarRefreshProvider.notifier)
-                                    .refreshAvatar(currentNick.trim());
-                              });
-                            }
-                          },
-                        ),
-                        IconButton(
-                          icon: Icon(Icons.palette, color: appBarIconColor),
-                          tooltip: 'Cambiar tema',
-                          onPressed: () => _showThemeSelector(context),
-                        ),
-                        IconButton(
-                          icon: Icon(
-                            Icons.info_outline,
-                            color: appBarIconColor,
-                          ),
-                          tooltip: 'Créditos y Apoyos',
-                          onPressed: () => _showCreditsDialog(context),
-                        ),
-                        IconButton(
-                          icon: Icon(Icons.exit_to_app, color: appBarIconColor),
-                          tooltip: 'Salir de la aplicación',
-                          onPressed: () {
-                            showDialog(
-                              context: context,
-                              builder: (context) => AlertDialog(
-                                title: const Text('¿Salir de la aplicación?'),
-                                content: const Text(
-                                  '¿Estás seguro de que deseas cerrar la aplicación?',
-                                ),
-                                actions: [
-                                  TextButton(
-                                    onPressed: () => Navigator.pop(context),
-                                    child: const Text('Cancelar'),
-                                  ),
-                                  ElevatedButton(
-                                    onPressed: () {
-                                      _disconnect();
-                                      Navigator.pop(context);
-
-                                      // Cerrar la aplicación completamente
-                                      if (PlatformUtils.isWeb) {
-                                        // En web, recargar la página
-                                        try {
-                                          reloadWebWindow();
-                                        } catch (e) {
-                                          // Si falla, mostrar mensaje
-                                          ScaffoldMessenger.of(
-                                            context,
-                                          ).showSnackBar(
-                                            const SnackBar(
-                                              content: Text(
-                                                'Por favor, cierra la pestaña del navegador.',
-                                              ),
-                                              duration: Duration(seconds: 2),
-                                            ),
-                                          );
-                                        }
-                                      } else {
-                                        // En nativo (macOS, iOS, Android), cerrar la aplicación
-                                        // Usar exit solo si está disponible (no en web)
-                                        try {
-                                          io.exit(0);
-                                        } catch (e) {
-                                          // Si falla, simplemente no hacer nada
-                                          debugLog(
-                                            '⚠️ No se pudo cerrar la aplicación: $e',
-                                          );
-                                        }
-                                      }
-                                    },
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: Colors.red,
-                                      foregroundColor: Colors.white,
-                                    ),
-                                    child: const Text('Salir'),
-                                  ),
-                                ],
-                              ),
-                            );
-                          },
-                        ),
-                      ],
-                    );
-                  },
-                ),
-              ],
+                      _buildLagVersionIndicator(appTheme, appBarIconColor),
+                      // Lista de canales (accion principal visible).
+                      IconButton(
+                        icon: Icon(Icons.list, color: appBarIconColor),
+                        tooltip: 'Lista de canales',
+                        onPressed: () {
+                          showDialog(
+                            context: context,
+                            builder: (context) =>
+                                ChannelListDialog(ircService: _ircService),
+                          );
+                        },
+                      ),
+                      // Busqueda de mensajes (lupa principal).
+                      IconButton(
+                        icon: Icon(Icons.search, color: appBarIconColor),
+                        tooltip: 'Buscar mensajes',
+                        onPressed: _handleFind,
+                      ),
+                      // Tema claro/oscuro.
+                      IconButton(
+                        icon: Icon(Icons.palette, color: appBarIconColor),
+                        tooltip: 'Cambiar tema',
+                        onPressed: () => _showThemeSelector(context),
+                      ),
+                      // Configuracion: menu que agrupa el resto de funciones.
+                      _buildConfigMenu(
+                        context,
+                        appTheme,
+                        appBarIconColor,
+                        isMobile: false,
+                        nickname: nickname,
+                      ),
+                    ],
             ),
             body: Stack(
               children: [
@@ -9017,9 +9379,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                               // Channels sidebar (escritorio/web): columna fija.
                               if (_showChannelsSidebar &&
                                   !PlatformUtils.isMobile)
-                                Expanded(
-                                  flex: 1,
-                                  child: channelsSidebarContent,
+                                SizedBox(
+                                  width: _channelsSidebarWidth,
+                                  child: Row(
+                                    children: [
+                                      Expanded(child: channelsSidebarContent),
+                                      _buildResizeHandle(true),
+                                    ],
+                                  ),
                                 ),
                               // Chat area
                               Expanded(
@@ -9078,10 +9445,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                                             .center,
                                                     children: [
                                                       Icon(
-                                                        Icons
-                                                            .block,
+                                                        Icons.block,
                                                         size: 64,
-                                                        color: Colors.orange[400],
+                                                        color:
+                                                            Colors.orange[400],
                                                       ),
                                                       const SizedBox(
                                                         height: 16,
@@ -9089,8 +9456,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                                       Text(
                                                         'Ya no estás en $currentChannel',
                                                         style: TextStyle(
-                                                          color:
-                                                              Colors.orange[400],
+                                                          color: Colors
+                                                              .orange[400],
                                                           fontSize: 18,
                                                           fontWeight:
                                                               FontWeight.bold,
@@ -9098,9 +9465,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                                         textAlign:
                                                             TextAlign.center,
                                                       ),
-                                                      const SizedBox(
-                                                        height: 8,
-                                                      ),
+                                                      const SizedBox(height: 8),
                                                       Text(
                                                         'Esto solo afecta a este canal. Puedes unirte a otro '
                                                         'canal o seguir conversando por privado.',
@@ -9121,9 +9486,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                                             context: context,
                                                             builder: (ctx) =>
                                                                 ChannelListDialog(
-                                                              ircService:
-                                                                  _ircService,
-                                                            ),
+                                                                  ircService:
+                                                                      _ircService,
+                                                                ),
                                                           );
                                                         },
                                                         icon: const Icon(
@@ -9479,6 +9844,42 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                                       ),
                                                   iconSize: 22,
                                                   icon: Icon(
+                                                    Icons.format_bold,
+                                                    color: _showFormatToolbar
+                                                        ? appTheme.secondary
+                                                        : appTheme.primary,
+                                                  ),
+                                                  tooltip:
+                                                      'Formato mIRC (B/I/U/color)',
+                                                  onPressed: () {
+                                                    setState(() {
+                                                      _showFormatToolbar =
+                                                          !_showFormatToolbar;
+                                                    });
+                                                    Future.delayed(
+                                                      const Duration(
+                                                        milliseconds: 100,
+                                                      ),
+                                                      () {
+                                                        if (mounted) {
+                                                          _messageFocusNode
+                                                              .requestFocus();
+                                                        }
+                                                      },
+                                                    );
+                                                  },
+                                                ),
+                                                IconButton(
+                                                  padding: EdgeInsets.zero,
+                                                  visualDensity:
+                                                      VisualDensity.compact,
+                                                  constraints:
+                                                      const BoxConstraints(
+                                                        minWidth: 38,
+                                                        minHeight: 38,
+                                                      ),
+                                                  iconSize: 22,
+                                                  icon: Icon(
                                                     Icons.emoji_emotions,
                                                     color: appTheme.primary,
                                                   ),
@@ -9487,10 +9888,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                                     setState(() {
                                                       _showEmojiPicker =
                                                           !_showEmojiPicker;
+                                                      if (_showEmojiPicker)
+                                                        _showGiphyPicker =
+                                                            false;
                                                     });
-                                                    // Mantener el foco en el campo de texto al abrir/cerrar el selector
                                                     if (_showEmojiPicker) {
-                                                      // Pequeño delay para que el widget se construya antes de pedir el foco
                                                       Future.delayed(
                                                         const Duration(
                                                           milliseconds: 100,
@@ -9503,79 +9905,135 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                                     }
                                                   },
                                                 ),
-                                                if (!PlatformUtils.isMobile)
-                                                  Consumer(
-                                                  builder: (context, ref, _) {
-                                                    final quickReplies = ref
-                                                        .watch(
-                                                          quickRepliesProvider,
-                                                        );
-                                                    if (quickReplies.isEmpty) {
-                                                      return const SizedBox.shrink();
-                                                    }
-                                                    return PopupMenuButton<
-                                                      String
-                                                    >(
-                                                      padding: EdgeInsets.zero,
-                                                      iconSize: 22,
-                                                      icon: Icon(
-                                                        Icons.quickreply,
-                                                        color: appTheme.primary,
-                                                        size: 22,
+                                                IconButton(
+                                                  padding: EdgeInsets.zero,
+                                                  visualDensity:
+                                                      VisualDensity.compact,
+                                                  constraints:
+                                                      const BoxConstraints(
+                                                        minWidth: 38,
+                                                        minHeight: 38,
                                                       ),
-                                                      tooltip:
-                                                          'Respuestas rápidas',
-                                                      onSelected: (value) {
-                                                        final text =
-                                                            _messageController
-                                                                .text;
-                                                        final pos =
-                                                            _messageController
-                                                                .selection
-                                                                .baseOffset
-                                                                .clamp(
-                                                                  0,
-                                                                  text.length,
-                                                                );
-                                                        final newText =
-                                                            text.substring(
-                                                              0,
-                                                              pos,
-                                                            ) +
-                                                            value +
-                                                            text.substring(pos);
-                                                        _messageController
-                                                                .text =
-                                                            newText;
-                                                        _messageController
-                                                                .selection =
-                                                            TextSelection.collapsed(
-                                                              offset:
-                                                                  pos +
-                                                                  value.length,
-                                                            );
-                                                        _messageFocusNode
-                                                            .requestFocus();
-                                                      },
-                                                      itemBuilder: (context) =>
-                                                          quickReplies
-                                                              .map(
-                                                                (
-                                                                  phrase,
-                                                                ) => PopupMenuItem(
-                                                                  value: phrase,
-                                                                  child: Text(
-                                                                    phrase,
-                                                                    overflow:
-                                                                        TextOverflow
-                                                                            .ellipsis,
-                                                                  ),
-                                                                ),
-                                                              )
-                                                              .toList(),
-                                                    );
+                                                  iconSize: 22,
+                                                  icon: Icon(
+                                                    Icons.gif,
+                                                    color: appTheme.primary,
+                                                  ),
+                                                  tooltip: 'GIFs',
+                                                  onPressed: () {
+                                                    setState(() {
+                                                      _showGiphyPicker =
+                                                          !_showGiphyPicker;
+                                                      if (_showGiphyPicker)
+                                                        _showEmojiPicker =
+                                                            false;
+                                                    });
+                                                    if (_showGiphyPicker) {
+                                                      Future.delayed(
+                                                        const Duration(
+                                                          milliseconds: 100,
+                                                        ),
+                                                        () {
+                                                          _messageFocusNode
+                                                              .requestFocus();
+                                                        },
+                                                      );
+                                                    }
                                                   },
                                                 ),
+                                                if (currentChannel != null)
+                                                  VoiceRecorderButton(
+                                                    channel: currentChannel!,
+                                                    onAudioRecorded:
+                                                        (bytes) =>
+                                                            _sendRecordedAudio(
+                                                              currentChannel!,
+                                                              bytes,
+                                                            ),
+                                                    onSent: () {},
+                                                  ),
+                                                if (!PlatformUtils.isMobile)
+                                                  Consumer(
+                                                    builder: (context, ref, _) {
+                                                      final quickReplies = ref
+                                                          .watch(
+                                                            quickRepliesProvider,
+                                                          );
+                                                      if (quickReplies
+                                                          .isEmpty) {
+                                                        return const SizedBox.shrink();
+                                                      }
+                                                      return PopupMenuButton<
+                                                        String
+                                                      >(
+                                                        padding:
+                                                            EdgeInsets.zero,
+                                                        iconSize: 22,
+                                                        icon: Icon(
+                                                          Icons.quickreply,
+                                                          color:
+                                                              appTheme.primary,
+                                                          size: 22,
+                                                        ),
+                                                        tooltip:
+                                                            'Respuestas rápidas',
+                                                        onSelected: (value) {
+                                                          final text =
+                                                              _messageController
+                                                                  .text;
+                                                          final pos =
+                                                              _messageController
+                                                                  .selection
+                                                                  .baseOffset
+                                                                  .clamp(
+                                                                    0,
+                                                                    text.length,
+                                                                  );
+                                                          final newText =
+                                                              text.substring(
+                                                                0,
+                                                                pos,
+                                                              ) +
+                                                              value +
+                                                              text.substring(
+                                                                pos,
+                                                              );
+                                                          _messageController
+                                                                  .text =
+                                                              newText;
+                                                          _messageController
+                                                                  .selection =
+                                                              TextSelection.collapsed(
+                                                                offset:
+                                                                    pos +
+                                                                    value
+                                                                        .length,
+                                                              );
+                                                          _messageFocusNode
+                                                              .requestFocus();
+                                                        },
+                                                        itemBuilder:
+                                                            (
+                                                              context,
+                                                            ) => quickReplies
+                                                                .map(
+                                                                  (
+                                                                    phrase,
+                                                                  ) => PopupMenuItem(
+                                                                    value:
+                                                                        phrase,
+                                                                    child: Text(
+                                                                      phrase,
+                                                                      overflow:
+                                                                          TextOverflow
+                                                                              .ellipsis,
+                                                                    ),
+                                                                  ),
+                                                                )
+                                                                .toList(),
+                                                      );
+                                                    },
+                                                  ),
                                                 Builder(
                                                   builder: (context) {
                                                     final count =
@@ -9591,7 +10049,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                                       iconSize: 22,
                                                       icon: Icon(
                                                         PlatformUtils.isMobile
-                                                            ? Icons.add_circle_outline
+                                                            ? Icons
+                                                                  .add_circle_outline
                                                             : Icons.image,
                                                         color: appTheme.primary,
                                                       ),
@@ -9607,15 +10066,22 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                                           _showScheduledMessageDialog(
                                                             context,
                                                           );
-                                                        } else if (value ==
-                                                            'view_scheduled') {
-                                                          _showScheduledMessagesListDialog(
-                                                            context,
-                                                          );
-                                                        } else if (value ==
-                                                            'video') {
+                                                         } else if (value ==
+                                                             'view_scheduled') {
+                                                           _showScheduledMessagesListDialog(
+                                                             context,
+                                                           );
+                                                         } else if (value ==
+                                                             'chat_style') {
+                                                           _showChatStyleSheet(
+                                                             context,
+                                                           );
+                                                         } else if (value ==
+                                                             'video') {
                                                           if (currentChannel
-                                                              .startsWith('#')) {
+                                                              .startsWith(
+                                                                '#',
+                                                              )) {
                                                             _iniciarVideoconferenciaCanal();
                                                           } else {
                                                             _iniciarVideollamadaPrivada(
@@ -9625,7 +10091,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                                         } else if (value ==
                                                             'audio') {
                                                           if (currentChannel
-                                                              .startsWith('#')) {
+                                                              .startsWith(
+                                                                '#',
+                                                              )) {
                                                             _iniciarAudioconferenciaCanal();
                                                           } else {
                                                             _iniciarAudiollamadaPrivada(
@@ -9692,7 +10160,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                                                           .startsWith(
                                                                             '#',
                                                                           )
-                                                                      ? Icons.mic
+                                                                      ? Icons
+                                                                            .mic
                                                                       : Icons
                                                                             .call,
                                                                   size: 20,
@@ -9712,6 +10181,24 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                                             ),
                                                           ),
                                                         ],
+                                                        const PopupMenuItem(
+                                                          value: 'chat_style',
+                                                          child: Row(
+                                                            children: [
+                                                              Icon(
+                                                                Icons
+                                                                    .palette_outlined,
+                                                                size: 20,
+                                                              ),
+                                                              SizedBox(
+                                                                width: 8,
+                                                              ),
+                                                              Text(
+                                                                'Estilo de chat',
+                                                              ),
+                                                            ],
+                                                          ),
+                                                        ),
                                                         const PopupMenuItem(
                                                           value: 'schedule',
                                                           child: Row(
@@ -9786,440 +10273,454 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                                 // Botón de videoconferencia
                                                 if (!PlatformUtils.isMobile)
                                                   IconButton(
-                                                  padding: EdgeInsets.zero,
-                                                  visualDensity:
-                                                      VisualDensity.compact,
-                                                  constraints:
-                                                      const BoxConstraints(
-                                                        minWidth: 38,
-                                                        minHeight: 38,
-                                                      ),
-                                                  iconSize: 22,
-                                                  icon: Icon(
-                                                    currentChannel.startsWith(
-                                                          '#',
-                                                        )
-                                                        ? Icons.videocam
-                                                        : Icons.video_call,
-                                                    color: appTheme.primary,
-                                                  ),
-                                                  tooltip:
+                                                    padding: EdgeInsets.zero,
+                                                    visualDensity:
+                                                        VisualDensity.compact,
+                                                    constraints:
+                                                        const BoxConstraints(
+                                                          minWidth: 38,
+                                                          minHeight: 38,
+                                                        ),
+                                                    iconSize: 22,
+                                                    icon: Icon(
                                                       currentChannel.startsWith(
-                                                        '#',
-                                                      )
-                                                      ? 'Iniciar videoconferencia del canal'
-                                                      : 'Videollamada con $currentChannel',
-                                                  onPressed: () {
-                                                    if (currentChannel
-                                                        .startsWith('#')) {
-                                                      _iniciarVideoconferenciaCanal();
-                                                    } else {
-                                                      _iniciarVideollamadaPrivada(
-                                                        currentChannel,
-                                                      );
-                                                    }
-                                                  },
-                                                ),
+                                                            '#',
+                                                          )
+                                                          ? Icons.videocam
+                                                          : Icons.video_call,
+                                                      color: appTheme.primary,
+                                                    ),
+                                                    tooltip:
+                                                        currentChannel
+                                                            .startsWith('#')
+                                                        ? 'Iniciar videoconferencia del canal'
+                                                        : 'Videollamada con $currentChannel',
+                                                    onPressed: () {
+                                                      if (currentChannel
+                                                          .startsWith('#')) {
+                                                        _iniciarVideoconferenciaCanal();
+                                                      } else {
+                                                        _iniciarVideollamadaPrivada(
+                                                          currentChannel,
+                                                        );
+                                                      }
+                                                    },
+                                                  ),
                                                 // Botón de audioconferencia
                                                 if (!PlatformUtils.isMobile)
                                                   IconButton(
-                                                  padding: EdgeInsets.zero,
-                                                  visualDensity:
-                                                      VisualDensity.compact,
-                                                  constraints:
-                                                      const BoxConstraints(
-                                                        minWidth: 38,
-                                                        minHeight: 38,
-                                                      ),
-                                                  iconSize: 22,
-                                                  icon: Icon(
-                                                    currentChannel.startsWith(
-                                                          '#',
-                                                        )
-                                                        ? Icons.mic
-                                                        : Icons.call,
-                                                    color: appTheme.primary,
-                                                  ),
-                                                  tooltip:
+                                                    padding: EdgeInsets.zero,
+                                                    visualDensity:
+                                                        VisualDensity.compact,
+                                                    constraints:
+                                                        const BoxConstraints(
+                                                          minWidth: 38,
+                                                          minHeight: 38,
+                                                        ),
+                                                    iconSize: 22,
+                                                    icon: Icon(
                                                       currentChannel.startsWith(
-                                                        '#',
-                                                      )
-                                                      ? 'Iniciar audioconferencia del canal'
-                                                      : 'Audiollamada con $currentChannel',
-                                                  onPressed: () {
-                                                    if (currentChannel
-                                                        .startsWith('#')) {
-                                                      _iniciarAudioconferenciaCanal();
-                                                    } else {
-                                                      _iniciarAudiollamadaPrivada(
-                                                        currentChannel,
-                                                      );
-                                                    }
-                                                  },
+                                                            '#',
+                                                          )
+                                                          ? Icons.mic
+                                                          : Icons.call,
+                                                      color: appTheme.primary,
+                                                    ),
+                                                    tooltip:
+                                                        currentChannel
+                                                            .startsWith('#')
+                                                        ? 'Iniciar audioconferencia del canal'
+                                                        : 'Audiollamada con $currentChannel',
+                                                    onPressed: () {
+                                                      if (currentChannel
+                                                          .startsWith('#')) {
+                                                        _iniciarAudioconferenciaCanal();
+                                                      } else {
+                                                        _iniciarAudiollamadaPrivada(
+                                                          currentChannel,
+                                                        );
+                                                      }
+                                                    },
+                                                  ),
+                                                _buildFontSizeControls(
+                                                  appTheme,
                                                 ),
-                                                const SizedBox(width: 4),
+                                                const SizedBox(width: 8),
                                                 Expanded(
                                                   child: Stack(
-                                                        clipBehavior: Clip.none,
+                                                    clipBehavior: Clip.none,
+                                                    children: [
+                                                      Column(
+                                                        mainAxisSize:
+                                                            MainAxisSize.min,
+                                                        crossAxisAlignment:
+                                                            CrossAxisAlignment
+                                                                .start,
                                                         children: [
-                                                          Column(
-                                                            mainAxisSize:
-                                                                MainAxisSize
-                                                                    .min,
-                                                            crossAxisAlignment:
-                                                                CrossAxisAlignment
-                                                                    .start,
-                                                            children: [
-                                                              TextField(
-                                                                controller:
-                                                                    _messageController,
-                                                                focusNode:
-                                                                    _messageFocusNode,
-                                                                decoration: InputDecoration(
-                                                                  hintText:
-                                                                      'Mensaje... (Shift+Enter: nueva línea)',
-                                                                  border: OutlineInputBorder(
-                                                                    borderRadius:
-                                                                        BorderRadius.circular(
-                                                                          8,
+                                                          if (_showFormatToolbar)
+                                                            _buildFormatToolbar(
+                                                              appTheme,
+                                                            ),
+                                                          TextField(
+                                                            controller:
+                                                                _messageController,
+                                                            focusNode:
+                                                                _messageFocusNode,
+                                                            decoration: InputDecoration(
+                                                              hintText:
+                                                                  'Mensaje... (Shift+Enter: nueva línea)',
+                                                              border: OutlineInputBorder(
+                                                                borderRadius:
+                                                                    BorderRadius.circular(
+                                                                      8,
+                                                                    ),
+                                                              ),
+                                                              contentPadding:
+                                                                  const EdgeInsets.symmetric(
+                                                                    horizontal:
+                                                                        12,
+                                                                    vertical: 8,
+                                                                  ),
+                                                              fillColor:
+                                                                  appTheme
+                                                                      .surface,
+                                                              filled: true,
+                                                              counterText:
+                                                                  '', // Ocultar contador por defecto
+                                                            ),
+                                                            onSubmitted: (_) {
+                                                              if (_selectedSuggestionIndex >=
+                                                                      0 &&
+                                                                  _showCommandSuggestions) {
+                                                                _selectCommandSuggestion(
+                                                                  _selectedSuggestionIndex,
+                                                                );
+                                                              } else if (_selectedNickIndex >=
+                                                                      0 &&
+                                                                  _showNickSuggestions) {
+                                                                _selectNickSuggestion(
+                                                                  _selectedNickIndex,
+                                                                );
+                                                              } else if (!PlatformUtils
+                                                                      .isMobile &&
+                                                                  _messageController
+                                                                      .text
+                                                                      .trim()
+                                                                      .isNotEmpty) {
+                                                                _sendMessage(
+                                                                  forceImmediate:
+                                                                      true,
+                                                                );
+                                                              }
+                                                            },
+                                                            minLines: 1,
+                                                            maxLines: 6,
+                                                            keyboardType:
+                                                                PlatformUtils
+                                                                    .isMobile
+                                                                ? TextInputType
+                                                                      .multiline
+                                                                : TextInputType
+                                                                      .text,
+                                                            textInputAction:
+                                                                PlatformUtils
+                                                                    .isMobile
+                                                                ? TextInputAction
+                                                                      .newline
+                                                                : TextInputAction
+                                                                      .send,
+                                                            enabled: true,
+                                                            readOnly: false,
+                                                            autofocus: false,
+                                                          ),
+                                                          // Mostrar sugerencias de comandos (solo estas se muestran debajo)
+                                                          if (_showCommandSuggestions &&
+                                                              _commandSuggestions
+                                                                  .isNotEmpty)
+                                                            Container(
+                                                              margin:
+                                                                  const EdgeInsets.only(
+                                                                    top: 4,
+                                                                  ),
+                                                              decoration: BoxDecoration(
+                                                                color: appTheme
+                                                                    .surface,
+                                                                borderRadius:
+                                                                    BorderRadius.circular(
+                                                                      8,
+                                                                    ),
+                                                                border: Border.all(
+                                                                  color: appTheme
+                                                                      .primary
+                                                                      .withValues(
+                                                                        alpha:
+                                                                            0.3,
+                                                                      ),
+                                                                ),
+                                                                boxShadow: [
+                                                                  BoxShadow(
+                                                                    color: Colors
+                                                                        .black
+                                                                        .withValues(
+                                                                          alpha:
+                                                                              0.2,
+                                                                        ),
+                                                                    blurRadius:
+                                                                        8,
+                                                                    offset:
+                                                                        const Offset(
+                                                                          0,
+                                                                          2,
                                                                         ),
                                                                   ),
-                                                                  contentPadding:
-                                                                      const EdgeInsets.symmetric(
+                                                                ],
+                                                              ),
+                                                              constraints:
+                                                                  const BoxConstraints(
+                                                                    maxHeight:
+                                                                        200,
+                                                                  ),
+                                                              child: ListView.separated(
+                                                                shrinkWrap:
+                                                                    true,
+                                                                padding:
+                                                                    const EdgeInsets.symmetric(
+                                                                      vertical:
+                                                                          4,
+                                                                    ),
+                                                                itemCount:
+                                                                    _commandSuggestions
+                                                                        .length,
+                                                                separatorBuilder:
+                                                                    (
+                                                                      context,
+                                                                      index,
+                                                                    ) => Divider(
+                                                                      height: 1,
+                                                                      color: appTheme
+                                                                          .primary
+                                                                          .withValues(
+                                                                            alpha:
+                                                                                0.1,
+                                                                          ),
+                                                                    ),
+                                                                itemBuilder: (context, index) {
+                                                                  final cmd =
+                                                                      _commandSuggestions[index];
+                                                                  final isSelected =
+                                                                      index ==
+                                                                      _selectedSuggestionIndex;
+
+                                                                  return InkWell(
+                                                                    onTap: () =>
+                                                                        _selectCommandSuggestion(
+                                                                          index,
+                                                                        ),
+                                                                    child: Container(
+                                                                      padding: const EdgeInsets.symmetric(
                                                                         horizontal:
                                                                             12,
                                                                         vertical:
                                                                             8,
                                                                       ),
-                                                                  fillColor:
-                                                                      appTheme
-                                                                          .surface,
-                                                                  filled: true,
-                                                                  counterText:
-                                                                      '', // Ocultar contador por defecto
-                                                                ),
-                                                                onSubmitted: (_) {
-                                                                  if (_selectedSuggestionIndex >=
-                                                                          0 &&
-                                                                      _showCommandSuggestions) {
-                                                                    _selectCommandSuggestion(
-                                                                      _selectedSuggestionIndex,
-                                                                    );
-                                                                  } else if (_selectedNickIndex >=
-                                                                          0 &&
-                                                                      _showNickSuggestions) {
-                                                                    _selectNickSuggestion(
-                                                                      _selectedNickIndex,
-                                                                    );
-                                                                  } else if (!PlatformUtils
-                                                                          .isMobile &&
-                                                                      _messageController
-                                                                          .text
-                                                                          .trim()
-                                                                          .isNotEmpty) {
-                                                                    _sendMessage(
-                                                                      forceImmediate:
-                                                                          true,
-                                                                    );
-                                                                  }
-                                                                },
-                                                                minLines: 1,
-                                                                maxLines: 6,
-                                                                keyboardType:
-                                                                    PlatformUtils
-                                                                        .isMobile
-                                                                    ? TextInputType
-                                                                        .multiline
-                                                                    : TextInputType
-                                                                        .text,
-                                                                textInputAction:
-                                                                    PlatformUtils
-                                                                        .isMobile
-                                                                    ? TextInputAction
-                                                                        .newline
-                                                                    : TextInputAction
-                                                                        .send,
-                                                                enabled: true,
-                                                                readOnly: false,
-                                                                autofocus:
-                                                                    false,
-                                                              ),
-                                                              // Mostrar sugerencias de comandos (solo estas se muestran debajo)
-                                                              if (_showCommandSuggestions &&
-                                                                  _commandSuggestions
-                                                                      .isNotEmpty)
-                                                                Container(
-                                                                  margin:
-                                                                      const EdgeInsets.only(
-                                                                        top: 4,
-                                                                      ),
-                                                                  decoration: BoxDecoration(
-                                                                    color: appTheme
-                                                                        .surface,
-                                                                    borderRadius:
-                                                                        BorderRadius.circular(
-                                                                          8,
-                                                                        ),
-                                                                    border: Border.all(
-                                                                      color: appTheme
-                                                                          .primary
-                                                                          .withValues(
-                                                                            alpha:
-                                                                                0.3,
-                                                                          ),
-                                                                    ),
-                                                                    boxShadow: [
-                                                                      BoxShadow(
-                                                                        color: Colors
-                                                                            .black
-                                                                            .withValues(
+                                                                      color:
+                                                                          isSelected
+                                                                          ? appTheme.primary.withValues(
                                                                               alpha: 0.2,
+                                                                            )
+                                                                          : Colors.transparent,
+                                                                      child: Row(
+                                                                        children: [
+                                                                          Text(
+                                                                            '/${cmd['command']}',
+                                                                            style: TextStyle(
+                                                                              color: appTheme.primary,
+                                                                              fontWeight: FontWeight.bold,
+                                                                              fontSize: 14,
                                                                             ),
-                                                                        blurRadius:
-                                                                            8,
-                                                                        offset:
-                                                                            const Offset(
-                                                                              0,
-                                                                              2,
-                                                                            ),
-                                                                      ),
-                                                                    ],
-                                                                  ),
-                                                                  constraints:
-                                                                      const BoxConstraints(
-                                                                        maxHeight:
-                                                                            200,
-                                                                      ),
-                                                                  child: ListView.separated(
-                                                                    shrinkWrap:
-                                                                        true,
-                                                                    padding:
-                                                                        const EdgeInsets.symmetric(
-                                                                          vertical:
-                                                                              4,
-                                                                        ),
-                                                                    itemCount:
-                                                                        _commandSuggestions
-                                                                            .length,
-                                                                    separatorBuilder:
-                                                                        (
-                                                                          context,
-                                                                          index,
-                                                                        ) => Divider(
-                                                                          height:
-                                                                              1,
-                                                                          color: appTheme.primary.withValues(
-                                                                            alpha:
-                                                                                0.1,
                                                                           ),
-                                                                        ),
-                                                                    itemBuilder:
-                                                                        (
-                                                                          context,
-                                                                          index,
-                                                                        ) {
-                                                                          final cmd =
-                                                                              _commandSuggestions[index];
-                                                                          final isSelected =
-                                                                              index ==
-                                                                              _selectedSuggestionIndex;
-
-                                                                          return InkWell(
-                                                                            onTap: () => _selectCommandSuggestion(
-                                                                              index,
-                                                                            ),
-                                                                            child: Container(
-                                                                              padding: const EdgeInsets.symmetric(
-                                                                                horizontal: 12,
-                                                                                vertical: 8,
+                                                                          const SizedBox(
+                                                                            width:
+                                                                                8,
+                                                                          ),
+                                                                          Expanded(
+                                                                            child: Text(
+                                                                              cmd['description'] ??
+                                                                                  '',
+                                                                              style: TextStyle(
+                                                                                color: appTheme.textSecondary,
+                                                                                fontSize: 12,
                                                                               ),
-                                                                              color: isSelected
-                                                                                  ? appTheme.primary.withValues(
-                                                                                      alpha: 0.2,
-                                                                                    )
-                                                                                  : Colors.transparent,
-                                                                              child: Row(
-                                                                                children: [
-                                                                                  Text(
-                                                                                    '/${cmd['command']}',
-                                                                                    style: TextStyle(
-                                                                                      color: appTheme.primary,
-                                                                                      fontWeight: FontWeight.bold,
-                                                                                      fontSize: 14,
-                                                                                    ),
-                                                                                  ),
-                                                                                  const SizedBox(
-                                                                                    width: 8,
-                                                                                  ),
-                                                                                  Expanded(
-                                                                                    child: Text(
-                                                                                      cmd['description'] ??
-                                                                                          '',
-                                                                                      style: TextStyle(
-                                                                                        color: appTheme.textSecondary,
-                                                                                        fontSize: 12,
-                                                                                      ),
-                                                                                      overflow: TextOverflow.ellipsis,
-                                                                                    ),
-                                                                                  ),
-                                                                                  const SizedBox(
-                                                                                    width: 8,
-                                                                                  ),
-                                                                                  Flexible(
-                                                                                    child: Text(
-                                                                                      cmd['usage'] ??
-                                                                                          '',
-                                                                                      style: TextStyle(
-                                                                                        color: appTheme.textSecondary.withValues(
-                                                                                          alpha: 0.6,
-                                                                                        ),
-                                                                                        fontSize: 11,
-                                                                                        fontStyle: FontStyle.italic,
-                                                                                      ),
-                                                                                      overflow: TextOverflow.ellipsis,
-                                                                                    ),
-                                                                                  ),
-                                                                                ],
-                                                                              ),
+                                                                              overflow: TextOverflow.ellipsis,
                                                                             ),
-                                                                          );
-                                                                        },
+                                                                          ),
+                                                                          const SizedBox(
+                                                                            width:
+                                                                                8,
+                                                                          ),
+                                                                          Flexible(
+                                                                            child: Text(
+                                                                              cmd['usage'] ??
+                                                                                  '',
+                                                                              style: TextStyle(
+                                                                                color: appTheme.textSecondary.withValues(
+                                                                                  alpha: 0.6,
+                                                                                ),
+                                                                                fontSize: 11,
+                                                                                fontStyle: FontStyle.italic,
+                                                                              ),
+                                                                              overflow: TextOverflow.ellipsis,
+                                                                            ),
+                                                                          ),
+                                                                        ],
+                                                                      ),
+                                                                    ),
+                                                                  );
+                                                                },
+                                                              ),
+                                                            ),
+                                                        ],
+                                                      ),
+                                                      // Mostrar sugerencias de nicks como overlay flotante encima del campo
+                                                      if (_showNickSuggestions &&
+                                                          _nickSuggestions
+                                                              .isNotEmpty)
+                                                        Positioned(
+                                                          bottom: 0,
+                                                          left: 0,
+                                                          right: 0,
+                                                          child: Transform.translate(
+                                                            offset: const Offset(
+                                                              0,
+                                                              -100,
+                                                            ), // Mover hacia arriba (encima del campo)
+                                                            child: Material(
+                                                              elevation: 8,
+                                                              borderRadius:
+                                                                  BorderRadius.circular(
+                                                                    8,
                                                                   ),
-                                                                ),
-                                                            ],
-                                                          ),
-                                                          // Mostrar sugerencias de nicks como overlay flotante encima del campo
-                                                          if (_showNickSuggestions &&
-                                                              _nickSuggestions
-                                                                  .isNotEmpty)
-                                                            Positioned(
-                                                              bottom: 0,
-                                                              left: 0,
-                                                              right: 0,
-                                                              child: Transform.translate(
-                                                                offset: const Offset(
-                                                                  0,
-                                                                  100,
-                                                                ), // Mover hacia arriba (encima del campo)
-                                                                child: Material(
-                                                                  elevation: 8,
+                                                              color: Colors
+                                                                  .transparent,
+                                                              child: Container(
+                                                                decoration: BoxDecoration(
+                                                                  color: appTheme
+                                                                      .surface,
                                                                   borderRadius:
                                                                       BorderRadius.circular(
                                                                         8,
                                                                       ),
-                                                                  color: Colors
-                                                                      .transparent,
-                                                                  child: Container(
-                                                                    decoration: BoxDecoration(
-                                                                      color: appTheme
-                                                                          .surface,
-                                                                      borderRadius:
-                                                                          BorderRadius.circular(
-                                                                            8,
-                                                                          ),
-                                                                      border: Border.all(
-                                                                        color: appTheme
-                                                                            .accent
-                                                                            .withValues(
-                                                                              alpha: 0.3,
-                                                                            ),
-                                                                      ),
-                                                                      boxShadow: [
-                                                                        BoxShadow(
-                                                                          color: Colors.black.withValues(
+                                                                  border: Border.all(
+                                                                    color: appTheme
+                                                                        .accent
+                                                                        .withValues(
+                                                                          alpha:
+                                                                              0.3,
+                                                                        ),
+                                                                  ),
+                                                                  boxShadow: [
+                                                                    BoxShadow(
+                                                                      color: Colors
+                                                                          .black
+                                                                          .withValues(
                                                                             alpha:
                                                                                 0.3,
                                                                           ),
-                                                                          blurRadius:
-                                                                              12,
-                                                                          offset: const Offset(
+                                                                      blurRadius:
+                                                                          12,
+                                                                      offset:
+                                                                          const Offset(
                                                                             0,
                                                                             4,
                                                                           ),
-                                                                        ),
-                                                                      ],
                                                                     ),
-                                                                    constraints:
-                                                                        const BoxConstraints(
-                                                                          maxHeight:
-                                                                              200,
-                                                                        ),
-                                                                    child: ListView.separated(
-                                                                      shrinkWrap:
-                                                                          true,
-                                                                      padding: const EdgeInsets.symmetric(
+                                                                  ],
+                                                                ),
+                                                                constraints:
+                                                                    const BoxConstraints(
+                                                                      maxHeight:
+                                                                          200,
+                                                                    ),
+                                                                child: ListView.separated(
+                                                                  shrinkWrap:
+                                                                      true,
+                                                                  padding:
+                                                                      const EdgeInsets.symmetric(
                                                                         vertical:
                                                                             4,
                                                                       ),
-                                                                      itemCount:
-                                                                          _nickSuggestions
-                                                                              .length,
-                                                                      separatorBuilder:
-                                                                          (
-                                                                            context,
-                                                                            index,
-                                                                          ) => Divider(
-                                                                            height:
-                                                                                1,
-                                                                            color: appTheme.accent.withValues(
+                                                                  itemCount:
+                                                                      _nickSuggestions
+                                                                          .length,
+                                                                  separatorBuilder:
+                                                                      (
+                                                                        context,
+                                                                        index,
+                                                                      ) => Divider(
+                                                                        height:
+                                                                            1,
+                                                                        color: appTheme
+                                                                            .accent
+                                                                            .withValues(
                                                                               alpha: 0.1,
                                                                             ),
-                                                                          ),
-                                                                      itemBuilder:
-                                                                          (
-                                                                            context,
-                                                                            index,
-                                                                          ) {
-                                                                            final nick =
-                                                                                _nickSuggestions[index];
-                                                                            final isSelected =
-                                                                                index ==
-                                                                                _selectedNickIndex;
+                                                                      ),
+                                                                  itemBuilder:
+                                                                      (
+                                                                        context,
+                                                                        index,
+                                                                      ) {
+                                                                        final nick =
+                                                                            _nickSuggestions[index];
+                                                                        final isSelected =
+                                                                            index ==
+                                                                            _selectedNickIndex;
 
-                                                                            return InkWell(
-                                                                              onTap: () => _selectNickSuggestion(
-                                                                                index,
-                                                                              ),
-                                                                              child: Container(
-                                                                                padding: const EdgeInsets.symmetric(
-                                                                                  horizontal: 12,
-                                                                                  vertical: 8,
+                                                                        return InkWell(
+                                                                          onTap: () => _selectNickSuggestion(
+                                                                            index,
+                                                                          ),
+                                                                          child: Container(
+                                                                            padding: const EdgeInsets.symmetric(
+                                                                              horizontal: 12,
+                                                                              vertical: 8,
+                                                                            ),
+                                                                            color:
+                                                                                isSelected
+                                                                                ? appTheme.accent.withValues(
+                                                                                    alpha: 0.2,
+                                                                                  )
+                                                                                : Colors.transparent,
+                                                                            child: Row(
+                                                                              children: [
+                                                                                Icon(
+                                                                                  Icons.person,
+                                                                                  color: appTheme.accent,
+                                                                                  size: 16,
                                                                                 ),
-                                                                                color: isSelected
-                                                                                    ? appTheme.accent.withValues(
-                                                                                        alpha: 0.2,
-                                                                                      )
-                                                                                    : Colors.transparent,
-                                                                                child: Row(
-                                                                                  children: [
-                                                                                    Icon(
-                                                                                      Icons.person,
-                                                                                      color: appTheme.accent,
-                                                                                      size: 16,
-                                                                                    ),
-                                                                                    const SizedBox(
-                                                                                      width: 8,
-                                                                                    ),
-                                                                                    Text(
-                                                                                      nick,
-                                                                                      style: TextStyle(
-                                                                                        color: appTheme.accent,
-                                                                                        fontWeight: FontWeight.bold,
-                                                                                        fontSize: 14,
-                                                                                      ),
-                                                                                    ),
-                                                                                  ],
+                                                                                const SizedBox(
+                                                                                  width: 8,
                                                                                 ),
-                                                                              ),
-                                                                            );
-                                                                          },
-                                                                    ),
-                                                                  ),
+                                                                                Text(
+                                                                                  nick,
+                                                                                  style: TextStyle(
+                                                                                    color: appTheme.accent,
+                                                                                    fontWeight: FontWeight.bold,
+                                                                                    fontSize: 14,
+                                                                                  ),
+                                                                                ),
+                                                                              ],
+                                                                            ),
+                                                                          ),
+                                                                        );
+                                                                      },
                                                                 ),
                                                               ),
                                                             ),
-                                                        ],
-                                                      ), // Stack
+                                                          ),
+                                                        ),
+                                                    ],
+                                                  ), // Stack
                                                 ), // Expanded
                                                 const SizedBox(width: 8),
                                                 // Toggle para NOTICE/PRIVMSG (solo en mensajes privados)
@@ -10282,9 +10783,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                                           : 'Cambiar a NOTICE',
                                                     ),
                                                   ),
-                                                // Botón para enviar con delay normal
+                                                // Botón de enviar (siempre instantáneo)
                                                 FloatingActionButton(
-                                                  onPressed: _sendMessage,
+                                                  onPressed: () {
+                                                    _sendMessage(
+                                                      forceImmediate: true,
+                                                    );
+                                                  },
                                                   mini: true,
                                                   backgroundColor:
                                                       appTheme.primary,
@@ -10292,35 +10797,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                                       AppTheme.contrastOn(
                                                         appTheme.primary,
                                                       ),
-                                                  tooltip:
-                                                      'Enviar mensaje (con delay configurado)',
+                                                  tooltip: 'Enviar mensaje',
                                                   child: const Icon(Icons.send),
                                                 ),
-                                                // Botón para enviar inmediatamente (sin delay).
-                                                // ponytail: en móvil sobra; un único botón de enviar prioriza el chat.
-                                                if (!PlatformUtils.isMobile) ...[
-                                                  const SizedBox(width: 4),
-                                                  FloatingActionButton(
-                                                    onPressed: () {
-                                                      _sendMessage(
-                                                        forceImmediate: true,
-                                                      );
-                                                    },
-                                                    mini: true,
-                                                    backgroundColor:
-                                                        appTheme.accent,
-                                                    foregroundColor:
-                                                        AppTheme.contrastOn(
-                                                          appTheme.accent,
-                                                        ),
-                                                    tooltip:
-                                                        'Enviar inmediatamente (sin delay)',
-                                                    child: const Icon(
-                                                      Icons.flash_on,
-                                                      size: 18,
-                                                    ),
-                                                  ),
-                                                ],
                                                 // Botón de petición de canciones (solo en #QualiaRadio),
                                                 // a la derecha de los botones de enviar.
                                                 if (currentChannel
@@ -10331,7 +10810,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                                     message:
                                                         'Pedir canción al DJ de Qualia Radio',
                                                     // En movil: FAB mini solo icono para no comerse el textbox.
-                                                    child: PlatformUtils.isMobile
+                                                    child:
+                                                        PlatformUtils.isMobile
                                                         ? FloatingActionButton(
                                                             heroTag:
                                                                 'qualia_request',
@@ -10474,6 +10954,58 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                                   });
                                             },
                                           ),
+                                        // Selector de GIFs (GIPHY)
+                                        if (_showGiphyPicker &&
+                                            currentChannel != null)
+                                          GiphyPicker(
+                                            appTheme: appTheme,
+                                            onGifSelected: (url) {
+                                              _ircService.sendMessage(
+                                                currentChannel!,
+                                                url,
+                                              );
+                                              setState(() {
+                                                _showGiphyPicker = false;
+                                              });
+                                              _messageFocusNode.requestFocus();
+                                            },
+                                          ),
+                                        // Selector de regalos
+                                        if (_showGiftPicker &&
+                                            currentChannel != null)
+                                          GiftPicker(
+                                            appTheme: appTheme,
+                                            pointsService: _globalPointsService,
+                                            targetNick: _giftTargetNick,
+                                            onGiftSelected: (gift, recipient) {
+                                              if (gift.id == -1) {
+                                                setState(
+                                                  () => _showGiftPicker = false,
+                                                );
+                                                return;
+                                              }
+                                              if (recipient.isEmpty) {
+                                                ScaffoldMessenger.of(
+                                                  context,
+                                                ).showSnackBar(
+                                                  const SnackBar(
+                                                    content: Text(
+                                                      'Escribe el nick del destinatario',
+                                                    ),
+                                                    duration: Duration(
+                                                      seconds: 2,
+                                                    ),
+                                                  ),
+                                                );
+                                                return;
+                                              }
+                                              _showGiftConfirmation(
+                                                gift,
+                                                currentChannel!,
+                                                recipient,
+                                              );
+                                            },
+                                          ),
                                       ],
                                     );
                                   },
@@ -10485,10 +11017,24 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                   currentChannel.startsWith('#') &&
                                   _showUserList &&
                                   !PlatformUtils.isMobile)
-                                Expanded(
-                                  flex: 1,
-                                  child: usersSidebarContent,
-                                ),
+                                  SizedBox(
+                                    width: _usersSidebarWidth,
+                                    child: Row(
+                                      children: [
+                                        _buildResizeHandle(false),
+                                        Expanded(
+                                          child: Column(
+                                            children: [
+                                              Expanded(
+                                                child: usersSidebarContent,
+                                              ),
+                                              RadioControls(),
+                                            ],
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
                             ],
                           ),
                         ),
@@ -10612,7 +11158,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   ),
               ],
             ),
-            bottomNavigationBar: RadioControls(),
             // Espacio para publicidad de Google AdSense (desactivado por ahora)
             // if (PlatformUtils.isWeb)
             //   Container(
@@ -10934,7 +11479,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final userMode = channelData?.getUserMode(message.nick);
     final userColor = isBot
         ? const Color(0xFFFFD700)
-        : _getUserColor(message.nick.hashCode);
+        : colorForNick(message.nick);
     final userIcon = _getUserIcon(userMode, isBot, nick: message.nick);
 
     return Padding(
@@ -11167,7 +11712,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         ? const Color(0xFFFFA500)
         : userMode == '+'
         ? const Color(0xFF87CEEB)
-        : _getUserColor(message.nick.hashCode);
+        : colorForNick(message.nick);
 
     return InkWell(
       onSecondaryTapDown: (details) => _showCompactMessageMenu(
@@ -11430,6 +11975,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final currentNick = ref.read(currentNicknameProvider);
     final isOwnMessage = message.nick == currentNick;
 
+    // Obtener aura del nick del usuario que envía el mensaje
+    final ownAura = ref.read(notificationSettingsProvider).nickAura;
+    final auraEmoji = ownAura != 'none' && isOwnMessage
+        ? NickAura.values
+              .where((a) => a.name == ownAura)
+              .map((a) => a.emoji)
+              .firstOrNull
+        : null;
+
     // Detectar si es mensaje de registro de nick - mostrar de forma especial
     if (_isNickRegistrationMessage(message)) {
       final messageLower = message.message.toLowerCase();
@@ -11623,11 +12177,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
     final userMode = channelData?.getUserMode(message.nick);
 
-    // Generar color basado en el hash del nickname para consistencia
-    final nickHash = message.nick.hashCode;
+    // Generar color estable basado en el nick (estilo HexChat/Kiwi)
     final userColor = isBot
         ? const Color(0xFFFFD700)
-        : _getUserColor(nickHash); // Dorado para bots
+        : colorForNick(message.nick); // Dorado para bots
     final appTheme = ref.read(themeProvider);
     // Optimización: usar read en lugar de watch para evitar reconstrucciones
     final pinnedMap = ref.read(pinnedMessagesProvider);
@@ -11648,7 +12201,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         ? userIcon
         : (message.nick.isNotEmpty ? message.nick[0].toUpperCase() : '?');
 
-    return Padding(
+    final messageContent = Padding(
       padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
       child: Row(
         mainAxisAlignment: isOwnMessage
@@ -12174,6 +12727,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         ],
       ),
     );
+
+    if (auraEmoji != null && isOwnMessage) {
+      return MessageAura(
+        emojis: [auraEmoji],
+        enabled: true,
+        particleCount: 4,
+        child: messageContent,
+      );
+    }
+    return messageContent;
   }
 
   // Widget para mostrar el indicador de mensaje pendiente con contador
@@ -14144,6 +14707,186 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     );
   }
 
+  /// Hoja inferior con opciones de estilo de chat (minimalista)
+  void _showChatStyleSheet(BuildContext context) {
+    final appTheme = ref.read(themeProvider);
+    final formatPrefs = ref.read(messageFormatPreferencesProvider);
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: appTheme.background,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetContext) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            return DraggableScrollableSheet(
+              initialChildSize: 0.5,
+              minChildSize: 0.3,
+              maxChildSize: 0.7,
+              expand: false,
+              builder: (context, scrollController) {
+                return SingleChildScrollView(
+                  controller: scrollController,
+                  padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Center(
+                        child: Container(
+                          width: 40,
+                          height: 4,
+                          margin: const EdgeInsets.only(bottom: 16),
+                          decoration: BoxDecoration(
+                            color: appTheme.textSecondary.withValues(alpha: 0.3),
+                            borderRadius: BorderRadius.circular(2),
+                          ),
+                        ),
+                      ),
+                      Text(
+                        'Estilo de chat',
+                        style: TextStyle(
+                          color: appTheme.textPrimary,
+                          fontSize: 22,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+
+                      // Avatar scale
+                      Row(
+                        children: [
+                          Icon(Icons.photo_size_select_small,
+                              size: 18, color: appTheme.textSecondary),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Tamaño de avatares',
+                                  style: TextStyle(
+                                    color: appTheme.textPrimary,
+                                    fontSize: 14,
+                                  ),
+                                ),
+                                Slider(
+                                  value: formatPrefs.avatarScale,
+                                  min: 0.6,
+                                  max: 1.6,
+                                  divisions: 20,
+                                  label:
+                                      '${(formatPrefs.avatarScale * 100).toStringAsFixed(0)}%',
+                                  activeColor: appTheme.primary,
+                                  inactiveColor: appTheme.textSecondary.withValues(alpha: 0.2),
+                                  onChanged: (value) {
+                                    ref
+                                        .read(messageFormatPreferencesProvider.notifier)
+                                        .setAvatarScale(value);
+                                  },
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+
+                      const SizedBox(height: 8),
+
+                      // Animated avatars
+                      Row(
+                        children: [
+                          Icon(Icons.animation,
+                              size: 18, color: appTheme.textSecondary),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Avatares animados',
+                                  style: TextStyle(
+                                    color: appTheme.textPrimary,
+                                    fontSize: 14,
+                                  ),
+                                ),
+                                Text(
+                                  'Usar avatares GIF animados en los nicks',
+                                  style: TextStyle(
+                                    color: appTheme.textSecondary,
+                                    fontSize: 11,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Switch(
+                            value: formatPrefs.enableAnimatedAvatars,
+                            activeColor: appTheme.primary,
+                            onChanged: (value) {
+                              ref
+                                  .read(messageFormatPreferencesProvider.notifier)
+                                  .setEnableAnimatedAvatars(value);
+                            },
+                          ),
+                        ],
+                      ),
+
+                      const SizedBox(height: 8),
+
+                      // Inline avatar
+                      Row(
+                        children: [
+                          Icon(Icons.account_circle,
+                              size: 18, color: appTheme.textSecondary),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Avatar en canales',
+                                  style: TextStyle(
+                                    color: appTheme.textPrimary,
+                                    fontSize: 14,
+                                  ),
+                                ),
+                                Text(
+                                  'Mostrar avatar pequeño junto al nick en los mensajes',
+                                  style: TextStyle(
+                                    color: appTheme.textSecondary,
+                                    fontSize: 11,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Switch(
+                            value: formatPrefs.showInlineChannelAvatar,
+                            activeColor: appTheme.primary,
+                            onChanged: (value) {
+                              ref
+                                  .read(messageFormatPreferencesProvider.notifier)
+                                  .setShowInlineChannelAvatar(value);
+                            },
+                          ),
+                        ],
+                      ),
+
+                      const SizedBox(height: 24),
+                    ],
+                  ),
+                );
+              },
+            );
+          },
+        );
+      },
+    );
+  }
+
   // Diálogo para programar un mensaje
   void _showScheduledMessageDialog(BuildContext context) {
     final appTheme = ref.read(themeProvider);
@@ -15852,21 +16595,133 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     }
   }
 
-  // Generar color consistente basado en el hash del nickname
-  Color _getUserColor(int hash) {
-    final colors = [
-      const Color(0xFFFFA500), // Naranja
-      const Color(0xFFFFD700), // Amarillo dorado
-      const Color(0xFFFF8C00), // Naranja oscuro
-      const Color(0xFFFFE4B5), // Amarillo claro
-      Colors.orange,
-      Colors.amber,
-      const Color(0xFFFFB347), // Naranja claro
-      const Color(0xFFFFCC00), // Amarillo
-      Colors.deepOrange,
-      const Color(0xFFFFE135), // Amarillo brillante
-    ];
-    return colors[hash.abs() % colors.length];
+  Widget _buildRoleBadge(String? userMode, {double size = 14}) {
+    if (userMode == null) return const SizedBox.shrink();
+    String label;
+    Color color;
+    switch (userMode) {
+      case '~':
+        label = 'Dueño';
+        color = const Color(0xFFFF5722);
+      case '&':
+        label = 'Admin';
+        color = const Color(0xFFFF5722);
+      case '@':
+        label = 'Operador';
+        color = Colors.blue;
+      case '%':
+        label = 'Halfop';
+        color = Colors.teal;
+      case '+':
+        label = 'Voz';
+        color = Colors.green;
+      default:
+        return const SizedBox.shrink();
+    }
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.2),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withValues(alpha: 0.5), width: 1),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: color,
+          fontSize: size - 4,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFontSizeControls(AppTheme appTheme) {
+    final currentLevel = ref.watch(chatFontSizeProvider);
+    final labels = ['A-', 'A', 'A+', 'A++'];
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        GestureDetector(
+          onTap: currentLevel > 0
+              ? () => ref
+                    .read(chatFontSizeProvider.notifier)
+                    .setFontSize(currentLevel - 1)
+              : null,
+          child: Text(
+            'A-',
+            style: TextStyle(
+              color: currentLevel > 0
+                  ? appTheme.primary
+                  : appTheme.textSecondary.withValues(alpha: 0.3),
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 2),
+          child: Text(
+            labels[currentLevel],
+            style: TextStyle(color: appTheme.textSecondary, fontSize: 10),
+          ),
+        ),
+        GestureDetector(
+          onTap: currentLevel < 3
+              ? () => ref
+                    .read(chatFontSizeProvider.notifier)
+                    .setFontSize(currentLevel + 1)
+              : null,
+          child: Text(
+            'A+',
+            style: TextStyle(
+              color: currentLevel < 3
+                  ? appTheme.primary
+                  : appTheme.textSecondary.withValues(alpha: 0.3),
+              fontSize: 14,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildIgnoreAllPrivatesBadge(BuildContext context, WidgetRef ref) {
+    return const IgnoreAllPrivatesBadge();
+  }
+
+  Widget _buildResizeHandle(bool isLeft) {
+    return MouseRegion(
+      cursor: SystemMouseCursors.resizeColumn,
+      child: GestureDetector(
+        onHorizontalDragUpdate: (details) {
+          setState(() {
+            if (isLeft) {
+              _channelsSidebarWidth = (_channelsSidebarWidth + details.delta.dx)
+                  .clamp(150, 400);
+            } else {
+              _usersSidebarWidth = (_usersSidebarWidth - details.delta.dx)
+                  .clamp(150, 400);
+            }
+          });
+        },
+        child: Container(
+          width: 6,
+          color: Colors.transparent,
+          child: Center(
+            child: Container(
+              width: 2,
+              height: 30,
+              decoration: BoxDecoration(
+                color: Colors.white24,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   // Widget para mostrar el nombre del canal con el # en color dorado para Semana Santa Sevilla
@@ -16201,6 +17056,68 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             ),
             const SizedBox(width: 8),
           ],
+          const ConnectedTimePanel(),
+          if (!isQuery && _isCurrentUserModerator(ref, channel)) ...[
+            PopupMenuButton<String>(
+              icon: Icon(Icons.shield_outlined, size: 20, color: Colors.white70),
+              tooltip: 'Gestión del canal',
+              color: appTheme.surface,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+                side: BorderSide(color: appTheme.primary, width: 1),
+              ),
+              onSelected: (value) {
+                switch (value) {
+                  case 'modes':
+                    showDialog(
+                      context: context,
+                      builder: (dialogContext) =>
+                          ChannelModesDialog(channel: channel),
+                    );
+                    break;
+                  case 'bans':
+                    showDialog(
+                      context: context,
+                      builder: (dialogContext) =>
+                          ChannelBanListDialog(channel: channel),
+                    );
+                    break;
+                }
+              },
+              itemBuilder: (context) => [
+                PopupMenuItem<String>(
+                  value: 'modes',
+                  child: Row(
+                    children: [
+                      Icon(Icons.shield_outlined,
+                          color: appTheme.primary, size: 20),
+                      const SizedBox(width: 8),
+                      Text('Modos del canal',
+                          style: TextStyle(color: appTheme.textPrimary)),
+                    ],
+                  ),
+                ),
+                PopupMenuItem<String>(
+                  value: 'bans',
+                  child: Row(
+                    children: [
+                      Icon(Icons.gavel, color: Colors.redAccent, size: 20),
+                      const SizedBox(width: 8),
+                      Text('Lista de baneados',
+                          style: TextStyle(color: appTheme.textPrimary)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ],
+          IconButton(
+            icon: const Text('💋', style: TextStyle(fontSize: 18)),
+            tooltip: 'Enviar beso masivo',
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+            onPressed: () => _sendMassKiss(context),
+          ),
           IconButton(
             icon: Icon(Icons.delete_sweep, size: 20, color: Colors.white70),
             tooltip: 'Borrar historial del canal',
@@ -16211,6 +17128,28 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         ],
       ),
     );
+  }
+
+  /// Verifica si el usuario actual puede moderar el canal: es op (@), founder
+  /// (&), admin (!), halfop (%) o IRCop global.
+  bool _isCurrentUserModerator(WidgetRef ref, String channel) {
+    if (channel.isEmpty || !channel.startsWith('#')) return false;
+    final channels = ref.read(channelsProvider);
+    final normalized = channel.toLowerCase();
+    final channelKey = channels.keys.firstWhere(
+      (key) => key.toLowerCase() == normalized,
+      orElse: () => normalized,
+    );
+    final channelData = channels[channelKey];
+    if (channelData == null) return false;
+    final currentNick = ref.read(currentNicknameProvider);
+    if (currentNick == null) return false;
+    final userMode = channelData.getUserMode(currentNick);
+    return userMode == '@' ||
+        userMode == '&' ||
+        userMode == '%' ||
+        userMode == '!' ||
+        _ircService.isIRCOp;
   }
 
   /// Color de fondo del área de chat. Cuando el canal tiene una imagen de
@@ -16227,27 +17166,75 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   /// AppBar compacta para movil (estilo Android): solo lo esencial visible
   /// (estado, canales, usuarios) y el resto en un unico menu desbordable.
+  Widget _buildLagVersionIndicator(AppTheme appTheme, Color appBarIconColor) {
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Consumer(
+            builder: (context, ref, child) {
+              final lag = ref.watch(lagProvider);
+              Color lagColor;
+              if (lag == null) {
+                lagColor = Colors.blue.withValues(alpha: 0.6);
+              } else if (lag < 100) {
+                lagColor = Colors.green;
+              } else if (lag < 300) {
+                lagColor = Colors.yellow;
+              } else if (lag < 500) {
+                lagColor = Colors.orange;
+              } else {
+                lagColor = Colors.red;
+              }
+              return Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 8,
+                    height: 8,
+                    decoration: BoxDecoration(
+                      color: lagColor,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    lag == null ? '...' : '${lag}ms',
+                    style: TextStyle(
+                      color: appBarIconColor,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+          if (_appVersion.isNotEmpty) ...[
+            const SizedBox(width: 10),
+            Text(
+              _appVersion,
+              style: TextStyle(
+                color: appBarIconColor.withValues(alpha: 0.7),
+                fontSize: 12,
+                fontWeight: FontWeight.w400,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
   List<Widget> _buildMobileAppBarActions(
     BuildContext context,
     AppTheme appTheme,
     String? currentChannel,
-    bool isConnected,
     Color appBarIconColor,
   ) {
-    final isStaff = isAuthorizedStaffNick(ref.watch(currentNicknameProvider));
+    final nickname = ref.watch(currentNicknameProvider);
     return [
-      // Indicador de conexion compacto (toca para cambiar de servidor).
-      IconButton(
-        icon: Icon(
-          Icons.circle,
-          size: 12,
-          color: isConnected ? Colors.green : Colors.red,
-        ),
-        tooltip: isConnected
-            ? 'Conectado (cambiar servidor)'
-            : 'Desconectado (cambiar servidor)',
-        onPressed: _showServerSwitchDialog,
-      ),
       // Canales y mensajes (drawer izquierdo).
       IconButton(
         icon: Icon(Icons.forum, color: appBarIconColor),
@@ -16261,187 +17248,374 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           tooltip: 'Usuarios del canal',
           onPressed: () => _scaffoldKey.currentState?.openEndDrawer(),
         ),
-      // Menu desbordable con el resto de funciones.
-      PopupMenuButton<String>(
-        icon: Icon(Icons.more_vert, color: appBarIconColor),
-        tooltip: 'Más opciones',
-        onSelected: (value) async {
-          switch (value) {
-            case 'search_chat':
-              _handleFind();
-              break;
-            case 'search_history':
-              _showSearchDialog(context);
-              break;
-            case 'channel_list':
-              showDialog(
-                context: context,
-                builder: (context) =>
-                    ChannelListDialog(ircService: _ircService),
-              );
-              break;
-            case 'voice':
-              showDialog(
-                context: context,
-                builder: (context) =>
-                    VoiceAssistantDialog(appTheme: appTheme),
-              );
-              break;
-            case 'cau':
-              _showSupportDialog(context);
-              break;
-            case 'nick':
-              _showNickRegistrationDialog(context);
-              break;
-            case 'channel_reg':
-              _showChannelRegistrationDialog(context);
-              break;
-            case 'ip':
-              _showVirtualIPDialog(context);
-              break;
-            case 'ircop':
-              _showIRCOpMenu(context);
-              break;
-            case 'settings':
-              await Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const SettingsScreen(),
-                ),
-              );
-              final currentNick = ref.read(currentNicknameProvider);
-              if (currentNick != null && currentNick.trim().isNotEmpty) {
-                ref
-                    .read(avatarRefreshProvider.notifier)
-                    .refreshAvatar(currentNick.trim());
-              }
-              break;
-            case 'theme':
-              _showThemeSelector(context);
-              break;
-            case 'credits':
-              _showCreditsDialog(context);
-              break;
-            case 'exit':
-              _disconnect();
-              try {
-                io.exit(0);
-              } catch (_) {}
-              break;
-          }
-        },
-        itemBuilder: (context) => [
+      // Busqueda de mensajes (lupa principal).
+      IconButton(
+        icon: Icon(Icons.search, color: appBarIconColor),
+        tooltip: 'Buscar mensajes',
+        onPressed: _handleFind,
+      ),
+      // Tema claro/oscuro.
+      IconButton(
+        icon: Icon(Icons.palette, color: appBarIconColor),
+        tooltip: 'Cambiar tema',
+        onPressed: () => _showThemeSelector(context),
+      ),
+      // Configuracion: menu que agrupa el resto de funciones.
+      _buildConfigMenu(
+        context,
+        appTheme,
+        appBarIconColor,
+        isMobile: true,
+        nickname: nickname,
+      ),
+    ];
+  }
+
+  PopupMenuButton<String> _buildConfigMenu(
+    BuildContext context,
+    AppTheme appTheme,
+    Color appBarIconColor, {
+    required bool isMobile,
+    String? nickname,
+  }) {
+    final isStaff = isAuthorizedStaffNick(ref.watch(currentNicknameProvider));
+    return PopupMenuButton<String>(
+      icon: Icon(Icons.more_vert, color: appBarIconColor),
+      tooltip: 'Configuración',
+      onSelected: (value) async {
+        switch (value) {
+          case 'profile':
+            if (nickname != null) {
+              _showProfileConfigMenu(context, nickname);
+            }
+            break;
+          case 'voice':
+            showDialog(
+              context: context,
+              builder: (context) => VoiceAssistantDialog(appTheme: appTheme),
+            );
+            break;
+          case 'cau':
+            _showSupportDialog(context);
+            break;
+          case 'advanced':
+            _showAdvancedSettingsDialog(context, appTheme);
+            break;
+          case 'server':
+            _showServerSwitchDialog();
+            break;
+          case 'settings':
+            await Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => const SettingsScreen()),
+            );
+            final currentNick = ref.read(currentNicknameProvider);
+            if (currentNick != null && currentNick.trim().isNotEmpty) {
+              ref
+                  .read(avatarRefreshProvider.notifier)
+                  .refreshAvatar(currentNick.trim());
+            }
+            break;
+          case 'cache':
+            if (PlatformUtils.isWeb) {
+              _hardRefreshBrowserCache(context);
+            } else {
+              _checkForUpdates(context);
+            }
+            break;
+          case 'services':
+            _showServicesMenu(context);
+            break;
+          case 'export':
+            _handleExportLogs();
+            break;
+          case 'staff_admin':
+            await Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => const StaffAdminScreen()),
+            );
+            break;
+          case 'ircop':
+            _showIRCOpMenu(context);
+            break;
+          case 'credits':
+            _showCreditsDialog(context);
+            break;
+          case 'exit':
+            _showExitDialog(context);
+            break;
+        }
+      },
+      itemBuilder: (context) => [
+        if (nickname != null)
           const PopupMenuItem(
-            value: 'search_chat',
+            value: 'profile',
             child: ListTile(
-              leading: Icon(Icons.search),
-              title: Text('Buscar mensajes'),
+              leading: Icon(Icons.account_circle),
+              title: Text('Mi Perfil'),
+              contentPadding: EdgeInsets.zero,
+            ),
+          ),
+        const PopupMenuItem(
+          value: 'voice',
+          child: ListTile(
+            leading: Icon(Icons.mic),
+            title: Text('Asistente de voz'),
+            contentPadding: EdgeInsets.zero,
+          ),
+        ),
+        const PopupMenuDivider(),
+        const PopupMenuItem(
+          value: 'cau',
+          child: ListTile(
+            leading: Icon(Icons.support_agent),
+            title: Text('Atención al usuario'),
+            contentPadding: EdgeInsets.zero,
+          ),
+        ),
+        const PopupMenuItem(
+          value: 'services',
+          child: ListTile(
+            leading: Icon(Icons.miscellaneous_services),
+            title: Text('Servicios'),
+            subtitle: Text('Nick, canal, IP virtual'),
+            contentPadding: EdgeInsets.zero,
+          ),
+        ),
+        const PopupMenuItem(
+          value: 'advanced',
+          child: ListTile(
+            leading: Icon(Icons.tune),
+            title: Text('Ajustes Avanzados'),
+            contentPadding: EdgeInsets.zero,
+          ),
+        ),
+        const PopupMenuItem(
+          value: 'server',
+          child: ListTile(
+            leading: Icon(Icons.dns),
+            title: Text('Servidor / Red'),
+            contentPadding: EdgeInsets.zero,
+          ),
+        ),
+        if (isStaff) ...[
+          const PopupMenuItem(
+            value: 'staff_admin',
+            child: ListTile(
+              leading: Icon(Icons.shield),
+              title: Text('Admin Staff'),
               contentPadding: EdgeInsets.zero,
             ),
           ),
           const PopupMenuItem(
-            value: 'search_history',
+            value: 'ircop',
             child: ListTile(
-              leading: Icon(Icons.manage_search),
-              title: Text('Buscar en historial'),
-              contentPadding: EdgeInsets.zero,
-            ),
-          ),
-          const PopupMenuItem(
-            value: 'channel_list',
-            child: ListTile(
-              leading: Icon(Icons.list),
-              title: Text('Lista de canales'),
-              contentPadding: EdgeInsets.zero,
-            ),
-          ),
-          const PopupMenuItem(
-            value: 'voice',
-            child: ListTile(
-              leading: Icon(Icons.mic),
-              title: Text('Asistente de voz'),
-              contentPadding: EdgeInsets.zero,
-            ),
-          ),
-          const PopupMenuDivider(),
-          const PopupMenuItem(
-            value: 'cau',
-            child: ListTile(
-              leading: Icon(Icons.support_agent),
-              title: Text('Atención al usuario'),
-              contentPadding: EdgeInsets.zero,
-            ),
-          ),
-          const PopupMenuItem(
-            value: 'nick',
-            child: ListTile(
-              leading: Icon(Icons.badge),
-              title: Text('Registro de Nick'),
-              contentPadding: EdgeInsets.zero,
-            ),
-          ),
-          const PopupMenuItem(
-            value: 'channel_reg',
-            child: ListTile(
-              leading: Icon(Icons.campaign),
-              title: Text('Registro de Canal'),
-              contentPadding: EdgeInsets.zero,
-            ),
-          ),
-          const PopupMenuItem(
-            value: 'ip',
-            child: ListTile(
-              leading: Icon(Icons.vpn_lock),
-              title: Text('IP Virtual'),
-              contentPadding: EdgeInsets.zero,
-            ),
-          ),
-          if (isStaff)
-            const PopupMenuItem(
-              value: 'ircop',
-              child: ListTile(
-                leading: Icon(Icons.admin_panel_settings),
-                title: Text('Menú IRCop'),
-                contentPadding: EdgeInsets.zero,
-              ),
-            ),
-          const PopupMenuDivider(),
-          const PopupMenuItem(
-            value: 'settings',
-            child: ListTile(
-              leading: Icon(Icons.settings),
-              title: Text('Ajustes'),
-              contentPadding: EdgeInsets.zero,
-            ),
-          ),
-          const PopupMenuItem(
-            value: 'theme',
-            child: ListTile(
-              leading: Icon(Icons.palette),
-              title: Text('Cambiar tema'),
-              contentPadding: EdgeInsets.zero,
-            ),
-          ),
-          const PopupMenuItem(
-            value: 'credits',
-            child: ListTile(
-              leading: Icon(Icons.info_outline),
-              title: Text('Créditos'),
-              contentPadding: EdgeInsets.zero,
-            ),
-          ),
-          const PopupMenuItem(
-            value: 'exit',
-            child: ListTile(
-              leading: Icon(Icons.exit_to_app, color: Colors.red),
-              title: Text('Salir'),
+              leading: Icon(Icons.admin_panel_settings),
+              title: Text('Menú IRCop'),
               contentPadding: EdgeInsets.zero,
             ),
           ),
         ],
-      ),
-    ];
+        const PopupMenuDivider(),
+        const PopupMenuItem(
+          value: 'settings',
+          child: ListTile(
+            leading: Icon(Icons.settings),
+            title: Text('Ajustes Globales'),
+            contentPadding: EdgeInsets.zero,
+          ),
+        ),
+        const PopupMenuItem(
+          value: 'cache',
+          child: ListTile(
+            leading: Icon(Icons.cached),
+            title: Text('Limpiar caché'),
+            contentPadding: EdgeInsets.zero,
+          ),
+        ),
+        if (!isMobile && !PlatformUtils.isWeb && PlatformUtils.isMacOS)
+          const PopupMenuItem(
+            value: 'export',
+            child: ListTile(
+              leading: Icon(Icons.file_download),
+              title: Text('Exportar conversación'),
+              contentPadding: EdgeInsets.zero,
+            ),
+          ),
+        const PopupMenuItem(
+          value: 'credits',
+          child: ListTile(
+            leading: Icon(Icons.info_outline),
+            title: Text('Créditos y Apoyos'),
+            contentPadding: EdgeInsets.zero,
+          ),
+        ),
+        const PopupMenuDivider(),
+        const PopupMenuItem(
+          value: 'exit',
+          child: ListTile(
+            leading: Icon(Icons.exit_to_app, color: Colors.red),
+            title: Text('Salir'),
+            contentPadding: EdgeInsets.zero,
+          ),
+        ),
+      ],
+    );
   }
+
+  void _showAdvancedSettingsDialog(BuildContext context, AppTheme appTheme) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) => SimpleDialog(
+        title: const Text('Ajustes Avanzados'),
+        children: [
+          _advancedSettingsTile(
+            dialogContext,
+            icon: Icons.badge,
+            label: 'Registrar Nick',
+            onTap: () => _showNickRegistrationDialog(context),
+          ),
+          _advancedSettingsTile(
+            dialogContext,
+            icon: Icons.campaign,
+            label: 'Registrar Canal',
+            onTap: () => _showChannelRegistrationDialog(context),
+          ),
+          _advancedSettingsTile(
+            dialogContext,
+            icon: Icons.vpn_lock,
+            label: 'IP Virtual',
+            onTap: () => _showVirtualIPDialog(context),
+          ),
+          _advancedSettingsTile(
+            dialogContext,
+            icon: Icons.refresh,
+            label: 'Caché (comprobar actualizaciones)',
+            onTap: PlatformUtils.isWeb
+                ? () => _hardRefreshBrowserCache(context)
+                : () => _checkForUpdates(context),
+          ),
+          _advancedSettingsTile(
+            dialogContext,
+            icon: Icons.bug_report,
+            label: 'Debug (Conexión)',
+            onTap: () {
+              final debugLogs = ref.watch(debugLogProvider);
+              showDialog(
+                context: context,
+                builder: (context) => DebugConnectionWindow(
+                  appTheme: appTheme,
+                  logs: debugLogs,
+                ),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showServicesMenu(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) => SimpleDialog(
+        title: const Text('Servicios'),
+        children: [
+          _advancedSettingsTile(
+            dialogContext,
+            icon: Icons.badge,
+            label: 'Registrar Nick',
+            onTap: () => _showNickRegistrationDialog(context),
+          ),
+          _advancedSettingsTile(
+            dialogContext,
+            icon: Icons.campaign,
+            label: 'Registrar Canal',
+            onTap: () => _showChannelRegistrationDialog(context),
+          ),
+          _advancedSettingsTile(
+            dialogContext,
+            icon: Icons.vpn_lock,
+            label: 'IP Virtual',
+            onTap: () => _showVirtualIPDialog(context),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _advancedSettingsTile(
+    BuildContext dialogContext, {
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+  }) {
+    return ListTile(
+      leading: Icon(icon),
+      title: Text(label),
+      onTap: () {
+        Navigator.of(dialogContext).pop();
+        onTap();
+      },
+    );
+  }
+
+  void _checkForUpdates(BuildContext context) {
+    ref.read(updateProvider.notifier).checkForUpdates(forceCheck: true);
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        backgroundColor: Colors.blue,
+        content: Text('Comprobando actualizaciones...'),
+        duration: Duration(seconds: 2),
+      ),
+    );
+  }
+
+  void _showExitDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('¿Salir de la aplicación?'),
+        content: const Text('¿Estás seguro de que deseas cerrar la aplicación?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancelar'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              _disconnect();
+              Navigator.pop(context);
+              if (PlatformUtils.isWeb) {
+                try {
+                  reloadWebWindow();
+                } catch (e) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Por favor, cierra la pestaña del navegador.'),
+                      duration: Duration(seconds: 2),
+                    ),
+                  );
+                }
+              } else {
+                try {
+                  io.exit(0);
+                } catch (e) {
+                  debugLog('⚠️ No se pudo cerrar la aplicación: $e');
+                }
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Salir'),
+          ),
+        ],
+      ),
+    );
+  }
+
 
   Widget _buildChannelItem(
     BuildContext context,
@@ -16573,10 +17747,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     // Obtener icono del usuario
                     final userIcon = _getUserIcon(null, isRobot, nick: nick);
                     // Generar color para el avatar
-                    final nickHash = nick.hashCode;
                     final userColor = isRobot
                         ? const Color(0xFFFFD700)
-                        : _getUserColor(nickHash);
+                        : colorForNick(nick);
 
                     return UserAvatar(
                       nick: nick,
@@ -18091,7 +19264,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   onTap: () {
                     Navigator.pop(context);
 
-                    // Verificar si es un bot antes de hacer WHOIS
                     if (_isBotNick(nick)) {
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
@@ -18105,7 +19277,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     }
 
                     _ircService.sendWhois(nick);
-                    // Mostrar ventana modal con los resultados cuando lleguen
                     _showWhoisResultsWindow(nick);
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
@@ -18113,6 +19284,132 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         duration: const Duration(seconds: 2),
                       ),
                     );
+                  },
+                ),
+                // Acciones interactivas
+                ExpansionTile(
+                  leading: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.teal.withValues(alpha: 0.2),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Icon(
+                      Icons.local_fire_department,
+                      color: Colors.teal,
+                    ),
+                  ),
+                  title: const Text('Acciones'),
+                  subtitle: const Text('Enviar una acción interactiva'),
+                  children: [
+                    ...ActionConfig.actions.entries.map((e) {
+                      final action = e.key;
+                      final config = e.value;
+                      return ListTile(
+                        dense: true,
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 24,
+                        ),
+                        leading: Text(
+                          config.emoji,
+                          style: const TextStyle(fontSize: 20),
+                        ),
+                        title: Text(
+                          config.label[0].toUpperCase() +
+                              config.label.substring(1),
+                        ),
+                        onTap: () {
+                          Navigator.pop(context);
+                          final channel = _ircService.currentChannel;
+                          if (channel != null) {
+                            _ircService.sendActionToUser(
+                              channel,
+                              config.emoji,
+                              nick,
+                            );
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  '$action enviado a $nick ${config.emoji}',
+                                ),
+                                duration: const Duration(seconds: 2),
+                              ),
+                            );
+                          }
+                        },
+                      );
+                    }),
+                    const Divider(),
+                    ...ref.read(notificationSettingsProvider).customActions.map(
+                      (ca) {
+                        return ListTile(
+                          dense: true,
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 24,
+                          ),
+                          leading: Text(
+                            ca.emoji,
+                            style: const TextStyle(fontSize: 20),
+                          ),
+                          title: Text(ca.label),
+                          onTap: () {
+                            Navigator.pop(context);
+                            final channel = _ircService.currentChannel;
+                            if (channel != null) {
+                              _ircService.sendActionToUser(
+                                channel,
+                                ca.emoji,
+                                nick,
+                              );
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(
+                                    '${ca.label} enviado a $nick ${ca.emoji}',
+                                  ),
+                                  duration: const Duration(seconds: 2),
+                                ),
+                              );
+                            }
+                          },
+                        );
+                      },
+                    ),
+                    ListTile(
+                      dense: true,
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 24,
+                      ),
+                      leading: const Icon(Icons.add_circle_outline, size: 20),
+                      title: const Text('Personalizada...'),
+                      onTap: () {
+                        Navigator.pop(context);
+                        _showCustomActionDialog(context, nick);
+                      },
+                    ),
+                  ],
+                ),
+                ListTile(
+                  leading: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFFD700).withValues(alpha: 0.2),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Icon(
+                      Icons.card_giftcard,
+                      color: Color(0xFFFFD700),
+                    ),
+                  ),
+                  title: const Text('Enviar Regalo'),
+                  subtitle: const Text(
+                    'Enviar un regalo virtual a este usuario',
+                  ),
+                  onTap: () {
+                    Navigator.pop(context);
+                    setState(() {
+                      _giftTargetNick = nick;
+                      _showGiftPicker = true;
+                    });
                   },
                 ),
                 ListTile(
@@ -18227,6 +19524,29 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                 ),
                               ),
                               const Spacer(),
+                              // Acceso a la lista de bans del canal (los
+                              // baneados ya no están en la lista de usuarios)
+                              IconButton(
+                                icon: Icon(
+                                  Icons.gavel,
+                                  color: Colors.redAccent,
+                                  size: 20,
+                                ),
+                                tooltip: 'Lista de baneados del canal',
+                                padding: EdgeInsets.zero,
+                                constraints: const BoxConstraints(
+                                  minWidth: 32,
+                                  minHeight: 32,
+                                ),
+                                onPressed: () => showDialog(
+                                  context: context,
+                                  builder: (dialogContext) =>
+                                      ChannelBanListDialog(
+                                        channel: currentChannel,
+                                      ),
+                                ),
+                              ),
+                              const SizedBox(width: 4),
                               // Menú de moderador rápido con comandos de Anope
                               ModeratorMenu(
                                 channel: currentChannel,
@@ -18846,6 +20166,33 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     _showClearChannelHistoryDialog(context, channel);
                   },
                 ),
+                // Enviar regalo al canal
+                ListTile(
+                  leading: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFFD700).withValues(alpha: 0.2),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Icon(
+                      Icons.card_giftcard,
+                      color: Color(0xFFFFD700),
+                    ),
+                  ),
+                  title: const Text('Enviar Regalo al Canal'),
+                  subtitle: const Text(
+                    'Enviar un regalo virtual a todos los usuarios del canal',
+                  ),
+                  onTap: () {
+                    Navigator.pop(context);
+                    setState(() {
+                      _giftTargetNick = '';
+                      _showGiftPicker = true;
+                      _showEmojiPicker = false;
+                      _showGiphyPicker = false;
+                    });
+                  },
+                ),
                 const SizedBox(height: 8),
               ],
             ),
@@ -19193,6 +20540,22 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         'Panel del Staff',
                         Icons.dashboard,
                         [
+                          _IRCOpMenuItem(
+                            icon: Icons.admin_panel_settings,
+                            iconColor: Colors.amber,
+                            title: 'Panel de Administración',
+                            subtitle: 'KILL, bans, WHOIS',
+                            onTap: () {
+                              Navigator.pop(context);
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) =>
+                                      const StaffAdminScreen(),
+                                ),
+                              );
+                            },
+                          ),
                           _IRCOpMenuItem(
                             icon: Icons.open_in_browser,
                             iconColor: appTheme.primary,
@@ -21569,6 +22932,30 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     leading: Container(
                       padding: const EdgeInsets.all(8),
                       decoration: BoxDecoration(
+                        color: Colors.amber.withValues(alpha: 0.2),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Icon(
+                        Icons.shield,
+                        color: Colors.amber,
+                      ),
+                    ),
+                    title: const Text('Panel de Administración'),
+                    subtitle: const Text('KILL, bans, WHOIS'),
+                    onTap: () {
+                      Navigator.pop(context);
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => const StaffAdminScreen(),
+                        ),
+                      );
+                    },
+                  ),
+                  ListTile(
+                    leading: Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
                         color: Colors.orange.withValues(alpha: 0.2),
                         borderRadius: BorderRadius.circular(8),
                       ),
@@ -21923,34 +23310,32 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     _showClearFavoritesDialog(context);
                   },
                 ),
-                ListTile(
-                  leading: Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: Colors.orange.withValues(alpha: 0.2),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: const Icon(Icons.bug_report, color: Colors.orange),
-                  ),
-                  title: const Text('Debug: Ver favoritos actuales'),
-                  subtitle: const Text(
-                    'Ver qué favoritos están cargados en la consola',
-                  ),
-                  onTap: () {
-                    Navigator.pop(context);
-                    final favorites = ref.read(favoritesProvider).toList();
-                    // debugLog('🔍 [DEBUG] Favoritos actuales en el provider: $favorites');
-                    // debugLog('🔍 [DEBUG] Total: ${favorites.length}');
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(
-                          'Favoritos: ${favorites.length} canales. Ver consola para detalles.',
-                        ),
-                        duration: const Duration(seconds: 3),
-                      ),
-                    );
-                  },
-                ),
+                // ListTile(
+                //   leading: Container(
+                //     padding: const EdgeInsets.all(8),
+                //     decoration: BoxDecoration(
+                //       color: Colors.orange.withValues(alpha: 0.2),
+                //       borderRadius: BorderRadius.circular(8),
+                //     ),
+                //     child: const Icon(Icons.bug_report, color: Colors.orange),
+                //   ),
+                //   title: const Text('Debug: Ver favoritos actuales'),
+                //   subtitle: const Text(
+                //     'Ver qué favoritos están cargados en la consola',
+                //   ),
+                //   onTap: () {
+                //     Navigator.pop(context);
+                //     final favorites = ref.read(favoritesProvider).toList();
+                //     ScaffoldMessenger.of(context).showSnackBar(
+                //       SnackBar(
+                //         content: Text(
+                //           'Favoritos: ${favorites.length} canales. Ver consola para detalles.',
+                //         ),
+                //         duration: const Duration(seconds: 3),
+                //       ),
+                //     );
+                //   },
+                // ),
                 const SizedBox(height: 8),
               ],
             ),
@@ -24110,7 +25495,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                           ),
                           const SizedBox(height: 12),
                           Text(
-                            'Esta aplicación está diseñada exclusivamente para la red GlobalChat IRC.',
+                            'Esta aplicación se proporciona exclusivamente como medio de acceso y conexión a la red de chat IRC GlobalChat, quedando su uso limitado y condicionado a dicha finalidad. Queda expresamente prohibido cualquier uso ajeno a la conexión con la red GlobalChat, incluyendo, a título enunciativo y no limitativo: la interconexión o retransmisión a redes o servicios de terceros, la utilización de la aplicación como pasarela, proxy o infraestructura para otros fines, la explotación comercial, la reproducción, distribución, modificación o ingeniería inversa, total o parcial, así como cualquier otra forma de aprovechamiento distinta del acceso a GlobalChat. El incumplimiento de esta condición facultará a los titulares de la aplicación a suspender el acceso de forma inmediata y a ejercitar cuantas acciones legales resulten procedentes.',
                             style: TextStyle(
                               color: appTheme.textPrimary.withValues(
                                 alpha: 0.9,
@@ -24230,7 +25615,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                           const SizedBox(height: 8),
                           _buildAcknowledgmentItem(
                             appTheme,
-                            'nocturne',
+                            'Malthael',
                             'Por sus aportes y sugerencias',
                           ),
                           const SizedBox(height: 8),
@@ -24250,6 +25635,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                             appTheme,
                             'ChiP',
                             'Por su ayuda incansable a lo largo de los años',
+                          ),
+                          const SizedBox(height: 8),
+                          _buildAcknowledgmentItem(
+                            appTheme,
+                            'NaN',
+                            'Por aguantar todas mis tonterías y estar siempre ahí ayudándome',
                           ),
                           const SizedBox(height: 12),
                           Text(
@@ -24677,6 +26068,276 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           ),
         );
       },
+    );
+  }
+
+  void _showMultisalaDialog(
+    BuildContext context,
+    AppTheme appTheme,
+    String? currentChannel,
+  ) {
+    if (currentChannel == null || !currentChannel.startsWith('#')) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Debes estar en un canal para crear multisala'),
+        ),
+      );
+      return;
+    }
+
+    final channels = ref.read(channelsProvider);
+    final normalizedChannel = currentChannel.toLowerCase();
+    final channelKey = channels.keys.firstWhere(
+      (key) => key.toLowerCase() == normalizedChannel,
+      orElse: () => normalizedChannel,
+    );
+    final channelUsers = channels.containsKey(channelKey)
+        ? channels[channelKey]!.users
+        : <String>[];
+    final currentNick = ref.read(currentNicknameProvider) ?? '';
+    final filteredUsers = channelUsers
+        .where((u) => u.toLowerCase() != currentNick.toLowerCase())
+        .toList();
+
+    if (filteredUsers.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No hay otros usuarios en este canal')),
+      );
+      return;
+    }
+
+    final selectedNicks = <String>{};
+    final roomNameController = TextEditingController(
+      text:
+          '#sala-${currentNick.toLowerCase()}-${DateTime.now().millisecondsSinceEpoch % 10000}',
+    );
+    final searchController = TextEditingController();
+    String searchQuery = '';
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setState) {
+          final filtered = searchQuery.isEmpty
+              ? filteredUsers
+              : filteredUsers
+                    .where(
+                      (u) =>
+                          u.toLowerCase().contains(searchQuery.toLowerCase()),
+                    )
+                    .toList();
+
+          return AlertDialog(
+            backgroundColor: appTheme.surface,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            title: Row(
+              children: [
+                Icon(Icons.group_add, color: appTheme.primary, size: 24),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        'Crear multisala',
+                        style: TextStyle(
+                          color: appTheme.textPrimary,
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      Text(
+                        '${selectedNicks.length} usuarios seleccionados',
+                        style: TextStyle(
+                          color: appTheme.textSecondary,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            content: SizedBox(
+              width: double.maxFinite,
+              height: 400,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: roomNameController,
+                    style: TextStyle(color: appTheme.textPrimary, fontSize: 13),
+                    decoration: InputDecoration(
+                      hintText: 'Nombre de la sala',
+                      hintStyle: TextStyle(color: appTheme.textSecondary),
+                      prefixIcon: Icon(
+                        Icons.tag,
+                        color: appTheme.primary,
+                        size: 18,
+                      ),
+                      isDense: true,
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 8,
+                      ),
+                      filled: true,
+                      fillColor: appTheme.background,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide: BorderSide.none,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: searchController,
+                    style: TextStyle(color: appTheme.textPrimary, fontSize: 13),
+                    decoration: InputDecoration(
+                      hintText: 'Buscar usuario...',
+                      hintStyle: TextStyle(color: appTheme.textSecondary),
+                      prefixIcon: Icon(
+                        Icons.search,
+                        color: appTheme.textSecondary,
+                        size: 18,
+                      ),
+                      isDense: true,
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 8,
+                      ),
+                      filled: true,
+                      fillColor: appTheme.background,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide: BorderSide.none,
+                      ),
+                    ),
+                    onChanged: (v) => setState(() => searchQuery = v),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      TextButton(
+                        onPressed: () => setState(() {
+                          if (selectedNicks.length == filteredUsers.length) {
+                            selectedNicks.clear();
+                          } else {
+                            selectedNicks.addAll(filteredUsers);
+                          }
+                        }),
+                        child: Text(
+                          selectedNicks.length == filteredUsers.length
+                              ? 'Ninguno'
+                              : 'Todos',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: appTheme.primary,
+                          ),
+                        ),
+                      ),
+                      const Spacer(),
+                      Text(
+                        '${selectedNicks.length}/${filteredUsers.length}',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: appTheme.textSecondary,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const Divider(height: 1),
+                  Expanded(
+                    child: ListView.builder(
+                      itemCount: filtered.length,
+                      itemBuilder: (ctx, index) {
+                        final nick = filtered[index];
+                        final isSelected = selectedNicks.contains(nick);
+                        return CheckboxListTile(
+                          value: isSelected,
+                          onChanged: (v) => setState(() {
+                            if (v == true) {
+                              selectedNicks.add(nick);
+                            } else {
+                              selectedNicks.remove(nick);
+                            }
+                          }),
+                          title: Text(
+                            nick,
+                            style: TextStyle(
+                              color: appTheme.textPrimary,
+                              fontSize: 13,
+                            ),
+                          ),
+                          controlAffinity: ListTileControlAffinity.leading,
+                          dense: true,
+                          activeColor: appTheme.primary,
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                child: Text(
+                  'Cancelar',
+                  style: TextStyle(color: appTheme.textSecondary),
+                ),
+              ),
+              FilledButton.icon(
+                onPressed: selectedNicks.isEmpty
+                    ? null
+                    : () {
+                        Navigator.of(ctx).pop();
+                        final roomName = roomNameController.text.trim();
+                        if (roomName.isEmpty) return;
+                        // Sala privada: modo +k con contraseña aleatoria y modo +s (secreto)
+                        final rng = Random();
+                        final password = List.generate(
+                          8,
+                          (_) =>
+                              'abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+                                  [rng.nextInt(57)],
+                        ).join();
+                        _joinChannel(roomName);
+                        // Aplicar clave aleatoria (solo los invitados que la tengan entran)
+                        _ircService.setChannelMode(
+                          roomName,
+                          '+k $password',
+                        );
+                        // Canal secreto: invisible en la lista de canales,
+                        // solo visible/entrable por los invitados.
+                        _ircService.setChannelMode(roomName, '+s');
+                        for (final nick in selectedNicks) {
+                          _ircService.sendRaw('INVITE $nick $roomName');
+                        }
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                              'Sala $roomName creada (privada). '
+                              'Clave: $password. '
+                              'Invitando a ${selectedNicks.length} usuarios...',
+                            ),
+                            duration: const Duration(seconds: 8),
+                          ),
+                        );
+                      },
+                icon: const Icon(Icons.create_new_folder, size: 18),
+                label: const Text('Crear sala'),
+                style: FilledButton.styleFrom(
+                  backgroundColor: appTheme.primary,
+                  foregroundColor: AppTheme.contrastOn(appTheme.primary),
+                ),
+              ),
+            ],
+          );
+        },
+      ),
     );
   }
 
@@ -25145,9 +26806,7 @@ class _ChannelLoadingScreenState extends State<_ChannelLoadingScreen> {
               ),
               const SizedBox(height: 16),
               Text(
-                _showRetry
-                    ? 'Tarda más de lo habitual'
-                    : 'Cargando canal',
+                _showRetry ? 'Tarda más de lo habitual' : 'Cargando canal',
                 style: TextStyle(fontSize: 16, color: appTheme.textSecondary),
               ),
               const SizedBox(height: 8),
@@ -25446,6 +27105,50 @@ class _BouncingEmojiInlineState extends State<_BouncingEmojiInline> {
       child: Text(
         widget.text,
         style: TextStyle(fontSize: widget.size, color: widget.color),
+      ),
+    );
+  }
+}
+
+class IgnoreAllPrivatesBadge extends ConsumerWidget {
+  const IgnoreAllPrivatesBadge({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final isActive = ref.watch(ignoreAllPrivatesProvider);
+    return GestureDetector(
+      onTap: () {
+        ref.read(ignoreAllPrivatesProvider.notifier).toggle();
+        final newValue = ref.read(ignoreAllPrivatesProvider);
+        ref.read(ircServiceProvider).setIgnoreAllPrivates(newValue);
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        decoration: BoxDecoration(
+          color: isActive
+              ? Colors.red.withValues(alpha: 0.8)
+              : Colors.white.withValues(alpha: 0.15),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              isActive ? Icons.block : Icons.check_circle_outline,
+              size: 12,
+              color: Colors.white,
+            ),
+            const SizedBox(width: 4),
+            Text(
+              isActive ? 'ON' : 'OFF',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 9,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -157,9 +157,9 @@ class _RadioControlsState extends ConsumerState<RadioControls> {
                 backgroundColor: Colors.red,
                 duration: const Duration(seconds: 3),
               ),
-            );
-            }
-          }
+    );
+        }
+      }
         }
       } else {
         // debugLog('❌ No hay estaciones disponibles');
@@ -177,8 +177,8 @@ class _RadioControlsState extends ConsumerState<RadioControls> {
       return;
     }
 
-    // debugLog('📻 Reproduciendo: ${stationToPlay.name}');
-    await ref.read(radioProvider.notifier).setActiveStation(stationToPlay);
+    // debugLog('📻 Reproduciendo: ${stationToPlay?.name}');
+    await ref.read(radioProvider.notifier).setActiveStation(stationToPlay!);
     ref.read(radioProvider.notifier).setError(false);
     
     // IMPORTANTE: Esperar un frame para que el estado se propague
@@ -451,34 +451,17 @@ class _RadioControlsState extends ConsumerState<RadioControls> {
             appTheme: appTheme,
             color: controlColor,
           ),
-          const SizedBox(width: 8),
-          
-          // Nombre de la estación y, a continuación, el marquee en la misma línea.
-          Text(
-            radioState.activeStation?.name ?? 'Qualia Radio',
-            style: TextStyle(
-              color: radioState.hasError
-                  ? Colors.red
-                  : (isQualiaRadio ? Colors.white : appTheme.textPrimary),
-              fontSize: 14,
-              fontWeight: FontWeight.w500,
-            ),
-            overflow: TextOverflow.ellipsis,
-          ),
-          if (isQualiaRadio) ...[
-            const SizedBox(width: 8),
-            Expanded(
-              child: _QualiaNowPlayingMarquee(
-                status: apiState.status,
-                ircLiveDj: ircLiveDj,
-                fallbackSong: fallbackSong,
-                loading: apiState.loading && apiState.status == null,
-              ),
-            ),
-          ],
         ],
       ),
     ),
+        _QualiaNowPlayingMarquee(
+          status: apiState.status,
+          ircLiveDj: ircLiveDj,
+          fallbackSong: fallbackSong,
+          loading: apiState.loading && apiState.status == null,
+          stationName: radioState.activeStation?.name ?? 'Qualia Radio',
+          hasError: radioState.hasError,
+        ),
       ],
     );
   }
@@ -523,12 +506,16 @@ class _QualiaNowPlayingMarquee extends ConsumerStatefulWidget {
     required this.ircLiveDj,
     required this.fallbackSong,
     this.loading = false,
+    required this.stationName,
+    this.hasError = false,
   });
 
   final QualiaRadioStatus? status;
   final String? ircLiveDj;
   final String? fallbackSong;
   final bool loading;
+  final String stationName;
+  final bool hasError;
 
   @override
   ConsumerState<_QualiaNowPlayingMarquee> createState() =>
@@ -556,20 +543,12 @@ class _QualiaNowPlayingMarqueeState
     return widget.status?.isLive == true;
   }
 
-  String get _djName {
-    final irc = widget.ircLiveDj?.trim() ?? '';
-    if (irc.isNotEmpty) return irc;
-    return widget.status?.streamerName.trim() ?? '';
-  }
-
   String _buildMarqueeText() {
     final status = widget.status;
+    final station = widget.stationName.trim().isNotEmpty
+        ? widget.stationName.trim()
+        : 'Qualia Radio';
     final parts = <String>[];
-
-    if (_isLive) {
-      final dj = _djName;
-      parts.add(dj.isNotEmpty ? 'DJ $dj en directo' : 'En directo');
-    }
 
     final song = (status?.nowPlayingDisplay.trim().isNotEmpty == true)
         ? status!.nowPlayingDisplay.trim()
@@ -585,10 +564,11 @@ class _QualiaNowPlayingMarqueeState
     }
 
     if (parts.isEmpty) {
-      if (widget.loading) return 'Qualia Radio — cargando estado…';
-      return 'Qualia Radio — En directo';
+      if (widget.hasError) return '$station — sin conexión';
+      if (widget.loading) return '$station — cargando estado…';
+      return '$station — En directo';
     }
-    return parts.join('   ·   ');
+    return '$station · ${parts.join('   ·   ')}';
   }
 
   @override
@@ -748,3 +728,4 @@ class _QualiaNowPlayingMarqueeState
     );
   }
 }
+

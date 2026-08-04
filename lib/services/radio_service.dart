@@ -1,6 +1,5 @@
 import 'dart:async';
-import 'package:just_audio/just_audio.dart';
-import 'package:audioplayers/audioplayers.dart' as web_audio;
+import 'package:audioplayers/audioplayers.dart';
 import '../models/radio_station.dart';
 import '../utils/platform_utils.dart';
 import '../config/debug_config.dart';
@@ -8,8 +7,7 @@ import '../utils/radio_web_bridge_stub.dart'
     if (dart.library.html) '../utils/radio_web_bridge_web.dart';
 
 class RadioService {
-  AudioPlayer? _player; // just_audio para nativo
-  web_audio.AudioPlayer? _webPlayer; // audioplayers para web
+  AudioPlayer? _player;
   RadioStation? _currentStation;
   bool _isPlaying = false;
   double _currentVolume = 0.85;
@@ -20,35 +18,14 @@ class RadioService {
 
   /// Inicializar servicio
   Future<void> initialize() async {
-    if (PlatformUtils.radioUsesAudioPlayers) {
-      if (_webPlayer == null) {
-        debugLog('📻 [RadioService] Inicializando para web...');
-        _webPlayer = web_audio.AudioPlayer();
-        // Configurar el player para web
-        await _webPlayer!.setReleaseMode(web_audio.ReleaseMode.stop);
-        await _webPlayer!.setPlayerMode(web_audio.PlayerMode.mediaPlayer);
-        // Aplicar volumen inicial
-        await _webPlayer!.setVolume(_currentVolume);
-        debugLog('✅ [RadioService] Inicializado para web correctamente');
-      } else {
-        debugLog('📻 [RadioService] Ya estaba inicializado para web');
-      }
-      return;
-    }
-
     if (_player == null) {
+      debugLog('📻 [RadioService] Inicializando...');
       _player = AudioPlayer();
-      // Aplicar volumen inicial
+      await _player!.setReleaseMode(ReleaseMode.stop);
+      await _player!.setPlayerMode(PlayerMode.mediaPlayer);
       await _player!.setVolume(_currentVolume);
+      debugLog('✅ [RadioService] Inicializado correctamente');
     }
-
-    // Configurar sesión de audio solo en plataformas móviles (iOS/Android)
-    // DESHABILITADO TEMPORALMENTE PARA SIMPLIFICAR
-    // TODO: Reimplementar cuando sea necesario
-
-    // Iniciar el proxy local (solo en macOS/iOS)
-    // DESHABILITADO TEMPORALMENTE PARA SIMPLIFICAR
-    // TODO: Reimplementar cuando sea necesario
   }
 
   /// Reproducir estación de radio
@@ -70,12 +47,7 @@ class RadioService {
     debugLog('🎵 [RadioService] Reproduciendo: ${station.name}');
     debugLog('🎵 [RadioService] URL: ${station.source}');
 
-    // just_audio no soporta Windows/Linux: usar audioplayers (igual que web).
-    if (PlatformUtils.radioUsesAudioPlayers) {
-      await _playStationWeb(station);
-      return;
-    }
-    await _playStationNative(station);
+    await _playStationWeb(station);
   }
 
   Future<void> _playStationWeb(RadioStation station) async {
@@ -93,27 +65,27 @@ class RadioService {
       }
 
       // Siempre detener y liberar cualquier reproducción anterior
-      if (_webPlayer != null) {
+      if (_player != null) {
         try {
-          await _webPlayer!.stop();
-          await _webPlayer!.release();
+          await _player!.stop();
+          await _player!.release();
         } catch (e) {
           // Ignorar errores al detener
         }
-        _webPlayer = null; // Limpiar referencia
+        _player = null; // Limpiar referencia
         // Esperar un momento para asegurar que se libera completamente
         await Future.delayed(const Duration(milliseconds: 100));
       }
 
       // Crear nuevo player siempre (para evitar problemas con instancias anteriores)
-      _webPlayer = web_audio.AudioPlayer();
+      _player = AudioPlayer();
 
-      // Configurar el player para web
-      await _webPlayer!.setReleaseMode(web_audio.ReleaseMode.stop);
-      await _webPlayer!.setPlayerMode(web_audio.PlayerMode.mediaPlayer);
+      // Configurar el player
+      await _player!.setReleaseMode(ReleaseMode.stop);
+      await _player!.setPlayerMode(PlayerMode.mediaPlayer);
 
       // Configurar volumen desde el estado guardado
-      await _webPlayer!.setVolume(_currentVolume);
+      await _player!.setVolume(_currentVolume);
 
       // Verificar que la URL sea válida
       String sourceUrl = station.source;
@@ -122,8 +94,8 @@ class RadioService {
       }
 
       // Agregar listener para detectar errores
-      _webPlayer!.onPlayerStateChanged.listen((state) {
-        if (state == web_audio.PlayerState.stopped && _isPlaying) {
+      _player!.onPlayerStateChanged.listen((state) {
+        if (state == PlayerState.stopped && _isPlaying) {
           // Si se detuvo inesperadamente, marcar como error
           _isPlaying = false;
           debugLog(
@@ -132,7 +104,7 @@ class RadioService {
         }
       });
 
-      _webPlayer!.onLog.listen((log) {
+      _player!.onLog.listen((log) {
         debugLog('📻 [RadioService Web] Log: $log');
       });
 
@@ -259,29 +231,29 @@ class RadioService {
       // Intentar reproducir
       try {
         debugLog('📻 [RadioService Web] Iniciando reproducción de: $finalUrl');
-        await _webPlayer!.play(web_audio.UrlSource(finalUrl));
+        await _player!.play(UrlSource(finalUrl));
 
         // Esperar un momento para verificar si hay errores de reproducción
         await Future.delayed(const Duration(milliseconds: 1000));
 
         // Verificar el estado del player
-        final playerState = _webPlayer!.state;
+        final playerState = _player!.state;
         debugLog(
           '📻 [RadioService Web] Estado del player después de iniciar: $playerState',
         );
 
         // Verificar si hay errores
-        _webPlayer!.onPlayerComplete.listen((_) {
+        _player!.onPlayerComplete.listen((_) {
           debugLog('📻 [RadioService Web] Reproducción completada');
           _isPlaying = false;
         });
 
         // Verificar errores de reproducción
-        _webPlayer!.onLog.listen((log) {
+        _player!.onLog.listen((log) {
           debugLog('📻 [RadioService Web] Log del player: $log');
         });
 
-        if (playerState == web_audio.PlayerState.stopped) {
+        if (playerState == PlayerState.stopped) {
           // Si es HLS y falló la URL directa, intentar con proxy (puede ser problema de CORS)
           if (isHLS && finalUrl == sourceUrl) {
             debugLog(
@@ -303,20 +275,20 @@ class RadioService {
               final encodedUrl = Uri.encodeComponent(urlForProxy);
               final proxyUrl =
                   'https://mobilev1.globalchat.org/api/mixcloud_stream_proxy.php?url=$encodedUrl';
-              await _webPlayer!.stop();
-              await _webPlayer!.release();
-              _webPlayer = web_audio.AudioPlayer();
-              await _webPlayer!.setReleaseMode(web_audio.ReleaseMode.stop);
-              await _webPlayer!.setPlayerMode(web_audio.PlayerMode.mediaPlayer);
-              await _webPlayer!.setVolume(_currentVolume);
+              await _player!.stop();
+              await _player!.release();
+              _player = AudioPlayer();
+              await _player!.setReleaseMode(ReleaseMode.stop);
+              await _player!.setPlayerMode(PlayerMode.mediaPlayer);
+              await _player!.setVolume(_currentVolume);
               debugLog('📻 [RadioService Web] Intentando con proxy: $proxyUrl');
-              await _webPlayer!.play(web_audio.UrlSource(proxyUrl));
+              await _player!.play(UrlSource(proxyUrl));
               await Future.delayed(const Duration(milliseconds: 1000));
-              final retryState = _webPlayer!.state;
+              final retryState = _player!.state;
               debugLog(
                 '📻 [RadioService Web] Estado después de retry con proxy: $retryState',
               );
-              if (retryState == web_audio.PlayerState.stopped) {
+              if (retryState == PlayerState.stopped) {
                 throw Exception(
                   'No se pudo iniciar la reproducción. El servidor puede tener restricciones CORS o la URL no es válida.',
                 );
@@ -334,22 +306,22 @@ class RadioService {
               '⚠️ [RadioService Web] Proxy falló, intentando URL directa...',
             );
             try {
-              await _webPlayer!.stop();
-              await _webPlayer!.release();
-              _webPlayer = web_audio.AudioPlayer();
-              await _webPlayer!.setReleaseMode(web_audio.ReleaseMode.stop);
-              await _webPlayer!.setPlayerMode(web_audio.PlayerMode.mediaPlayer);
-              await _webPlayer!.setVolume(_currentVolume);
+              await _player!.stop();
+              await _player!.release();
+              _player = AudioPlayer();
+              await _player!.setReleaseMode(ReleaseMode.stop);
+              await _player!.setPlayerMode(PlayerMode.mediaPlayer);
+              await _player!.setVolume(_currentVolume);
               debugLog(
                 '📻 [RadioService Web] Intentando URL directa: $sourceUrl',
               );
-              await _webPlayer!.play(web_audio.UrlSource(sourceUrl));
+              await _player!.play(UrlSource(sourceUrl));
               await Future.delayed(const Duration(milliseconds: 1000));
-              final retryState = _webPlayer!.state;
+              final retryState = _player!.state;
               debugLog(
                 '📻 [RadioService Web] Estado después de retry: $retryState',
               );
-              if (retryState == web_audio.PlayerState.stopped) {
+              if (retryState == PlayerState.stopped) {
                 throw Exception(
                   'No se pudo iniciar la reproducción. El servidor puede tener restricciones CORS o la URL no es válida.',
                 );
@@ -377,16 +349,16 @@ class RadioService {
             '⚠️ [RadioService Web] Error con proxy, intentando URL directa...',
           );
           try {
-            await _webPlayer!.stop();
-            await _webPlayer!.release();
-            _webPlayer = web_audio.AudioPlayer();
-            await _webPlayer!.setReleaseMode(web_audio.ReleaseMode.stop);
-            await _webPlayer!.setPlayerMode(web_audio.PlayerMode.mediaPlayer);
-            await _webPlayer!.setVolume(_currentVolume);
-            await _webPlayer!.play(web_audio.UrlSource(sourceUrl));
+            await _player!.stop();
+            await _player!.release();
+            _player = AudioPlayer();
+            await _player!.setReleaseMode(ReleaseMode.stop);
+            await _player!.setPlayerMode(PlayerMode.mediaPlayer);
+            await _player!.setVolume(_currentVolume);
+            await _player!.play(UrlSource(sourceUrl));
             await Future.delayed(const Duration(milliseconds: 800));
-            final retryState = _webPlayer!.state;
-            if (retryState == web_audio.PlayerState.stopped &&
+            final retryState = _player!.state;
+            if (retryState == PlayerState.stopped &&
                 _isPlaying == false) {
               rethrow;
             }
@@ -400,12 +372,12 @@ class RadioService {
 
       // Verificar una vez más que el player esté realmente reproduciendo
       await Future.delayed(const Duration(milliseconds: 500));
-      final finalState = _webPlayer!.state;
+      final finalState = _player!.state;
       debugLog(
         '📻 [RadioService Web] Estado final antes de confirmar: $finalState',
       );
 
-      if (finalState == web_audio.PlayerState.playing) {
+      if (finalState == PlayerState.playing) {
         _currentStation = station;
         _isPlaying = true;
         debugLog(
@@ -416,12 +388,12 @@ class RadioService {
           '⚠️ [RadioService Web] El player no está en estado playing, estado actual: $finalState',
         );
         // Intentar una vez más
-        if (finalState == web_audio.PlayerState.stopped ||
-            finalState == web_audio.PlayerState.paused) {
+        if (finalState == PlayerState.stopped ||
+            finalState == PlayerState.paused) {
           try {
-            await _webPlayer!.resume();
+            await _player!.resume();
             await Future.delayed(const Duration(milliseconds: 500));
-            if (_webPlayer!.state == web_audio.PlayerState.playing) {
+            if (_player!.state == PlayerState.playing) {
               _currentStation = station;
               _isPlaying = true;
               debugLog(
@@ -444,10 +416,10 @@ class RadioService {
       _currentStation = null;
       // Limpiar player en caso de error
       try {
-        await _webPlayer?.stop();
-        await _webPlayer?.release();
+        await _player?.stop();
+        await _player?.release();
       } catch (_) {}
-      _webPlayer = null;
+      _player = null;
 
       // Log del error para debugging
       debugLog('❌ [RadioService Web] Error reproduciendo ${station.name}: $e');
@@ -477,130 +449,49 @@ class RadioService {
     }
   }
 
-  Future<void> _playStationNative(RadioStation station) async {
-    if (_player == null) return;
-
-    try {
-      // Si ya está reproduciendo la misma estación, no hacer nada
-      if (_currentStation?.source == station.source && _isPlaying) {
-        return;
-      }
-
-      // Detener reproducción anterior si hay una diferente
-      if (_currentStation?.source != station.source) {
-        try {
-          await _player!.stop();
-          // Esperar un momento para asegurar que se detiene completamente
-          await Future.delayed(const Duration(milliseconds: 100));
-        } catch (e) {
-          // Ignorar errores al detener
-        }
-
-        String playUrl = station.source;
-
-        // En macOS/iOS, usar proxy local si está disponible
-        // DESHABILITADO TEMPORALMENTE PARA SIMPLIFICAR
-        /*
-        if (!PlatformUtils.isWeb) {
-          try {
-            // ignore: avoid_web_libraries_in_flutter
-            final isIOS = io.Platform.isIOS;
-            final isMacOS = io.Platform.isMacOS;
-            if (isIOS || isMacOS) {
-              final proxyPort = StreamProxyService.instance.port;
-              if (proxyPort != null) {
-                playUrl = 'http://localhost:$proxyPort/proxy?url=${Uri.encodeComponent(station.source)}';
-                // debugLog('🎵 [RadioService] Usando proxy local en puerto $proxyPort');
-              }
-            }
-          } catch (e) {
-            // debugLog('⚠️ [RadioService] Error usando proxy: $e');
-          }
-        }
-        */
-
-        await _player!.setUrl(playUrl);
-        await _player!.play();
-        _currentStation = station;
-        _isPlaying = true;
-        // debugLog('🎵 [RadioService] Reproduciendo: ${station.name}');
-      }
-    } catch (e) {
-      _isPlaying = false;
-      _currentStation = null;
-      // debugLog('❌ [RadioService] Error reproduciendo: $e');
-    }
-  }
-
   /// Detener reproducción
   Future<void> stop() async {
     try {
-      if (PlatformUtils.radioUsesAudioPlayers) {
-        // Si es HLS, usar la función JavaScript para detener
-        if (_currentStation?.source.contains('.m3u8') ?? false) {
-          stopHlsStream('hls-audio-player');
-        }
-        if (_webPlayer != null) {
-          await _webPlayer!.stop();
-          await _webPlayer!.release();
-          _webPlayer = null; // Liberar referencia
-        }
-      } else {
-        if (_player != null) {
-          await _player!.stop();
-        }
+      if (_currentStation?.source.contains('.m3u8') ?? false) {
+        stopHlsStream('hls-audio-player');
+      }
+      if (_player != null) {
+        await _player!.stop();
+        await _player!.release();
+        _player = null;
       }
       _isPlaying = false;
       _currentStation = null;
     } catch (e) {
       _isPlaying = false;
       _currentStation = null;
-      // En web, forzar la limpieza incluso si hay error
-      if (PlatformUtils.isWeb) {
-        _webPlayer = null;
-      }
+      _player = null;
     }
   }
 
   /// Pausar reproducción
   Future<void> pause() async {
     try {
-      if (PlatformUtils.radioUsesAudioPlayers) {
-        // Si es HLS, pausar el elemento de audio directamente
-        if (_currentStation?.source.contains('.m3u8') ?? false) {
-          pauseHlsAudio('hls-audio-player');
-        } else {
-          await _webPlayer?.pause();
-        }
-        // debugLog('⏸️ [RadioService] Reproducción pausada en web');
+      if (_currentStation?.source.contains('.m3u8') ?? false) {
+        pauseHlsAudio('hls-audio-player');
       } else {
         await _player?.pause();
       }
       _isPlaying = false;
     } catch (e) {
-      // debugLog('❌ [RadioService] Error al pausar: $e');
     }
   }
 
   /// Reanudar reproducción
   Future<void> resume() async {
     try {
-      if (PlatformUtils.radioUsesAudioPlayers) {
-        // Si es HLS, reanudar el elemento de audio directamente
-        if (_currentStation?.source.contains('.m3u8') ?? false) {
-          debugLog('▶️ [RadioService Web] Reanudando reproducción HLS');
-          await resumeHlsAudio('hls-audio-player');
-          debugLog('✅ [RadioService Web] Reproducción HLS reanudada');
-        } else {
-          await _webPlayer?.resume();
-        }
-        // debugLog('▶️ [RadioService] Reproducción reanudada en web');
+      if (_currentStation?.source.contains('.m3u8') ?? false) {
+        await resumeHlsAudio('hls-audio-player');
       } else {
-        await _player?.play();
+        await _player?.resume();
       }
       _isPlaying = true;
     } catch (e) {
-      debugLog('❌ [RadioService Web] Error al reanudar: $e');
     }
   }
 
@@ -613,21 +504,8 @@ class RadioService {
   /// Establecer volumen (0.0 a 1.0)
   Future<void> setVolume(double volume) async {
     _currentVolume = volume.clamp(0.0, 1.0);
-    if (PlatformUtils.radioUsesAudioPlayers) {
-      // Si es HLS, actualizar el volumen del elemento de audio directamente
-      if (_currentStation?.source.contains('.m3u8') ?? false) {
-        if (setHlsAudioVolume('hls-audio-player', _currentVolume)) {
-          debugLog(
-            '🔊 [RadioService Web] Volumen HLS establecido a: $_currentVolume',
-          );
-        } else {
-          debugLog(
-            '⚠️ [RadioService Web] No se encontró el elemento de audio HLS para establecer volumen',
-          );
-        }
-      } else {
-        await _webPlayer?.setVolume(_currentVolume);
-      }
+    if (_currentStation?.source.contains('.m3u8') ?? false) {
+      setHlsAudioVolume('hls-audio-player', _currentVolume);
     } else {
       await _player?.setVolume(_currentVolume);
     }
@@ -639,10 +517,6 @@ class RadioService {
   /// Liberar recursos
   Future<void> dispose() async {
     await stop();
-    if (PlatformUtils.radioUsesAudioPlayers) {
-      await _webPlayer?.dispose();
-    } else {
-      await _player?.dispose();
-    }
+    await _player?.dispose();
   }
 }

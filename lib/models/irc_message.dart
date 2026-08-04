@@ -160,6 +160,14 @@ class IRCMessage {
   String toString() => '[$channel] <$nick> $message${isPending ? " [PENDIENTE]" : ""}';
 }
 
+class ChannelBan {
+  final String mask;
+  final String setter;
+  final DateTime? time;
+
+  const ChannelBan({required this.mask, required this.setter, this.time});
+}
+
 class IRCChannel {
   final String name;
   final List<IRCMessage> messages;
@@ -168,6 +176,10 @@ class IRCChannel {
   final Map<String, String> userModes; // Mapa de nick -> modo (prefix: @, +, %, &)
   String? topic;
   final List<String> pinnedMessageIds; // IDs de mensajes fijados
+  final Set<String> channelModes; // Modos del canal (p. ej. 'n', 't', 'm', 'i', 's', 'k', 'l')
+  String? key; // Clave del canal (modo +k)
+  int? limit; // Límite de usuarios (modo +l)
+  final List<ChannelBan> bans; // Lista de baneados (modo +b)
 
   IRCChannel({
     required this.name,
@@ -177,13 +189,48 @@ class IRCChannel {
     Map<String, String>? userModes,
     this.topic,
     List<String>? pinnedMessageIds,
+    Set<String>? channelModes,
+    this.key,
+    this.limit,
+    List<ChannelBan>? bans,
   })  : messages = messages ?? [],
         users = users ?? [],
         userHosts = userHosts ?? {},
         userModes = userModes ?? {},
-        pinnedMessageIds = pinnedMessageIds ?? [];
+        pinnedMessageIds = pinnedMessageIds ?? [],
+        channelModes = channelModes ?? <String>{},
+        bans = bans ?? [];
+
+  IRCChannel copy() {
+    return IRCChannel(
+      name: name,
+      messages: List.from(messages),
+      users: List.from(users),
+      userHosts: Map<String, String>.from(userHosts),
+      userModes: Map<String, String>.from(userModes),
+      topic: topic,
+      pinnedMessageIds: List<String>.from(pinnedMessageIds),
+      channelModes: Set<String>.from(channelModes),
+      key: key,
+      limit: limit,
+      bans: List<ChannelBan>.from(bans),
+    );
+  }
+
+  bool hasChannelMode(String mode) => channelModes.contains(mode);
+
+  String get modeString {
+    if (channelModes.isEmpty) return '';
+    final sorted = channelModes.toList()..sort();
+    return '+${sorted.join()}';
+  }
 
   void addMessage(IRCMessage msg) {
+    // Evitar duplicados por messageId (reconexión, replay del servidor, Chromebook)
+    if (msg.messageId != null &&
+        messages.any((m) => m.messageId == msg.messageId)) {
+      return;
+    }
     messages.add(msg);
   }
 
@@ -322,5 +369,26 @@ class IRCChannel {
       if (entry.key.toLowerCase() == nickLower) return entry.value;
     }
     return null;
+  }
+
+  void addBan(ChannelBan ban) {
+    final existing = bans.indexWhere(
+      (b) => b.mask.toLowerCase() == ban.mask.toLowerCase(),
+    );
+    if (existing >= 0) {
+      bans[existing] = ban;
+    } else {
+      bans.add(ban);
+    }
+  }
+
+  void removeBan(String mask) {
+    bans.removeWhere(
+      (b) => b.mask.toLowerCase() == mask.toLowerCase(),
+    );
+  }
+
+  void clearBans() {
+    bans.clear();
   }
 }

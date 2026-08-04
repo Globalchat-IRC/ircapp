@@ -14,17 +14,11 @@ import 'services/chat_history_service.dart';
 import 'utils/platform_utils.dart';
 import 'utils/main_web_bridge_stub.dart'
     if (dart.library.html) 'utils/main_web_bridge_web.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'models/app_theme.dart';
 
 void globalLog(String message) {
-  // Logs deshabilitados para producción
-  // final timestamp = DateTime.now().toString();
-  // final logMessage = '[$timestamp] $message\n';
-  // debugPrint(logMessage);
-  // print(logMessage);
-
-  // Solo escribir a archivo en nativo (no disponible en web)
-  // En web simplemente no escribimos a archivo
+  // Logs deshabilitados en producción
 }
 
 void main() async {
@@ -113,7 +107,14 @@ Future<bool> _checkWebVersionAndReload() async {
     final data = jsonDecode(response.body) as Map<String, dynamic>?;
     final serverVersion = data?['version'] as String?;
     if (serverVersion == null || serverVersion == currentVersion) return false;
-    // Nueva versión desplegada: recarga para cargar el nuevo JS.
+    // Nueva versión desplegada: limpiar todo el storage local y recargar.
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.clear();
+    } catch (_) {}
+    try {
+      await clearAllClientStorage();
+    } catch (_) {}
     reloadWebWindow();
     return true;
   } catch (_) {
@@ -169,28 +170,6 @@ class _MyAppState extends ConsumerState<MyApp> with WidgetsBindingObserver {
         });
       } catch (_) {}
     }
-
-    // // TEMPORAL (comentado): Borrar historial de privados al arrancar.
-    // // Si en el futuro necesitamos reactivarlo, descomentar este bloque.
-    // WidgetsBinding.instance.addPostFrameCallback((_) {
-    //   ref.read(messagesProvider.notifier).clearPrivateMessages();
-    //   if (!PlatformUtils.isWeb) {
-    //     try {
-    //       const servers = [
-    //         'default',
-    //         'ceres.globalchat.org',
-    //         'apolo.globalchat.org',
-    //         'artemis.globalchat.org',
-    //         'caliope.globalchat.org',
-    //       ];
-    //       for (final server in servers) {
-    //         ChatHistoryService().deletePrivateMessages(server: server);
-    //       }
-    //     } catch (e) {
-    //       // Ignorar errores al limpiar
-    //     }
-    //   }
-    // });
 
     if (widget.initialTheme != null && widget.initialTheme!.trim().isNotEmpty) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -265,17 +244,9 @@ class _MyAppState extends ConsumerState<MyApp> with WidgetsBindingObserver {
   Widget build(BuildContext context) {
     final appTheme = ref.watch(themeProvider);
 
-    // Inicializar el sistema de actualizaciones
     ref.watch(updateProvider);
-
-    // Inicializar el servidor de moderación
     ref.watch(moderationServerProvider);
-
-    // Inicializar sincronización de reputación con UnrealIRCd
     ref.watch(unrealircdReputationSyncProvider);
-
-    // NO inicializar el servicio de radio aquí - se inicializará solo en ChatScreen
-    // RadioService().initialize();
 
     final useSystemTheme = appTheme.name == AppTheme.kSystemThemeName;
     final lightTheme = useSystemTheme

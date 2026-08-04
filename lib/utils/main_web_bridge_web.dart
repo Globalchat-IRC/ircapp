@@ -50,3 +50,19 @@ String? getWebLocalStorage(String key) => web.window.localStorage.getItem(key);
 void setWebLocalStorage(String key, String value) {
   web.window.localStorage.setItem(key, value);
 }
+
+Future<void> clearAllClientStorage() async {
+  try {
+    web.window.localStorage.clear();
+  } catch (_) {}
+  try {
+    final cacheStorage = web.window.caches;
+    if (cacheStorage != null) {
+      final keys = await cacheStorage.keys().toDart;
+      final length = keys.length;
+      for (var i = 0; i < length; i++) {
+        await cacheStorage.delete(keys[i].toDart).toDart;
+      }
+    }
+  } catch (_) {}
+}

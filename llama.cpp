@@ -1,1 +1,0 @@
-/Volumes/TOSHIBA EXT2/DEV-MACBOOK/archivo/llama.cpp

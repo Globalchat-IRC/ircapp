@@ -51,15 +51,34 @@ class _MediaPreviewState extends State<MediaPreview> {
   }
 
   void _showFullScreenImage() {
+    final isGif = widget.url.toLowerCase().endsWith('.gif');
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (context) => Scaffold(
           backgroundColor: Colors.black,
-          body: PhotoView(
-            imageProvider: CachedNetworkImageProvider(widget.url),
-            minScale: PhotoViewComputedScale.contained,
-            maxScale: PhotoViewComputedScale.covered * 2,
+          appBar: AppBar(
+            backgroundColor: Colors.black87,
+            iconTheme: const IconThemeData(color: Colors.white),
+            title: const Text(''),
+            leading: IconButton(
+              icon: const Icon(Icons.arrow_back, color: Colors.white),
+              onPressed: () => Navigator.of(context).pop(),
+            ),
           ),
+          body: isGif
+              ? InteractiveViewer(
+                  child: Center(
+                    child: Image.network(
+                      widget.url,
+                      fit: BoxFit.contain,
+                    ),
+                  ),
+                )
+              : PhotoView(
+                  imageProvider: CachedNetworkImageProvider(widget.url),
+                  minScale: PhotoViewComputedScale.contained,
+                  maxScale: PhotoViewComputedScale.covered * 2,
+                ),
         ),
       ),
     );
@@ -146,6 +165,7 @@ class _MediaPreviewState extends State<MediaPreview> {
         ),
       );
     } else {
+      final isGif = widget.url.toLowerCase().endsWith('.gif');
       return GestureDetector(
         onTap: _showFullScreenImage,
         child: Container(
@@ -156,14 +176,27 @@ class _MediaPreviewState extends State<MediaPreview> {
           ),
           child: ClipRRect(
             borderRadius: BorderRadius.circular(8),
-            child: CachedNetworkImage(
-              imageUrl: widget.url,
-              fit: BoxFit.cover,
-              placeholder: (context, url) => const Center(
-                child: CircularProgressIndicator(),
-              ),
-              errorWidget: (context, url, error) => const Icon(Icons.error),
-            ),
+            child: isGif
+                ? Image.network(
+                    widget.url,
+                    width: double.infinity,
+                    height: double.infinity,
+                    fit: BoxFit.cover,
+                    loadingBuilder: (context, child, loadingProgress) =>
+                        loadingProgress == null
+                            ? child
+                            : const Center(child: CircularProgressIndicator()),
+                    errorBuilder: (context, error, stackTrace) =>
+                        const Icon(Icons.error),
+                  )
+                : CachedNetworkImage(
+                    imageUrl: widget.url,
+                    fit: BoxFit.cover,
+                    placeholder: (context, url) => const Center(
+                      child: CircularProgressIndicator(),
+                    ),
+                    errorWidget: (context, url, error) => const Icon(Icons.error),
+                  ),
           ),
         ),
       );

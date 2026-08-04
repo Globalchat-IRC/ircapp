@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 /// Metadata de Open Graph para preview de enlaces
@@ -31,13 +32,20 @@ class OpenGraphService {
   Future<OpenGraphData> fetchMetadata(String url) async {
     // Normalizar URL
     final normalizedUrl = _normalizeUrl(url);
-    
+
     // Verificar cache
     if (_cache.containsKey(normalizedUrl)) {
       return _cache[normalizedUrl]!;
     }
 
     try {
+      // YouTube bloquea CORS en su HTML, pero expone oEmbed con CORS.
+      if (_isYouTubeUrl(normalizedUrl)) {
+        final metadata = await _fetchYouTubeMetadata(normalizedUrl);
+        _cache[normalizedUrl] = metadata;
+        return metadata;
+      }
+
       final uri = Uri.parse(normalizedUrl);
       final response = await http.get(
         uri,
@@ -49,10 +57,10 @@ class OpenGraphService {
       if (response.statusCode == 200) {
         final html = response.body;
         final metadata = _parseOpenGraph(html, normalizedUrl);
-        
+
         // Guardar en cache
         _cache[normalizedUrl] = metadata;
-        
+
         return metadata;
       }
     } catch (e) {
@@ -68,6 +76,44 @@ class OpenGraphService {
       return 'https://$url';
     }
     return url;
+  }
+
+  /// Detecta si la URL pertenece a YouTube.
+  bool _isYouTubeUrl(String url) {
+    final host = Uri.parse(url).host.toLowerCase();
+    return host == 'youtube.com' ||
+        host == 'www.youtube.com' ||
+        host == 'youtu.be' ||
+        host == 'm.youtube.com';
+  }
+
+  /// Obtiene metadata de YouTube usando el endpoint oEmbed (CORS-friendly).
+  Future<OpenGraphData> _fetchYouTubeMetadata(String url) async {
+    final oEmbedUri = Uri.parse('https://www.youtube.com/oembed').replace(
+      queryParameters: {
+        'url': url,
+        'format': 'json',
+      },
+    );
+    final response = await http.get(
+      oEmbedUri,
+      headers: {
+        'Accept': 'application/json',
+      },
+    ).timeout(const Duration(seconds: 5));
+
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      return OpenGraphData(
+        title: data['title'] as String?,
+        description: data['author_name'] as String?,
+        image: data['thumbnail_url'] as String?,
+        url: url,
+        siteName: data['provider_name'] as String? ?? 'YouTube',
+      );
+    }
+
+    return OpenGraphData();
   }
 
   /// Parsea metadata Open Graph del HTML

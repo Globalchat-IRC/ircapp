@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 5.0.54
+version: 8.1.5
 
 environment:
   sdk: ^3.10.3
@@ -44,24 +44,12 @@ dependencies:
   file_picker: ^10.3.9
   url_launcher: ^6.3.0
   crypto: ^3.0.6
-  pasteboard: ^0.5.0
-  just_audio: ^0.10.5
-  audio_session: ^0.2.2
-  audioplayers: ^6.1.0  # Para mejor soporte web
-  sqflite: ^2.3.3+1
-  hive: ^2.2.3  # Para base de datos en web (IndexedDB)
-  hive_flutter: ^1.1.0
-  path_provider: ^2.1.4
+  audioplayers: ^6.1.0  # Para reproducción de audio en web
   web_socket_channel: ^3.0.3  # Para conexiones IRC en web
-  package_info_plus: ^9.0.0  # Para sistema de actualizaciones (compatible con pasteboard)
-  jitsi_meet_flutter_sdk: ^12.1.3  # Para videoconferencias seguras (12.1.1+ arregla crash UIScene en iOS)
-  permission_handler: ^12.0.1  # Para permisos de cámara/micrófono
-  shelf: ^1.4.1  # Servidor HTTP para panel de moderación
-  shelf_router: ^1.1.4  # Router para endpoints
-  shelf_web_socket: ^3.0.0  # WebSockets para tiempo real
+  package_info_plus: ^9.0.0  # Para sistema de actualizaciones
   uuid: ^4.5.1  # Generación de tokens
   equatable: ^2.0.5  # Para comparación de objetos
-  flutter_markdown: ^0.7.7+1  # Para renderizado de Markdown
+  flutter_markdown_plus: ^1.0.7  # Para renderizado de Markdown (fork mantenido)
   cached_network_image: ^3.3.1  # Para cache de imágenes
   photo_view: ^0.15.0  # Para preview de imágenes
   video_player: ^2.8.2  # Para preview de videos
@@ -75,6 +63,8 @@ dependencies:
   riverpod: ^3.2.1
   path: ^1.9.1
   markdown: ^7.3.0
+  livekit_client: ^2.8.1
+  google_fonts: ^6.3.3  # Fuentes de Google (usado por app_theme.dart)
 
 dev_dependencies:
   flutter_test:

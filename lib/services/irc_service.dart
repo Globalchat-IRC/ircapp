@@ -23,6 +23,7 @@ class IRCService {
   String? _currentChannel;
   Map<String, IRCChannel> channels = {};
   final List<Function(IRCMessage)> _messageListeners = [];
+  final List<Function(String channel, String pendingId)> _pendingRemovalListeners = [];
   final List<Function(String)> _userListListeners = [];
   final List<Function(String)> _topicListeners = [];
   final List<Function()> _connectionListeners = [];
@@ -46,6 +47,14 @@ class IRCService {
       []; // Listeners para cuando entramos a #werewolf
   final List<Function(bool, String?)> _awayStatusListeners =
       []; // Listeners para cambios de estado de away (isAway, awayMessage)
+  final List<Function(String channel, String nick, bool isTyping)>
+      _typingListeners = []; // Listeners para CTCP TYPING
+  final List<Function(String nick)> _pokeListeners =
+      []; // Listeners para CTCP PING (poke/zumbido)
+  final List<Function(String nick)> _kissListeners =
+      []; // Listeners para ACTION kiss (💋)
+  final List<Function(String action, String fromNick)> _actionListeners =
+      []; // Listeners para todas las acciones interactivas
   final Map<String, WhoisInfo> _whoisCache = {};
   final Map<String, WhoisInfo> _pendingWhois =
       {}; // Para acumular información de whois
@@ -94,6 +103,7 @@ class IRCService {
   Timer? _reconnectTimer;
   bool _webLifecycleHandlersRegistered = false;
   Timer? _resumeProbeTimer;
+  Timer? _resumeDebounceTimer; // Debounce para eventos rápidos de lifecycle (Chromebook)
   DateTime? _lastServerActivityAt;
   String? _sessionHost;
   int? _sessionPort;
@@ -221,6 +231,15 @@ class IRCService {
   Future<void> _revalidateConnectionAfterResume(String source) async {
     if (_manualDisconnectRequested || !_autoReconnectEnabled) return;
 
+    // Debounce: en Chromebook visibility+focus+online disparan en ráfaga
+    _resumeDebounceTimer?.cancel();
+    _resumeDebounceTimer = Timer(const Duration(seconds: 2), () async {
+      await _doRevalidateConnection(source);
+    });
+  }
+
+  Future<void> _doRevalidateConnection(String source) async {
+
     final lastActivity = _lastServerActivityAt ?? _lastPingSent;
     final isStale =
         lastActivity == null ||
@@ -269,6 +288,8 @@ class IRCService {
     _heartbeatWatchdogTimer = null;
     _resumeProbeTimer?.cancel();
     _resumeProbeTimer = null;
+    _resumeDebounceTimer?.cancel();
+    _resumeDebounceTimer = null;
   }
 
   void _scheduleReconnect({String reason = 'unknown'}) {
@@ -1013,6 +1034,16 @@ class IRCService {
     _sendCommand('JOIN $normalized');
     debugLog('🚪 [IRC] Comando JOIN enviado: JOIN $normalized');
 
+    // Auto-confirm pending join after timeout (fixes stuck loading for new channels)
+    Future.delayed(const Duration(seconds: 8), () {
+      if (_pendingJoinChannels.contains(normalized) && !_serverConfirmedChannels.contains(normalized)) {
+        debugLog('⚠️ [IRC] JOIN pending for $normalized after 8s, auto-confirming');
+        _serverConfirmedChannels.add(normalized);
+        _pendingJoinChannels.remove(normalized);
+        _notifyUserListListeners(normalized);
+      }
+    });
+
     // Initialize channel if not exists (usar nombre normalizado)
     if (!channels.containsKey(normalized)) {
       channels[normalized] = IRCChannel(name: normalized);
@@ -1057,6 +1088,7 @@ class IRCService {
     final normalized = _normalizeChannelName(channelName);
     _untrackSessionChannel(normalized);
     _sendCommand('PART $normalized');
+    _serverConfirmedChannels.remove(normalized);
     channels.remove(normalized);
     final currentNormalized = _getChannelKey(_currentChannel);
     if (currentNormalized == normalized) {
@@ -1092,7 +1124,9 @@ class IRCService {
     final left = _normalizeMultilineForCompare(a);
     final right = _normalizeMultilineForCompare(b);
     if (left.isEmpty && right.isEmpty) return true;
-    return left == right || right.contains(left) || left.contains(right);
+    if (left == right) return true;
+    if (left.contains(right) || right.contains(left)) return true;
+    return false;
   }
 
   bool _sendWirePrivmsg(
@@ -1154,10 +1188,15 @@ class IRCService {
       return false;
     }
 
-    // Normalizar el nombre del canal
     final normalized = _normalizeChannelName(channel);
 
     if (normalized.startsWith('#') && !_channelJoinConfirmed(normalized)) {
+      if (_manuallyClosedChannels.contains(normalized.toLowerCase())) {
+        debugLog(
+          '⚠️ [IRCService] sendMessage abortado: canal cerrado manualmente: $normalized',
+        );
+        return false;
+      }
       debugLog(
         '⚠️ [IRCService] sendMessage abortado: sin JOIN confirmado en $normalized',
       );
@@ -1165,113 +1204,55 @@ class IRCService {
       return false;
     }
 
-    // Generar un ID único para este mensaje pendiente
-    final pendingId =
-        '${DateTime.now().millisecondsSinceEpoch}_${message.hashCode}';
-
-    // Add to local channel (el mensaje completo, no dividido) como PENDIENTE
-    if (channels.containsKey(normalized)) {
-      final msg = IRCMessage(
-        nick: _nickname ?? 'You',
-        channel: normalized,
-        message: message, // Mensaje completo con saltos de línea
-        timestamp: DateTime.now(),
-        isPending: true,
-        pendingId: pendingId,
-        delaySeconds: delaySeconds > 0 ? delaySeconds : null,
-        messageId: IRCMessage.generateMessageId(),
-        replyToMessageId: replyToMessageId,
-      );
-      channels[normalized]!.addMessage(msg);
-      _notifyMessageListeners(msg);
-      // debugLog('📤 [IRCService] Mensaje marcado como PENDIENTE: $pendingId (delay: ${delaySeconds}s)');
-
-      // Programar el envío después del delay
-      if (delaySeconds > 0) {
-        // debugLog('⏱️  [IRCService] Programando envío de mensaje $pendingId en ${delaySeconds}s');
-        final timer = Timer(Duration(seconds: delaySeconds), () {
-          // debugLog('⏱️  [IRCService] Timer ejecutado, enviando mensaje $pendingId');
-          final sent = _sendWirePrivmsg(
-            normalized,
-            message,
-            replyToMessageId: replyToMessageId,
-          );
-          if (!sent) {
-            removePendingMessage(normalized, pendingId);
-            return;
-          }
-          // debugLog('📤 [IRCService] Mensaje enviado al servidor después de delay: $pendingId');
-          // Eliminar el timer del mapa después de ejecutarse
-          _pendingMessageTimers.remove(pendingId);
-
-          // Auto-confirmar después de 500ms si el servidor no hace eco
-          Timer(const Duration(milliseconds: 500), () {
-            if (!_shouldAutoConfirmPending(message)) return;
-            final channelObj = channels[normalized];
-            if (channelObj != null) {
-              final currentPendingMessages = channelObj.messages
-                  .where((m) => m.isPending && m.pendingId == pendingId)
-                  .toList();
-              if (currentPendingMessages.isNotEmpty) {
-                // debugLog('⚠️  [IRCService] Mensaje con delay $pendingId aún pendiente después de 500ms, auto-confirmando.');
-                confirmPendingMessage(normalized, message, DateTime.now());
-              }
-            }
-          });
-        });
-        _pendingMessageTimers[pendingId] = timer;
-        return true;
-      }
-    } else if (delaySeconds > 0) {
-      final timer = Timer(Duration(seconds: delaySeconds), () {
-        _sendWirePrivmsg(
-          normalized,
-          message,
-          replyToMessageId: replyToMessageId,
-        );
-        _pendingMessageTimers.remove(pendingId);
-      });
-      _pendingMessageTimers[pendingId] = timer;
-      return true;
-    }
-
-    // Sin delay, enviar inmediatamente
-    // debugLog('📤 [IRCService] Enviando mensaje sin delay inmediatamente: $pendingId');
+    // Enviar por la red PRIMERO; solo agregar localmente si el envío fue exitoso
+    // Los CTCP GIFT se envían como mensaje normal con prefijo invisible
+    // porque UnrealIRCd no retransmite CTCP no-ACTION a canales.
+    final isCtcpGift = message.startsWith('\x01GIFT ') && message.endsWith('\x01');
+    final wireMessage = isCtcpGift
+        ? '\u200B${message.substring(1, message.length - 1)}\u200B' // \x01 → \u200B
+        : message;
     final sent = _sendWirePrivmsg(
       normalized,
-      message,
+      wireMessage,
       replyToMessageId: replyToMessageId,
     );
     if (!sent) {
-      if (channels.containsKey(normalized)) {
-        removePendingMessage(normalized, pendingId);
-      }
       return false;
     }
-    // debugLog('✅ [IRCService] Mensaje sin delay enviado, esperando confirmación del servidor (pendingId: $pendingId)');
 
     if (channels.containsKey(normalized)) {
-      // Si el servidor no devuelve el PRIVMSG como eco, confirmar automáticamente
-      Timer(const Duration(milliseconds: 500), () {
-        if (!_shouldAutoConfirmPending(message)) return;
-        final channelObj = channels[normalized];
-        if (channelObj != null) {
-          final pendingMsg = channelObj.messages.firstWhere(
-            (msg) => msg.pendingId == pendingId && msg.isPending,
-            orElse: () => IRCMessage(
-              nick: _nickname ?? 'You',
-              channel: normalized,
-              message: '',
-              timestamp: DateTime.now(),
-            ),
-          );
-
-          if (pendingMsg.isPending && pendingMsg.pendingId == pendingId) {
-            confirmPendingMessage(normalized, message, DateTime.now());
-          }
-        }
-      });
+      // Los mensajes CTCP (excepto ACTION) no se agregan como texto visible
+      // porque el contenido raw (\x01...\x01) no debería mostrarse en el chat.
+      // Pero sí notificamos a los listeners para que el UI muestre popups (ej: GIFT).
+      final isCtcpNonAction = message.startsWith('\x01') &&
+          !message.startsWith('\x01ACTION ') &&
+          message.endsWith('\x01');
+      if (!isCtcpNonAction) {
+        final msg = IRCMessage(
+          nick: _nickname ?? 'You',
+          channel: normalized,
+          message: message,
+          timestamp: DateTime.now(),
+          isPending: false,
+          messageId: IRCMessage.generateMessageId(),
+          replyToMessageId: replyToMessageId,
+        );
+        channels[normalized]!.addMessage(msg);
+        _notifyMessageListeners(msg);
+      } else {
+        // CTCP no-ACTION: notificar listeners sin agregar al historial
+        final msg = IRCMessage(
+          nick: _nickname ?? 'You',
+          channel: normalized,
+          message: message,
+          timestamp: DateTime.now(),
+          isPending: false,
+          messageId: IRCMessage.generateMessageId(),
+        );
+        _notifyMessageListeners(msg);
+      }
     }
+
     return true;
   }
 
@@ -1296,19 +1277,11 @@ class IRCService {
 
     if (index != -1) {
       channelObj.messages.removeAt(index);
-      // debugLog('🗑️  [IRCService] Mensaje pendiente eliminado: $pendingId');
-      // Notificar a los listeners para actualizar la UI
-      _notifyMessageListeners(
-        channelObj.messages.isNotEmpty
-            ? channelObj.messages.last
-            : IRCMessage(
-                nick: '',
-                channel: normalized,
-                message: '',
-                timestamp: DateTime.now(),
-                messageId: IRCMessage.generateMessageId(),
-              ),
-      );
+      // Notificar a los listeners de eliminación de pending para que
+      // el provider lo retire del estado sin duplicar otros mensajes.
+      for (var listener in _pendingRemovalListeners) {
+        listener(normalized, pendingId);
+      }
       return true;
     }
 
@@ -1452,14 +1425,6 @@ class IRCService {
       }
     }
     // debugLog('⚠️  [IRCService] No se encontró mensaje pendiente para confirmar: "$normalizedReceivedMessage" en canal $normalized');
-    // Listar todos los mensajes pendientes para debug
-    final pendingMessages = channelObj.messages
-        .where((m) => m.isPending)
-        .toList();
-    // debugLog('🔍 [IRCService] Mensajes pendientes en canal: ${pendingMessages.length}');
-    for (final _ in pendingMessages) {
-      // debugLog('🔍 [IRCService]   - Pending: "${pending.message}" (ID: ${pending.pendingId})');
-    }
     return false;
   }
 
@@ -1663,13 +1628,144 @@ class IRCService {
       _notifyMessageListeners(msg);
     }
 
-    // Enviar el comando ACTION como NOTICE al canal
-    final command = 'NOTICE $normalized :\x01ACTION $action\x01';
+    // Enviar el comando ACTION como PRIVMSG al canal (estándar IRC)
+    final command = 'PRIVMSG $normalized :\x01ACTION $action\x01';
     debugLog(
-      '🎭 [IRCService] Enviando acción /me como NOTICE en $normalized: $action',
+      '🎭 [IRCService] Enviando acción /me como PRIVMSG en $normalized: $action',
     );
-    debugLog('🎭 [IRCService] Comando completo: $command');
     _sendCommand(command);
+  }
+
+  /// Enviar CTCP ACTION a un usuario privado
+  void sendPrivateAction(String nick, String action) {
+    if (!_hasActiveConnection) return;
+    final normalizedNick = nick.trim();
+    if (normalizedNick.isEmpty) return;
+
+    // Enviar ACTION como PRIVMSG al nick (CTCP estándar)
+    final command = 'PRIVMSG $normalizedNick :\x01ACTION $action\x01';
+    debugLog(
+      '🎭 [IRCService] Enviando acción privada a $normalizedNick: $action',
+    );
+    _sendCommand(command);
+
+    // Añadir mensaje localmente al query channel
+    final queryChannel = normalizedNick.toLowerCase();
+    if (!channels.containsKey(queryChannel)) {
+      channels[queryChannel] = IRCChannel(name: queryChannel);
+    }
+    final msg = IRCMessage(
+      nick: _nickname ?? 'You',
+      channel: queryChannel,
+      message: action,
+      timestamp: DateTime.now(),
+      isAction: true,
+      messageId: IRCMessage.generateMessageId(),
+    );
+    channels[queryChannel]!.addMessage(msg);
+    _notifyMessageListeners(msg);
+  }
+
+  void sendTyping(String target) {
+    if (!_hasActiveConnection) return;
+    final normalized = _normalizeChannelName(target);
+    _sendCommand('PRIVMSG $normalized :\x01TYPING\x01');
+  }
+
+  void sendTypingStop(String target) {
+    if (!_hasActiveConnection) return;
+    final normalized = _normalizeChannelName(target);
+    _sendCommand('PRIVMSG $normalized :\x01TYPING 0\x01');
+  }
+
+  void sendPoke(String nick) {
+    if (!_hasActiveConnection) return;
+    final normalizedNick = nick.trim();
+    if (normalizedNick.isEmpty) return;
+    final currentChannel = _currentChannel;
+    if (currentChannel != null && currentChannel.startsWith('#')) {
+      sendMe(currentChannel, '\u{1F44E} $normalizedNick');
+    } else {
+      final normalized = _normalizeChannelName(currentChannel ?? normalizedNick);
+      sendMe(normalized, '\u{1F44E} $normalizedNick');
+    }
+  }
+
+  void addPokeListener(void Function(String nick) listener) {
+    _pokeListeners.add(listener);
+  }
+
+  void removePokeListener(void Function(String nick) listener) {
+    _pokeListeners.remove(listener);
+  }
+
+  void _notifyPokeListeners(String nick) {
+    for (var listener in _pokeListeners) {
+      listener(nick);
+    }
+  }
+
+  void addKissListener(void Function(String nick) listener) {
+    _kissListeners.add(listener);
+  }
+
+  void removeKissListener(void Function(String nick) listener) {
+    _kissListeners.remove(listener);
+  }
+
+  void _notifyKissListeners(String nick) {
+    for (var listener in _kissListeners) {
+      listener(nick);
+    }
+  }
+
+  void addActionListener(void Function(String action, String fromNick) listener) {
+    _actionListeners.add(listener);
+  }
+
+  void removeActionListener(void Function(String action, String fromNick) listener) {
+    _actionListeners.remove(listener);
+  }
+
+  void _notifyActionListeners(String action, String fromNick) {
+    for (var listener in _actionListeners) {
+      listener(action, fromNick);
+    }
+  }
+
+  /// Enviar acción interactiva a un usuario (via ACTION al canal)
+  void sendActionToUser(String channel, String emoji, String target) {
+    if (!_hasActiveConnection) return;
+    final normalized = _normalizeChannelName(channel);
+    final actionText = '$emoji $target';
+    sendMe(normalized, actionText);
+  }
+
+  /// Enviar acción masiva a todos los canales
+  void sendMassiveAction(String emoji) {
+    if (!_hasActiveConnection) return;
+    for (final channelEntry in channels.entries) {
+      final channelName = channelEntry.key;
+      if (channelName.startsWith('#')) {
+        sendMe(channelName, emoji);
+      }
+    }
+  }
+
+  void addTypingListener(
+      void Function(String channel, String nick, bool isTyping) listener) {
+    _typingListeners.add(listener);
+  }
+
+  void removeTypingListener(
+      void Function(String channel, String nick, bool isTyping) listener) {
+    _typingListeners.remove(listener);
+  }
+
+  void _notifyTypingListeners(String channel, String nick, bool isTyping) {
+    for (var listener in _typingListeners) {
+      listener(channel, nick, isTyping);
+    }
   }
 
   void sendNotice(String target, String message) {
@@ -1681,68 +1777,23 @@ class IRCService {
     final normalizedNick = nick.trim();
     if (normalizedNick.isEmpty) return;
 
-    // Crear un canal privado si no existe (los queries usan el nick como "canal")
     final queryChannel = normalizedNick.toLowerCase();
     if (!channels.containsKey(queryChannel)) {
       channels[queryChannel] = IRCChannel(name: queryChannel);
-      // debugLog('📤 [IRCService] Creado canal privado para: $queryChannel');
     }
 
-    // Generar un ID único para este mensaje pendiente
-    final pendingId =
-        '${DateTime.now().millisecondsSinceEpoch}_${message.hashCode}';
+    _sendWireNotice(normalizedNick, message);
 
-    // Agregar el mensaje al canal privado local como PENDIENTE
     final msg = IRCMessage(
       nick: _nickname ?? 'You',
       channel: queryChannel,
       message: message,
       timestamp: DateTime.now(),
-      isPending: true,
-      pendingId: pendingId,
-      delaySeconds: delaySeconds > 0 ? delaySeconds : null,
+      isPending: false,
       messageId: IRCMessage.generateMessageId(),
     );
     channels[queryChannel]!.addMessage(msg);
     _notifyMessageListeners(msg);
-
-    // Programar el envío después del delay
-    if (delaySeconds > 0) {
-      final timer = Timer(Duration(seconds: delaySeconds), () {
-        _sendWireNotice(normalizedNick, message);
-        _pendingMessageTimers.remove(pendingId);
-
-        // Auto-confirmar después de 500ms si el servidor no hace eco
-        Timer(const Duration(milliseconds: 500), () {
-          final channelObj = channels[queryChannel];
-          if (channelObj != null) {
-            final currentPendingMessages = channelObj.messages
-                .where((m) => m.isPending && m.pendingId == pendingId)
-                .toList();
-            if (currentPendingMessages.isNotEmpty) {
-              confirmPendingMessage(queryChannel, message, DateTime.now());
-            }
-          }
-        });
-      });
-      _pendingMessageTimers[pendingId] = timer;
-    } else {
-      // Sin delay, enviar inmediatamente como NOTICE
-      _sendWireNotice(normalizedNick, message);
-
-      // Auto-confirmar después de 500ms si el servidor no hace eco
-      Timer(const Duration(milliseconds: 500), () {
-        final channelObj = channels[queryChannel];
-        if (channelObj != null) {
-          final currentPendingMessages = channelObj.messages
-              .where((m) => m.isPending && m.pendingId == pendingId)
-              .toList();
-          if (currentPendingMessages.isNotEmpty) {
-            confirmPendingMessage(queryChannel, message, DateTime.now());
-          }
-        }
-      });
-    }
   }
 
   // Comandos de moderación
@@ -1783,6 +1834,167 @@ class IRCService {
       _sendCommand('MODE $normalized $modes');
     }
     // debugLog('⚙️  [IRCService] Cambiando modo de $normalized: $modes${target != null ? " $target" : ""}');
+  }
+
+  // Solicitar los modos actuales del canal (respuesta: numerico 324)
+  void requestChannelModes(String channel) {
+    final normalized = _normalizeChannelName(channel);
+    _sendCommand('MODE $normalized');
+  }
+
+  // Solicitar la lista de baneados del canal (respuesta: numericos 367/368)
+  void requestBanList(String channel) {
+    final normalized = _normalizeChannelName(channel);
+    channels[normalized]?.clearBans();
+    _notifyUserListListeners(normalized);
+    _sendCommand('MODE $normalized +b');
+  }
+
+  // Activar/desactivar un modo simple de canal (+t, +m, +n, +i, +s, ...)
+  void toggleChannelMode(String channel, String mode, bool enable) {
+    final normalized = _normalizeChannelName(channel);
+    _sendCommand('MODE $normalized ${enable ? '+' : '-'}$mode');
+  }
+
+  // Establecer/quitar la clave del canal (modo +k). Si key es null o vacio,
+  // se quita la clave. UnrealIRCd exige la clave antigua en el -k, por eso se
+  // envía la clave guardada localmente cuando la tenemos.
+  void setChannelKey(String channel, String? key) {
+    final normalized = _normalizeChannelName(channel);
+    if (key == null || key.isEmpty) {
+      final currentKey = channels[normalized]?.key;
+      if (currentKey != null && currentKey.isNotEmpty) {
+        _sendCommand('MODE $normalized -k $currentKey');
+      } else {
+        _sendCommand('MODE $normalized -k');
+      }
+      channels[normalized]?.key = null;
+    } else {
+      // Guardar la clave localmente de forma optimista: el echo del servidor
+      // oculta la clave (MODE #chan +k), así que no llegaría por los numerics.
+      channels[normalized]?.key = key;
+      _sendCommand('MODE $normalized +k $key');
+    }
+  }
+
+  // Establecer/quitar el limite de usuarios (modo +l). Si limit es null o <= 0,
+  // se quita el limite (-l).
+  void setChannelLimit(String channel, int? limit) {
+    final normalized = _normalizeChannelName(channel);
+    if (limit == null || limit <= 0) {
+      channels[normalized]?.limit = null;
+      _sendCommand('MODE $normalized -l');
+    } else {
+      channels[normalized]?.limit = limit;
+      _sendCommand('MODE $normalized +l $limit');
+    }
+  }
+
+  // Desbanear una mascara concreta de la lista de bans
+  void unbanMask(String channel, String mask) {
+    final normalized = _normalizeChannelName(channel);
+    _sendCommand('MODE $normalized -b $mask');
+  }
+
+  // Aplica una cadena de modos (p. ej. "+ntmkl") a un objeto de canal.
+  // Gestiona tanto modos de usuario (o/v/h/a/q -> prefijos @/+/%/) como modos
+  // de canal con/sin parámetro (k -> clave, l -> límite). Devuelve true si
+  // hubo cambios y los listeners deben notificarse.
+  static bool _applyChannelModeString(
+    IRCChannel channelObj,
+    String modeStr,
+    List<String> params,
+  ) {
+    // Mapeo modo IRC -> prefijo UI: v=+, o=@, h=%, a=!, q=&
+    const addMap = {'v': '+', 'o': '@', 'h': '%', 'a': '!', 'q': '&'};
+    const removeMap = {'v': '+', 'o': '@', 'h': '%', 'a': '!', 'q': '&'};
+    // Modos que usan un nick como parámetro
+    const nickTargetModes = {'v', 'o', 'h', 'a', 'q', 'b', 'e', 'I'};
+    // Modos de canal que consumen un parámetro no-nick
+    const channelParamModes = {'k', 'l', 'j', 'f', 'L'};
+
+    bool adding = true;
+    int paramIndex = 0;
+    bool changed = false;
+
+    for (int i = 0; i < modeStr.length; i++) {
+      final c = modeStr[i];
+      if (c == '+') {
+        adding = true;
+        continue;
+      }
+      if (c == '-') {
+        adding = false;
+        continue;
+      }
+
+      if (nickTargetModes.contains(c)) {
+        if (c == 'o' || c == 'v' || c == 'h' || c == 'a' || c == 'q') {
+          if (paramIndex >= params.length) continue;
+          final targetNick = params[paramIndex].replaceFirst(':', '');
+          paramIndex++;
+          final nickLower = targetNick.toLowerCase();
+          String? existingKey;
+          for (var u in channelObj.users) {
+            if (u.toLowerCase() == nickLower) {
+              existingKey = u;
+              break;
+            }
+          }
+          if (existingKey == null) continue;
+          final prefix = adding ? addMap[c] : removeMap[c];
+          if (prefix == null) continue;
+          if (adding) {
+            channelObj.addUser(existingKey, mode: prefix);
+          } else {
+            final current = channelObj.getUserMode(existingKey);
+            if (current == prefix) {
+              String? keyToRemove;
+              for (var k in channelObj.userModes.keys) {
+                if (k.toLowerCase() == nickLower) {
+                  keyToRemove = k;
+                  break;
+                }
+              }
+              if (keyToRemove != null) {
+                channelObj.userModes.remove(keyToRemove);
+              }
+            }
+          }
+          changed = true;
+        }
+        // Los modos +b/+e/+I (bans/excepciones) no se gestionan aquí;
+        // la lista de bans llega por los numericos 367.
+        continue;
+      }
+
+      if (channelParamModes.contains(c)) {
+        if (paramIndex < params.length) {
+          final param = params[paramIndex].replaceFirst(':', '');
+          paramIndex++;
+          if (c == 'k') {
+            channelObj.key = adding ? param : null;
+          } else if (c == 'l') {
+            channelObj.limit = adding ? int.tryParse(param) : null;
+          }
+        }
+        if (adding) {
+          channelObj.channelModes.add(c);
+        } else {
+          channelObj.channelModes.remove(c);
+        }
+        changed = true;
+        continue;
+      }
+
+      if (adding) {
+        if (channelObj.channelModes.add(c)) changed = true;
+      } else {
+        if (channelObj.channelModes.remove(c)) changed = true;
+      }
+    }
+
+    return changed;
   }
 
   void setChannelTopic(String channel, String topic) {
@@ -2198,9 +2410,18 @@ class IRCService {
     return _ignoredUsers.contains(nick.toLowerCase());
   }
 
+  bool _ignoreAllPrivates = false;
+
+  void setIgnoreAllPrivates(bool value) {
+    _ignoreAllPrivates = value;
+    debugLog('🚫 [IRCService] Ignorar todos los privados: $value');
+  }
+
+  bool get ignoreAllPrivates => _ignoreAllPrivates;
+
   // Detectar si un nick es un bot basándose en el host y el nick
   bool _isBotByHostOrNick(String nick, String? host) {
-    final nickLower = nick.toLowerCase().trim();
+    if (isBotNick(nick)) return true;
 
     // Verificar por host
     if (host != null) {
@@ -2214,23 +2435,24 @@ class IRCService {
         return true;
       }
     }
+    return false;
+  }
 
-    // Verificar por nick
-    final isBotByNick =
+  /// Verifica si un nick corresponde a un bot (solo por nick, sin host).
+  bool isBotNick(String nick) {
+    final nickLower = nick.toLowerCase().trim();
+
+    final officialBots = <String>{
+      'globalchat', 'orion', 'seenallbot', 'stats', 'youtubebot',
+      'chan', 'nick', 'memo', 'ircop', 'global', 'ipvirtual',
+      'botita', 'z', 'futbol',
+      'nickserv', 'chanserv', 'memoserv', 'botserv', 'hostserv',
+      'statserv', 'robot', 'bot',
+    };
+
+    return officialBots.contains(nickLower) ||
         nickLower.endsWith('bot') ||
-        nickLower.startsWith('radio') ||
-        nickLower == 'robot' ||
-        nickLower == 'bot' ||
-        nickLower == 'globalchat' ||
-        nickLower == 'nickserv' ||
-        nickLower == 'chanserv' ||
-        nickLower == 'memoserv' ||
-        nickLower == 'botserv' ||
-        nickLower == 'hostserv' ||
-        nickLower == 'statserv' ||
-        nickLower == 'global';
-
-    return isBotByNick;
+        nickLower.startsWith('radio');
   }
 
   // Enviar comando a ChanServ (Anope)
@@ -2257,90 +2479,28 @@ class IRCService {
     final normalizedNick = nick.trim();
     if (normalizedNick.isEmpty) return false;
 
-    // Crear un canal privado si no existe (los queries usan el nick como "canal")
     final queryChannel = normalizedNick.toLowerCase();
     if (!channels.containsKey(queryChannel)) {
       channels[queryChannel] = IRCChannel(name: queryChannel);
-      // debugLog('📤 [IRCService] Creado canal privado para: $queryChannel');
     }
 
-    // Generar un ID único para este mensaje pendiente
-    final pendingId =
-        '${DateTime.now().millisecondsSinceEpoch}_${message.hashCode}';
+    // Enviar por la red PRIMERO; solo agregar localmente si el envío fue exitoso
+    final sent = _sendWirePrivmsg(normalizedNick, message);
+    if (!sent) {
+      return false;
+    }
 
-    // Agregar el mensaje al canal privado local como PENDIENTE
     final msg = IRCMessage(
       nick: _nickname ?? 'You',
       channel: queryChannel,
       message: message,
       timestamp: DateTime.now(),
-      isPending: true,
-      pendingId: pendingId,
-      delaySeconds: delaySeconds > 0 ? delaySeconds : null,
+      isPending: false,
       messageId: IRCMessage.generateMessageId(),
     );
     channels[queryChannel]!.addMessage(msg);
     _notifyMessageListeners(msg);
 
-    // debugLog('📤 [IRCService] Mensaje privado marcado como PENDIENTE: $pendingId (delay: ${delaySeconds}s)');
-
-    // Programar el envío después del delay
-    if (delaySeconds > 0) {
-      // debugLog('⏱️  [IRCService] Programando envío de mensaje privado $pendingId en ${delaySeconds}s');
-      final timer = Timer(Duration(seconds: delaySeconds), () {
-        // debugLog('⏱️  [IRCService] Timer ejecutado, enviando mensaje privado $pendingId');
-        final sent = _sendWirePrivmsg(normalizedNick, message);
-        if (!sent) {
-          removePendingMessage(queryChannel, pendingId);
-          _pendingMessageTimers.remove(pendingId);
-          return;
-        }
-        // debugLog('📤 [IRCService] Mensaje privado enviado al servidor después de delay: $pendingId');
-        // Eliminar el timer del mapa después de ejecutarse
-        _pendingMessageTimers.remove(pendingId);
-
-        // Auto-confirmar después de 500ms si el servidor no hace eco
-        Timer(const Duration(milliseconds: 500), () {
-          if (!_shouldAutoConfirmPending(message)) return;
-          final channelObj = channels[queryChannel];
-          if (channelObj != null) {
-            final currentPendingMessages = channelObj.messages
-                .where((m) => m.isPending && m.pendingId == pendingId)
-                .toList();
-            if (currentPendingMessages.isNotEmpty) {
-              // debugLog('⚠️  [IRCService] Mensaje privado con delay $pendingId aún pendiente después de 500ms, auto-confirmando.');
-              confirmPendingMessage(queryChannel, message, DateTime.now());
-            }
-          }
-        });
-      });
-      _pendingMessageTimers[pendingId] = timer;
-      return true;
-    }
-
-    // Sin delay, enviar inmediatamente
-    // debugLog('📤 [IRCService] Enviando mensaje privado sin delay inmediatamente: $pendingId');
-    final sent = _sendWirePrivmsg(normalizedNick, message);
-    if (!sent) {
-      removePendingMessage(queryChannel, pendingId);
-      return false;
-    }
-    // debugLog('✅ [IRCService] Mensaje privado sin delay enviado, esperando confirmación del servidor (pendingId: $pendingId)');
-
-    // Auto-confirmar después de 500ms si el servidor no hace eco
-    Timer(const Duration(milliseconds: 500), () {
-      if (!_shouldAutoConfirmPending(message)) return;
-      final channelObj = channels[queryChannel];
-      if (channelObj != null) {
-        final currentPendingMessages = channelObj.messages
-            .where((m) => m.isPending && m.pendingId == pendingId)
-            .toList();
-        if (currentPendingMessages.isNotEmpty) {
-          // debugLog('⚠️  [IRCService] Mensaje privado $pendingId aún pendiente después de 500ms, auto-confirmando.');
-          confirmPendingMessage(queryChannel, message, DateTime.now());
-        }
-      }
-    });
     return true;
   }
 
@@ -2406,10 +2566,10 @@ class IRCService {
           _notifyMessageListeners(msg);
         }
 
-        // Enviar el comando ACTION como NOTICE al servidor
-        final command = 'NOTICE $normalized :\x01ACTION $action\x01';
+        // Enviar el comando ACTION como PRIVMSG al servidor (estándar IRC)
+        final command = 'PRIVMSG $normalized :\x01ACTION $action\x01';
         debugLog(
-          '🎭 [IRCService] Enviando /ame como NOTICE a $normalized: $action',
+          '🎭 [IRCService] Enviando /ame como PRIVMSG a $normalized: $action',
         );
         _sendCommand(command);
       }
@@ -2709,7 +2869,7 @@ class IRCService {
             if (!isInGlobalChat) {
               _hasAutoJoinedGlobalChat = true; // Marcar como hecho
               // Esperar un poco antes de unirse para no saturar el servidor
-              Future.delayed(const Duration(milliseconds: 2000), () {
+              Future.delayed(const Duration(milliseconds: 300), () {
                 // Verificar nuevamente antes de hacer JOIN
                 final globalChatNow = channels[globalChatChannel];
                 final stillNotInGlobalChat =
@@ -3226,7 +3386,7 @@ class IRCService {
               // debugLog('🔄 [IRCService] _nickname actualizado a: "$_nickname"');
 
               // Actualizar el nick en todos los canales donde aparezca nuestro nick antiguo
-              // debugLog('🔄 [IRCService] Actualizando nick en canales...');
+              debugLog('🔄 [IRCService] Actualizando nick en canales...');
               final oldNickLower = oldNick.toLowerCase();
               for (var channel in channels.values) {
                 // Buscar el usuario de forma case-insensitive
@@ -3325,6 +3485,18 @@ class IRCService {
                   debugLog(
                     '🔄 [IRCService] Nick actualizado en ${channel.name}: "$existingNick" -> "$newNick"',
                   );
+
+                  // Agregar mensaje de sistema al canal
+                  final nickMsg = IRCMessage(
+                    nick: oldNick ?? '',
+                    channel: channel.name,
+                    message: 'ahora es $newNick',
+                    timestamp: DateTime.now(),
+                    isSystem: true,
+                    messageId: IRCMessage.generateMessageId(),
+                  );
+                  channel.addMessage(nickMsg);
+                  _notifyMessageListeners(nickMsg);
                 }
               }
             }
@@ -3414,7 +3586,7 @@ class IRCService {
             final msg = IRCMessage(
               nick: nick,
               channel: channel,
-              message: 'se unió al canal',
+              message: '→ se unió al canal',
               timestamp: DateTime.now(),
               isSystem: true,
               messageId: IRCMessage.generateMessageId(),
@@ -3504,7 +3676,7 @@ class IRCService {
               final msg = IRCMessage(
                 nick: nick,
                 channel: channel,
-                message: 'dejó el canal',
+                message: '← dejó el canal',
                 timestamp: DateTime.now(),
                 messageId: IRCMessage.generateMessageId(),
                 isSystem: true,
@@ -3549,8 +3721,8 @@ class IRCService {
                 nick: nick,
                 channel: channel,
                 message: reason != null && reason.isNotEmpty
-                    ? 'expulsó a $kickedNick (razón: $reason)'
-                    : 'expulsó a $kickedNick',
+                    ? '⊘ expulsó a $kickedNick — $reason'
+                    : '⊘ expulsó a $kickedNick',
                 timestamp: DateTime.now(),
                 isSystem: true,
                 messageId: IRCMessage.generateMessageId(),
@@ -3593,74 +3765,73 @@ class IRCService {
         case 'MODE':
           // Formato: :source MODE #channel (+|-)(v|o|h|a|q) nick [nick ...]
           // Actualizar userModes en tiempo real cuando dan +v, -v, @, etc.
-          if (args.length >= 3 && args[0].startsWith('#')) {
+          // También gestiona cambios de modos del canal (p. ej. +m, +t) cuando
+          // no hay nicks de destino.
+          if (args.length >= 2 && args[0].startsWith('#')) {
             var channel = _normalizeChannelName(args[0]);
             final modeStr = args[1];
-            final nicks = args.sublist(2);
-            if (!channels.containsKey(channel) ||
-                modeStr.isEmpty ||
-                nicks.isEmpty) {
+            if (!channels.containsKey(channel) || modeStr.isEmpty) {
               break;
             }
+            final params =
+                args.length > 2 ? args.sublist(2) : const <String>[];
             final channelObj = channels[channel]!;
-            // Mapeo modo IRC -> prefijo UI: v=+, o=@, h=%, a=!, q=&
-            const addMap = {'v': '+', 'o': '@', 'h': '%', 'a': '!', 'q': '&'};
-            const removeMap = {
-              'v': '+',
-              'o': '@',
-              'h': '%',
-              'a': '!',
-              'q': '&',
-            };
-            bool adding = true;
-            int nickIndex = 0;
-            for (
-              int i = 0;
-              i < modeStr.length && nickIndex < nicks.length;
-              i++
-            ) {
-              final c = modeStr[i];
-              if (c == '+') {
-                adding = true;
-                continue;
-              }
-              if (c == '-') {
-                adding = false;
-                continue;
-              }
-              final prefix = adding ? addMap[c] : removeMap[c];
-              if (prefix == null) continue;
-              final targetNick = nicks[nickIndex].replaceFirst(':', '');
-              nickIndex++;
-              final nickLower = targetNick.toLowerCase();
-              String? existingKey;
-              for (var u in channelObj.users) {
-                if (u.toLowerCase() == nickLower) {
-                  existingKey = u;
-                  break;
-                }
-              }
-              if (existingKey == null) continue;
-              if (adding) {
-                channelObj.addUser(existingKey, mode: prefix);
-              } else {
-                final current = channelObj.getUserMode(existingKey);
-                if (current == prefix) {
-                  String? keyToRemove;
-                  for (var k in channelObj.userModes.keys) {
-                    if (k.toLowerCase() == nickLower) {
-                      keyToRemove = k;
-                      break;
-                    }
-                  }
-                  if (keyToRemove != null) {
-                    channelObj.userModes.remove(keyToRemove);
-                  }
+
+            if (_applyChannelModeString(channelObj, modeStr, params)) {
+              _notifyUserListListeners(channel);
+            }
+          }
+          break;
+
+        case '324': // RPL_CHANNELMODEIS: :server 324 nick #chan +ntmkl clave limite
+          if (args.length >= 3) {
+            final chanName = args[1];
+            if (chanName.startsWith('#')) {
+              final normalized = _normalizeChannelName(chanName);
+              if (channels.containsKey(normalized)) {
+                final modeStr = args[2].replaceFirst(':', '');
+                final params = args.length > 3
+                    ? args.sublist(3).map((p) => p.replaceFirst(':', '')).toList()
+                    : const <String>[];
+                channels[normalized]!.channelModes.clear();
+                channels[normalized]!.key = null;
+                channels[normalized]!.limit = null;
+                if (_applyChannelModeString(
+                  channels[normalized]!,
+                  modeStr,
+                  params,
+                )) {
+                  _notifyUserListListeners(normalized);
                 }
               }
             }
-            _notifyUserListListeners(channel);
           }
+          break;
+
+        case '367': // RPL_BANLIST: :server 367 nick #chan mask setter timestamp
+          if (args.length >= 3) {
+            final chanName = args[1];
+            final normalized = _normalizeChannelName(chanName);
+            if (channels.containsKey(normalized)) {
+              final mask = args[2].replaceFirst(':', '');
+              final setter = args.length > 3 ? args[3].replaceFirst(':', '') : '';
+              DateTime? time;
+              if (args.length > 4) {
+                final ts = int.tryParse(args[4].replaceFirst(':', ''));
+                if (ts != null && ts > 0) {
+                  time = DateTime.fromMillisecondsSinceEpoch(ts * 1000);
+                }
+              }
+              channels[normalized]!.addBan(
+                ChannelBan(mask: mask, setter: setter, time: time),
+              );
+              _notifyUserListListeners(normalized);
+            }
+          }
+          break;
+
+        case '368': // RPL_ENDOFBANLIST: :server 368 nick #chan :End of ban list
+          // Noop: la lista de bans ya se llenó con los 367 previos.
           break;
 
         // WHOIS responses
@@ -4245,6 +4416,16 @@ class IRCService {
 
                   break; // Ignorar el mensaje completamente
                 }
+
+                // Bloquear TODOS los mensajes privados si ignoreAllPrivates está activado
+                if (_ignoreAllPrivates) {
+                  final isBot = _isBotByHostOrNick(nick, host);
+                  if (!isBot) {
+                    sendPrivateNotice(nick, 'Este usuario tiene protegido por el modo +P. No recibe mensajes privados. Para hablar con él, mándale un memo o un notice.', delaySeconds: 0);
+                    break;
+                  }
+                }
+
                 // debugLog('✅ [IRCService] Mensaje privado de "$nick" NO está en lista de ignorados. Lista actual: $_ignoredUsers');
                 // debugLog('✅ [IRCService] Procediendo a procesar mensaje privado de "$nick"');
               } else {
@@ -4310,6 +4491,8 @@ class IRCService {
                 // El mensaje es todo lo que viene después del ':'
                 var messageContent = line.substring(colonIndex + 1).trim();
 
+
+
                 // Detectar si el mensaje contiene información de respuesta (formato: mensaje [reply:messageId])
                 String? extractedReplyToMessageId;
                 final replyMatch = RegExp(
@@ -4325,6 +4508,34 @@ class IRCService {
 
                 messageContent = _decodeMultilineFromWire(messageContent);
 
+                // Detectar CTCP TYPING (raw bytes y mensajes generados por el servidor)
+                if (messageContent == '\x01TYPING\x01') {
+                  if (nick.toLowerCase() != _nickname?.toLowerCase()) {
+                    _notifyTypingListeners(channelKey, nick, true);
+                  }
+                  return;
+                }
+                if (messageContent == '\x01TYPING 0\x01') {
+                  if (nick.toLowerCase() != _nickname?.toLowerCase()) {
+                    _notifyTypingListeners(channelKey, nick, false);
+                  }
+                  return;
+                }
+                // Algunos servidores (ej. GlobalChat) convierten CTCP TYPING a texto legible
+                if (messageContent.contains('\x01TYPING') ||
+                    RegExp(r'CTCP\s+TYPING', caseSensitive: false)
+                        .hasMatch(messageContent)) {
+                  return;
+                }
+
+                // Detectar CTCP PING (poke/zumbido) de otro usuario
+                if (messageContent.startsWith('\x01PING') &&
+                    messageContent.endsWith('\x01') &&
+                    nick.toLowerCase() != _nickname?.toLowerCase()) {
+                  _notifyPokeListeners(nick);
+                  return;
+                }
+
                 // Detectar y procesar mensajes ACTION (/me)
                 bool isAction = false;
                 String? actionText;
@@ -4335,6 +4546,39 @@ class IRCService {
                   actionText = messageContent
                       .substring(8, messageContent.length - 1)
                       .trim();
+
+                  // Detectar si es un beso (ACTION con 💋)
+                  if (actionText.startsWith('\u{1F48B}') &&
+                      nick.toLowerCase() != _nickname?.toLowerCase()) {
+                    _notifyKissListeners(nick);
+                  }
+
+                  // Detectar acciones interactivas genéricas
+                  if (nick.toLowerCase() != _nickname?.toLowerCase()) {
+                    final actionEmojiMap = {
+                      '\u{1F48B}': 'kiss',
+                      '\u{1F44E}': 'poke',
+                      '\u{1F44B}': 'wave',
+                      '\u{1F91D}': 'highfive',
+                      '\u{1F917}': 'hug',
+                      '\u{1F64F}': 'hug',
+                      '\u{270B}': 'slap',
+                      '\u{1FA78}': 'slap',
+                      '\u{1F4A6}': 'spray',
+                      '\u{1F4A7}': 'spray',
+                      '\u{2615}': 'coffee',
+                      '\u{1F37A}': 'beer',
+                      '\u{1F37B}': 'beer',
+                      '\u{1F525}': 'fire',
+                      '\u{1F4B6}': 'money',
+                    };
+                    for (final entry in actionEmojiMap.entries) {
+                      if (actionText.startsWith(entry.key)) {
+                        _notifyActionListeners(entry.value, nick);
+                        break;
+                      }
+                    }
+                  }
 
                   // Detectar si es una reacción sincronizada (formato: +emoji [messageId])
                   final reactionMatch = RegExp(
@@ -4520,6 +4764,28 @@ class IRCService {
                   }
                 } else {
                   // Es un mensaje de otro usuario, añadirlo normalmente
+
+                  // Detectar marcador in-band de GIFT (\u200B GIFT data \u200B)
+                  // También detectar sin \u200B (el servidor IRC puede strippearlos)
+                  final cleanContent = messageContent.replaceAll('\u200B', '').trim();
+                  final isGift = cleanContent.startsWith('GIFT ') &&
+                      cleanContent.split('|').length >= 4;
+                  debugLog('🎁 [GIFT-RECV] cleanContent="$cleanContent", isGift=$isGift');
+                  if (isGift) {
+                    debugLog('🎁 [GIFT-RECV] Detectado GIFT de $nick en $channelKey: $cleanContent');
+                    // Reconstruir con \u200B para que chat_screen lo detecte
+                    final giftMsg = IRCMessage(
+                      nick: nick,
+                      channel: channelKey,
+                      message: '\u200B$cleanContent\u200B',
+                      timestamp: DateTime.now(),
+                      messageId: IRCMessage.generateMessageId(),
+                    );
+                    channels[channelKey]?.addMessage(giftMsg);
+                    _notifyMessageListeners(giftMsg);
+                    return; // No mostrar como texto visible
+                  }
+
                   // Para mensajes ACTION, usar actionText en lugar de messageContent
                   final finalMessage = (isAction && actionText != null)
                       ? actionText
@@ -4714,6 +4980,21 @@ class IRCService {
                     break;
                   }
 
+                  // Detectar CTCP TYPING en NOTICE (raw bytes, texto generado por servidor, o formato -CTCP-)
+                  if (messageContent.contains('\x01TYPING') ||
+                      RegExp(r'CTCP\s+TYPING|TYPING\s+\d?', caseSensitive: false)
+                          .hasMatch(messageContent)) {
+                    break;
+                  }
+
+                  // Detectar CTCP PING (poke/zumbido) en NOTICE
+                  if (messageContent.startsWith('\x01PING') &&
+                      messageContent.endsWith('\x01') &&
+                      nick.toLowerCase() != _nickname?.toLowerCase()) {
+                    _notifyPokeListeners(nick);
+                    break;
+                  }
+
                   // Detectar y procesar mensajes ACTION (/me) en NOTICE
                   bool isAction = false;
                   String? actionText;
@@ -4833,7 +5114,7 @@ class IRCService {
               final msg = IRCMessage(
                 nick: nick,
                 channel: entry.key,
-                message: 'salió del canal',
+                message: '✕ salió del canal (desconectado)',
                 timestamp: DateTime.now(),
                 isSystem: true,
               );
@@ -4844,6 +5125,34 @@ class IRCService {
           // Notificar cambios en la lista de usuarios para cada canal afectado
           for (var channel in affectedChannels) {
             _notifyUserListListeners(channel);
+          }
+          break;
+
+        case 'TOPIC':
+          // :nick!user@host TOPIC #channel :new topic
+          if (args.isNotEmpty && args[0].startsWith('#')) {
+            final channelKey = _normalizeChannelName(args[0]);
+            final colonIdx = line.indexOf(':', line.indexOf('TOPIC'));
+            final topicText = colonIdx != -1 && colonIdx < line.length - 1
+                ? IRCColorParser.stripIRCFormatting(line.substring(colonIdx + 1).trim())
+                : '';
+
+            if (channels.containsKey(channelKey)) {
+              channels[channelKey]!.setTopic(topicText);
+              _notifyTopicListeners(channelKey);
+
+              // Agregar mensaje de sistema al canal
+              final topicMsg = IRCMessage(
+                nick: nick ?? '',
+                channel: channelKey,
+                message: 'Topic: $topicText',
+                timestamp: DateTime.now(),
+                isSystem: true,
+                messageId: IRCMessage.generateMessageId(),
+              );
+              channels[channelKey]!.addMessage(topicMsg);
+              _notifyMessageListeners(topicMsg);
+            }
           }
           break;
       }
@@ -4898,6 +5207,14 @@ class IRCService {
 
   void removeMessageListener(Function(IRCMessage) listener) {
     _messageListeners.remove(listener);
+  }
+
+  void addPendingRemovalListener(Function(String channel, String pendingId) listener) {
+    _pendingRemovalListeners.add(listener);
+  }
+
+  void removePendingRemovalListener(Function(String channel, String pendingId) listener) {
+    _pendingRemovalListeners.remove(listener);
   }
 
   void addUserListListener(Function(String) listener) {

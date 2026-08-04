@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/app_theme.dart';
@@ -75,7 +77,7 @@ class ThemeNotifier extends Notifier<AppTheme> {
   @override
   AppTheme build() {
     _initializeTheme();
-    return AppTheme.themes[0]; // Default to GlobalChat theme
+    return AppTheme.themes[2]; // Default to Oscuro theme
   }
 
   Future<void> _initializeTheme() async {
@@ -169,10 +171,23 @@ class ThemeNotifier extends Notifier<AppTheme> {
     if (_themeLoaded) return; // Ya se cargó un tema, no sobrescribir
     
     final prefs = await SharedPreferences.getInstance();
-    final themeName = prefs.getString('appTheme') ?? 'GlobalChat';
+    final themeName = prefs.getString('appTheme') ?? 'Oscuro';
+    if (themeName == 'Personalizado') {
+      final raw = prefs.getString('customTheme');
+      if (raw != null && raw.isNotEmpty) {
+        try {
+          final custom = AppTheme.fromJson(jsonDecode(raw) as Map<String, dynamic>);
+          state = custom;
+          _themeLoaded = true;
+          return;
+        } catch (_) {
+          // Si el JSON es inválido, caer al tema por defecto
+        }
+      }
+    }
     state = AppTheme.themes.firstWhere(
       (theme) => theme.name == themeName,
-      orElse: () => AppTheme.themes[0], // Fallback to default
+      orElse: () => AppTheme.themes[2], // Fallback to Oscuro
     );
     _themeLoaded = true;
   }
@@ -181,6 +196,15 @@ class ThemeNotifier extends Notifier<AppTheme> {
     state = theme;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('appTheme', theme.name);
+    _themeLoaded = true;
+  }
+
+  /// Guarda un tema personalizado en JSON y lo aplica.
+  Future<void> setCustomTheme(AppTheme theme) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('customTheme', jsonEncode(theme.toJson()));
+    await prefs.setString('appTheme', 'Personalizado');
+    state = theme;
     _themeLoaded = true;
   }
 }

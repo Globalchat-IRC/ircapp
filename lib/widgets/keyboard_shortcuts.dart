@@ -30,6 +30,38 @@ class ChannelListIntent extends Intent {
   const ChannelListIntent();
 }
 
+class HelpIntent extends Intent {
+  const HelpIntent();
+}
+
+class NewPrivateMessageIntent extends Intent {
+  const NewPrivateMessageIntent();
+}
+
+class HelpAction extends Action<HelpIntent> {
+  final VoidCallback onHelp;
+
+  HelpAction({required this.onHelp});
+
+  @override
+  Object? invoke(HelpIntent intent) {
+    onHelp();
+    return null;
+  }
+}
+
+class NewPrivateMessageAction extends Action<NewPrivateMessageIntent> {
+  final VoidCallback onNewPrivateMessage;
+
+  NewPrivateMessageAction({required this.onNewPrivateMessage});
+
+  @override
+  Object? invoke(NewPrivateMessageIntent intent) {
+    onNewPrivateMessage();
+    return null;
+  }
+}
+
 // Acciones para los intents
 class FindAction extends Action<FindIntent> {
   final VoidCallback onFind;
@@ -125,6 +157,8 @@ class MacOSKeyboardShortcuts extends StatelessWidget {
   final VoidCallback? onPreferences;
   final VoidCallback? onExportLogs;
   final VoidCallback? onChannelList;
+  final VoidCallback? onHelp;
+  final VoidCallback? onNewPrivateMessage;
 
   const MacOSKeyboardShortcuts({
     super.key,
@@ -136,27 +170,42 @@ class MacOSKeyboardShortcuts extends StatelessWidget {
     this.onPreferences,
     this.onExportLogs,
     this.onChannelList,
+    this.onHelp,
+    this.onNewPrivateMessage,
   });
 
   @override
   Widget build(BuildContext context) {
     return Shortcuts(
       shortcuts: {
-        // Cmd+F: Buscar
+        // Cmd+F / Ctrl+F: Buscar
         const SingleActivator(LogicalKeyboardKey.keyF, meta: true): const FindIntent(),
-        // Cmd+G: Buscar siguiente
+        const SingleActivator(LogicalKeyboardKey.keyF, control: true): const FindIntent(),
+        // Cmd+G / Ctrl+G: Buscar siguiente
         const SingleActivator(LogicalKeyboardKey.keyG, meta: true): const FindNextIntent(),
-        // Shift+Cmd+G: Buscar anterior (se maneja en el diálogo)
-        // Cmd+K: Nuevo canal/privado
+        const SingleActivator(LogicalKeyboardKey.keyG, control: true): const FindNextIntent(),
+        // Shift+Cmd+G / Shift+Ctrl+G: Buscar anterior (se maneja en el diálogo)
+        // Cmd+K / Ctrl+K: Nuevo canal/privado
         const SingleActivator(LogicalKeyboardKey.keyK, meta: true): const NewChannelIntent(),
-        // Cmd+W: Cerrar pestaña
+        const SingleActivator(LogicalKeyboardKey.keyK, control: true): const NewChannelIntent(),
+        // Cmd+W / Ctrl+W: Cerrar pestaña
         const SingleActivator(LogicalKeyboardKey.keyW, meta: true): const CloseTabIntent(),
-        // Cmd+,: Preferencias
+        const SingleActivator(LogicalKeyboardKey.keyW, control: true): const CloseTabIntent(),
+        // Cmd+, / Ctrl+,: Preferencias
         const SingleActivator(LogicalKeyboardKey.comma, meta: true): const PreferencesIntent(),
-        // Cmd+E: Exportar logs
+        const SingleActivator(LogicalKeyboardKey.comma, control: true): const PreferencesIntent(),
+        // Cmd+E / Ctrl+E: Exportar logs
         const SingleActivator(LogicalKeyboardKey.keyE, meta: true): const ExportLogsIntent(),
-        // Cmd+L: Lista de canales
+        const SingleActivator(LogicalKeyboardKey.keyE, control: true): const ExportLogsIntent(),
+        // Cmd+L / Ctrl+L: Lista de canales
         const SingleActivator(LogicalKeyboardKey.keyL, meta: true): const ChannelListIntent(),
+        const SingleActivator(LogicalKeyboardKey.keyL, control: true): const ChannelListIntent(),
+        // Cmd+/ / Ctrl+/: Ayuda de atajos de teclado
+        const SingleActivator(LogicalKeyboardKey.slash, meta: true): const HelpIntent(),
+        const SingleActivator(LogicalKeyboardKey.slash, control: true): const HelpIntent(),
+        // Cmd+N / Ctrl+N: Nuevo mensaje privado
+        const SingleActivator(LogicalKeyboardKey.keyN, meta: true): const NewPrivateMessageIntent(),
+        const SingleActivator(LogicalKeyboardKey.keyN, control: true): const NewPrivateMessageIntent(),
       },
       child: Actions(
         actions: {
@@ -167,6 +216,8 @@ class MacOSKeyboardShortcuts extends StatelessWidget {
           PreferencesIntent: PreferencesAction(onPreferences: onPreferences ?? () {}),
           ExportLogsIntent: ExportLogsAction(onExportLogs: onExportLogs ?? () {}),
           ChannelListIntent: ChannelListAction(onChannelList: onChannelList ?? () {}),
+          HelpIntent: HelpAction(onHelp: onHelp ?? () {}),
+          NewPrivateMessageIntent: NewPrivateMessageAction(onNewPrivateMessage: onNewPrivateMessage ?? () {}),
         },
         child: child,
       ),

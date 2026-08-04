@@ -1,4 +1,9 @@
-# Miscellaneous
+# Credentials and secrets
+.env
+.env.*
+token_server/.env
+
+# Misc
 *.class
 *.log
 *.pyc
@@ -23,6 +28,9 @@ migrate_working_dir/
 # is commented out by default.
 #.vscode/
 
+# Cursor IDE local index
+.git/cursor/
+
 # Flutter/Dart/Pub related
 **/doc/api/
 **/ios/Flutter/.last_build_id
@@ -45,6 +53,14 @@ app.*.map.json
 /android/app/profile
 /android/app/release
 
+# Generated build artifacts
+e2ee.worker.dart.js
+e2ee.worker.dart.js.map
+flutter_bootstrap.js
+
+# Backups
+backups/
+
 # Instaladores y archivos grandes (van en GitHub Releases, no en el repo)
 *.dmg
 *.zip
@@ -52,10 +68,7 @@ app.*.map.json
 installers/
 instalador_windows/
 
-# Credenciales locales de bots
-bots/futbol/config.env
-bots/spotify-icecast/config.env
-bots/spotify-icecast/spotify_state.json
+
 
 # Samples DJ (binarios grandes; ver samples/LEEME.md para re-descargar)
 samples/dj-fx-pack/

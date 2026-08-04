@@ -2,22 +2,20 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'platform_utils.dart';
-import 'web_clipboard_bridge_stub.dart'
-    if (dart.library.html) 'web_clipboard_bridge_web.dart';
 
-/// Atajos de pegado en web/escritorio (FocusNode/onKeyEvent puede bloquear Ctrl/Cmd+V).
+/// Atajos de pegado en web/escritorio.
+/// En web, NO interceptamos Ctrl+V — dejamos que el browser/TextField lo maneje
+/// nativamente (el Clipboard API requiere permisos que el usuario puede bloquear).
+/// Solo interceptamos Shift+Insert como fallback.
 class WebTextInput {
   static bool get _explicitPaste =>
       PlatformUtils.isWeb || PlatformUtils.isDesktop;
 
   static bool isPasteShortcut(KeyEvent event) {
     if (!_explicitPaste || event is! KeyDownEvent) return false;
+    // En web, NO interceptar Ctrl+V/Cmd+V — el browser lo maneja nativamente
+    if (PlatformUtils.isWeb) return false;
     final kb = HardwareKeyboard.instance;
-    if (event.logicalKey == LogicalKeyboardKey.keyV &&
-        (kb.isControlPressed || kb.isMetaPressed) &&
-        !kb.isAltPressed) {
-      return true;
-    }
     if (event.logicalKey == LogicalKeyboardKey.insert && kb.isShiftPressed) {
       return true;
     }
@@ -38,25 +36,23 @@ class WebTextInput {
     );
   }
 
-  static Future<void> pasteInto(TextEditingController controller) async {
-    if (!_explicitPaste) return;
-    String? pasted;
-    try {
-      final data = await Clipboard.getData(Clipboard.kTextPlain);
-      pasted = data?.text;
-    } catch (_) {}
-    pasted ??= await readWebClipboardText();
-    if (pasted == null || pasted.isEmpty) return;
-    insertAtSelection(controller, pasted);
-  }
-
   static KeyEventResult handlePasteKey(
     KeyEvent event,
     TextEditingController controller, {
     required bool hasFocus,
   }) {
     if (!hasFocus || !isPasteShortcut(event)) return KeyEventResult.ignored;
-    pasteInto(controller);
+    // Solo Shift+Insert en desktop (no web)
+    _pasteFromClipboard(controller);
     return KeyEventResult.handled;
+  }
+
+  static Future<void> _pasteFromClipboard(TextEditingController controller) async {
+    try {
+      final data = await Clipboard.getData(Clipboard.kTextPlain);
+      if (data?.text != null && data!.text!.isNotEmpty) {
+        insertAtSelection(controller, data.text!);
+      }
+    } catch (_) {}
   }
 }

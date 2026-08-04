@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../services/emoji_service.dart';
 import '../models/app_theme.dart';
+import '../models/nick_aura.dart';
+import '../providers/irc_provider.dart';
 
-class EmojiPicker extends StatefulWidget {
+class EmojiPicker extends ConsumerStatefulWidget {
   final Function(String) onEmojiSelected;
   final AppTheme appTheme;
 
@@ -13,14 +16,15 @@ class EmojiPicker extends StatefulWidget {
   });
 
   @override
-  State<EmojiPicker> createState() => _EmojiPickerState();
+  ConsumerState<EmojiPicker> createState() => _EmojiPickerState();
 }
 
-class _EmojiPickerState extends State<EmojiPicker> {
+class _EmojiPickerState extends ConsumerState<EmojiPicker> {
   final ScrollController _scrollController = ScrollController();
   final TextEditingController _searchController = TextEditingController();
   String? _selectedCategory;
   String _searchQuery = '';
+  bool _showAuras = false;
 
   @override
   void initState() {
@@ -154,18 +158,42 @@ class _EmojiPickerState extends State<EmojiPicker> {
             child: ListView(
               scrollDirection: Axis.horizontal,
               padding: const EdgeInsets.symmetric(horizontal: 8),
-              children: emojisByCategory.keys.map((category) {
-                return Padding(
+              children: [
+                Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 4),
                   child: TextButton(
                     onPressed: () {
                       setState(() {
-                        _selectedCategory = category;
+                        _showAuras = true;
+                        _selectedCategory = null;
                       });
-                      // Mantener el foco en el campo de texto al cambiar de categoría
-                      // Esto se maneja desde el callback del padre
                     },
                     style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      minimumSize: Size.zero,
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                    child: Text(
+                      '✨ Auras',
+                      style: TextStyle(
+                        color: _showAuras ? appTheme.primary : appTheme.textSecondary,
+                        fontSize: 12,
+                        fontWeight: _showAuras ? FontWeight.bold : FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ),
+                ...emojisByCategory.keys.map((category) {
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    child: TextButton(
+                      onPressed: () {
+                        setState(() {
+                          _showAuras = false;
+                          _selectedCategory = category;
+                        });
+                      },
+                      style: TextButton.styleFrom(
                       padding: const EdgeInsets.symmetric(horizontal: 12),
                       minimumSize: Size.zero,
                       tapTargetSize: MaterialTapTargetSize.shrinkWrap,
@@ -184,10 +212,14 @@ class _EmojiPickerState extends State<EmojiPicker> {
                     ),
                   ),
                 );
-              }).toList(),
+                }                ).toList(),
+                ],
+              ),
             ),
-          ),
-          // Grid de emoticonos
+          // Grid de emoticonos o Panel de auras
+          if (_showAuras && _searchQuery.isEmpty)
+            Expanded(child: _buildAuraPanel(appTheme))
+          else
           Expanded(
             child: _searchQuery.isNotEmpty
                 ? _buildSearchResults(emojisByCategory, appTheme)
@@ -822,6 +854,118 @@ class _EmojiPickerState extends State<EmojiPicker> {
               ),
             );
           }).toList(),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAuraPanel(AppTheme appTheme) {
+    final currentAura = ref.watch(notificationSettingsProvider).nickAura;
+    final nickColor = ref.watch(notificationSettingsProvider).nickColor;
+
+    return ListView(
+      padding: const EdgeInsets.all(12),
+      children: [
+        Text(
+          '✨ Aura de nick',
+          style: TextStyle(
+            color: appTheme.textPrimary,
+            fontSize: 14,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'Selecciona un efecto para tu nick',
+          style: TextStyle(color: appTheme.textSecondary, fontSize: 11),
+        ),
+        const SizedBox(height: 12),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: NickAura.values.map((aura) {
+            final isSelected = currentAura == aura.name;
+            return GestureDetector(
+              onTap: () {
+                ref.read(notificationSettingsProvider.notifier).state =
+                    ref.read(notificationSettingsProvider).copyWith(nickAura: aura.name);
+              },
+              child: Container(
+                width: 72,
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                decoration: BoxDecoration(
+                  color: isSelected
+                      ? aura.glowColor.withValues(alpha: 0.2)
+                      : appTheme.surface,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: isSelected ? aura.glowColor : appTheme.textSecondary.withValues(alpha: 0.2),
+                    width: isSelected ? 2 : 1,
+                  ),
+                ),
+                child: Column(
+                  children: [
+                    Text(aura.emoji.isEmpty ? '❌' : aura.emoji, style: const TextStyle(fontSize: 24)),
+                    const SizedBox(height: 4),
+                    Text(
+                      aura.label,
+                      style: TextStyle(
+                        color: isSelected ? aura.glowColor : appTheme.textSecondary,
+                        fontSize: 10,
+                        fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }).toList(),
+        ),
+        const SizedBox(height: 16),
+        const Divider(),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: () {
+                  ref.read(notificationSettingsProvider.notifier).state =
+                      ref.read(notificationSettingsProvider).copyWith(
+                            nickAura: 'none',
+                          );
+                },
+                icon: const Icon(Icons.close, size: 16),
+                label: const Text('Quitar aura', style: TextStyle(fontSize: 12)),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: appTheme.textSecondary,
+                  side: BorderSide(color: appTheme.textSecondary.withValues(alpha: 0.3)),
+                  padding: const EdgeInsets.symmetric(vertical: 10),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: () {
+                  ref.read(notificationSettingsProvider.notifier).state =
+                      ref.read(notificationSettingsProvider).copyWith(
+                            nickColor: null,
+                            nickAura: 'none',
+                          );
+                },
+                icon: const Icon(Icons.restore, size: 16),
+                label: const Text('Color por defecto', style: TextStyle(fontSize: 12)),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: appTheme.primary,
+                  side: BorderSide(color: appTheme.primary.withValues(alpha: 0.3)),
+                  padding: const EdgeInsets.symmetric(vertical: 10),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+              ),
+            ),
+          ],
         ),
       ],
     );

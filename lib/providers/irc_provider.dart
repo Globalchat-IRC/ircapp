@@ -11,17 +11,70 @@ import '../models/emoji_config.dart';
 import '../models/server_profile.dart';
 import '../models/custom_robot.dart';
 import '../services/irc_service.dart';
+import '../services/radio_service.dart';
 import '../services/chat_history_service.dart';
 import '../services/translation_service.dart';
 import '../services/avatar_service.dart';
 import '../utils/platform_utils.dart';
 import 'history_provider.dart';
+import 'radio_provider.dart';
 import '../config/debug_config.dart';
+import '../models/custom_action.dart';
 import 'qualia_radio_dj_provider.dart';
 
 final ircServiceProvider = Provider<IRCService>((ref) {
   return IRCService();
 });
+
+/// Alias de comandos personalizados (estilo Revolution IRC): nombre -> plantilla.
+/// Las plantillas admiten ${nick}, ${channel}, ${args} y ${1..9}.
+class CommandAliasesNotifier extends Notifier<Map<String, String>> {
+  static const _storageKey = 'irc_command_aliases';
+
+  @override
+  Map<String, String> build() {
+    _load();
+    return {};
+  }
+
+  Future<void> _load() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_storageKey);
+      if (raw != null && raw.isNotEmpty) {
+        final decoded = jsonDecode(raw) as Map<String, dynamic>;
+        state = decoded.map(
+          (k, v) => MapEntry(k.toLowerCase(), v as String),
+        );
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _persist() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_storageKey, jsonEncode(state));
+    } catch (_) {}
+  }
+
+  void setAlias(String name, String template) {
+    final key = name.toLowerCase();
+    state = {...state, key: template};
+    _persist();
+  }
+
+  void removeAlias(String name) {
+    final key = name.toLowerCase();
+    if (!state.containsKey(key)) return;
+    state = {...state}..remove(key);
+    _persist();
+  }
+}
+
+final commandAliasesProvider =
+    NotifierProvider<CommandAliasesNotifier, Map<String, String>>(
+  CommandAliasesNotifier.new,
+);
 
 final messagesProvider = NotifierProvider<MessagesNotifier, List<IRCMessage>>(
   () {
@@ -520,11 +573,17 @@ class MessagesNotifier extends Notifier<List<IRCMessage>> {
   static const String _privateMessagesKey = 'private_messages_web';
   static const String _allMessagesKey = 'all_messages_history';
   IRCService? _service;
+  Timer? _saveTimer;
 
   @override
   List<IRCMessage> build() {
     _service = ref.read(ircServiceProvider);
     _service!.addMessageListener(_onMessage);
+    _service!.addPendingRemovalListener(_onPendingRemoved);
+    ref.onDispose(() {
+      _service?.removeMessageListener(_onMessage);
+      _service?.removePendingRemovalListener(_onPendingRemoved);
+    });
     // Observar cambios en el historial
     ref.listen<bool>(historyEnabledProvider, (previous, next) {
       final wasEnabled = previous ?? false;
@@ -582,19 +641,33 @@ class MessagesNotifier extends Notifier<List<IRCMessage>> {
     }
   }
 
-  /// Guardar todo el historial de mensajes (canales y privados)
+  /// Guardar todo el historial de mensajes (canales y privados).
+  /// Se conservan las últimas 100 líneas por canal/privado para respetar la
+  /// opción "Mantener historial de chats y privados" del ajustes generales.
   Future<void> _saveHistory() async {
     final historyEnabled = ref.read(historyEnabledProvider);
     if (!historyEnabled) return; // No guardar si el historial está desactivado
 
     try {
+      // Agrupar por canal (case-insensitive) y conservar solo los 100 más recientes
+      const maxPerChannel = 100;
+      final Map<String, List<IRCMessage>> grouped = {};
+      for (final msg in state) {
+        final key = msg.channel.toLowerCase();
+        grouped.putIfAbsent(key, () => []).add(msg);
+      }
+      final messagesToSave = <IRCMessage>[];
+      for (final list in grouped.values) {
+        // Ordenar por timestamp y quedarnos con los últimos 100
+        list.sort((a, b) => a.timestamp.compareTo(b.timestamp));
+        messagesToSave.addAll(
+          list.length > maxPerChannel
+              ? list.sublist(list.length - maxPerChannel)
+              : list,
+        );
+      }
+
       final prefs = await SharedPreferences.getInstance();
-
-      // Limitar a los últimos 10000 mensajes para evitar sobrecargar el almacenamiento
-      final messagesToSave = state.length > 10000
-          ? state.sublist(state.length - 10000)
-          : state;
-
       final jsonList = messagesToSave.map((msg) => msg.toJson()).toList();
       final jsonString = jsonEncode(jsonList);
       await prefs.setString(_allMessagesKey, jsonString);
@@ -608,8 +681,9 @@ class MessagesNotifier extends Notifier<List<IRCMessage>> {
   /// Actualizar estado y guardar historial si está activado
   void _updateStateAndSave(List<IRCMessage> newState) {
     state = newState;
-    // Guardar historial de forma asíncrona sin bloquear
-    Future.microtask(() => _saveHistory());
+    // Debounce: guardar historial después de 1s de inactividad para no bloquear el UI
+    _saveTimer?.cancel();
+    _saveTimer = Timer(const Duration(seconds: 1), () => _saveHistory());
   }
 
   void replaceAll(List<IRCMessage> messages) {
@@ -644,14 +718,28 @@ class MessagesNotifier extends Notifier<List<IRCMessage>> {
     }
   }
 
-  /// Guardar mensajes privados en SharedPreferences (solo en web)
+  /// Guardar mensajes privados en SharedPreferences (solo en web).
+  /// Se conservan las últimas 100 líneas por conversación privada.
   Future<void> _savePrivateMessages() async {
     if (!PlatformUtils.isWeb) return;
 
     try {
-      final privateMessages = state
-          .where((m) => !m.channel.startsWith('#'))
-          .toList();
+      const maxPerPrivate = 100;
+      final grouped = <String, List<IRCMessage>>{};
+      for (final msg in state.where((m) => !m.channel.startsWith('#'))) {
+        final key = msg.channel.toLowerCase();
+        grouped.putIfAbsent(key, () => []).add(msg);
+      }
+      final privateMessages = <IRCMessage>[];
+      for (final list in grouped.values) {
+        list.sort((a, b) => a.timestamp.compareTo(b.timestamp));
+        privateMessages.addAll(
+          list.length > maxPerPrivate
+              ? list.sublist(list.length - maxPerPrivate)
+              : list,
+        );
+      }
+
       final jsonList = privateMessages.map((msg) => msg.toJson()).toList();
       final jsonString = jsonEncode(jsonList);
 
@@ -781,6 +869,11 @@ class MessagesNotifier extends Notifier<List<IRCMessage>> {
   }
 
   void _onMessage(IRCMessage message) {
+    // Filtrar mensajes GIFT CTCP (se manejan por separado con popup)
+    if (message.message.startsWith('\x01GIFT ') && message.message.endsWith('\x01')) {
+      return;
+    }
+
     // Si el mensaje tiene un pendingId, buscar si ya existe un mensaje pendiente con ese ID
     if (message.pendingId != null) {
       final index = state.indexWhere((m) => m.pendingId == message.pendingId);
@@ -816,10 +909,27 @@ class MessagesNotifier extends Notifier<List<IRCMessage>> {
     }
 
     // Si no es una actualización, añadir como nuevo mensaje
-    _updateStateAndSave([...state, message]);
+    final updatedState = [...state, message];
+    // Limitar el estado en memoria: conservar max 500 mensajes por canal
+    if (updatedState.length > 2000) {
+      // Eliminar mensajes más antiguos, priorizando conservar mensajes pendientes y recientes
+      updatedState.removeRange(0, updatedState.length - 1500);
+    }
+    _updateStateAndSave(updatedState);
 
     // Actualizar DJ en vivo de Qualia Radio según mensajes de Orion.
     ref.read(qualiaRadioLiveDjProvider.notifier).processOrionMessage(message);
+  }
+
+  void _onPendingRemoved(String channel, String pendingId) {
+    final index = state.indexWhere(
+      (m) => m.isPending && m.pendingId == pendingId,
+    );
+    if (index != -1) {
+      final updatedState = List<IRCMessage>.from(state);
+      updatedState.removeAt(index);
+      _updateStateAndSave(updatedState);
+    }
   }
 
   void clearMessages() {
@@ -864,22 +974,8 @@ class ChannelsNotifier extends Notifier<Map<String, IRCChannel>> {
     // Always update the entire state with current service state
     final newState = <String, IRCChannel>{};
     for (var entry in _service!.channels.entries) {
-      // Crear una copia profunda del canal con sus usuarios, topic, hosts y modos
-      final channelCopy = IRCChannel(
-        name: entry.value.name,
-        messages: List.from(entry.value.messages),
-        users: List.from(entry.value.users),
-        userHosts: Map<String, String>.from(
-          entry.value.userHosts,
-        ), // Copiar el mapa de hosts
-        userModes: Map<String, String>.from(
-          entry.value.userModes,
-        ), // Copiar el mapa de modos
-        topic: entry.value.topic, // Incluir el topic en la copia
-        pinnedMessageIds: List<String>.from(
-          entry.value.pinnedMessageIds,
-        ), // Incluir mensajes fijados
-      );
+      // Crear una copia profunda del canal con usuarios, topic, hosts, modos, bans, etc.
+      final channelCopy = entry.value.copy();
       newState[entry.key] = channelCopy;
       // debugLog('🔍 [DEBUG] Copied channel ${entry.key} with ${channelCopy.users.length} users: ${channelCopy.users}, topic: ${channelCopy.topic}');
     }
@@ -925,22 +1021,8 @@ class ChannelsNotifier extends Notifier<Map<String, IRCChannel>> {
     // Crear una copia profunda del estado del servicio
     final newState = <String, IRCChannel>{};
     for (var entry in _service!.channels.entries) {
-      // Crear una copia profunda del canal con sus usuarios, topic, hosts y modos
-      final channelCopy = IRCChannel(
-        name: entry.value.name,
-        messages: List.from(entry.value.messages),
-        users: List.from(entry.value.users),
-        userHosts: Map<String, String>.from(
-          entry.value.userHosts,
-        ), // Copiar el mapa de hosts
-        userModes: Map<String, String>.from(
-          entry.value.userModes,
-        ), // Copiar el mapa de modos
-        topic: entry.value.topic, // Incluir el topic en la copia
-        pinnedMessageIds: List<String>.from(
-          entry.value.pinnedMessageIds,
-        ), // Incluir mensajes fijados
-      );
+      // Crear una copia profunda del canal con usuarios, topic, hosts, modos, bans, etc.
+      final channelCopy = entry.value.copy();
       newState[entry.key] = channelCopy;
       // debugLog('🔍 [DEBUG] Copied channel ${entry.key} with ${channelCopy.users.length} users, topic: ${channelCopy.topic}');
     }
@@ -962,7 +1044,13 @@ class ConnectionStatusNotifier extends Notifier<bool> {
     // Esto asegura que si ya está conectado, el estado se refleje correctamente
     final isConnected = _service!.isConnected;
     _service!.addConnectionListener(() => state = true);
-    _service!.addDisconnectionListener(() => state = false);
+    _service!.addDisconnectionListener(() {
+      state = false;
+      // Si la conexión IRC se cierra (expulsión de red: KILL/GLINE/Closing
+      // Link), detener la radio para que no siga sonando sin estar conectado.
+      RadioService().stop();
+      ref.read(radioProvider.notifier).setPlaying(false);
+    });
     return isConnected;
   }
 }
@@ -1563,46 +1651,176 @@ enum NotificationLevel { allMessages, mentionsOnly, muted }
 
 enum MentionSound { cuack, systemAlert, systemClick }
 
+enum MessageTimestampPosition { afterNick, beforeNick, afterMessage }
+
+enum ChannelAvatarPosition { left, right, hidden }
+
 class NotificationSettings {
   final Map<String, NotificationLevel> channelLevels;
   final bool soundForPrivates;
   final bool soundForMentions;
+  final bool soundForJoinPart;
+  final bool soundForSend;
+  final MentionSound sendSound;
   final Set<String> mutedUsers;
   final MentionSound mentionSound;
+  final bool nickAutocomplete;
+  final MessageTimestampPosition timestampPosition;
+  final ChannelAvatarPosition channelAvatarPosition;
+  final int? nickColor; // null = auto (hash-based palette)
+  final int? timestampColor; // null = theme default
 
   /// No molestar: no mostrar notificaciones ni sonidos.
   final bool doNotDisturb;
 
+  /// Mostrar mensajes de entrada/salida de usuarios (JOIN/PART/QUIT)
+  final bool showJoinPartMessages;
+
+  /// Mostrar avisos de cambio de nick
+  final bool showNickChanges;
+
+  /// Sonidos generales activados
+  final bool soundsEnabled;
+
+  /// Mostrar opción de pedidos musicales
+  final bool musicRequests;
+
+  /// Mostrar horóscopo
+  final bool horoscope;
+
+  /// Estilo visual del chat (preset IRC)
+  final String chatStylePreset;
+
+  /// Aura del nick (corazón, beso, tormenta, etc.)
+  final String nickAura;
+
+  /// Género del usuario (masculino/femenino)
+  final String gender;
+
+  /// Información del perfil
+  final String biography;
+  final String country;
+  final int? age;
+  final String maritalStatus;
+  final int? birthdayDay;
+  final int? birthdayMonth;
+  final int? birthdayYear;
+  final String presenceStatus;
+  final bool privateMessagesOpen;
+  final bool callsActive;
+  final List<CustomAction> customActions;
+
   const NotificationSettings({
     this.channelLevels = const {},
-    this.soundForPrivates = true,
-    this.soundForMentions = true,
+    this.soundForPrivates = false,
+    this.soundForMentions = false,
+    this.soundForJoinPart = false,
+    this.soundForSend = false,
+    this.sendSound = MentionSound.systemClick,
     this.mutedUsers = const {},
     this.mentionSound = MentionSound.cuack,
     this.doNotDisturb = false,
+    this.nickAutocomplete = true,
+    this.timestampPosition = MessageTimestampPosition.beforeNick,
+    this.channelAvatarPosition = ChannelAvatarPosition.left,
+    this.nickColor,
+    this.timestampColor,
+    this.showJoinPartMessages = true,
+    this.showNickChanges = true,
+    this.soundsEnabled = true,
+    this.musicRequests = true,
+    this.horoscope = false,
+    this.chatStylePreset = 'default',
+    this.nickAura = 'none',
+    this.gender = '',
+    this.biography = '',
+    this.country = '',
+    this.age,
+    this.maritalStatus = '',
+    this.birthdayDay,
+    this.birthdayMonth,
+    this.birthdayYear,
+    this.presenceStatus = 'online',
+    this.privateMessagesOpen = true,
+    this.callsActive = true,
+    this.customActions = const [],
   });
 
   NotificationSettings copyWith({
     Map<String, NotificationLevel>? channelLevels,
     bool? soundForPrivates,
     bool? soundForMentions,
+    bool? soundForJoinPart,
+    bool? soundForSend,
+    MentionSound? sendSound,
     Set<String>? mutedUsers,
     MentionSound? mentionSound,
     bool? doNotDisturb,
+    bool? nickAutocomplete,
+    MessageTimestampPosition? timestampPosition,
+    ChannelAvatarPosition? channelAvatarPosition,
+    int? nickColor,
+    int? timestampColor,
+    bool? showJoinPartMessages,
+    bool? showNickChanges,
+    bool? soundsEnabled,
+    bool? musicRequests,
+    bool? horoscope,
+    String? chatStylePreset,
+    String? nickAura,
+    String? gender,
+    String? biography,
+    String? country,
+    int? age,
+    String? maritalStatus,
+    int? birthdayDay,
+    int? birthdayMonth,
+    int? birthdayYear,
+    String? presenceStatus,
+    bool? privateMessagesOpen,
+    bool? callsActive,
+    List<CustomAction>? customActions,
   }) {
     return NotificationSettings(
       channelLevels: channelLevels ?? this.channelLevels,
       soundForPrivates: soundForPrivates ?? this.soundForPrivates,
       soundForMentions: soundForMentions ?? this.soundForMentions,
+      soundForJoinPart: soundForJoinPart ?? this.soundForJoinPart,
+      soundForSend: soundForSend ?? this.soundForSend,
+      sendSound: sendSound ?? this.sendSound,
       mutedUsers: mutedUsers ?? this.mutedUsers,
       mentionSound: mentionSound ?? this.mentionSound,
       doNotDisturb: doNotDisturb ?? this.doNotDisturb,
+      nickAutocomplete: nickAutocomplete ?? this.nickAutocomplete,
+      timestampPosition: timestampPosition ?? this.timestampPosition,
+      channelAvatarPosition: channelAvatarPosition ?? this.channelAvatarPosition,
+      nickColor: nickColor ?? this.nickColor,
+      timestampColor: timestampColor ?? this.timestampColor,
+      showJoinPartMessages: showJoinPartMessages ?? this.showJoinPartMessages,
+      showNickChanges: showNickChanges ?? this.showNickChanges,
+      soundsEnabled: soundsEnabled ?? this.soundsEnabled,
+      musicRequests: musicRequests ?? this.musicRequests,
+      horoscope: horoscope ?? this.horoscope,
+      chatStylePreset: chatStylePreset ?? this.chatStylePreset,
+      nickAura: nickAura ?? this.nickAura,
+      gender: gender ?? this.gender,
+      biography: biography ?? this.biography,
+      country: country ?? this.country,
+      age: age ?? this.age,
+      maritalStatus: maritalStatus ?? this.maritalStatus,
+      birthdayDay: birthdayDay ?? this.birthdayDay,
+      birthdayMonth: birthdayMonth ?? this.birthdayMonth,
+      birthdayYear: birthdayYear ?? this.birthdayYear,
+      presenceStatus: presenceStatus ?? this.presenceStatus,
+      privateMessagesOpen: privateMessagesOpen ?? this.privateMessagesOpen,
+      callsActive: callsActive ?? this.callsActive,
+      customActions: customActions ?? this.customActions,
     );
   }
 
   NotificationLevel levelForChannel(String channel) {
     final key = channel.toLowerCase();
-    return channelLevels[key] ?? NotificationLevel.allMessages;
+    return channelLevels[key] ?? NotificationLevel.mentionsOnly;
   }
 
   bool isUserMuted(String nick) {
@@ -1617,6 +1835,33 @@ class NotificationSettingsNotifier extends Notifier<NotificationSettings> {
   static const _prefsKeyMutedUsers = 'notification_muted_users_v1';
   static const _prefsKeyMentionSound = 'notification_mention_sound_v1';
   static const _prefsKeyDoNotDisturb = 'notification_do_not_disturb_v1';
+  static const _prefsKeySoundForSend = 'notification_sound_for_send_v1';
+  static const _prefsKeySendSound = 'notification_send_sound_v1';
+  static const _prefsKeySoundForJoinPart = 'notification_sound_join_part_v1';
+  static const _prefsKeyNickAutocomplete = 'notification_nick_autocomplete_v1';
+  static const _prefsKeyTimestampPosition = 'notification_timestamp_position_v1';
+  static const _prefsKeyChannelAvatarPosition = 'notification_channel_avatar_position_v1';
+  static const _prefsKeyNickColor = 'notification_nick_color_v1';
+  static const _prefsKeyTimestampColor = 'notification_timestamp_color_v1';
+  static const _prefsKeyShowJoinPart = 'notification_show_join_part_v1';
+  static const _prefsKeyShowNickChanges = 'notification_show_nick_changes_v1';
+  static const _prefsKeySoundsEnabled = 'notification_sounds_enabled_v1';
+  static const _prefsKeyMusicRequests = 'notification_music_requests_v1';
+  static const _prefsKeyHoroscope = 'notification_horoscope_v1';
+  static const _prefsKeyChatStylePreset = 'notification_chat_style_preset_v1';
+  static const _prefsKeyNickAura = 'notification_nick_aura_v1';
+  static const _prefsKeyGender = 'notification_gender_v1';
+  static const _prefsKeyBiography = 'notification_biography_v1';
+  static const _prefsKeyCountry = 'notification_country_v1';
+  static const _prefsKeyAge = 'notification_age_v1';
+  static const _prefsKeyMaritalStatus = 'notification_marital_status_v1';
+  static const _prefsKeyBirthdayDay = 'notification_birthday_day_v1';
+  static const _prefsKeyBirthdayMonth = 'notification_birthday_month_v1';
+  static const _prefsKeyBirthdayYear = 'notification_birthday_year_v1';
+  static const _prefsKeyPresenceStatus = 'notification_presence_status_v1';
+  static const _prefsKeyPrivateMessagesOpen = 'notification_private_messages_open_v1';
+  static const _prefsKeyCallsActive = 'notification_calls_active_v1';
+  static const _prefsKeyCustomActions = 'notification_custom_actions_v1';
 
   @override
   NotificationSettings build() {
@@ -1645,8 +1890,8 @@ class NotificationSettingsNotifier extends Notifier<NotificationSettings> {
         });
       }
 
-      final privates = prefs.getBool(_prefsKeyPrivates) ?? true;
-      final mentions = prefs.getBool(_prefsKeyMentions) ?? true;
+      final privates = prefs.getBool(_prefsKeyPrivates) ?? false;
+      final mentions = prefs.getBool(_prefsKeyMentions) ?? false;
       final mutedList = prefs.getStringList(_prefsKeyMutedUsers) ?? <String>[];
       final mentionSoundRaw = prefs.getString(_prefsKeyMentionSound) ?? 'cuack';
       final mentionSound = switch (mentionSoundRaw) {
@@ -1655,14 +1900,90 @@ class NotificationSettingsNotifier extends Notifier<NotificationSettings> {
         _ => MentionSound.cuack,
       };
       final doNotDisturb = prefs.getBool(_prefsKeyDoNotDisturb) ?? false;
+      final soundForSend = prefs.getBool(_prefsKeySoundForSend) ?? false;
+      final soundForJoinPart = prefs.getBool(_prefsKeySoundForJoinPart) ?? false;
+      final nickAutocomplete = prefs.getBool(_prefsKeyNickAutocomplete) ?? true;
+      final timestampPositionRaw = prefs.getString(_prefsKeyTimestampPosition) ?? 'beforeNick';
+      final timestampPosition = switch (timestampPositionRaw) {
+        'beforeNick' => MessageTimestampPosition.beforeNick,
+        'afterMessage' => MessageTimestampPosition.afterMessage,
+        _ => MessageTimestampPosition.afterNick,
+      };
+      final channelAvatarPositionRaw = prefs.getString(_prefsKeyChannelAvatarPosition) ?? 'left';
+      final channelAvatarPosition = switch (channelAvatarPositionRaw) {
+        'right' => ChannelAvatarPosition.right,
+        'hidden' => ChannelAvatarPosition.hidden,
+        _ => ChannelAvatarPosition.left,
+      };
+      final sendSoundRaw = prefs.getString(_prefsKeySendSound) ?? 'click';
+      final sendSound = switch (sendSoundRaw) {
+        'cuack' => MentionSound.cuack,
+        'alert' => MentionSound.systemAlert,
+        _ => MentionSound.systemClick,
+      };
+      final nickColor = prefs.getInt(_prefsKeyNickColor);
+      final timestampColor = prefs.getInt(_prefsKeyTimestampColor);
+      final showJoinPart = prefs.getBool(_prefsKeyShowJoinPart) ?? true;
+      final showNickChanges = prefs.getBool(_prefsKeyShowNickChanges) ?? true;
+      final soundsEnabled = prefs.getBool(_prefsKeySoundsEnabled) ?? true;
+      final musicRequests = prefs.getBool(_prefsKeyMusicRequests) ?? true;
+      final horoscope = prefs.getBool(_prefsKeyHoroscope) ?? false;
+      final chatStylePreset = prefs.getString(_prefsKeyChatStylePreset) ?? 'default';
+      final nickAura = prefs.getString(_prefsKeyNickAura) ?? 'none';
+      final gender = prefs.getString(_prefsKeyGender) ?? '';
+      final biography = prefs.getString(_prefsKeyBiography) ?? '';
+      final country = prefs.getString(_prefsKeyCountry) ?? '';
+      final age = prefs.getInt(_prefsKeyAge);
+      final maritalStatus = prefs.getString(_prefsKeyMaritalStatus) ?? '';
+      final birthdayDay = prefs.getInt(_prefsKeyBirthdayDay);
+      final birthdayMonth = prefs.getInt(_prefsKeyBirthdayMonth);
+      final birthdayYear = prefs.getInt(_prefsKeyBirthdayYear);
+      final presenceStatus = prefs.getString(_prefsKeyPresenceStatus) ?? 'online';
+      final privateMessagesOpen = prefs.getBool(_prefsKeyPrivateMessagesOpen) ?? true;
+      final callsActive = prefs.getBool(_prefsKeyCallsActive) ?? true;
+      final customActionsRaw = prefs.getString(_prefsKeyCustomActions);
+      List<CustomAction> customActions = [];
+      if (customActionsRaw != null && customActionsRaw.isNotEmpty) {
+        final decoded = jsonDecode(customActionsRaw) as List<dynamic>;
+        customActions = decoded
+            .map((e) => CustomAction.fromJson(e as Map<String, dynamic>))
+            .toList();
+      }
 
-      state = NotificationSettings(
+      state = state.copyWith(
         channelLevels: levels,
         soundForPrivates: privates,
         soundForMentions: mentions,
+        soundForJoinPart: soundForJoinPart,
+        soundForSend: soundForSend,
+        sendSound: sendSound,
         mutedUsers: mutedList.map((e) => e.toLowerCase()).toSet(),
         mentionSound: mentionSound,
         doNotDisturb: doNotDisturb,
+        nickAutocomplete: nickAutocomplete,
+        timestampPosition: timestampPosition,
+        channelAvatarPosition: channelAvatarPosition,
+        nickColor: nickColor,
+        timestampColor: timestampColor,
+        showJoinPartMessages: showJoinPart,
+        showNickChanges: showNickChanges,
+        soundsEnabled: soundsEnabled,
+        musicRequests: musicRequests,
+        horoscope: horoscope,
+        chatStylePreset: chatStylePreset,
+        nickAura: nickAura,
+        gender: state.gender.isNotEmpty ? state.gender : gender,
+        biography: state.biography.isNotEmpty ? state.biography : biography,
+        country: state.country.isNotEmpty ? state.country : country,
+        age: age ?? state.age,
+        maritalStatus: state.maritalStatus.isNotEmpty ? state.maritalStatus : maritalStatus,
+        birthdayDay: birthdayDay ?? state.birthdayDay,
+        birthdayMonth: birthdayMonth ?? state.birthdayMonth,
+        birthdayYear: birthdayYear ?? state.birthdayYear,
+        presenceStatus: presenceStatus,
+        privateMessagesOpen: privateMessagesOpen,
+        callsActive: callsActive,
+        customActions: customActions,
       );
     } catch (_) {
       // Ignorar errores de carga
@@ -1709,6 +2030,92 @@ class NotificationSettingsNotifier extends Notifier<NotificationSettings> {
           mentionValue = 'cuack';
       }
       await prefs.setString(_prefsKeyMentionSound, mentionValue);
+      await prefs.setBool(_prefsKeySoundForSend, state.soundForSend);
+      await prefs.setBool(_prefsKeySoundForJoinPart, state.soundForJoinPart);
+      await prefs.setBool(_prefsKeyNickAutocomplete, state.nickAutocomplete);
+      String tsValue = 'afterNick';
+      switch (state.timestampPosition) {
+        case MessageTimestampPosition.beforeNick:
+          tsValue = 'beforeNick';
+          break;
+        case MessageTimestampPosition.afterMessage:
+          tsValue = 'afterMessage';
+          break;
+        case MessageTimestampPosition.afterNick:
+          tsValue = 'afterNick';
+      }
+      await prefs.setString(_prefsKeyTimestampPosition, tsValue);
+      String avatarValue = 'left';
+      switch (state.channelAvatarPosition) {
+        case ChannelAvatarPosition.right:
+          avatarValue = 'right';
+          break;
+        case ChannelAvatarPosition.hidden:
+          avatarValue = 'hidden';
+          break;
+        case ChannelAvatarPosition.left:
+          avatarValue = 'left';
+      }
+      await prefs.setString(_prefsKeyChannelAvatarPosition, avatarValue);
+      if (state.nickColor != null) {
+        await prefs.setInt(_prefsKeyNickColor, state.nickColor!);
+      } else {
+        await prefs.remove(_prefsKeyNickColor);
+      }
+      if (state.timestampColor != null) {
+        await prefs.setInt(_prefsKeyTimestampColor, state.timestampColor!);
+      } else {
+        await prefs.remove(_prefsKeyTimestampColor);
+      }
+      String sendValue = 'click';
+      switch (state.sendSound) {
+        case MentionSound.cuack:
+          sendValue = 'cuack';
+          break;
+        case MentionSound.systemAlert:
+          sendValue = 'alert';
+          break;
+        case MentionSound.systemClick:
+          sendValue = 'click';
+      }
+      await prefs.setString(_prefsKeySendSound, sendValue);
+      await prefs.setBool(_prefsKeyShowJoinPart, state.showJoinPartMessages);
+      await prefs.setBool(_prefsKeyShowNickChanges, state.showNickChanges);
+      await prefs.setBool(_prefsKeySoundsEnabled, state.soundsEnabled);
+      await prefs.setBool(_prefsKeyMusicRequests, state.musicRequests);
+      await prefs.setBool(_prefsKeyHoroscope, state.horoscope);
+      await prefs.setString(_prefsKeyChatStylePreset, state.chatStylePreset);
+      await prefs.setString(_prefsKeyNickAura, state.nickAura);
+      await prefs.setString(_prefsKeyGender, state.gender);
+      await prefs.setString(_prefsKeyBiography, state.biography);
+      await prefs.setString(_prefsKeyCountry, state.country);
+      if (state.age != null) {
+        await prefs.setInt(_prefsKeyAge, state.age!);
+      } else {
+        await prefs.remove(_prefsKeyAge);
+      }
+      await prefs.setString(_prefsKeyMaritalStatus, state.maritalStatus);
+      if (state.birthdayDay != null) {
+        await prefs.setInt(_prefsKeyBirthdayDay, state.birthdayDay!);
+      } else {
+        await prefs.remove(_prefsKeyBirthdayDay);
+      }
+      if (state.birthdayMonth != null) {
+        await prefs.setInt(_prefsKeyBirthdayMonth, state.birthdayMonth!);
+      } else {
+        await prefs.remove(_prefsKeyBirthdayMonth);
+      }
+      if (state.birthdayYear != null) {
+        await prefs.setInt(_prefsKeyBirthdayYear, state.birthdayYear!);
+      } else {
+        await prefs.remove(_prefsKeyBirthdayYear);
+      }
+      await prefs.setString(_prefsKeyPresenceStatus, state.presenceStatus);
+      await prefs.setBool(_prefsKeyPrivateMessagesOpen, state.privateMessagesOpen);
+      await prefs.setBool(_prefsKeyCallsActive, state.callsActive);
+      await prefs.setString(
+          _prefsKeyCustomActions,
+          jsonEncode(state.customActions.map((a) => a.toJson()).toList()));
     } catch (_) {}
   }
 
@@ -1749,6 +2156,65 @@ class NotificationSettingsNotifier extends Notifier<NotificationSettings> {
 
   void setMentionSound(MentionSound sound) {
     state = state.copyWith(mentionSound: sound);
+    _saveFlags();
+  }
+
+  void toggleSoundForSend() {
+    state = state.copyWith(soundForSend: !state.soundForSend);
+    _saveFlags();
+  }
+
+  void setSendSound(MentionSound sound) {
+    state = state.copyWith(sendSound: sound);
+    _saveFlags();
+  }
+
+  void toggleSoundForJoinPart() {
+    state = state.copyWith(soundForJoinPart: !state.soundForJoinPart);
+    _saveFlags();
+  }
+
+  void toggleNickAutocomplete() {
+    state = state.copyWith(nickAutocomplete: !state.nickAutocomplete);
+    _saveFlags();
+  }
+
+  void setTimestampPosition(MessageTimestampPosition position) {
+    state = state.copyWith(timestampPosition: position);
+    _saveFlags();
+  }
+
+  void setChannelAvatarPosition(ChannelAvatarPosition position) {
+    state = state.copyWith(channelAvatarPosition: position);
+    _saveFlags();
+  }
+
+  void setNickColor(int? color) {
+    state = state.copyWith(nickColor: color);
+    _saveFlags();
+  }
+
+  void setTimestampColor(int? color) {
+    state = state.copyWith(timestampColor: color);
+    _saveFlags();
+  }
+
+  void setGender(String gender) {
+    state = state.copyWith(gender: gender);
+    _saveFlags();
+  }
+
+  void addCustomAction(String emoji, String label) {
+    final newActions = List<CustomAction>.from(state.customActions)
+      ..add(CustomAction(emoji: emoji, label: label));
+    state = state.copyWith(customActions: newActions);
+    _saveFlags();
+  }
+
+  void removeCustomAction(int index) {
+    final newActions = List<CustomAction>.from(state.customActions)
+      ..removeAt(index);
+    state = state.copyWith(customActions: newActions);
     _saveFlags();
   }
 }
@@ -1993,11 +2459,14 @@ class MessageFormatPreferences {
   /// Controla si se permiten avatares animados (GIFs) en la interfaz.
   final bool enableAnimatedAvatars;
 
+  /// Si está activado, hacer doble tap en un usuario de la lista abre un MP.
+  final bool doubleTapOpensPrivateMessage;
+
   const MessageFormatPreferences({
     this.channelFormat = MessageFormat.compact,
-    this.privateFormat = MessageFormat.plain,
+    this.privateFormat = MessageFormat.compact,
     this.showTimestamp = true,
-    this.showInlineChannelAvatar = true,
+    this.showInlineChannelAvatar = false,
     this.channelFontSize = 15.0,
     this.privateFontSize = 15.0,
     this.channelFontFamily = 'Roboto',
@@ -2006,7 +2475,8 @@ class MessageFormatPreferences {
     this.avatarScale = 1.0,
     this.enableThreadsInChannels = false,
     this.enableReactions = false,
-    this.enableAnimatedAvatars = false,
+    this.enableAnimatedAvatars = true,
+    this.doubleTapOpensPrivateMessage = true,
   });
 
   MessageFormatPreferences copyWith({
@@ -2023,6 +2493,7 @@ class MessageFormatPreferences {
     bool? enableThreadsInChannels,
     bool? enableReactions,
     bool? enableAnimatedAvatars,
+    bool? doubleTapOpensPrivateMessage,
   }) {
     return MessageFormatPreferences(
       channelFormat: channelFormat ?? this.channelFormat,
@@ -2041,6 +2512,8 @@ class MessageFormatPreferences {
       enableReactions: enableReactions ?? this.enableReactions,
       enableAnimatedAvatars:
           enableAnimatedAvatars ?? this.enableAnimatedAvatars,
+      doubleTapOpensPrivateMessage:
+          doubleTapOpensPrivateMessage ?? this.doubleTapOpensPrivateMessage,
     );
   }
 }
@@ -2069,6 +2542,7 @@ class MessageFormatPreferencesNotifier
   static const _prefsKeyEnableThreadsInChannels = 'enable_threads_in_channels';
   static const _prefsKeyEnableReactions = 'enable_reactions';
   static const _prefsKeyEnableAnimatedAvatars = 'enable_animated_avatars';
+  static const _prefsKeyDoubleTapOpensPrivateMessage = 'double_tap_opens_private_message';
 
   @override
   MessageFormatPreferences build() {
@@ -2083,7 +2557,7 @@ class MessageFormatPreferencesNotifier
       final privateRaw = prefs.getString(_prefsKeyPrivate);
       final showTimestamp = prefs.getBool(_prefsKeyShowTimestamp) ?? true;
       final showInlineChannelAvatar =
-          prefs.getBool(_prefsKeyShowInlineChannelAvatar) ?? true;
+          prefs.getBool(_prefsKeyShowInlineChannelAvatar) ?? false;
       final channelFontSize = prefs.getDouble(_prefsKeyChannelFontSize) ?? 15.0;
       final privateFontSize = prefs.getDouble(_prefsKeyPrivateFontSize) ?? 15.0;
       final channelFontFamily =
@@ -2096,7 +2570,9 @@ class MessageFormatPreferencesNotifier
           prefs.getBool(_prefsKeyEnableThreadsInChannels) ?? false;
       final enableReactions = prefs.getBool(_prefsKeyEnableReactions) ?? false;
       final enableAnimatedAvatars =
-          prefs.getBool(_prefsKeyEnableAnimatedAvatars) ?? false;
+          prefs.getBool(_prefsKeyEnableAnimatedAvatars) ?? true;
+      final doubleTapOpensPrivateMessage =
+          prefs.getBool(_prefsKeyDoubleTapOpensPrivateMessage) ?? true;
 
       // Por defecto: canal = compacto (estilo IRC), privado = texto plano.
       final channelFormat = messageFormatFromString(
@@ -2105,7 +2581,7 @@ class MessageFormatPreferencesNotifier
       );
       final privateFormat = messageFormatFromString(
         privateRaw,
-        MessageFormat.plain,
+        MessageFormat.compact,
       );
 
       state = MessageFormatPreferences(
@@ -2122,6 +2598,7 @@ class MessageFormatPreferencesNotifier
         enableThreadsInChannels: enableThreadsInChannels,
         enableReactions: enableReactions,
         enableAnimatedAvatars: enableAnimatedAvatars,
+        doubleTapOpensPrivateMessage: doubleTapOpensPrivateMessage,
       );
     } catch (_) {
       // Ignorar errores de carga
@@ -2267,6 +2744,19 @@ class MessageFormatPreferencesNotifier
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool(_prefsKeyEnableAnimatedAvatars, enable);
+    } catch (_) {
+      // Ignorar errores de guardado
+    }
+  }
+
+  Future<void> setDoubleTapOpensPrivateMessage(bool enable) async {
+    state = state.copyWith(doubleTapOpensPrivateMessage: enable);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(
+        _prefsKeyDoubleTapOpensPrivateMessage,
+        enable,
+      );
     } catch (_) {
       // Ignorar errores de guardado
     }
@@ -2445,6 +2935,8 @@ class CustomRobotsNotifier extends Notifier<List<CustomRobot>> {
         CustomRobot(nick: 'Global', icon: '🤖'),
         CustomRobot(nick: 'ipvirtual', icon: '🤖'),
         CustomRobot(nick: 'botita', icon: '🤖'), // Robot oficial de #QualiaRadio
+        CustomRobot(nick: 'Z', icon: '🤖'),
+        CustomRobot(nick: 'Futbol', icon: '🤖'),
       ];
 
       if (robotsJson != null) {
@@ -2490,6 +2982,8 @@ class CustomRobotsNotifier extends Notifier<List<CustomRobot>> {
         CustomRobot(nick: 'Global', icon: '🤖'),
         CustomRobot(nick: 'ipvirtual', icon: '🤖'),
         CustomRobot(nick: 'botita', icon: '🤖'), // Robot oficial de #QualiaRadio
+        CustomRobot(nick: 'Z', icon: '🤖'),
+        CustomRobot(nick: 'Futbol', icon: '🤖'),
       ];
     }
   }
@@ -2696,5 +3190,44 @@ class TranslationCacheNotifier extends Notifier<Map<String, String>> {
   void clearCache() {
     ref.read(translationServiceProvider).clearCache();
     state = {};
+  }
+}
+
+/// Ignorar todos los mensajes privados (toggle global).
+final ignoreAllPrivatesProvider =
+    NotifierProvider<IgnoreAllPrivatesNotifier, bool>(() {
+      return IgnoreAllPrivatesNotifier();
+    });
+
+class IgnoreAllPrivatesNotifier extends Notifier<bool> {
+  static const _prefsKey = 'ignore_all_privates';
+
+  @override
+  bool build() {
+    _init();
+    return false;
+  }
+
+  bool _initialized = false;
+
+  Future<void> _init() async {
+    if (_initialized) return;
+    _initialized = true;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      state = prefs.getBool(_prefsKey) ?? false;
+    } catch (_) {}
+  }
+
+  void toggle() {
+    state = !state;
+    _saveToPrefs();
+  }
+
+  Future<void> _saveToPrefs() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_prefsKey, state);
+    } catch (_) {}
   }
 }

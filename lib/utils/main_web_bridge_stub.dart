@@ -15,3 +15,5 @@ Future<void> promptPwaInstall(Object event) async {}
 String? getWebLocalStorage(String key) => null;
 
 void setWebLocalStorage(String key, String value) {}
+
+Future<void> clearAllClientStorage() async {}

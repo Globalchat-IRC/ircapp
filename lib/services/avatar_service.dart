@@ -1,21 +1,47 @@
+import 'dart:async';
 import 'dart:convert';
+// Web-only: uses dart:html for file upload. Not compilable on non-web platforms.
+// ignore: avoid_web_libraries_in_flutter
+import 'dart:html' as html;
 import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
+import '../config/debug_config.dart';
 import '../utils/platform_utils.dart';
 
 class AvatarService {
-  static const String _baseUrl = 'https://xmlrpc.globalchat.org';
+  static const String _baseUrl = 'https://avatar.globalchat.org';
+  static const String _gifUploadUrl = 'https://xmlrpc.globalchat.org';
   static const String _defaultAvatarUrl =
       'https://xmlrpc.globalchat.org/avatar/generate-default-avatar.php';
-  static const int _customAvatarMinBytes = 10000;
   static const String _webUploadProxyPath = '/api/avatar_upload_proxy.php';
+
+  // TTL de la caché de avatares: 5 minutos. Evita que resultados null
+  // obstruyan avatares recién generados.
+  static const Duration _cacheTtl = Duration(minutes: 5);
+
+  // Caché para evitar repetir peticiones al servidor de avatares.
+  static final Map<String, bool> _customAvatarCache = {};
+  static final Map<String, bool> _gifAvatarCache = {};
+  static final Map<String, String?> _bestAvatarCache = {};
+
+  // Timestamps para TTL de la caché de avatares.
+  static final Map<String, DateTime> _bestAvatarTimestamps = {};
+
+  // Peticiones en curso: si alguien pide el mismo cacheKey mientras ya hay
+  // una petición activa, reutiliza el Future en vez de lanzar otra.
+  static final Map<String, Future<String?>> _inflight = {};
+
+  // Logs de depuración (activados temporalmente para debug)
+  static void _log(String message) {
+    debugLog('[AVATAR] $message');
+  }
 
   // Generar hash MD5 del nick (usando nick exacto case-sensitive como el plugin)
   static String _generateAvatarHash(String nick) {
     // Asegurar que el nick no esté vacío
     if (nick.isEmpty) {
-      // print('🔍 [AVATAR HASH] Warning: Empty nick provided');
+      _log('⚠️ Hash: nick vacío');
       return '';
     }
 
@@ -25,11 +51,11 @@ class AvatarService {
     final bytes = utf8.encode(normalized);
     final digest = md5.convert(bytes);
     final hash = digest.toString();
-    // print('🔍 [AVATAR HASH] Nick: "$nick" -> Normalized: "$normalized" -> Hash: $hash');
+    _log('🔑 Hash: "$nick" -> "$normalized" -> $hash');
 
     // Validar que el hash tenga el formato correcto (32 caracteres hexadecimales)
     if (hash.length != 32) {
-      // print('🔍 [AVATAR HASH] Warning: Invalid hash length: ${hash.length}');
+      _log('⚠️ Hash inválido (longitud ${hash.length}): $hash');
     }
 
     return hash;
@@ -38,23 +64,197 @@ class AvatarService {
   /// Hash público para reutilizar en otros servicios (GIF, etc.)
   static String getAvatarHash(String nick) => _generateAvatarHash(nick);
 
-  // Obtener URL del avatar de un usuario desde el panel de GlobalChat
-  // Basado en la estructura del plugin: https://xmlrpc.globalchat.org/avatar/avatars/default/{hash}.png?t={timestamp}
+  /// Almacena un valor en la caché de avatares con timestamp para TTL.
+  static void _setCache(String key, String? value) {
+    _bestAvatarCache[key] = value;
+    _bestAvatarTimestamps[key] = DateTime.now();
+  }
+
+  /// Invalida la caché de avatar para un nick específico.
+  /// Llamar después de subir un avatar o volver del generador SVG.
+  static void invalidateCache(String nick) {
+    final lower = nick.toLowerCase();
+    _bestAvatarCache.removeWhere((k, _) => k.startsWith(lower));
+    _bestAvatarTimestamps.removeWhere((k, _) => k.startsWith(lower));
+    _gifAvatarCache.remove(lower);
+    _customAvatarCache.remove(lower);
+    _log('🗑️ Caché invalidada para "$nick"');
+  }
+
+  /// Invalida toda la caché de avatares.
+  static void invalidateAllCache() {
+    _bestAvatarCache.clear();
+    _bestAvatarTimestamps.clear();
+    _gifAvatarCache.clear();
+    _customAvatarCache.clear();
+    _log('🗑️ Toda la caché de avatares invalidada');
+  }
+
+  // Obtener URL del avatar de un usuario desde el generador SVG de GlobalChat
   static String getAvatarUrl(String nick) {
     final hash = _generateAvatarHash(nick);
     final timestamp = DateTime.now().millisecondsSinceEpoch;
-    // Formato: /avatar/avatars/default/{hash}.png?t={timestamp}
-    final url = '$_baseUrl/avatar/avatars/default/$hash.png?t=$timestamp';
-    // print('🔍 [AVATAR] Generated URL for "$nick": $url (hash: $hash)');
-    return url;
+    final url = '$_baseUrl/avatars/default/$hash.png?t=$timestamp';
+    _log('🔗 URL default PNG para "$nick": $url');
+    return _proxifyIfNeeded(url);
   }
 
   /// URL del avatar GIF animado (si existe) basado en el mismo hash MD5 del nick.
-  /// Formato: https://xmlrpc.globalchat.org/avatar/avatars/custom/{hash}.gif?t={timestamp}
+  /// Los GIFs se almacenan en xmlrpc (upload-custom-avatar.php).
   static String getAvatarGifUrl(String nick) {
     final hash = _generateAvatarHash(nick);
     final timestamp = DateTime.now().millisecondsSinceEpoch;
-    return '$_baseUrl/avatar/avatars/custom/$hash.gif?t=$timestamp';
+    final url = '$_gifUploadUrl/avatar/avatars/custom/$hash.gif?t=$timestamp';
+    _log('🔗 URL custom GIF para "$nick": $url');
+    return _proxifyIfNeeded(url);
+  }
+
+  /// Construye una URL de avatar PNG con cache-buster (en avatar.globalchat.org).
+  static String _avatarPathUrl(String hash, String folder, String ext) {
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+    final directUrl = '$_baseUrl/avatars/$folder/$hash.$ext?t=$timestamp';
+    return _proxifyIfNeeded(directUrl);
+  }
+
+  /// Construye una URL de avatar GIF con cache-buster (en xmlrpc.globalchat.org).
+  static String _gifAvatarPathUrl(String hash, String folder, String ext) {
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+    final directUrl = '$_gifUploadUrl/avatar/avatars/$folder/$hash.$ext?t=$timestamp';
+    return _proxifyIfNeeded(directUrl);
+  }
+
+  /// En web, envuelve la URL a través del proxy para evitar problemas de CORS.
+  /// En nativo, devuelve la URL original sin cambios.
+  static String _proxifyIfNeeded(String url) {
+    if (!PlatformUtils.isWeb) return url;
+    return '/api/avatar_image_proxy.php?url=${Uri.encodeComponent(url)}';
+  }
+
+  /// Devuelve la mejor URL de avatar personalizado disponible para el nick,
+  /// o `null` si no tiene avatar personalizado.
+  ///
+  /// [preferAnimated] controla la preferencia entre GIFs animados y PNGs estáticos:
+  /// - `true` (por defecto): busca primero GIFs en `custom/`, en las subcarpetas
+  ///   de tamaño y en `default/`. Solo si no hay GIF usa PNGs estáticos.
+  /// - `false`: ignora los GIFs y busca solo PNGs estáticos (`custom/`, tamaño y `default/`).
+  static Future<String?> getBestAvatarUrl(
+    String nick, {
+    bool preferAnimated = true,
+  }) async {
+    final cacheKey = '${nick.toLowerCase()}#${preferAnimated ? 'anim' : 'static'}';
+    if (_bestAvatarCache.containsKey(cacheKey)) {
+      final timestamp = _bestAvatarTimestamps[cacheKey];
+      if (timestamp != null && DateTime.now().difference(timestamp) < _cacheTtl) {
+        _log('💾 Cache hit para "$nick" (anim=$preferAnimated) -> ${_bestAvatarCache[cacheKey]}');
+        return _bestAvatarCache[cacheKey];
+      }
+      _log('⏰ Cache expirada para "$nick", recalculando...');
+      _bestAvatarCache.remove(cacheKey);
+      _bestAvatarTimestamps.remove(cacheKey);
+    }
+
+    // Si ya hay una petición en curso para el mismo nick, reutilizarla.
+    if (_inflight.containsKey(cacheKey)) {
+      _log('🔄 Reutilizando petición en curso para "$nick"');
+      return _inflight[cacheKey]!;
+    }
+
+    final hash = _generateAvatarHash(nick);
+    if (hash.isEmpty) {
+      _setCache(cacheKey, null);
+      return null;
+    }
+
+    _log('🔍 Buscando avatar personalizado para "$nick" (hash: $hash, animado=$preferAnimated)');
+
+    // Crear future compartida para que otros callers esperen la misma petición.
+    final future = _doGetBestAvatar(cacheKey, nick, hash, preferAnimated);
+    _inflight[cacheKey] = future;
+    try {
+      final result = await future;
+      return result;
+    } finally {
+      _inflight.remove(cacheKey);
+    }
+  }
+
+  static Future<String?> _doGetBestAvatar(
+    String cacheKey,
+    String nick,
+    String hash,
+    bool preferAnimated,
+  ) async {
+
+    // 1. Buscar GIF animado (solo custom/ y default/ — las subcarpetas de
+    //    tamaño 400/80/40 casi nunca se usan y añaden ~6 peticiones extra).
+    if (preferAnimated) {
+      final customGifUrl = _gifAvatarPathUrl(hash, 'custom', 'gif');
+      _log('➡️ Probando GIF custom: $customGifUrl');
+      if (await _resourceExists(customGifUrl)) {
+        _setCache(cacheKey, customGifUrl);
+        _log('✅ Encontrado GIF custom: $customGifUrl');
+        return customGifUrl;
+      }
+
+      final defaultGifUrl = _gifAvatarPathUrl(hash, 'default', 'gif');
+      _log('➡️ Probando GIF default: $defaultGifUrl');
+      if (await _resourceExists(defaultGifUrl)) {
+        _setCache(cacheKey, defaultGifUrl);
+        _log('✅ Encontrado GIF default: $defaultGifUrl');
+        return defaultGifUrl;
+      }
+    }
+
+    // 2. PNGs estáticos: solo custom/ y default/ (SVG generator).
+    final customPngUrl = _avatarPathUrl(hash, 'custom', 'png');
+    _log('➡️ Probando PNG custom: $customPngUrl');
+    if (await _resourceExists(customPngUrl)) {
+      _setCache(cacheKey, customPngUrl);
+      _log('✅ Encontrado PNG custom: $customPngUrl');
+      return customPngUrl;
+    }
+
+    final defaultPngUrl = _avatarPathUrl(hash, 'default', 'png');
+    _log('➡️ Probando PNG default: $defaultPngUrl');
+    if (await _resourceExists(defaultPngUrl)) {
+      _setCache(cacheKey, defaultPngUrl);
+      _log('✅ PNG default existe en avatar.globalchat.org (personalizado SVG)');
+      return defaultPngUrl;
+    }
+
+    _log('❌ No se encontró avatar personalizado para "$nick"');
+    _setCache(cacheKey, null);
+    return null;
+  }
+
+  /// Comprueba si un recurso remoto (imagen) existe.
+  ///
+  /// En web usa un `<img>` HTML para evitar problemas de CORS con `HEAD`.
+  /// En nativo sigue usando `http.head`.
+  static Future<bool> _resourceExists(String url) async {
+    if (PlatformUtils.isWeb) {
+      return _imageExistsWeb(url);
+    }
+    try {
+      final response = await http
+          .head(Uri.parse(url))
+          .timeout(const Duration(seconds: 3));
+      return response.statusCode == 200;
+    } catch (e) {
+      _log('   error HEAD: $e');
+      return false;
+    }
+  }
+
+  static Future<bool> _imageExistsWeb(String url) async {
+    final img = html.ImageElement();
+    final loadFuture = img.onLoad.first.then((_) => true);
+    final errorFuture = img.onError.first.then((_) => false);
+    img.src = url;
+    return Future.any([loadFuture, errorFuture]).timeout(
+      const Duration(seconds: 3),
+      onTimeout: () => false,
+    );
   }
 
   /// Gravatar (portado de mlite2): URL del avatar por email o cuenta IRC.
@@ -80,8 +280,8 @@ class AvatarService {
     final encodedNick = Uri.encodeComponent(nick);
     final url =
         '$_defaultAvatarUrl?username=$encodedNick&size=400&format=png&t=$timestamp';
-    // print('🔍 [AVATAR] Generated default avatar URL for "$nick": $url');
-    return url;
+    _log('🔗 URL generada por defecto para "$nick": $url');
+    return _proxifyIfNeeded(url);
   }
 
   // Nota: Los avatares pueden fallar por CORS en web, pero el widget UserAvatar
@@ -117,81 +317,53 @@ class AvatarService {
 
   /// Comprueba si existe un GIF personalizado para el nick.
   static Future<bool> avatarGifExists(String nick) async {
+    final cacheKey = nick.toLowerCase();
+    if (_gifAvatarCache.containsKey(cacheKey)) {
+      return _gifAvatarCache[cacheKey]!;
+    }
     try {
       final url = getAvatarGifUrl(nick);
       final response = await http
           .head(Uri.parse(url))
           .timeout(const Duration(seconds: 3));
-      return response.statusCode == 200;
+      final exists = response.statusCode == 200;
+      _gifAvatarCache[cacheKey] = exists;
+      return exists;
     } catch (_) {
+      _gifAvatarCache[cacheKey] = false;
       return false;
     }
   }
 
-  /// Heurística para distinguir un PNG hash realmente personalizado del PNG
-  /// "por defecto" pequeño generado por xmlrpc.
+  /// Comprueba si existe un avatar SVG personalizado para el nick.
+  /// En avatar.globalchat.org, si el PNG existe en `default/`, es del generador SVG.
   static Future<bool> hasLikelyCustomStaticAvatar(String nick) async {
-    try {
-      final url = getAvatarUrl(nick);
-      final response = await http
-          .head(Uri.parse(url))
-          .timeout(const Duration(seconds: 3));
-      if (response.statusCode != 200) {
-        return false;
-      }
+    final cacheKey = nick.toLowerCase();
+    if (_customAvatarCache.containsKey(cacheKey)) {
+      return _customAvatarCache[cacheKey]!;
+    }
 
-      final contentLengthHeader = response.headers['content-length'];
-      final contentLength = contentLengthHeader != null
-          ? int.tryParse(contentLengthHeader)
-          : null;
-
-      if (contentLength == null) {
-        return true;
-      }
-
-      return contentLength >= _customAvatarMinBytes;
-    } catch (_) {
+    final hash = _generateAvatarHash(nick);
+    if (hash.isEmpty) {
+      _customAvatarCache[cacheKey] = false;
       return false;
     }
+
+    final exists = await _resourceExists(_avatarPathUrl(hash, 'default', 'png'));
+    _customAvatarCache[cacheKey] = exists;
+    return exists;
   }
 
-  // Obtener la URL correcta del avatar (siguiendo la lógica del plugin)
-  // 1. Intenta con el avatar personalizado usando hash MD5 del nick exacto
-  // 2. Si no existe, usa el generador de avatares por defecto
-  // En web, siempre intenta primero el avatar personalizado debido a restricciones CORS
-  static Future<String?> getCorrectAvatarUrl(String nick) async {
+  // Obtener la URL correcta del avatar personalizado, o null si no tiene.
+  // El widget pintará las iniciales como fallback cuando esto devuelva null.
+  static Future<String?> getCorrectAvatarUrl(
+    String nick, {
+    bool preferAnimated = true,
+  }) async {
     if (nick.isEmpty) {
       return null;
     }
-
-    // Limpiar el nick (solo trim, mantener case-sensitive)
-    final cleanNick = nick.trim();
-
-    try {
-      // En web, siempre intentar primero el avatar personalizado
-      // porque http.head puede fallar por CORS pero el avatar puede existir
-      // El widget Image.network manejará el error si no existe
-      if (PlatformUtils.isWeb) {
-        // En web, siempre intentar el avatar personalizado primero
-        // Si no existe, Image.network mostrará el errorBuilder con el fallback
-        return getAvatarUrl(cleanNick);
-      }
-
-      // En otras plataformas, verificar primero si existe un PNG realmente personalizado.
-      // Los PNG hash pequeños (~3-4 KB) son placeholders de xmlrpc con letra minúscula
-      // sobre fondo blanco; se ven mal con BoxFit.contain sobre el gradiente local.
-      final customAvatarExists = await hasLikelyCustomStaticAvatar(cleanNick);
-
-      if (customAvatarExists) {
-        return getAvatarUrl(cleanNick);
-      }
-      // Sin avatar custom: el widget pinta la inicial sobre el gradiente del canal.
-      return null;
-    } catch (e) {
-      // Si hay algún error al verificar, intentar primero el avatar personalizado
-      // y dejar que el widget maneje el fallback si falla
-      return getAvatarUrl(cleanNick);
-    }
+    return getBestAvatarUrl(nick.trim(), preferAnimated: preferAnimated);
   }
 
   /// Subir avatar GIF al servidor para que sea visible por otros clientes.
@@ -221,7 +393,7 @@ class AvatarService {
 
       final uri = PlatformUtils.isWeb
           ? Uri.base.resolve(_webUploadProxyPath)
-          : Uri.parse('$_baseUrl/avatar/upload-custom-avatar.php');
+          : Uri.parse('$_gifUploadUrl/avatar/upload-custom-avatar.php');
       final request = http.MultipartRequest('POST', uri);
 
       request.fields['hash'] = hash;
@@ -271,6 +443,9 @@ class AvatarService {
           url: url,
         );
       }
+
+      // Invalidar caché para que otros usuarios vean el avatar actualizado
+      invalidateCache(cleanNick);
 
       return UploadAvatarResult(
         success: true,

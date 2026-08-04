@@ -138,56 +138,20 @@ class UserProfile {
   
   /// Puede activar video
   bool get canEnableVideo {
-    // Usuarios baneados o con muchos reportes no pueden
-    if (role == UserRole.banned || videoReportsCount >= 3) {
-      return false;
-    }
-    
-    // Usuarios restringidos necesitan esperar
-    if (role == UserRole.restricted && daysRegistered < 30) {
-      return false;
-    }
-    
-    // Nuevos usuarios sin verificar: solo después de 7 días
-    if (!emailVerified && daysRegistered < 7) {
-      return false;
-    }
-    
-    return role.canUseVideo;
+    return role != UserRole.banned;
   }
   
   /// Razón por la que no puede usar video
   String? get videoRestrictionReason {
-    if (!canEnableVideo) {
-      if (role == UserRole.banned) {
-        return 'Has sido baneado del sistema de videoconferencias';
-      }
-      if (videoReportsCount >= 3) {
-        return 'Has recibido múltiples reportes. Contacta con un moderador.';
-      }
-      if (role == UserRole.restricted) {
-        final daysLeft = 30 - daysRegistered;
-        return 'Cuenta restringida. Espera $daysLeft días más.';
-      }
-      if (!emailVerified && daysRegistered < 7) {
-        final daysLeft = 7 - daysRegistered;
-        return 'Verifica tu email o espera $daysLeft días más.';
-      }
+    if (role == UserRole.banned) {
+      return 'Has sido baneado del sistema de videoconferencias';
     }
     return null;
   }
   
   /// Puede iniciar conferencias
-  /// Nota: Los moderadores del canal pueden iniciar incluso si no cumplen todas las restricciones de canEnableVideo
   bool get canStartConference {
-    // Si el rol permite iniciar conferencias, verificar restricciones de video
-    if (!role.canStartConference) return false;
-    
-    // Los roles de moderación (admin, moderator, ircop) pueden iniciar sin restricciones
-    if (role.canModerate) return true;
-    
-    // Para otros usuarios, verificar restricciones de video
-    return canEnableVideo;
+    return role != UserRole.banned;
   }
   
   /// Badge de verificación

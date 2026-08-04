@@ -24,6 +24,7 @@ const WebSocket = require('ws');
 const net = require('net');
 const tls = require('tls');
 const crypto = require('crypto');
+const { StringDecoder } = require('string_decoder');
 
 const PORT = process.env.PORT || 4444;
 const CONNECTION_TIMEOUT = 10000; // 10 segundos
@@ -197,6 +198,11 @@ wss.on('connection', (ws, req) => {
   let handshakeReceived = false;
   let handshakeData = null;
   
+  // Decodificador UTF-8 con estado: acumula bytes parciales de un carácter
+  // multibyte que llegue partido entre dos trozos TCP.
+  const utf8Decoder = new StringDecoder('utf8');
+  let forceLatin1 = false;
+  
   // Buffer para mensajes recibidos antes del handshake
   const messageQueue = [];
   
@@ -302,8 +308,20 @@ wss.on('connection', (ws, req) => {
       
       // Configurar listeners TCP
       tcpSocket.on('data', (data) => {
-        // Reenviar datos del servidor IRC al cliente WebSocket
-        sendToClient(data.toString());
+        let decoded;
+        if (forceLatin1) {
+          decoded = data.toString('latin1');
+        } else {
+          // Decodificación UTF-8 con estado: los caracteres multibyte partidos
+          // entre trozos TCP se recomponen (evita "Ã±" o "�").
+          decoded = utf8Decoder.write(data);
+          if (decoded.includes('\uFFFD')) {
+            // Bytes inválidos UTF-8: la conexión IRC usa Latin-1. Mantener Latin-1.
+            forceLatin1 = true;
+            decoded = data.toString('latin1');
+          }
+        }
+        sendToClient(decoded);
       });
       
       tcpSocket.on('error', (error) => {

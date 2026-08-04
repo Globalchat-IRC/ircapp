@@ -1,0 +1,15 @@
+{
+  "name": "livekit-token-server",
+  "version": "1.0.0",
+  "description": "Token server for LiveKit video conferencing",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "start:docker": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.0",
+    "livekit-server-sdk": "^2.8.0",
+    "cors": "^2.8.5"
+  }
+}

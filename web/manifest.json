@@ -1,11 +1,11 @@
 {
-    "name": "irc_app",
-    "short_name": "irc_app",
+    "name": "GlobalChat",
+    "short_name": "GlobalChat",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
     "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "description": "GlobalChat - Cliente IRC web con videoconferencias",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

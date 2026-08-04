@@ -1,5 +1,8 @@
 /// Nicks autorizados a ver/usar herramientas de IRCop y panel del staff.
-const Set<String> kAuthorizedStaffNicks = {
+/// NOTA: Esta es una lista de referencia en el cliente.
+/// La autorización real debe validarse server-side.
+/// Para modificar, editar esta lista o usar el endpoint de configuración del servidor.
+Set<String> kAuthorizedStaffNicks = {
   'nan',
   'malthael',
   'fran',

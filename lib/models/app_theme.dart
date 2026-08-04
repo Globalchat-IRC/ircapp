@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 class AppTheme {
   final String name;
@@ -22,6 +23,8 @@ class AppTheme {
     required this.textSecondary,
     required this.error,
   });
+
+  bool get isDark => background.computeLuminance() < 0.5;
 
   /// Devuelve un color (blanco o casi negro) que contraste correctamente
   /// sobre [background]. Se usa para el contenido que va encima de superficies
@@ -87,6 +90,22 @@ class AppTheme {
         foregroundColor: onPrimaryColor,
       ),
       iconTheme: IconThemeData(color: textPrimary),
+      textTheme: GoogleFonts.notoSansTextTheme(
+        TextTheme(
+          bodyLarge: TextStyle(color: textPrimary),
+          bodyMedium: TextStyle(color: textPrimary),
+          bodySmall: TextStyle(color: textSecondary),
+          titleLarge: TextStyle(color: textPrimary),
+          titleMedium: TextStyle(color: textPrimary),
+          titleSmall: TextStyle(color: textPrimary),
+          labelLarge: TextStyle(color: textPrimary),
+          labelMedium: TextStyle(color: textPrimary),
+          labelSmall: TextStyle(color: textSecondary),
+          headlineLarge: TextStyle(color: textPrimary),
+          headlineMedium: TextStyle(color: textPrimary),
+          headlineSmall: TextStyle(color: textPrimary),
+        ),
+      ),
     );
   }
 
@@ -143,8 +162,72 @@ class AppTheme {
         foregroundColor: onPrimaryColor,
       ),
       iconTheme: IconThemeData(color: textPrimary),
+      textTheme: GoogleFonts.notoSansTextTheme(
+        TextTheme(
+          bodyLarge: TextStyle(color: textPrimary),
+          bodyMedium: TextStyle(color: textPrimary),
+          bodySmall: TextStyle(color: textSecondary),
+          titleLarge: TextStyle(color: textPrimary),
+          titleMedium: TextStyle(color: textPrimary),
+          titleSmall: TextStyle(color: textPrimary),
+          labelLarge: TextStyle(color: textPrimary),
+          labelMedium: TextStyle(color: textPrimary),
+          labelSmall: TextStyle(color: textSecondary),
+          headlineLarge: TextStyle(color: textPrimary),
+          headlineMedium: TextStyle(color: textPrimary),
+          headlineSmall: TextStyle(color: textPrimary),
+        ),
+      ),
     );
   }
+
+  AppTheme copyWith({
+    String? name,
+    Color? primary,
+    Color? secondary,
+    Color? accent,
+    Color? background,
+    Color? surface,
+    Color? textPrimary,
+    Color? textSecondary,
+    Color? error,
+  }) {
+    return AppTheme(
+      name: name ?? this.name,
+      primary: primary ?? this.primary,
+      secondary: secondary ?? this.secondary,
+      accent: accent ?? this.accent,
+      background: background ?? this.background,
+      surface: surface ?? this.surface,
+      textPrimary: textPrimary ?? this.textPrimary,
+      textSecondary: textSecondary ?? this.textSecondary,
+      error: error ?? this.error,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'name': name,
+    'primary': primary.toARGB32(),
+    'secondary': secondary.toARGB32(),
+    'accent': accent.toARGB32(),
+    'background': background.toARGB32(),
+    'surface': surface.toARGB32(),
+    'textPrimary': textPrimary.toARGB32(),
+    'textSecondary': textSecondary.toARGB32(),
+    'error': error.toARGB32(),
+  };
+
+  static AppTheme fromJson(Map<String, dynamic> json) => AppTheme(
+    name: json['name'] as String? ?? 'Personalizado',
+    primary: Color(json['primary'] as int),
+    secondary: Color(json['secondary'] as int),
+    accent: Color(json['accent'] as int),
+    background: Color(json['background'] as int),
+    surface: Color(json['surface'] as int),
+    textPrimary: Color(json['textPrimary'] as int),
+    textSecondary: Color(json['textSecondary'] as int),
+    error: Color(json['error'] as int),
+  );
 
   /// Tema "Sistema": sigue preferencia claro/oscuro del SO (estilo plugin auto-dark de mlite2).
   static const String kSystemThemeName = 'Sistema';

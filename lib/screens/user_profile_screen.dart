@@ -11,6 +11,9 @@ import '../models/whois_info.dart';
 import '../models/user_role.dart';
 import '../providers/video_provider.dart';
 import '../config/debug_config.dart';
+import '../services/avatar_service.dart';
+import '../utils/nick_color.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class UserProfileScreen extends ConsumerStatefulWidget {
   final String nick;
@@ -28,6 +31,8 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
   @override
   void initState() {
     super.initState();
+    // Invalidar caché de avatar para este nick al abrir el perfil
+    AvatarService.invalidateCache(widget.nick);
     // Solicitar información de whois
     WidgetsBinding.instance.addPostFrameCallback((_) {
       // debugLog('🔍 [PROFILE] Requesting whois for: ${widget.nick}');
@@ -106,6 +111,13 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
               Navigator.of(context).pop();
             },
           ),
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.settings, color: Colors.white),
+              tooltip: 'Configuración del perfil',
+              onPressed: () => _showProfileSettingsDialog(context),
+            ),
+          ],
         ),
       body: _isLoading
           ? Container(
@@ -215,8 +227,8 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
                                     )
                                   : LinearGradient(
                                       colors: [
-                                        _getUserColor(widget.nick.hashCode),
-                                        _getUserColor(widget.nick.hashCode).withValues(alpha: 0.7),
+                                        colorForNick(widget.nick),
+                                        colorForNick(widget.nick).withValues(alpha: 0.7),
                                       ],
                                       begin: Alignment.topLeft,
                                       end: Alignment.bottomRight,
@@ -1023,14 +1035,36 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
                 final db = ref.read(videoDatabaseProvider);
                 await db.saveUserProfile(updatedProfile);
                 if (!context.mounted) return;
+                if (updatedProfile.gender != null) {
+                  final genderEmoji = switch (updatedProfile.gender) {
+                    'M' => '♂',
+                    'F' => '♀',
+                    _ => '⚧',
+                  };
+                  ref.read(notificationSettingsProvider.notifier).setGender(genderEmoji);
+                }
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(content: Text('Perfil actualizado')),
                 );
-                // Forzar actualización del widget
                 if (mounted) {
                   setState(() {});
                 }
               },
+            ),
+            const SizedBox(height: 16),
+            ElevatedButton.icon(
+              onPressed: () {
+                launchUrl(
+                  Uri.parse('https://avatar.globalchat.org/webchat-avatar.html?nick=${widget.nick}'),
+                  mode: LaunchMode.externalApplication,
+                );
+              },
+              icon: const Icon(Icons.auto_awesome),
+              label: const Text('Generar Avatar SVG'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: appTheme.primary,
+                foregroundColor: appTheme.textPrimary,
+              ),
             ),
           ],
         );
@@ -1440,6 +1474,179 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
     }
   }
 
+  void _showProfileSettingsDialog(BuildContext context) {
+    final appTheme = ref.read(themeProvider);
+    final settings = ref.read(notificationSettingsProvider);
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setSheetState) => Container(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(context).size.height * 0.7,
+          ),
+          decoration: BoxDecoration(
+            color: appTheme.surface,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Handle bar
+              Container(
+                margin: const EdgeInsets.only(top: 8),
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: appTheme.textSecondary.withValues(alpha: 0.3),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              // Header
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Row(
+                  children: [
+                    Icon(Icons.settings, color: appTheme.primary),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        'Configuración del perfil',
+                        style: TextStyle(
+                          color: appTheme.textPrimary,
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      icon: Icon(Icons.close, color: appTheme.textSecondary),
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1),
+              Flexible(
+                child: ListView(
+                  shrinkWrap: true,
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  children: [
+                    _buildToggleTile(
+                      appTheme,
+                      icon: Icons.login,
+                      iconColor: Colors.green,
+                      title: 'Mensajes de entrada/salida',
+                      subtitle: 'Mostrar cuando los usuarios entran o salen',
+                      value: settings.showJoinPartMessages,
+                      onChanged: (v) {
+                        ref.read(notificationSettingsProvider.notifier).state =
+                            settings.copyWith(showJoinPartMessages: v);
+                        setSheetState(() {});
+                      },
+                    ),
+                    _buildToggleTile(
+                      appTheme,
+                      icon: Icons.swap_horiz,
+                      iconColor: Colors.orange,
+                      title: 'Avisos de cambio de nick',
+                      subtitle: 'Mostrar cuando alguien cambia de nombre',
+                      value: settings.showNickChanges,
+                      onChanged: (v) {
+                        ref.read(notificationSettingsProvider.notifier).state =
+                            settings.copyWith(showNickChanges: v);
+                        setSheetState(() {});
+                      },
+                    ),
+                    _buildToggleTile(
+                      appTheme,
+                      icon: Icons.volume_up,
+                      iconColor: Colors.blue,
+                      title: 'Sonidos',
+                      subtitle: 'Activar/desactivar todos los sonidos',
+                      value: settings.soundsEnabled,
+                      onChanged: (v) {
+                        ref.read(notificationSettingsProvider.notifier).state =
+                            settings.copyWith(soundsEnabled: v);
+                        setSheetState(() {});
+                      },
+                    ),
+                    _buildToggleTile(
+                      appTheme,
+                      icon: Icons.music_note,
+                      iconColor: Colors.purple,
+                      title: 'Pedidos musicales',
+                      subtitle: 'Mostrar opción de pedir música en QualiaRadio',
+                      value: settings.musicRequests,
+                      onChanged: (v) {
+                        ref.read(notificationSettingsProvider.notifier).state =
+                            settings.copyWith(musicRequests: v);
+                        setSheetState(() {});
+                      },
+                    ),
+                    _buildToggleTile(
+                      appTheme,
+                      icon: Icons.auto_awesome,
+                      iconColor: Colors.teal,
+                      title: 'Horóscopo',
+                      subtitle: 'Mostrar función de horóscopo',
+                      value: settings.horoscope,
+                      onChanged: (v) {
+                        ref.read(notificationSettingsProvider.notifier).state =
+                            settings.copyWith(horoscope: v);
+                        setSheetState(() {});
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildToggleTile(
+    AppTheme appTheme, {
+    required IconData icon,
+    required Color iconColor,
+    required String title,
+    required String subtitle,
+    required bool value,
+    required ValueChanged<bool> onChanged,
+  }) {
+    return ListTile(
+      leading: Container(
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: iconColor.withValues(alpha: 0.15),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Icon(icon, color: iconColor, size: 22),
+      ),
+      title: Text(
+        title,
+        style: TextStyle(
+          color: appTheme.textPrimary,
+          fontSize: 14,
+          fontWeight: FontWeight.w500,
+        ),
+      ),
+      subtitle: Text(
+        subtitle,
+        style: TextStyle(color: appTheme.textSecondary, fontSize: 12),
+      ),
+      trailing: Switch(
+        value: value,
+        onChanged: onChanged,
+        activeColor: iconColor,
+      ),
+    );
+  }
+
   // Detectar si un usuario es un robot basándose en su información de whois
   bool _isRobotUser(WhoisInfo? whoisInfo) {
     final nick = widget.nick.toLowerCase();
@@ -1475,23 +1682,6 @@ class _UserProfileScreenState extends ConsumerState<UserProfileScreen> {
                          (server.contains('robot') && server.contains('globalchat'));
     
     return isBotByNick || isBotByHost || isBotByOther;
-  }
-
-  // Misma paleta que la lista de usuarios para avatar consistente
-  Color _getUserColor(int hash) {
-    final colors = [
-      const Color(0xFFFFA500),
-      const Color(0xFFFFD700),
-      const Color(0xFFFF8C00),
-      const Color(0xFFFFE4B5),
-      Colors.orange,
-      Colors.amber,
-      const Color(0xFFFFB347),
-      const Color(0xFFFFCC00),
-      Colors.deepOrange,
-      const Color(0xFFFFE135),
-    ];
-    return colors[hash.abs() % colors.length];
   }
 }
 

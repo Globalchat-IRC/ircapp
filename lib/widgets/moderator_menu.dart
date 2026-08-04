@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/irc_provider.dart';
 import '../providers/theme_provider.dart';
+import 'channel_ban_list_dialog.dart';
 
 class ModeratorMenu extends ConsumerWidget {
   final String channel;
@@ -227,6 +228,16 @@ class ModeratorMenu extends ConsumerWidget {
         ],
         // === OTRAS ACCIONES ===
         PopupMenuItem<String>(
+          value: 'banlist',
+          child: Row(
+            children: [
+              Icon(Icons.gavel, color: Colors.redAccent, size: 20),
+              const SizedBox(width: 8),
+              Text('Lista de baneados', style: TextStyle(color: appTheme.textPrimary)),
+            ],
+          ),
+        ),
+        PopupMenuItem<String>(
           value: 'whois',
           child: Row(
             children: [
@@ -259,11 +270,23 @@ class ModeratorMenu extends ConsumerWidget {
         break;
       case 'ban':
         ircService.banUser(channel, targetNick);
-        _showSnackBar(context, 'Usuario baneado: $targetNick');
+        _showSnackBar(
+          context,
+          'Usuario baneado: $targetNick',
+          actionLabel: 'Ver bans',
+          onAction: () => _openBanList(ref, context),
+        );
         break;
       case 'unban':
+        // El baneado suele estar fuera del canal: además de intentar el -b,
+        // ofrecemos abrir la lista de bans para quitar la máscara exacta.
         ircService.unbanUser(channel, targetNick);
-        _showSnackBar(context, 'Usuario desbaneado: $targetNick');
+        _showSnackBar(
+          context,
+          'Desbaneando $targetNick… si estaba baneado por máscara, usa la lista de bans',
+          actionLabel: 'Ver bans',
+          onAction: () => _openBanList(ref, context),
+        );
         break;
       case 'op':
         ircService.setChannelMode(channel, '+o', targetNick);
@@ -306,7 +329,17 @@ class ModeratorMenu extends ConsumerWidget {
         ircService.sendIgnore(targetNick);
         _showSnackBar(context, 'Usuario ignorado: $targetNick');
         break;
+      case 'banlist':
+        _openBanList(ref, context);
+        break;
     }
+  }
+
+  void _openBanList(WidgetRef ref, BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) => ChannelBanListDialog(channel: channel),
+    );
   }
 
   void _showKickDialog(WidgetRef ref, BuildContext context) {
@@ -473,11 +506,19 @@ class ModeratorMenu extends ConsumerWidget {
     );
   }
 
-  void _showSnackBar(BuildContext context, String message) {
+  void _showSnackBar(
+    BuildContext context,
+    String message, {
+    String? actionLabel,
+    VoidCallback? onAction,
+  }) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
-        duration: const Duration(seconds: 2),
+        duration: const Duration(seconds: 3),
+        action: actionLabel != null && onAction != null
+            ? SnackBarAction(label: actionLabel, onPressed: onAction)
+            : null,
       ),
     );
   }

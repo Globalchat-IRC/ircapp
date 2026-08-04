@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod/legacy.dart' show StateProvider;
 import '../services/video_conference_service.dart';
+import '../services/livekit_service.dart';
 import '../services/moderation_server.dart';
 import '../services/video_database_service.dart';
 import '../services/unrealircd_reputation_sync.dart';
@@ -9,9 +10,19 @@ import '../models/video_report.dart';
 import 'irc_provider.dart';
 import '../utils/platform_utils.dart';
 
-/// Provider del servicio de videoconferencias
+/// Provider del servicio de videoconferencias (LiveKit)
 final videoConferenceServiceProvider = Provider<VideoConferenceService>((ref) {
-  return VideoConferenceService();
+  final livekit = LiveKitService();
+  final serverUrl = const String.fromEnvironment(
+    'LIVEKIT_WS_URL',
+    defaultValue: 'wss://livekit.globalchat.org',
+  );
+  final tokenEndpoint = const String.fromEnvironment(
+    'LIVEKIT_TOKEN_URL',
+    defaultValue: 'https://livekit.globalchat.org/token',
+  );
+  livekit.configure(serverUrl: serverUrl, tokenEndpoint: tokenEndpoint);
+  return livekit;
 });
 
 /// Provider del perfil de usuario actual
@@ -34,6 +45,9 @@ final hasAcceptedVideoTermsProvider = StateProvider<bool>((ref) {
   final userProfile = ref.watch(currentUserProfileProvider);
   return userProfile?.hasAcceptedVideoTerms ?? false;
 });
+
+/// Provider de version para forzar rebuild de badges en user list
+final videoStatusVersionProvider = StateProvider<int>((ref) => 0);
 
 /// Provider de usuarios en videoconferencia
 final usersVideoStatusProvider = StreamProvider<Map<String, UserVideoStatus>>((ref) {
@@ -98,6 +112,9 @@ final videoDatabaseProvider = Provider<VideoDatabaseService>((ref) {
   
   return db;
 });
+
+/// Provider para video room pendiente desde deep link
+final pendingVideoRoomProvider = StateProvider<String?>((ref) => null);
 
 /// Provider del servicio de sincronización con UnrealIRCd
 final unrealircdReputationSyncProvider = Provider<UnrealIRCdReputationSync>((ref) {

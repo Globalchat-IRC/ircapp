@@ -24,23 +24,37 @@ class VoiceAssistantService {
   StreamController<String>? _transcriptionController;
   StreamController<String>? _responseController;
   
-  // Configuración de Groq
-  String? _openAiApiKey = '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';
+  // Configuración de Groq - la API key se obtiene del servidor gateway por seguridad
+  String? _openAiApiKey;
   final String _model = 'openai/gpt-oss-120b'; // Modelo GPT-OSS 120B
   String _apiBaseUrl = 'https://api.groq.com/openai/v1'; // API de Groq compatible con OpenAI
-  
+
+  // URL del proxy AI en el gateway (la API key nunca sale del servidor)
+  static const String _aiProxyUrl = 'https://xmlrpc.globalchat.org/ai_proxy.php';
+  bool _aiProxyAvailable = false;
+
   // Callback para manejar errores de STT
   void Function(Object)? _onSttError;
   void Function(String)? _onSttStatus;
-  
+
   /// Inicializar el servicio
   Future<void> initialize() async {
-    // Configurar API key de Groq si no está configurada
-    _openAiApiKey ??= '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';
-    
-    // Asegurar que _apiBaseUrl esté configurado
-    _apiBaseUrl = _apiBaseUrl.isEmpty ? 'https://api.groq.com/openai/v1' : _apiBaseUrl;
-    
+    // En web, usar el proxy AI del gateway (la key queda en el servidor)
+    // En nativo, usar la key configurada vía setOpenAiApiKey() o dart-define
+    if (PlatformUtils.isWeb) {
+      try {
+        final resp = await http.get(Uri.parse(_aiProxyUrl)).timeout(const Duration(seconds: 5));
+        if (resp.statusCode == 200) {
+          final data = jsonDecode(resp.body);
+          _aiProxyAvailable = data['available'] == true;
+          debugLog('🔧 [VoiceAssistant] Proxy AI disponible: $_aiProxyAvailable');
+        }
+      } catch (e) {
+        debugLog('⚠️ [VoiceAssistant] No se pudo verificar proxy AI: $e');
+        _aiProxyAvailable = false;
+      }
+    }
+
     debugLog('🔧 [VoiceAssistant] Inicializado con modelo: $_model');
     debugLog('🔧 [VoiceAssistant] API URL: $_apiBaseUrl');
     
@@ -228,67 +242,86 @@ class VoiceAssistantService {
     try {
       debugLog('🤖 [VoiceAssistant] Obteniendo respuesta para: "$question"');
       
-      // Si no hay API key, usar respuestas predefinidas
+      // En web, usar el proxy AI si está disponible (la key nunca sale del servidor)
+      if (PlatformUtils.isWeb && _aiProxyAvailable) {
+        return _getAIResponseViaProxy(question);
+      }
+
+      // En nativo (o fallback), usar la API key directamente
       if (_openAiApiKey == null || _openAiApiKey!.isEmpty) {
         debugLog('⚠️ [VoiceAssistant] No hay API key, usando respuesta predefinida');
         return _getPredefinedResponse(question);
       }
       
-      final apiUrl = '$_apiBaseUrl/chat/completions';
-      debugLog('🌐 [VoiceAssistant] Llamando a: $apiUrl');
-      debugLog('🤖 [VoiceAssistant] Modelo: $_model');
-      
-      // Llamar a Groq API (compatible con OpenAI)
-      final response = await http.post(
-        Uri.parse(apiUrl),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $_openAiApiKey',
-        },
-        body: jsonEncode({
-          'model': _model,
-          'messages': [
-            {
-              'role': 'system',
-              'content': _getSystemPrompt(),
-            },
-            {
-              'role': 'user',
-              'content': question,
-            },
-          ],
-          // Preferimos respuestas más cortas y controladas (evita “manuales” largos)
-          'temperature': 0.3,
-          'max_completion_tokens': 600,
-          'top_p': 1,
-          'reasoning_effort': 'medium',
-          'stream': false,
-        }),
-      ).timeout(const Duration(seconds: 30));
-      
-      debugLog('📡 [VoiceAssistant] Respuesta recibida: ${response.statusCode}');
-      
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        debugLog('✅ [VoiceAssistant] Datos recibidos: ${data.keys}');
-        
-        if (data['choices'] != null && data['choices'].isNotEmpty) {
-          final content = data['choices'][0]['message']['content'] as String;
-          debugLog('💬 [VoiceAssistant] Respuesta: "$content"');
-          return content.trim();
-        } else {
-          debugLog('⚠️ [VoiceAssistant] No hay choices en la respuesta');
-          return _getPredefinedResponse(question);
-        }
-      } else {
-        debugLog('❌ [VoiceAssistant] Error API: ${response.statusCode} - ${response.body}');
-        return _getPredefinedResponse(question);
-      }
+      return _getAIResponseDirect(question);
     } catch (e, stackTrace) {
       debugLog('❌ [VoiceAssistant] Error obteniendo respuesta de IA: $e');
       debugLog('📚 [VoiceAssistant] Stack trace: $stackTrace');
       return _getPredefinedResponse(question);
     }
+  }
+
+  /// Llamar a Groq vía el proxy PHP del gateway (web).
+  /// La API key nunca sale del servidor.
+  Future<String> _getAIResponseViaProxy(String question) async {
+    debugLog('🌐 [VoiceAssistant] (Web) Llamando a proxy AI: $_aiProxyUrl');
+    final response = await http
+        .post(
+          Uri.parse(_aiProxyUrl),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({'question': question}),
+        )
+        .timeout(const Duration(seconds: 30));
+    debugLog('📡 [VoiceAssistant] Proxy respuesta: ${response.statusCode}');
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      final answer = data['answer'] as String?;
+      if (answer != null && answer.isNotEmpty) {
+        debugLog('💬 [VoiceAssistant] Respuesta: "$answer"');
+        return answer.trim();
+      }
+    }
+    debugLog('⚠️ [VoiceAssistant] Proxy no devolvió respuesta válida');
+    return _getPredefinedResponse(question);
+  }
+
+  /// Llamar a Groq API directamente con la API key (nativo).
+  Future<String> _getAIResponseDirect(String question) async {
+    final apiUrl = '$_apiBaseUrl/chat/completions';
+    debugLog('🌐 [VoiceAssistant] Llamando a: $apiUrl');
+    debugLog('🤖 [VoiceAssistant] Modelo: $_model');
+
+    final response = await http.post(
+      Uri.parse(apiUrl),
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $_openAiApiKey',
+      },
+      body: jsonEncode({
+        'model': _model,
+        'messages': [
+          {'role': 'system', 'content': _getSystemPrompt()},
+          {'role': 'user', 'content': question},
+        ],
+        'temperature': 0.3,
+        'max_completion_tokens': 600,
+        'top_p': 1,
+        'reasoning_effort': 'medium',
+        'stream': false,
+      }),
+    ).timeout(const Duration(seconds: 30));
+
+    debugLog('📡 [VoiceAssistant] Respuesta recibida: ${response.statusCode}');
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      if (data['choices'] != null && (data['choices'] as List).isNotEmpty) {
+        final content = data['choices'][0]['message']['content'] as String;
+        debugLog('💬 [VoiceAssistant] Respuesta: "$content"');
+        return content.trim();
+      }
+    }
+    debugLog('❌ [VoiceAssistant] Error API: ${response.statusCode}');
+    return _getPredefinedResponse(question);
   }
   
   /// Obtener prompt del sistema con información sobre GlobalChat y Anope

@@ -21,6 +21,7 @@ import '../widgets/web_paste_text_field.dart';
 import '../services/geoip_service.dart';
 import '../services/irc_service.dart';
 import '../config/debug_config.dart';
+import '../providers/video_provider.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
@@ -30,7 +31,7 @@ class LoginScreen extends ConsumerStatefulWidget {
 }
 
 class _LoginScreenState extends ConsumerState<LoginScreen> {
-  final _hostController = TextEditingController(text: 'ceres.globalchat.org');
+  final _hostController = TextEditingController(text: 'apolo.globalchat.org');
   // En web, usar puerto IRC SSL (el gateway maneja la conexión WebSocket)
   final _portController = TextEditingController(text: '6697');
   late final TextEditingController _nickController;
@@ -48,7 +49,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   bool _identifyWithNick =
       false; // Checkbox para identificar con nick registrado
   bool _obscurePassword = true; // Controlar visibilidad de la contraseña
-  String _appVersion = 'v3.0.4'; // Versión por defecto
+  String _appVersion = 'v8.1.4'; // Versión por defecto (sincronizar con pubspec.yaml)
   bool _isAutoJoining =
       false; // Flag para indicar que está en proceso de autojoin
   bool _confirmOver14 = false; // Confirmación de ser mayor de 14 años
@@ -76,6 +77,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
   /// Cuenta atrás para auto-conexión (segundos restantes); null = no en cuenta atrás.
   int? _autoConnectCountdown;
+
+  /// Modo de login: 0=Invitado, 1=Registrado, 2=Crear cuenta
+  int _loginMode = 0;
+
+  /// Género seleccionado: '' = no seleccionado, 'M' = hombre, 'F' = mujer
+  String _selectedGender = '';
 
   /// Si el usuario canceló la auto-conexión en esta sesión.
   bool _autoConnectCancelled = false;
@@ -253,6 +260,23 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           }
         }
 
+        // Leer videoRoom de query param (?videoRoom=XXX)
+        final videoRoomParam = uri.queryParameters['videoRoom'];
+        // Leer del fragmento (#/video?room=XXX)
+        final fragment = uri.fragment;
+        String? videoRoomFromFragment;
+        if (fragment != null && fragment.isNotEmpty) {
+          final roomMatch = RegExp(r'room=([^&\s]+)').firstMatch(fragment);
+          if (roomMatch != null) {
+            videoRoomFromFragment = roomMatch.group(1);
+          }
+        }
+        final pendingRoom = videoRoomParam ?? videoRoomFromFragment;
+        if (pendingRoom != null && pendingRoom.isNotEmpty) {
+          ref.read(pendingVideoRoomProvider.notifier).state = pendingRoom;
+          debugLog('🎥 [URL] ✅ Video room pendiente: $pendingRoom');
+        }
+
         // Guardar canal de URL en instancia para usarlo en _connect() y en el callback (geolocation=false)
         _urlChannel = urlChannel;
         // Debug: verificar que se leyeron los parámetros
@@ -350,9 +374,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
     // Leer servidor seleccionado del provider (si se cambió desde el AppBar)
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      // Esperar un momento para asegurar que el provider se haya inicializado
-      await Future.delayed(const Duration(milliseconds: 100));
-
       // Cargar preferencias guardadas (último nick, canal, recordar identificar)
       await _loadLoginPrefs();
       if (mounted && (_urlAge18Validated || _urlRulesAccepted)) {
@@ -517,7 +538,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           );
 
           // Esperar un momento para que los campos se actualicen
-          Future.delayed(const Duration(milliseconds: 500), () async {
+          Future.delayed(const Duration(milliseconds: 100), () async {
             if (!mounted) return;
 
             final host = _hostController.text.trim();
@@ -586,7 +607,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               );
 
               // Esperar un momento para que los campos se actualicen
-              Future.delayed(const Duration(milliseconds: 500), () async {
+              Future.delayed(const Duration(milliseconds: 100), () async {
                 if (!mounted) return;
 
                 final host = _hostController.text.trim();
@@ -678,7 +699,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               }
 
               // Esperar un momento para asegurar que el servidor se haya actualizado
-              await Future.delayed(const Duration(milliseconds: 500));
+              await Future.delayed(const Duration(milliseconds: 100));
 
               // Conectar automáticamente
               if (mounted) {
@@ -760,7 +781,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
       // Entrar como invitado por parámetro URL (guest=1 / invitado=1): conectar automáticamente
       if (_guestFromUrl && PlatformUtils.isWeb && mounted) {
-        Future.delayed(const Duration(milliseconds: 500), () async {
+        Future.delayed(const Duration(milliseconds: 100), () async {
           if (!mounted) return;
           setState(() {
             _isLoading = true;
@@ -994,8 +1015,18 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       if (!_urlNickProvided &&
           savedNick != null &&
           savedNick.trim().isNotEmpty) {
-        _nickController.text = savedNick.trim();
-        debugLog('🔍 [LOGIN] Nick restaurado: $savedNick');
+        final isGuestNick = RegExp(r'^(GlobalChat-|Invitado)\d+$').hasMatch(savedNick.trim());
+        if (isGuestNick) {
+          final rng = Random();
+          final newNick = savedNick.trim().startsWith('Invitado')
+              ? 'Invitado${rng.nextInt(90000) + 10000}'
+              : 'GlobalChat-${rng.nextInt(90000) + 10000}';
+          _nickController.text = newNick;
+          debugLog('🔍 [LOGIN] Nick de invitado/aleatorio regenerado: $newNick (anterior: $savedNick)');
+        } else {
+          _nickController.text = savedNick.trim();
+          debugLog('🔍 [LOGIN] Nick restaurado: $savedNick');
+        }
       }
       if ((_urlChannel == null || _urlChannel!.trim().isEmpty) &&
           savedChannel != null &&
@@ -1295,6 +1326,16 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       return;
     }
 
+    // Si está en modo Registrado, exigir contraseña
+    if (_loginMode == 1 && _passwordController.text.trim().isEmpty) {
+      setState(() {
+        _errorMessage = 'Introduce tu contraseña para conectar como usuario registrado.';
+        _isLoading = false;
+        _isAutoJoining = false;
+      });
+      return;
+    }
+
     final host = _hostController.text.trim();
     final port = int.tryParse(_portController.text) ?? 6697;
     if (_nickHasInvalidCharacters(_nickController.text)) {
@@ -1383,7 +1424,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       final identifyPassword = _passwordController.text.trim();
       if (identifyPassword.isNotEmpty) {
         // Esperar a que la conexión y el nick estén confirmados en el servidor
-        await Future.delayed(const Duration(milliseconds: 3000));
+        await Future.delayed(const Duration(milliseconds: 500));
         ircService.identifyNick(identifyPassword);
       }
 
@@ -1398,6 +1439,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
       // Actualizar el provider con el nick inicial (se actualizará automáticamente si el servidor lo modifica)
       ref.read(currentNicknameProvider.notifier).state = nick;
+      // Guardar género seleccionado en el provider
+      if (_selectedGender.isNotEmpty) {
+        final genderEmoji = _selectedGender == 'M' ? '♂' : (_selectedGender == 'F' ? '♀' : '⚧');
+        ref.read(notificationSettingsProvider.notifier).setGender(genderEmoji);
+      }
       // Subir avatar GIF al servidor automáticamente para que otros usuarios lo vean (sin pedir nada al usuario)
       ref.read(globalAvatarGifProvider.notifier).syncGifToServer(nick);
       // globalLog('🔵 [LOGIN] Set nickname in provider');
@@ -1444,7 +1490,20 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         '🔍 [CONNECT] Canal actual desde provider: $currentChannelFromProvider',
       );
 
-      if (autoJoinChannels.isNotEmpty) {
+      // Si hay un canal en la URL (autojoin desde web), SIEMPRE priorizarlo
+      // sobre los canales guardados. Esto garantiza que se entre al canal
+      // especificado en el parámetro ?channel=...
+      final bool hasUrlChannel = PlatformUtils.isWeb &&
+          _urlChannel != null &&
+          _urlChannel!.trim().isNotEmpty;
+
+      if (hasUrlChannel) {
+        // Priorizar el canal de la URL sobre canales guardados
+        ref.read(currentChannelProvider.notifier).state = normalizedChannel;
+        debugLog(
+          '🔍 [AUTOJOIN_URL] ✅ Canal de la URL priorizado: $normalizedChannel (ignorando $autoJoinChannels)',
+        );
+      } else if (autoJoinChannels.isNotEmpty) {
         final channelToSet =
             currentChannelFromProvider ?? autoJoinChannels.first;
         ref.read(currentChannelProvider.notifier).state = channelToSet;
@@ -1461,8 +1520,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       // globalLog('🔵 [LOGIN] Set channel in provider: "$channel" -> normalized: "$normalizedChannel"');
 
       // Forzar JOIN explícito al canal de la URL si venimos con autojoin=true.
-      // No dependemos del ChatScreen (que lee currentChannelProvider con delay
-      // de 1500ms) para garantizar la entrada en el canal de la URL.
+      // Se ejecuta ANTES de la navegación para evitar que el check `mounted`
+      // falle tras pushReplacement. No dependemos del ChatScreen (que lee
+      // currentChannelProvider con delay de 1500ms) para garantizar la entrada
+      // en el canal de la URL.
       if (PlatformUtils.isWeb &&
           _urlChannel != null &&
           _urlChannel!.trim().isNotEmpty) {
@@ -1471,14 +1532,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           urlJoinChannel = '#$urlJoinChannel';
         }
         urlJoinChannel = urlJoinChannel.toLowerCase();
-        Future.delayed(const Duration(milliseconds: 750), () {
-          if (ircService.isConnected && mounted) {
-            debugLog(
-              '🚪 [AUTOJOIN_URL] JOIN explícito al canal de la URL: $urlJoinChannel',
-            );
-            ircService.joinChannel(urlJoinChannel);
-          }
-        });
+        // Unirse al canal de la URL inmediatamente, la conexión ya está lista
+        // tras waitForRegistration()
+        if (ircService.isConnected) {
+          debugLog(
+            '🚪 [AUTOJOIN_URL] JOIN explícito al canal de la URL: $urlJoinChannel',
+          );
+          ircService.joinChannel(urlJoinChannel);
+        }
       }
 
       // globalLog('🔵 [LOGIN] About to navigate to ChatScreen');
@@ -1538,7 +1599,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   Widget build(BuildContext context) {
     final appTheme = ref.watch(themeProvider);
 
-    // Si está en proceso de autojoin, mostrar pantalla de carga simple
     if (_isAutoJoining && _isLoading) {
       return Scaffold(
         backgroundColor: appTheme.background,
@@ -1546,19 +1606,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              CircularProgressIndicator(
-                valueColor: AlwaysStoppedAnimation<Color>(appTheme.primary),
-              ),
+              CircularProgressIndicator(valueColor: AlwaysStoppedAnimation<Color>(appTheme.primary)),
               const SizedBox(height: 24),
-              Text(
-                'Conectando automáticamente...',
-                style: TextStyle(color: appTheme.textPrimary, fontSize: 16),
-              ),
+              Text('Conectando automáticamente...', style: TextStyle(color: appTheme.textPrimary, fontSize: 16)),
               const SizedBox(height: 8),
-              Text(
-                'Canal: ${_channelController.text}',
-                style: TextStyle(color: appTheme.textSecondary, fontSize: 14),
-              ),
+              Text('Canal: ${_channelController.text}', style: TextStyle(color: appTheme.textSecondary, fontSize: 14)),
             ],
           ),
         ),
@@ -1566,739 +1618,44 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     }
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(
-          PlatformUtils.isWeb ? 'GlobalChat Web Script' : 'GlobalChat Script',
-        ),
-        backgroundColor: appTheme.primary,
-        foregroundColor: appTheme.textPrimary,
-        elevation: 2,
-        actions: [
-          // Mostrar versión
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 8.0),
-            child: Center(
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 6,
-                ),
-                decoration: BoxDecoration(
-                  color: appTheme.primary.withValues(alpha: 0.2),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: appTheme.textPrimary.withValues(alpha: 0.3),
-                    width: 1,
-                  ),
-                ),
-                child: Text(
-                  _appVersion,
-                  style: TextStyle(
-                    color: appTheme.textPrimary,
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-            ),
-          ),
-          IconButton(
-            icon: const Icon(Icons.palette),
-            tooltip: 'Cambiar tema',
-            color: appTheme.textPrimary,
-            onPressed: () => _showThemeSelector(context),
-          ),
-        ],
-      ),
       body: Container(
+        width: double.infinity,
+        height: double.infinity,
         decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              appTheme.primary.withValues(alpha: 0.15),
-              appTheme.secondary.withValues(alpha: 0.12),
-              appTheme.accent.withValues(alpha: 0.08),
-              appTheme.background,
-            ],
-            stops: const [0.0, 0.3, 0.6, 1.0],
+          image: DecorationImage(
+            image: const AssetImage('assets/branding/screenglobal.jpeg'),
+            fit: BoxFit.cover,
           ),
         ),
         child: Column(
-          mainAxisSize: MainAxisSize.min,
           children: [
             if (_autoConnectCountdown != null && !_autoConnectCancelled)
               _buildAutoConnectBanner(appTheme),
             Expanded(
               child: SingleChildScrollView(
-                  padding: const EdgeInsets.fromLTRB(24, 24, 24, 12),
-                  child: Card(
-                    elevation: 8,
-                    color: appTheme.background,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    child: Container(
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(16),
-                        gradient: LinearGradient(
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                          colors: [
-                            appTheme.background,
-                            appTheme.background.withValues(alpha: 0.95),
-                          ],
+                padding: const EdgeInsets.fromLTRB(32, 60, 32, 12),
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final isWide = constraints.maxWidth >= 900;
+                    if (isWide) {
+                      return Align(
+                        alignment: Alignment.centerRight,
+                        child: Padding(
+                          padding: const EdgeInsets.only(right: 24),
+                          child: ConstrainedBox(
+                            constraints: const BoxConstraints(maxWidth: 520),
+                            child: _buildFormCard(appTheme),
+                          ),
                         ),
-                      ),
-                      child: Padding(
-                        padding: const EdgeInsets.all(24),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            _AnimatedLogo(appTheme: appTheme),
-                            const SizedBox(height: 24),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        PlatformUtils.isWeb
-                                            ? 'GlobalChat Web Script'
-                                            : 'GlobalChat Script',
-                                        textAlign: TextAlign.left,
-                                        style: TextStyle(
-                                          fontSize: 24,
-                                          fontWeight: FontWeight.bold,
-                                          color: appTheme.primary,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 4),
-                                      Text(
-                                        'Cliente avanzado para GlobalChat IRC Network',
-                                        textAlign: TextAlign.left,
-                                        style: TextStyle(
-                                          fontSize: 13,
-                                          color: appTheme.textSecondary,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                Container(
-                                  decoration: BoxDecoration(
-                                    gradient: LinearGradient(
-                                      colors: [
-                                        appTheme.primary,
-                                        appTheme.secondary,
-                                      ],
-                                      begin: Alignment.topLeft,
-                                      end: Alignment.bottomRight,
-                                    ),
-                                    borderRadius: BorderRadius.circular(12),
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: appTheme.primary.withValues(
-                                          alpha: 0.4,
-                                        ),
-                                        blurRadius: 8,
-                                        offset: const Offset(0, 4),
-                                      ),
-                                    ],
-                                  ),
-                                  child: Material(
-                                    color: Colors.transparent,
-                                    child: InkWell(
-                                      onTap: () => _showThemeSelector(context),
-                                      borderRadius: BorderRadius.circular(12),
-                                      child: Container(
-                                        padding: const EdgeInsets.all(12),
-                                        child: Icon(
-                                          Icons.palette,
-                                          size: 32,
-                                          color: appTheme.textPrimary,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 24),
-                            // Selector de servidor
-                            SizedBox(
-                              height: 56,
-                              child: DropdownButtonFormField<ServerProfile>(
-                                initialValue: _selectedServer,
-                                isExpanded: true,
-                                decoration: InputDecoration(
-                                  labelText: 'Servidor',
-                                  prefixIcon: Icon(
-                                    Icons.language,
-                                    color: appTheme.primary,
-                                  ),
-                                  labelStyle: TextStyle(
-                                    color: appTheme.primary,
-                                  ),
-                                  filled: true,
-                                  fillColor: appTheme.surface.withValues(
-                                    alpha: 0.9,
-                                  ),
-                                  contentPadding: const EdgeInsets.symmetric(
-                                    horizontal: 12,
-                                    vertical: 16,
-                                  ),
-                                  focusedBorder: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(8),
-                                    borderSide: BorderSide(
-                                      color: appTheme.primary,
-                                      width: 2,
-                                    ),
-                                  ),
-                                  enabledBorder: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(8),
-                                    borderSide: BorderSide(
-                                      color: appTheme.primary.withValues(
-                                        alpha: 0.6,
-                                      ),
-                                      width: 1.5,
-                                    ),
-                                  ),
-                                  border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(8),
-                                    borderSide: BorderSide(
-                                      color: appTheme.primary.withValues(
-                                        alpha: 0.4,
-                                      ),
-                                      width: 1,
-                                    ),
-                                  ),
-                                ),
-                                dropdownColor: appTheme.surface,
-                                style: TextStyle(color: appTheme.textPrimary),
-                                items: ServerProfile.activeProfiles
-                                    .map((profile) {
-                                      return DropdownMenuItem<ServerProfile>(
-                                        value: profile,
-                                        child: Row(
-                                          children: [
-                                            Icon(
-                                              profile.useSSL
-                                                  ? Icons.lock
-                                                  : Icons.lock_open,
-                                              size: 18,
-                                              color: profile.useSSL
-                                                  ? Colors.green
-                                                  : appTheme.textSecondary,
-                                            ),
-                                            const SizedBox(width: 8),
-                                            Expanded(
-                                              child: Text(
-                                                profile.name,
-                                                style: TextStyle(
-                                                  color: appTheme.textPrimary,
-                                                  fontWeight: profile.isDefault
-                                                      ? FontWeight.bold
-                                                      : FontWeight.normal,
-                                                ),
-                                                overflow: TextOverflow.ellipsis,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      );
-                                    })
-                                    .toList(),
-                                onChanged: (ServerProfile? newProfile) {
-                                  if (newProfile != null) {
-                                    setState(() {
-                                      _selectedServer = newProfile;
-                                      _updateServerFields(newProfile);
-                                    });
-                                    _checkServerStatus();
-                                  }
-                                },
-                              ),
-                            ),
-                            if (_serverStatus != null) ...[
-                              const SizedBox(height: 6),
-                              Row(
-                                children: [
-                                  Icon(
-                                    _serverStatus == 'checking'
-                                        ? Icons.schedule
-                                        : _serverStatus == 'available'
-                                        ? Icons.check_circle
-                                        : Icons.cancel,
-                                    size: 18,
-                                    color: _serverStatus == 'checking'
-                                        ? appTheme.textSecondary
-                                        : _serverStatus == 'available'
-                                        ? Colors.green
-                                        : Colors.red,
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Text(
-                                    _serverStatus == 'checking'
-                                        ? 'Comprobando servidor…'
-                                        : _serverStatus == 'available'
-                                        ? 'Servidor disponible'
-                                        : 'No se pudo conectar',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: _serverStatus == 'checking'
-                                          ? appTheme.textSecondary
-                                          : _serverStatus == 'available'
-                                          ? Colors.green
-                                          : Colors.red,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 12),
-                            ],
-                            ExpansionTile(
-                              initiallyExpanded: _advancedExpanded,
-                              onExpansionChanged: (v) =>
-                                  setState(() => _advancedExpanded = v),
-                              tilePadding: const EdgeInsets.symmetric(
-                                horizontal: 4,
-                                vertical: 0,
-                              ),
-                              title: Text(
-                                'Opciones avanzadas',
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w600,
-                                  color: appTheme.primary,
-                                ),
-                              ),
-                              children: [
-                                Padding(
-                                  padding: const EdgeInsets.only(
-                                    left: 8,
-                                    right: 8,
-                                    bottom: 12,
-                                  ),
-                                  child: Column(
-                                    children: [
-                                      WebPasteTextField(
-                                        controller: _hostController,
-                                        onChanged: (_) => _checkServerStatus(),
-                                        style: TextStyle(
-                                          color: appTheme.textPrimary,
-                                        ),
-                                        decoration: InputDecoration(
-                                          labelText: 'Host',
-                                          prefixIcon: Icon(
-                                            Icons.dns,
-                                            color: appTheme.primary,
-                                            size: 20,
-                                          ),
-                                          labelStyle: TextStyle(
-                                            color: appTheme.primary,
-                                          ),
-                                          filled: true,
-                                          fillColor: appTheme.surface
-                                              .withValues(alpha: 0.9),
-                                          border: OutlineInputBorder(
-                                            borderRadius: BorderRadius.circular(
-                                              8,
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                      const SizedBox(height: 12),
-                                      WebPasteTextField(
-                                        controller: _portController,
-                                        onChanged: (_) => _checkServerStatus(),
-                                        keyboardType: TextInputType.number,
-                                        style: TextStyle(
-                                          color: appTheme.textPrimary,
-                                        ),
-                                        decoration: InputDecoration(
-                                          labelText: 'Puerto',
-                                          prefixIcon: Icon(
-                                            Icons.numbers,
-                                            color: appTheme.primary,
-                                            size: 20,
-                                          ),
-                                          labelStyle: TextStyle(
-                                            color: appTheme.primary,
-                                          ),
-                                          filled: true,
-                                          fillColor: appTheme.surface
-                                              .withValues(alpha: 0.9),
-                                          border: OutlineInputBorder(
-                                            borderRadius: BorderRadius.circular(
-                                              8,
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 16),
-                            Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Expanded(
-                                  child: WebPasteTextField(
-                                    controller: _nickController,
-                                    style: TextStyle(
-                                      color: appTheme.textPrimary,
-                                    ),
-                                    decoration: InputDecoration(
-                                      labelText: 'Apodo',
-                                      hintText:
-                                          'Escribe tu apodo o usa el generado',
-                                      helperText:
-                                          'Puedes cambiar el apodo generado',
-                                      helperMaxLines: 2,
-                                      prefixIcon: Icon(
-                                        Icons.person,
-                                        color: appTheme.primary,
-                                      ),
-                                      labelStyle: TextStyle(
-                                        color: appTheme.primary,
-                                      ),
-                                      hintStyle: TextStyle(
-                                        color: appTheme.textSecondary,
-                                      ),
-                                      helperStyle: TextStyle(
-                                        color: appTheme.textSecondary,
-                                        fontSize: 11,
-                                      ),
-                                      filled: true,
-                                      fillColor: appTheme.surface.withValues(
-                                        alpha: 0.9,
-                                      ),
-                                      focusedBorder: OutlineInputBorder(
-                                        borderRadius: BorderRadius.circular(8),
-                                        borderSide: BorderSide(
-                                          color: appTheme.primary,
-                                          width: 2,
-                                        ),
-                                      ),
-                                      enabledBorder: OutlineInputBorder(
-                                        borderRadius: BorderRadius.circular(8),
-                                        borderSide: BorderSide(
-                                          color: appTheme.primary.withValues(
-                                            alpha: 0.6,
-                                          ),
-                                          width: 1.5,
-                                        ),
-                                      ),
-                                      border: OutlineInputBorder(
-                                        borderRadius: BorderRadius.circular(8),
-                                        borderSide: BorderSide(
-                                          color: appTheme.primary.withValues(
-                                            alpha: 0.4,
-                                          ),
-                                          width: 1,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                Padding(
-                                  padding: const EdgeInsets.only(top: 20),
-                                  child: TextButton.icon(
-                                    onPressed: _generateRandomNick,
-                                    icon: Icon(
-                                      Icons.refresh,
-                                      size: 18,
-                                      color: appTheme.primary,
-                                    ),
-                                    label: Text(
-                                      'Otro apodo',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        color: appTheme.primary,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 16),
-                            // Checkbox para identificar con nick registrado
-                            Row(
-                              children: [
-                                Checkbox(
-                                  value: _identifyWithNick,
-                                  onChanged: (value) {
-                                    setState(() {
-                                      _identifyWithNick = value ?? false;
-                                      if (!_identifyWithNick) {
-                                        _passwordController.clear();
-                                      }
-                                    });
-                                  },
-                                  activeColor: appTheme.primary,
-                                ),
-                                Expanded(
-                                  child: GestureDetector(
-                                    onTap: () {
-                                      setState(() {
-                                        _identifyWithNick = !_identifyWithNick;
-                                        if (!_identifyWithNick) {
-                                          _passwordController.clear();
-                                        }
-                                      });
-                                    },
-                                    child: Text(
-                                      'Identificarse con nick registrado',
-                                      style: TextStyle(
-                                        color: appTheme.textPrimary,
-                                        fontSize: 14,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            // Reconectar automáticamente al abrir la app (opt-in)
-                            Row(
-                              children: [
-                                Checkbox(
-                                  value: _autoReconnectEnabled,
-                                  onChanged: (value) async {
-                                    final v = value ?? false;
-                                    setState(() => _autoReconnectEnabled = v);
-                                    final prefs =
-                                        await SharedPreferences.getInstance();
-                                    await prefs.setBool(
-                                      _prefAutoReconnectEnabled,
-                                      v,
-                                    );
-                                  },
-                                  activeColor: appTheme.primary,
-                                ),
-                                Expanded(
-                                  child: GestureDetector(
-                                    onTap: () async {
-                                      final v = !_autoReconnectEnabled;
-                                      setState(() => _autoReconnectEnabled = v);
-                                      final prefs =
-                                          await SharedPreferences.getInstance();
-                                      await prefs.setBool(
-                                        _prefAutoReconnectEnabled,
-                                        v,
-                                      );
-                                    },
-                                    child: Text(
-                                      'Reconectar automáticamente al abrir la app',
-                                      style: TextStyle(
-                                        color: appTheme.textPrimary,
-                                        fontSize: 14,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            // Campo de contraseña (solo visible si se marca el checkbox)
-                            if (_identifyWithNick) ...[
-                              const SizedBox(height: 8),
-                              WebPasteTextField(
-                                controller: _passwordController,
-                                obscureText: _obscurePassword,
-                                style: TextStyle(color: appTheme.textPrimary),
-                                decoration: InputDecoration(
-                                  labelText: 'Contraseña del nick',
-                                  hintText:
-                                      'Contraseña para identificar el nick',
-                                  prefixIcon: Icon(
-                                    Icons.lock,
-                                    color: appTheme.primary,
-                                  ),
-                                  suffixIcon: IconButton(
-                                    icon: Icon(
-                                      _obscurePassword
-                                          ? Icons.visibility
-                                          : Icons.visibility_off,
-                                      color: appTheme.primary.withValues(
-                                        alpha: 0.7,
-                                      ),
-                                    ),
-                                    onPressed: () {
-                                      setState(() {
-                                        _obscurePassword = !_obscurePassword;
-                                      });
-                                    },
-                                    tooltip: _obscurePassword
-                                        ? 'Mostrar contraseña'
-                                        : 'Ocultar contraseña',
-                                  ),
-                                  labelStyle: TextStyle(
-                                    color: appTheme.primary,
-                                  ),
-                                  hintStyle: TextStyle(
-                                    color: appTheme.textSecondary,
-                                  ),
-                                  helperText:
-                                      'Se identificará automáticamente con NickServ al conectar',
-                                  helperStyle: TextStyle(
-                                    color: appTheme.textSecondary,
-                                    fontSize: 11,
-                                  ),
-                                  filled: true,
-                                  fillColor: appTheme.surface.withValues(
-                                    alpha: 0.9,
-                                  ),
-                                  focusedBorder: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(8),
-                                    borderSide: BorderSide(
-                                      color: appTheme.primary,
-                                      width: 2,
-                                    ),
-                                  ),
-                                  enabledBorder: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(8),
-                                    borderSide: BorderSide(
-                                      color: appTheme.primary.withValues(
-                                        alpha: 0.6,
-                                      ),
-                                      width: 1.5,
-                                    ),
-                                  ),
-                                  border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(8),
-                                    borderSide: BorderSide(
-                                      color: appTheme.primary.withValues(
-                                        alpha: 0.4,
-                                      ),
-                                      width: 1,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ],
-                            const SizedBox(height: 16),
-                            if (PlatformUtils.isWeb) ...[
-                              Container(
-                                decoration: BoxDecoration(
-                                  borderRadius: BorderRadius.circular(8),
-                                  color: appTheme.surface.withValues(
-                                    alpha: 0.9,
-                                  ),
-                                  border: Border.all(
-                                    color: appTheme.primary.withValues(
-                                      alpha: 0.4,
-                                    ),
-                                    width: 1,
-                                  ),
-                                ),
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 8,
-                                  vertical: 4,
-                                ),
-                                child: Row(
-                                  children: [
-                                    Switch(
-                                      value: _geolocationEnabled,
-                                      onChanged: (value) {
-                                        setState(() {
-                                          _geolocationEnabled = value;
-                                        });
-                                        if (value) {
-                                          _applyGeoIpChannelsFromToggle();
-                                        } else {
-                                          _clearGeoIpChannelsFromToggle();
-                                        }
-                                      },
-                                      activeThumbColor: appTheme.primary,
-                                    ),
-                                    const SizedBox(width: 8),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            'Usar ubicación (GeoIP)',
-                                            style: TextStyle(
-                                              color: appTheme.textPrimary,
-                                              fontSize: 14,
-                                              fontWeight: FontWeight.w600,
-                                            ),
-                                          ),
-                                          const SizedBox(height: 2),
-                                          Text(
-                                            _geolocationEnabled
-                                                ? 'Activado: sugerirá servidor y canales según tu país/ciudad.'
-                                                : 'Desactivado: no usará ubicación; elige servidor y canal manualmente.',
-                                            style: TextStyle(
-                                              color: appTheme.textSecondary,
-                                              fontSize: 11,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              const SizedBox(height: 16),
-                            ],
-                            _ChannelSelector(
-                              controller: _channelController,
-                              channels: _channels,
-                              loadingChannels: _loadingChannels,
-                              appTheme: appTheme,
-                            ),
-                            const SizedBox(height: 8),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                TextButton(
-                                  onPressed: () =>
-                                      _launchUrl('https://globalchat.org'),
-                                  child: Text(
-                                    '¿Primera vez?',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: appTheme.primary,
-                                    ),
-                                  ),
-                                ),
-                                Text(
-                                  ' · ',
-                                  style: TextStyle(
-                                    color: appTheme.textSecondary,
-                                    fontSize: 12,
-                                  ),
-                                ),
-                                TextButton(
-                                  onPressed: () => _launchUrl(
-                                    'https://registro-chan.globalchat.org',
-                                  ),
-                                  child: Text(
-                                    'Registro de nick',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: appTheme.primary,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
+                      );
+                    }
+                    return _buildFormCard(appTheme);
+                  },
                 ),
+              ),
             ),
+
+            // === BOTTOM BAR: checkboxes + botones ===
             _buildLoginActionBar(appTheme),
           ],
         ),
@@ -2307,6 +1664,299 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   }
 
   /// Casillas obligatorias + botones siempre visibles al pie (móvil/iOS).
+
+  Widget _buildFormCard(AppTheme appTheme) {
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: appTheme.background.withValues(alpha: 0.6),
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.15),
+            blurRadius: 20,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // === PESTAÑAS: Invitado / Registrado / Registrarse ===
+          Row(
+            children: [
+              _buildLoginTab(appTheme, 0, 'Invitado', Icons.person_outline),
+              _buildLoginTab(appTheme, 1, 'Registrado', Icons.login_outlined),
+              _buildLoginTab(appTheme, 2, 'Registrarse', Icons.person_add_outlined),
+            ],
+          ),
+          const SizedBox(height: 16),
+
+          // NICK (siempre visible)
+          WebPasteTextField(
+            controller: _nickController,
+            style: TextStyle(color: appTheme.textPrimary, fontSize: 16),
+            decoration: InputDecoration(
+              hintText: '¿Cómo te llamas?',
+              hintStyle: TextStyle(color: appTheme.textSecondary, fontSize: 16),
+              prefixIcon: Icon(Icons.person_outline, color: appTheme.primary, size: 22),
+              suffixIcon: IconButton(
+                icon: Icon(Icons.casino_outlined, color: appTheme.primary, size: 22),
+                onPressed: _generateRandomNick,
+                tooltip: 'Apodo aleatorio',
+              ),
+              filled: true,
+              fillColor: appTheme.surface.withValues(alpha: 0.5),
+              border: UnderlineInputBorder(borderSide: BorderSide(color: appTheme.primary.withValues(alpha: 0.2))),
+              enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: appTheme.primary.withValues(alpha: 0.2))),
+              focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: appTheme.primary, width: 2)),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            ),
+          ),
+          const SizedBox(height: 20),
+
+          // CONTRASEÑA (solo modo Registrado)
+          if (_loginMode == 1) ...[
+            WebPasteTextField(
+              controller: _passwordController,
+              obscureText: _obscurePassword,
+              style: TextStyle(color: appTheme.textPrimary, fontSize: 16),
+              decoration: InputDecoration(
+                hintText: 'Contraseña',
+                hintStyle: TextStyle(color: appTheme.textSecondary, fontSize: 16),
+                prefixIcon: Icon(Icons.lock_outline, color: appTheme.primary, size: 22),
+                suffixIcon: IconButton(
+                  icon: Icon(_obscurePassword ? Icons.visibility_outlined : Icons.visibility_off_outlined, color: appTheme.textSecondary, size: 22),
+                  onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+                ),
+                filled: true,
+                fillColor: appTheme.surface.withValues(alpha: 0.5),
+                border: UnderlineInputBorder(borderSide: BorderSide(color: appTheme.primary.withValues(alpha: 0.2))),
+                enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: appTheme.primary.withValues(alpha: 0.2))),
+                focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: appTheme.primary, width: 2)),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              ),
+            ),
+            const SizedBox(height: 20),
+          ],
+
+          // CANAL (siempre visible)
+          _ChannelSelector(
+            controller: _channelController,
+            channels: _channels,
+            loadingChannels: _loadingChannels,
+            appTheme: appTheme,
+          ),
+          const SizedBox(height: 20),
+
+          // SERVIDOR (siempre visible)
+          DropdownButtonFormField<ServerProfile>(
+            initialValue: _selectedServer,
+            isExpanded: true,
+            decoration: InputDecoration(
+              hintText: 'Servidor',
+              hintStyle: TextStyle(color: appTheme.textSecondary, fontSize: 14),
+              prefixIcon: Icon(Icons.dns_outlined, color: appTheme.primary, size: 22),
+              filled: true,
+              fillColor: appTheme.surface.withValues(alpha: 0.5),
+              border: UnderlineInputBorder(borderSide: BorderSide(color: appTheme.primary.withValues(alpha: 0.2))),
+              enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: appTheme.primary.withValues(alpha: 0.2))),
+              focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: appTheme.primary, width: 2)),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            ),
+            dropdownColor: appTheme.surface,
+            style: TextStyle(color: appTheme.textPrimary),
+            items: ServerProfile.activeProfiles.map((profile) {
+              return DropdownMenuItem<ServerProfile>(
+                value: profile,
+                child: Row(
+                  children: [
+                    Icon(
+                      profile.useSSL ? Icons.lock_outline : Icons.lock_open_outlined,
+                      size: 16,
+                      color: profile.useSSL ? Colors.green : appTheme.textSecondary,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        profile.name,
+                        style: TextStyle(
+                          color: appTheme.textPrimary,
+                          fontWeight: profile.isDefault ? FontWeight.bold : FontWeight.normal,
+                          fontSize: 14,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }).toList(),
+            onChanged: (ServerProfile? newProfile) {
+              if (newProfile != null) {
+                setState(() {
+                  _selectedServer = newProfile;
+                  _updateServerFields(newProfile);
+                });
+                _checkServerStatus();
+              }
+            },
+          ),
+
+          // Server status inline
+          if (_serverStatus != null) ...[
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                Icon(
+                  _serverStatus == 'checking'
+                      ? Icons.schedule
+                      : _serverStatus == 'available'
+                      ? Icons.check_circle_outline
+                      : Icons.cancel_outlined,
+                  size: 14,
+                  color: _serverStatus == 'available' ? Colors.green : _serverStatus == 'checking' ? appTheme.textSecondary : Colors.red,
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  _serverStatus == 'checking'
+                      ? 'Conectando...'
+                      : _serverStatus == 'available'
+                      ? 'Disponible'
+                      : 'No disponible',
+                  style: TextStyle(fontSize: 11, color: _serverStatus == 'available' ? Colors.green : _serverStatus == 'checking' ? appTheme.textSecondary : Colors.red),
+                ),
+              ],
+            ),
+          ],
+          const SizedBox(height: 16),
+
+          // === OPCIONES EXTRA (colapsables) ===
+          ExpansionTile(
+            tilePadding: EdgeInsets.zero,
+            childrenPadding: EdgeInsets.zero,
+            title: Text(
+              'Más opciones',
+              style: TextStyle(fontSize: 12, color: appTheme.textSecondary),
+            ),
+            children: [
+              // GÉNERO
+              Row(
+                children: [
+                  Icon(Icons.wc_outlined, color: appTheme.primary, size: 22),
+                  const SizedBox(width: 12),
+                  Text('Género:', style: TextStyle(color: appTheme.textPrimary, fontSize: 14)),
+                  const Spacer(),
+                  _GenderChip(
+                    icon: Icons.male,
+                    label: 'Hombre',
+                    selected: _selectedGender == 'M',
+                    onTap: () => setState(() => _selectedGender = 'M'),
+                    appTheme: appTheme,
+                  ),
+                  const SizedBox(width: 6),
+                  _GenderChip(
+                    icon: Icons.female,
+                    label: 'Mujer',
+                    selected: _selectedGender == 'F',
+                    onTap: () => setState(() => _selectedGender = 'F'),
+                    appTheme: appTheme,
+                  ),
+                  const SizedBox(width: 6),
+                  _GenderChip(
+                    icon: Icons.transgender,
+                    label: 'Otro',
+                    selected: _selectedGender == 'O',
+                    onTap: () => setState(() => _selectedGender = 'O'),
+                    appTheme: appTheme,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              // Auto-reconnect
+              Row(
+                children: [
+                  Checkbox(
+                    value: _autoReconnectEnabled,
+                    onChanged: (v) async { setState(() => _autoReconnectEnabled = v ?? false); (await SharedPreferences.getInstance()).setBool(_prefAutoReconnectEnabled, v ?? false); },
+                    activeColor: appTheme.primary,
+                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    visualDensity: VisualDensity.compact,
+                  ),
+                  Expanded(child: Text('Reconectar al abrir', style: TextStyle(color: appTheme.textPrimary, fontSize: 13))),
+                ],
+              ),
+              // GeoIP
+              if (PlatformUtils.isWeb)
+                Row(
+                  children: [
+                    Switch(
+                      value: _geolocationEnabled,
+                      onChanged: (v) { setState(() => _geolocationEnabled = v); if (v) { _applyGeoIpChannelsFromToggle(); } else { _clearGeoIpChannelsFromToggle(); } },
+                      activeThumbColor: appTheme.primary,
+                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                    const SizedBox(width: 4),
+                    Expanded(child: Text('Ubicación (GeoIP)', style: TextStyle(color: appTheme.textPrimary, fontSize: 13))),
+                  ],
+                ),
+              // Host + Port
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: WebPasteTextField(
+                      controller: _hostController,
+                      onChanged: (_) => _checkServerStatus(),
+                      style: TextStyle(color: appTheme.textPrimary, fontSize: 13),
+                      decoration: InputDecoration(
+                        hintText: 'Host',
+                        hintStyle: TextStyle(color: appTheme.textSecondary),
+                        isDense: true,
+                        filled: true,
+                        fillColor: appTheme.surface.withValues(alpha: 0.5),
+                        border: UnderlineInputBorder(borderSide: BorderSide(color: appTheme.primary.withValues(alpha: 0.2))),
+                        enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: appTheme.primary.withValues(alpha: 0.2))),
+                        focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: appTheme.primary, width: 2)),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  SizedBox(
+                    width: 80,
+                    child: WebPasteTextField(
+                      controller: _portController,
+                      onChanged: (_) => _checkServerStatus(),
+                      keyboardType: TextInputType.number,
+                      style: TextStyle(color: appTheme.textPrimary, fontSize: 13),
+                      decoration: InputDecoration(
+                        hintText: 'Puerto',
+                        hintStyle: TextStyle(color: appTheme.textSecondary),
+                        isDense: true,
+                        filled: true,
+                        fillColor: appTheme.surface.withValues(alpha: 0.5),
+                        border: UnderlineInputBorder(borderSide: BorderSide(color: appTheme.primary.withValues(alpha: 0.2))),
+                        enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: appTheme.primary.withValues(alpha: 0.2))),
+                        focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: appTheme.primary, width: 2)),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 8),
+
+          // === PALETA DE TEMAS ===
+          _buildThemePaletteInline(appTheme),
+        ],
+      ),
+    );
+  }
+
   Widget _buildLoginActionBar(AppTheme appTheme) {
     return SafeArea(
       top: false,
@@ -2322,55 +1972,48 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            CheckboxListTile(
-              value: _confirmOver14,
-              onChanged: (value) =>
-                  setState(() => _confirmOver14 = value ?? false),
-              title: Text(
-                'Confirmo que soy mayor de 14 años',
-                style: TextStyle(color: appTheme.textPrimary, fontSize: 14),
-              ),
-              activeColor: appTheme.primary,
-              checkColor: appTheme.textPrimary,
-              contentPadding: EdgeInsets.zero,
-              controlAffinity: ListTileControlAffinity.leading,
-              dense: true,
-              visualDensity: VisualDensity.compact,
-            ),
-            CheckboxListTile(
-              value: _acceptRules,
-              onChanged: (value) =>
-                  setState(() => _acceptRules = value ?? false),
-              title: Wrap(
-                children: [
+            Row(
+              children: [
+                if (_appVersion.isNotEmpty)
                   Text(
-                    'Acepto las ',
-                    style: TextStyle(color: appTheme.textPrimary, fontSize: 14),
+                    _appVersion,
+                    style: TextStyle(fontSize: 10, color: appTheme.textSecondary),
                   ),
-                  GestureDetector(
-                    onTap: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute(builder: (_) => const RulesScreen()),
-                      );
-                    },
-                    child: Text(
-                      'reglas del canal/red',
-                      style: TextStyle(
-                        color: appTheme.primary,
-                        fontSize: 14,
-                        decoration: TextDecoration.underline,
-                      ),
-                    ),
+                Text(' · ', style: TextStyle(fontSize: 10, color: appTheme.textSecondary)),
+                GestureDetector(
+                  onTap: () => _showCreditsDialog(context),
+                  child: Text(
+                    'Créditos y agradecimientos',
+                    style: TextStyle(fontSize: 10, color: appTheme.primary),
                   ),
-                ],
-              ),
-              activeColor: appTheme.primary,
-              checkColor: appTheme.textPrimary,
-              contentPadding: EdgeInsets.zero,
-              controlAffinity: ListTileControlAffinity.leading,
-              dense: true,
-              visualDensity: VisualDensity.compact,
+                ),
+                const Spacer(),
+                GestureDetector(
+                  onTap: () => _showThemeSelector(context),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.palette_outlined, size: 14, color: appTheme.primary),
+                      const SizedBox(width: 4),
+                      Text('Ver todos los temas', style: TextStyle(fontSize: 12, color: appTheme.primary)),
+                    ],
+                  ),
+                ),
+                Text(' · ', style: TextStyle(color: appTheme.textSecondary, fontSize: 12)),
+                TextButton(
+                  onPressed: _quickConnect,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.bolt, size: 14, color: appTheme.primary),
+                      const SizedBox(width: 4),
+                      Text('Conexión rápida', style: TextStyle(fontSize: 12, color: appTheme.primary)),
+                    ],
+                  ),
+                ),
+              ],
             ),
+            const SizedBox(height: 8),
             if (_errorMessage != null) ...[
               const SizedBox(height: 8),
               Container(
@@ -2387,70 +2030,489 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               ),
             ],
             const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: _isLoading ? null : _enterAsGuest,
-                    icon: Icon(
-                      Icons.person_outline,
-                      size: 20,
-                      color: appTheme.primary,
-                    ),
-                    label: const Text('Invitado'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: appTheme.primary,
-                      side: BorderSide(color: appTheme.primary),
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                    ),
+            SizedBox(
+              width: double.infinity,
+              height: 48,
+              child: ElevatedButton(
+                onPressed: _isLoading ? null : _confirmBeforeConnect,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: appTheme.primary,
+                  disabledBackgroundColor: Colors.grey,
+                  foregroundColor: AppTheme.contrastOn(appTheme.primary),
+                  elevation: 4,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
                   ),
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  flex: 2,
-                  child: SizedBox(
-                    height: 48,
-                    child: ElevatedButton(
-                      onPressed: (_isLoading || !_confirmOver14 || !_acceptRules)
-                          ? null
-                          : _connect,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: appTheme.primary,
-                        disabledBackgroundColor: Colors.grey,
-                        foregroundColor: AppTheme.contrastOn(appTheme.primary),
-                        elevation: 4,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
+                child: _isLoading
+                    ? SizedBox(
+                        height: 24,
+                        width: 24,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            AppTheme.contrastOn(appTheme.primary),
+                          ),
+                        ),
+                      )
+                    : Text(
+                        _loginMode == 1 ? 'Conectar' : 'Entrar',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: AppTheme.contrastOn(appTheme.primary),
                         ),
                       ),
-                      child: _isLoading
-                          ? SizedBox(
-                              height: 24,
-                              width: 24,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                valueColor: AlwaysStoppedAnimation<Color>(
-                                  AppTheme.contrastOn(appTheme.primary),
-                                ),
+              ),
+            ),
+            const SizedBox(height: 4),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAcknowledgmentItem(
+    AppTheme appTheme,
+    String name,
+    String contribution,
+  ) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 6,
+          height: 6,
+          margin: const EdgeInsets.only(top: 6, right: 12),
+          decoration: BoxDecoration(
+            color: appTheme.secondary,
+            shape: BoxShape.circle,
+          ),
+        ),
+        Expanded(
+          child: RichText(
+            text: TextSpan(
+              style: TextStyle(
+                color: appTheme.textPrimary.withValues(alpha: 0.9),
+                fontSize: 13,
+              ),
+              children: [
+                TextSpan(
+                  text: name,
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+                TextSpan(text: ' - $contribution'),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _showCreditsDialog(BuildContext context) {
+    final appTheme = ref.read(themeProvider);
+
+    showDialog(
+      context: context,
+      barrierColor: Colors.black54,
+      builder: (context) => Dialog(
+        backgroundColor: Colors.transparent,
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 500),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                appTheme.surface,
+                appTheme.surface.withValues(alpha: 0.95),
+              ],
+            ),
+            borderRadius: BorderRadius.circular(24),
+            boxShadow: [
+              BoxShadow(
+                color: appTheme.primary.withValues(alpha: 0.3),
+                blurRadius: 20,
+                spreadRadius: 5,
+                offset: const Offset(0, 10),
+              ),
+            ],
+          ),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(24),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [appTheme.primary, appTheme.secondary],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: const BorderRadius.only(
+                      topLeft: Radius.circular(24),
+                      topRight: Radius.circular(24),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.2),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Icon(
+                          Icons.info_outline,
+                          color: Colors.white,
+                          size: 28,
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      const Expanded(
+                        child: Text(
+                          'Créditos y Apoyos',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 24,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: appTheme.primary.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: appTheme.primary.withValues(alpha: 0.3),
+                            width: 2,
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: appTheme.primary,
+                                shape: BoxShape.circle,
                               ),
-                            )
-                          : Text(
-                              'Conectar',
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                                color: AppTheme.contrastOn(appTheme.primary),
+                              child: const Icon(
+                                Icons.code,
+                                color: Colors.white,
+                                size: 24,
                               ),
                             ),
+                            const SizedBox(width: 16),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Programador Principal',
+                                    style: TextStyle(
+                                      color: appTheme.textPrimary.withValues(
+                                        alpha: 0.7,
+                                      ),
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  const Text(
+                                    'Fran',
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 20,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: appTheme.secondary.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: appTheme.secondary.withValues(alpha: 0.3),
+                            width: 2,
+                          ),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Icon(
+                                  Icons.public,
+                                  color: appTheme.secondary,
+                                  size: 20,
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  'Uso Exclusivo',
+                                  style: TextStyle(
+                                    color: appTheme.textPrimary,
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+                            Text(
+                              'Esta aplicación se proporciona exclusivamente como medio de acceso y conexión a la red de chat IRC GlobalChat, quedando su uso limitado y condicionado a dicha finalidad. Queda expresamente prohibido cualquier uso ajeno a la conexión con la red GlobalChat, incluyendo, a título enunciativo y no limitativo: la interconexión o retransmisión a redes o servicios de terceros, la utilización de la aplicación como pasarela, proxy o infraestructura para otros fines, la explotación comercial, la reproducción, distribución, modificación o ingeniería inversa, total o parcial, así como cualquier otra forma de aprovechamiento distinta del acceso a GlobalChat. El incumplimiento de esta condición facultará a los titulares de la aplicación a suspender el acceso de forma inmediata y a ejercitar cuantas acciones legales resulten procedentes.',
+                              style: TextStyle(
+                                color: appTheme.textPrimary.withValues(
+                                  alpha: 0.9,
+                                ),
+                                fontSize: 14,
+                                height: 1.5,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: appTheme.secondary.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: appTheme.secondary.withValues(alpha: 0.3),
+                            width: 2,
+                          ),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Icon(
+                                  Icons.people,
+                                  color: appTheme.secondary,
+                                  size: 20,
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    'Agradecimientos especiales a la comunidad GlobalChat:',
+                                    style: TextStyle(
+                                      color: appTheme.textPrimary,
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+                            _buildAcknowledgmentItem(
+                              appTheme,
+                              'error404',
+                              'Por sus valiosas contribuciones y feedback',
+                            ),
+                            const SizedBox(height: 8),
+                            _buildAcknowledgmentItem(
+                              appTheme,
+                              'Malthael',
+                              'Por sus aportes y sugerencias',
+                            ),
+                            const SizedBox(height: 8),
+                            _buildAcknowledgmentItem(
+                              appTheme,
+                              'sonic',
+                              'Por su apoyo y contribuciones a esta versión',
+                            ),
+                            const SizedBox(height: 8),
+                            _buildAcknowledgmentItem(
+                              appTheme,
+                              'Mar',
+                              'Por testear la aplicación y notificar fallos',
+                            ),
+                            const SizedBox(height: 8),
+                            _buildAcknowledgmentItem(
+                              appTheme,
+                              'ChiP',
+                              'Por su ayuda incansable a lo largo de los años',
+                            ),
+                            const SizedBox(height: 8),
+                            _buildAcknowledgmentItem(
+                              appTheme,
+                              'NaN',
+                              'Por aguantar todas mis tonterías y estar siempre ahí ayudándome',
+                            ),
+                            const SizedBox(height: 12),
+                            Text(
+                              'Gracias a todos por hacer de IRC App una mejor aplicación.',
+                              style: TextStyle(
+                                color: appTheme.textPrimary.withValues(
+                                  alpha: 0.8,
+                                ),
+                                fontSize: 13,
+                                fontStyle: FontStyle.italic,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+                  child: SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: () => Navigator.pop(context),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: appTheme.primary,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        elevation: 4,
+                      ),
+                      child: const Text(
+                        'Cerrar',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
                     ),
                   ),
                 ),
               ],
             ),
-          ],
+          ),
         ),
       ),
     );
+  }
+
+  Future<void> _confirmBeforeConnect() async {
+    final appTheme = ref.watch(themeProvider);
+    var confirmOver14 = _confirmOver14;
+    var acceptRules = _acceptRules;
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) {
+          void update(void Function() fn) {
+            setDialogState(() {
+              fn();
+              if (mounted) setState(() {});
+            });
+          }
+
+          return AlertDialog(
+            title: const Text('Antes de entrar'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CheckboxListTile(
+                  value: confirmOver14,
+                  onChanged: (value) =>
+                      update(() => confirmOver14 = value ?? false),
+                  title: const Text('Confirmo que soy mayor de 14 años'),
+                  activeColor: appTheme.primary,
+                  contentPadding: EdgeInsets.zero,
+                  controlAffinity: ListTileControlAffinity.leading,
+                  dense: true,
+                ),
+                CheckboxListTile(
+                  value: acceptRules,
+                  onChanged: (value) =>
+                      update(() => acceptRules = value ?? false),
+                  title: Wrap(
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      const Text('Acepto las '),
+                      GestureDetector(
+                        onTap: () {
+                          Navigator.of(dialogContext).push(
+                            MaterialPageRoute(
+                              builder: (_) => const RulesScreen(),
+                            ),
+                          );
+                        },
+                        child: Text(
+                          'reglas del canal/red',
+                          style: TextStyle(
+                            color: appTheme.primary,
+                            decoration: TextDecoration.underline,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  activeColor: appTheme.primary,
+                  contentPadding: EdgeInsets.zero,
+                  controlAffinity: ListTileControlAffinity.leading,
+                  dense: true,
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(false),
+                child: const Text('Cancelar'),
+              ),
+              ElevatedButton(
+                onPressed: (confirmOver14 && acceptRules)
+                    ? () => Navigator.of(dialogContext).pop(true)
+                    : null,
+                child: Text(_loginMode == 1 ? 'Conectar' : 'Entrar'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+
+    if (result == true) {
+      setState(() {
+        _confirmOver14 = true;
+        _acceptRules = true;
+      });
+      _connect();
+    }
+  }
+
+  void _quickConnect() {
+    if (_isLoading) return;
+    final random = Random();
+    setState(() {
+      _loginMode = 0;
+      _identifyWithNick = false;
+      _passwordController.clear();
+      if (_nickController.text.trim().isEmpty) {
+        _nickController.text = 'Invitado${random.nextInt(90000) + 10000}';
+      }
+      if (_channelController.text.trim().isEmpty) {
+        _channelController.text = '#globalchat';
+      }
+    });
+    _confirmBeforeConnect();
   }
 
   /// Banner de cuenta atrás antes de auto-conectar; permite cancelar para configurar.
@@ -2497,6 +2559,118 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildLoginTab(AppTheme appTheme, int mode, String label, IconData icon) {
+    final isSelected = _loginMode == mode;
+    return Expanded(
+      child: GestureDetector(
+        onTap: () {
+          if (mode == 2) {
+            _showRegistrationModal(context);
+            return;
+          }
+          setState(() {
+            _loginMode = mode;
+            _identifyWithNick = mode == 1;
+            if (mode == 0) {
+              _passwordController.clear();
+            }
+          });
+        },
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          decoration: BoxDecoration(
+            color: isSelected ? appTheme.primary.withValues(alpha: 0.2) : Colors.transparent,
+            borderRadius: BorderRadius.circular(12),
+            border: isSelected
+                ? Border.all(color: appTheme.primary, width: 1.5)
+                : null,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                icon,
+                size: 20,
+                color: isSelected ? appTheme.primary : appTheme.textSecondary,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                  color: isSelected ? appTheme.primary : appTheme.textSecondary,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Paleta de temas inline (círculos de color clicables)
+  Widget _buildThemePaletteInline(AppTheme appTheme) {
+    final currentTheme = ref.watch(themeProvider);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(Icons.palette_outlined, size: 16, color: appTheme.textSecondary),
+            const SizedBox(width: 6),
+            Text('Tema:', style: TextStyle(fontSize: 12, color: appTheme.textSecondary)),
+          ],
+        ),
+        const SizedBox(height: 8),
+        SizedBox(
+          height: 40,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            itemCount: AppTheme.themes.length,
+            separatorBuilder: (_, __) => const SizedBox(width: 8),
+            itemBuilder: (context, index) {
+              final theme = AppTheme.themes[index];
+              final isSelected = theme.name == currentTheme.name;
+              return GestureDetector(
+                onTap: () => ref.read(themeProvider.notifier).setTheme(theme),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: LinearGradient(
+                      colors: [theme.primary, theme.secondary],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    border: Border.all(
+                      color: isSelected ? Colors.white : Colors.transparent,
+                      width: 3,
+                    ),
+                    boxShadow: isSelected
+                        ? [
+                            BoxShadow(
+                              color: theme.primary.withValues(alpha: 0.6),
+                              blurRadius: 8,
+                              spreadRadius: 2,
+                            ),
+                          ]
+                        : null,
+                  ),
+                  child: isSelected
+                      ? const Icon(Icons.check, color: Colors.white, size: 18)
+                      : null,
+                ),
+              );
+            },
+          ),
+        ),
+      ],
     );
   }
 
@@ -2627,6 +2801,230 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     );
   }
 
+  /// Modal de registro de nick (replica el de canales.globalchat.org)
+  void _showRegistrationModal(BuildContext context) {
+    final appTheme = ref.read(themeProvider);
+    final regNickController = TextEditingController();
+    final regPassController = TextEditingController();
+    final regEmailController = TextEditingController();
+    bool regObscurePass = true;
+    bool regLoading = false;
+    String? regError;
+    String? regSuccess;
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          backgroundColor: appTheme.surface,
+          title: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(colors: [appTheme.primary, appTheme.secondary]),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.person_add, color: Colors.white, size: 24),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  'Registrar Nick',
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: appTheme.textPrimary),
+                ),
+              ),
+            ],
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'Crea tu cuenta en GlobalChat. El nick quedará registrado para ti.',
+                  style: TextStyle(color: appTheme.textSecondary, fontSize: 13),
+                ),
+                const SizedBox(height: 20),
+                TextField(
+                  controller: regNickController,
+                  style: TextStyle(color: appTheme.textPrimary, fontSize: 16),
+                  decoration: InputDecoration(
+                    hintText: 'Nickname *',
+                    hintStyle: TextStyle(color: appTheme.textSecondary),
+                    prefixIcon: Icon(Icons.person_outline, color: appTheme.primary, size: 20),
+                    filled: true,
+                    fillColor: appTheme.background.withValues(alpha: 0.5),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: appTheme.primary.withValues(alpha: 0.3))),
+                    enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: appTheme.primary.withValues(alpha: 0.3))),
+                    focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: appTheme.primary, width: 2)),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: regPassController,
+                  obscureText: regObscurePass,
+                  style: TextStyle(color: appTheme.textPrimary, fontSize: 16),
+                  decoration: InputDecoration(
+                    hintText: 'Contraseña *',
+                    hintStyle: TextStyle(color: appTheme.textSecondary),
+                    prefixIcon: Icon(Icons.lock_outline, color: appTheme.primary, size: 20),
+                    suffixIcon: IconButton(
+                      icon: Icon(regObscurePass ? Icons.visibility_outlined : Icons.visibility_off_outlined, color: appTheme.textSecondary, size: 20),
+                      onPressed: () => setDialogState(() => regObscurePass = !regObscurePass),
+                    ),
+                    filled: true,
+                    fillColor: appTheme.background.withValues(alpha: 0.5),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: appTheme.primary.withValues(alpha: 0.3))),
+                    enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: appTheme.primary.withValues(alpha: 0.3))),
+                    focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: appTheme.primary, width: 2)),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: regEmailController,
+                  keyboardType: TextInputType.emailAddress,
+                  style: TextStyle(color: appTheme.textPrimary, fontSize: 16),
+                  decoration: InputDecoration(
+                    hintText: 'Email (opcional)',
+                    hintStyle: TextStyle(color: appTheme.textSecondary),
+                    prefixIcon: Icon(Icons.email_outlined, color: appTheme.primary, size: 20),
+                    filled: true,
+                    fillColor: appTheme.background.withValues(alpha: 0.5),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: appTheme.primary.withValues(alpha: 0.3))),
+                    enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: appTheme.primary.withValues(alpha: 0.3))),
+                    focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: appTheme.primary, width: 2)),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                  ),
+                ),
+                if (regError != null) ...[
+                  const SizedBox(height: 12),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.red.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.red.withValues(alpha: 0.3)),
+                    ),
+                    child: Text(regError!, style: const TextStyle(color: Colors.red, fontSize: 13)),
+                  ),
+                ],
+                if (regSuccess != null) ...[
+                  const SizedBox(height: 12),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.green.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.green.withValues(alpha: 0.3)),
+                    ),
+                    child: Text(regSuccess!, style: const TextStyle(color: Colors.green, fontSize: 13)),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text('Cancelar', style: TextStyle(color: appTheme.textSecondary)),
+            ),
+            ElevatedButton.icon(
+              onPressed: regLoading
+                  ? null
+                  : () async {
+                      final nick = regNickController.text.trim();
+                      final pass = regPassController.text.trim();
+                      final email = regEmailController.text.trim();
+                      if (nick.isEmpty || pass.isEmpty) {
+                        setDialogState(() => regError = 'Completa nickname y contraseña.');
+                        return;
+                      }
+                      if (nick.length < 3 || nick.length > 31) {
+                        setDialogState(() => regError = 'El nick debe tener entre 3 y 31 caracteres.');
+                        return;
+                      }
+                      if (!RegExp(r'^[a-zA-Z0-9_]+$').hasMatch(nick)) {
+                        setDialogState(() => regError = 'El nick solo puede contener letras, números y guiones bajos.');
+                        return;
+                      }
+                      if (pass.length < 5) {
+                        setDialogState(() => regError = 'La contraseña debe tener al menos 5 caracteres.');
+                        return;
+                      }
+                      if (pass.toLowerCase() == nick.toLowerCase()) {
+                        setDialogState(() => regError = 'La contraseña no puede ser igual al nick.');
+                        return;
+                      }
+                      if (email.isNotEmpty && !RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$').hasMatch(email)) {
+                        setDialogState(() => regError = 'Introduce un email válido.');
+                        return;
+                      }
+                      setDialogState(() {
+                        regLoading = true;
+                        regError = null;
+                        regSuccess = null;
+                      });
+                      try {
+                        final uri = Uri.parse('https://register-nick.globalchat.org/confirm');
+                        final body = <String, String>{
+                          'username': nick,
+                          'password': pass,
+                        };
+                        if (email.isNotEmpty) body['email'] = email;
+                        final response = await http.post(
+                          uri,
+                          headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                          body: body.entries.map((e) => '${Uri.encodeComponent(e.key)}=${Uri.encodeComponent(e.value)}').join('&'),
+                        );
+                        final responseText = response.body;
+                        final isSuccess = responseText.toLowerCase().contains('success') ||
+                            responseText.toLowerCase().contains('registered') ||
+                            responseText.toLowerCase().contains('registrado') ||
+                            responseText.toLowerCase().contains('confirm') ||
+                            (!responseText.toLowerCase().contains('error') && !responseText.toLowerCase().contains('already exists'));
+                        if (isSuccess) {
+                          setDialogState(() {
+                            regSuccess = '¡Nick "$nick" registrado! Ahora puedes usarlo al conectar.';
+                            regLoading = false;
+                          });
+                          _nickController.text = nick;
+                          Future.delayed(const Duration(seconds: 2), () {
+                            if (context.mounted) Navigator.pop(context);
+                          });
+                        } else {
+                          setDialogState(() {
+                            regError = responseText.length > 200 ? '${responseText.substring(0, 200)}...' : responseText;
+                            regLoading = false;
+                          });
+                        }
+                      } catch (e) {
+                        setDialogState(() {
+                          regError = 'Error de conexión: $e';
+                          regLoading = false;
+                        });
+                      }
+                    },
+              icon: regLoading
+                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, valueColor: AlwaysStoppedAnimation<Color>(Colors.white)))
+                  : const Icon(Icons.person_add, size: 18),
+              label: Text(regLoading ? 'Registrando...' : 'Registrar'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: appTheme.primary,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   /// Mostrar diálogo para pedir usuario:password de ZNC
   Future<String?> _showZncPasswordDialog(BuildContext context) async {
     final userController = TextEditingController();
@@ -2691,129 +3089,52 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   }
 }
 
-// Widget animado para el logo de GlobalChat
-class _AnimatedLogo extends StatefulWidget {
-  final AppTheme appTheme;
+class _GenderChip extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+  final dynamic appTheme;
 
-  const _AnimatedLogo({required this.appTheme});
-
-  @override
-  State<_AnimatedLogo> createState() => _AnimatedLogoState();
-}
-
-class _AnimatedLogoState extends State<_AnimatedLogo>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
-  late Animation<double> _scaleAnimation;
-  late Animation<double> _rotationAnimation;
-  late Animation<double> _fadeAnimation;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      duration: const Duration(seconds: 3),
-      vsync: this,
-    )..repeat(reverse: true);
-
-    _scaleAnimation = Tween<double>(
-      begin: 0.9,
-      end: 1.1,
-    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeInOut));
-
-    _rotationAnimation = Tween<double>(
-      begin: -0.05,
-      end: 0.05,
-    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeInOut));
-
-    _fadeAnimation = Tween<double>(
-      begin: 0.8,
-      end: 1.0,
-    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeInOut));
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
+  const _GenderChip({
+    required this.icon,
+    required this.label,
+    required this.selected,
+    required this.onTap,
+    required this.appTheme,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _controller,
-      builder: (context, child) {
-        return Transform.scale(
-          scale: _scaleAnimation.value,
-          child: Transform.rotate(
-            angle: _rotationAnimation.value,
-            child: Opacity(
-              opacity: _fadeAnimation.value,
-              child: Container(
-                padding: const EdgeInsets.all(16),
-                child: Image.network(
-                  'https://registro-chan.globalchat.org/gc/logo.png',
-                  height: 200,
-                  width: 200,
-                  fit: BoxFit.contain,
-                  // En web, usar WebHtmlElementStrategy.prefer para evitar problemas de CORS
-                  // Esto intenta usar elementos HTML <img> que no tienen las mismas restricciones CORS
-                  webHtmlElementStrategy: PlatformUtils.isWeb
-                      ? WebHtmlElementStrategy.prefer
-                      : WebHtmlElementStrategy.never,
-                  errorBuilder: (context, error, stackTrace) {
-                    // Si falla la carga, mostrar el icono con colores del tema
-                    return Container(
-                      height: 200,
-                      width: 200,
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        gradient: LinearGradient(
-                          colors: [
-                            widget.appTheme.primary,
-                            widget.appTheme.secondary,
-                          ],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                        ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: widget.appTheme.primary.withValues(
-                              alpha: 0.4,
-                            ),
-                            blurRadius: 20,
-                            spreadRadius: 5,
-                          ),
-                        ],
-                      ),
-                      child: Icon(
-                        Icons.chat_bubble,
-                        size: 80,
-                        color: widget.appTheme.textPrimary,
-                      ),
-                    );
-                  },
-                  loadingBuilder: (context, child, loadingProgress) {
-                    if (loadingProgress == null) return child;
-                    return Container(
-                      height: 200,
-                      width: 200,
-                      padding: const EdgeInsets.all(16),
-                      child: CircularProgressIndicator(
-                        strokeWidth: 3,
-                        valueColor: AlwaysStoppedAnimation<Color>(
-                          widget.appTheme.primary,
-                        ),
-                      ),
-                    );
-                  },
-                ),
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          color: selected ? appTheme.primary.withValues(alpha: 0.2) : Colors.transparent,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: selected ? appTheme.primary : appTheme.textSecondary.withValues(alpha: 0.4),
+            width: selected ? 2 : 1,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 18, color: selected ? appTheme.primary : appTheme.textSecondary),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: selected ? FontWeight.bold : FontWeight.normal,
+                color: selected ? appTheme.primary : appTheme.textSecondary,
               ),
             ),
-          ),
-        );
-      },
+          ],
+        ),
+      ),
     );
   }
 }

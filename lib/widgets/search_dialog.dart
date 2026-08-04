@@ -137,7 +137,7 @@ class _SearchDialogState extends State<SearchDialog> {
                         controller: _searchController,
                         autofocus: true,
                         decoration: const InputDecoration(
-                          hintText: 'Buscar en mensajes...',
+                          hintText: 'Buscar en todos los canales...',
                           prefixIcon: Icon(Icons.search),
                           border: OutlineInputBorder(),
                         ),
@@ -172,7 +172,7 @@ class _SearchDialogState extends State<SearchDialog> {
                       ? Center(
                           child: Text(
                             _searchTerm.isEmpty
-                                ? 'Escribe para buscar...'
+                                ? 'Busca en todos los canales y privados'
                                 : 'No se encontraron resultados',
                             style: theme.textTheme.bodyMedium?.copyWith(
                               color: theme.textTheme.bodySmall?.color,

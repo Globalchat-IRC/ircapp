@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_markdown/flutter_markdown.dart';
+import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:flutter_highlight/flutter_highlight.dart';
 import 'package:flutter_highlight/themes/dracula.dart';
 import 'package:markdown/markdown.dart' as md;
@@ -24,6 +24,7 @@ class MarkdownMessage extends StatelessWidget {
 
     return MarkdownBody(
       data: content,
+      extensionSet: md.ExtensionSet.gitHubFlavored,
       styleSheet: MarkdownStyleSheet.fromTheme(theme).copyWith(
         p: textStyle,
         h1: textStyle.copyWith(
