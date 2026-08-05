@@ -223,8 +223,8 @@ class _KissAnimationState extends State<KissAnimation>
           ),
           child: Text(
             widget.sentBySelf
-                ? 'Has enviado un beso a \${widget.fromNick}'
-                : '\${widget.fromNick} te ha dado un beso',
+                ? 'Has enviado un beso a ${widget.fromNick}'
+                : '${widget.fromNick} te ha dado un beso',
             style: const TextStyle(
               color: Colors.white,
               fontSize: 20,

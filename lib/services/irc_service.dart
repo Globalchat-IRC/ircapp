@@ -1612,6 +1612,13 @@ class IRCService {
       debugLog('⚠️ [IRCService] No se puede enviar /me: conexión no activa');
       return;
     }
+    // Acciones hacia usuarios privados (query, sin #) van por PRIVMSG al nick.
+    // _normalizeChannelName añade un '#' que rompería la entrega a un usuario.
+    if (!channel.startsWith('#')) {
+      sendPrivateAction(channel, action);
+      return;
+    }
+
     final normalized = _normalizeChannelName(channel);
 
     // Añadir el mensaje localmente primero
@@ -1686,8 +1693,8 @@ class IRCService {
     if (currentChannel != null && currentChannel.startsWith('#')) {
       sendMe(currentChannel, '\u{1F44E} $normalizedNick');
     } else {
-      final normalized = _normalizeChannelName(currentChannel ?? normalizedNick);
-      sendMe(normalized, '\u{1F44E} $normalizedNick');
+      final target = currentChannel ?? normalizedNick;
+      sendMe(target, '\u{1F44E} $normalizedNick');
     }
   }
 
@@ -1736,9 +1743,8 @@ class IRCService {
   /// Enviar acción interactiva a un usuario (via ACTION al canal)
   void sendActionToUser(String channel, String emoji, String target) {
     if (!_hasActiveConnection) return;
-    final normalized = _normalizeChannelName(channel);
     final actionText = '$emoji $target';
-    sendMe(normalized, actionText);
+    sendMe(channel, actionText);
   }
 
   /// Enviar acción masiva a todos los canales
