@@ -2,7 +2,8 @@
 # Build Flutter web con ofuscación + deploy a ceres.globalchat.org
 #
 # Uso:
-#   ./deploy_web.sh              # Build + deploy
+#   ./deploy_web.sh              # Build + deploy a producción
+#   ./deploy_web.sh --beta       # Build + deploy a webchatbeta (pruebas)
 #   ./deploy_web.sh --build-only # Solo compilar
 #   ./deploy_web.sh --deploy-only # Solo deploy (asume que build/ ya existe)
 #
@@ -17,7 +18,7 @@ NC='\033[0m'
 
 REMOTE_USER="globalchat"
 REMOTE_HOST="ceres.globalchat.org"
-REMOTE_WEB="/var/www/irc_app"  # Ruta del web server en ceres
+REMOTE_WEB="/var/www/irc_app"  # Ruta del web server en ceres (producción)
 BUILD_DIR="build/web"
 
 DO_BUILD=true
@@ -25,10 +26,13 @@ DO_DEPLOY=true
 
 for arg in "$@"; do
   case $arg in
+    --beta)
+      REMOTE_WEB="/var/www/webchatbeta.globalchat.org"
+      BETA_HOST="webchatbeta.globalchat.org" ;;
     --build-only)  DO_DEPLOY=false ;;
     --deploy-only) DO_BUILD=false ;;
     --help|-h)
-      echo "Uso: $0 [--build-only|--deploy-only]"
+      echo "Uso: $0 [--beta|--build-only|--deploy-only]"
       exit 0 ;;
   esac
 done
@@ -67,7 +71,7 @@ if [ "$DO_DEPLOY" = true ]; then
     "$BUILD_DIR/" ${REMOTE_USER}@${REMOTE_HOST}:${REMOTE_WEB}/
 
   echo -e "${GREEN}✅ Desplegado en ${REMOTE_HOST}${NC}"
-  echo -e "${GREEN}🌐 Webchat: https://${REMOTE_HOST}${NC}"
+  echo -e "${GREEN}🌐 Webchat: https://${BETA_HOST:-mobilev1.globalchat.org}${NC}"
 
   # Guardar debug_info de forma segura
   DEBUG_BACKUP="$HOME/Documents/backups/webchat_debug_$(date +%Y%m%d).zip"
