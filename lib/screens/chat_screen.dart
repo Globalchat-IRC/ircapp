@@ -353,6 +353,18 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   double _channelsSidebarWidth = 220;
   double _usersSidebarWidth = 290;
 
+  // Barra de "nuevos mensajes" (estilo IRCCloud): se muestra cuando hay
+  // mensajes nuevos y el usuario está desplazado hacia arriba.
+  bool _userScrolledUp = false;
+  int _newMessagesCount = 0;
+  int _seenMessageCount = 0;
+  String? _unreadBarChannel;
+  // Deep-link de permalink: canal y mensaje a abrir desde la URL (#c=, #m=).
+  String? _deepLinkChannel;
+  String? _deepLinkMessageId;
+  GlobalKey? _deepLinkTargetKey;
+  bool _deepLinkHighlightVisible = false;
+
   final GlobalPointsService _globalPointsService = GlobalPointsService();
 
   // Tamaño de emoji en línea para el mensaje que se está construyendo. Lo fija
@@ -600,7 +612,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     super.initState();
     _messageFocusNode = FocusNode(onKeyEvent: _handleMessageInputKey);
     _chatScrollController = ScrollController();
+    _chatScrollController.addListener(_onChatScroll);
     _ircService = ref.read(ircServiceProvider);
+
+    // Procesar permalink/deep-link desde la URL (#c= canal, #m= mensaje)
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _handleUrlDeepLink();
+    });
 
     // Dimensionar sidebars según el ancho de pantalla
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -7506,6 +7525,28 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
     final allMessages = [...filteredHistory, ...filteredChannelMessages];
 
+    // Metadatos de visualización: agrupar mensajes consecutivos del mismo
+    // usuario y colapsar avisos JOIN/PART (estilo IRCCloud).
+    final displayFormatPrefs = ref.read(messageFormatPreferencesProvider);
+    final messageDisplayMeta = _computeDisplayMeta(
+      allMessages,
+      groupMessages: displayFormatPrefs.groupMessages,
+      collapseJoinPart: displayFormatPrefs.collapseJoinPart,
+    );
+
+    // Estado de la barra de "nuevos mensajes": se reinicia al cambiar de canal.
+    final unreadKey = (currentChannel ?? '').toLowerCase();
+    if (_unreadBarChannel != unreadKey) {
+      _unreadBarChannel = unreadKey;
+      _userScrolledUp = false;
+      _newMessagesCount = 0;
+    }
+    if (!_userScrolledUp) {
+      _seenMessageCount = allMessages.length;
+    } else if (allMessages.length > _seenMessageCount) {
+      _newMessagesCount = allMessages.length - _seenMessageCount;
+    }
+
     // Normalizar el nombre del canal para búsqueda (case-insensitive)
     // debugLog('🔍 [DEBUG] 🖼️  ChatScreen build: currentChannel=$currentChannel');
     // debugLog('🔍 [DEBUG] Available channels in provider: ${channels.keys.toList()}');
@@ -9569,10 +9610,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                                                             .length) {
                                                                       return const SizedBox.shrink();
                                                                     }
-                                                                    final message =
-                                                                        allMessages[allMessages.length -
+                                                                    final msgIndex =
+                                                                        allMessages.length -
                                                                             1 -
-                                                                            index];
+                                                                            index;
+                                                                    final message =
+                                                                        allMessages[msgIndex];
+                                                                    final displayMeta =
+                                                                        messageDisplayMeta[
+                                                                            msgIndex];
                                                                     return RepaintBoundary(
                                                                       child: Builder(
                                                                         builder:
@@ -9580,8 +9626,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                                                               context,
                                                                             ) {
                                                                               try {
-                                                                                return _buildMessageTile(
+                                                                                return _buildMessageTileWithMeta(
                                                                                   message,
+                                                                                  displayMeta,
                                                                                 );
                                                                               } catch (
                                                                                 e
@@ -9606,9 +9653,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                                                   } catch (e) {
                                                                     return const SizedBox.shrink();
                                                                   }
-                                                                },
+                                                                 },
                                                               ),
                                                             ),
+                                                            if (_userScrolledUp &&
+                                                                _newMessagesCount >
+                                                                    0)
+                                                              Center(
+                                                                child:
+                                                                    _buildNewMessagesBar(),
+                                                              ),
                                                           ],
                                                         ),
                                                       );
@@ -9757,13 +9811,18 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                                                                 index,
                                                                               ) {
                                                                                 try {
-                                                                                  final message =
-                                                                                      allMessages[allMessages.length -
+                                                                                  final msgIndex =
+                                                                                      allMessages.length -
                                                                                           1 -
-                                                                                          index];
+                                                                                          index;
+                                                                                  final message =
+                                                                                      allMessages[msgIndex];
+                                                                                  final displayMeta =
+                                                                                      messageDisplayMeta[msgIndex];
                                                                                   return RepaintBoundary(
-                                                                                    child: _buildMessageTile(
+                                                                                    child: _buildMessageTileWithMeta(
                                                                                       message,
+                                                                                      displayMeta,
                                                                                     ),
                                                                                   );
                                                                                 } catch (
@@ -9787,6 +9846,18 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                                                         );
                                                                       }
                                                                     },
+                                                                  ),
+                                                                ),
+                                                              if (_userScrolledUp &&
+                                                                  _newMessagesCount >
+                                                                      0)
+                                                                Positioned(
+                                                                  left: 0,
+                                                                  right: 0,
+                                                                  bottom: 0,
+                                                                  child: Center(
+                                                                    child:
+                                                                        _buildNewMessagesBar(),
                                                                   ),
                                                                 ),
                                                               ],
@@ -11450,8 +11521,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     BuildContext context,
     IRCMessage message,
     DateFormat timeFormat,
-    bool isOwnMessage,
-  ) {
+    bool isOwnMessage, {
+    bool hideHeader = false,
+  }) {
     final appTheme = ref.read(themeProvider);
     final formatPrefs = ref.read(messageFormatPreferencesProvider);
     final showTimestamp = formatPrefs.showTimestamp;
@@ -11492,7 +11564,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
+            if (!hideHeader)
+              Row(
               children: [
                 if (isChannel && showInlineChannelAvatar) ...[
                   GestureDetector(
@@ -11677,8 +11750,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     BuildContext context,
     IRCMessage message,
     DateFormat timeFormat,
-    bool isOwnMessage,
-  ) {
+    bool isOwnMessage, {
+    bool hideHeader = false,
+  }) {
     final appTheme = ref.read(themeProvider);
     final formatPrefs = ref.read(messageFormatPreferencesProvider);
     final showTimestamp = formatPrefs.showTimestamp;
@@ -11748,21 +11822,23 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 ),
               )
             else ...[
-              GestureDetector(
-                onTap: () => _showUserContextMenu(context, message.nick),
-                child: Padding(
-                  padding: const EdgeInsets.only(top: 1),
-                  child: Text(
-                    message.nick,
-                    style: TextStyle(
-                      color: nickColor,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 14,
+              if (!hideHeader) ...[
+                GestureDetector(
+                  onTap: () => _showUserContextMenu(context, message.nick),
+                  child: Padding(
+                    padding: const EdgeInsets.only(top: 1),
+                    child: Text(
+                      message.nick,
+                      style: TextStyle(
+                        color: nickColor,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                      ),
                     ),
                   ),
                 ),
-              ),
-              const SizedBox(width: 8),
+                const SizedBox(width: 8),
+              ],
               Expanded(
                 child: _buildMessageContent(
                   message.message,
@@ -11890,6 +11966,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             ],
           ),
         ),
+        const PopupMenuItem(
+          value: 'enlace',
+          child: Row(
+            children: [
+              Icon(Icons.link, size: 18),
+              SizedBox(width: 8),
+              Text('Copiar enlace al mensaje'),
+            ],
+          ),
+        ),
       ],
     );
 
@@ -11930,6 +12016,17 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           );
         }
         break;
+      case 'enlace':
+        await Clipboard.setData(ClipboardData(text: _buildPermalink(message)));
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Enlace copiado'),
+              duration: Duration(seconds: 1),
+            ),
+          );
+        }
+        break;
     }
   }
 
@@ -11964,7 +12061,279 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     );
   }
 
-  Widget _buildMessageTile(IRCMessage message) {
+  /// Detecta si el usuario está en el fondo (lista invertida: offset 0 = fondo)
+  /// y mantiene la barra de "nuevos mensajes" al día.
+  void _onChatScroll() {
+    if (!_chatScrollController.hasClients) return;
+    final atBottom = _chatScrollController.position.pixels <= 24.0;
+    if (atBottom) {
+      final needsReset = _userScrolledUp || _newMessagesCount > 0;
+      if (needsReset) {
+        setState(() {
+          _userScrolledUp = false;
+          _newMessagesCount = 0;
+        });
+      }
+      final key = (ref.read(currentChannelProvider) ?? '').toLowerCase();
+      if (key.isNotEmpty) {
+        final msgs = ref.read(channelsProvider)[key]?.messages;
+        if (msgs != null) _seenMessageCount = msgs.length;
+      }
+    } else if (!_userScrolledUp) {
+      setState(() => _userScrolledUp = true);
+    }
+  }
+
+  /// Vuelve al fondo de la lista (los mensajes más recientes) y limpia la barra.
+  void _jumpToBottom() {
+    if (_chatScrollController.hasClients) {
+      _chatScrollController.animateTo(
+        0,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeOut,
+      );
+    }
+    if (_userScrolledUp || _newMessagesCount > 0) {
+      setState(() {
+        _userScrolledUp = false;
+        _newMessagesCount = 0;
+      });
+    }
+  }
+
+  /// Barra flotante "N nuevos mensajes" (estilo IRCCloud).
+  Widget _buildNewMessagesBar() {
+    final theme = ref.read(themeProvider);
+    return GestureDetector(
+      onTap: _jumpToBottom,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        decoration: BoxDecoration(
+          color: theme.primary,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.25),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.keyboard_arrow_down, color: Colors.white, size: 20),
+            const SizedBox(width: 6),
+            Text(
+              '$_newMessagesCount nuevos mensajes',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Lee un permalink/deep-link de la URL (#c= canal, #m= mensaje) y lo aplica.
+  Future<void> _handleUrlDeepLink() async {
+    if (!PlatformUtils.isWeb) return;
+    try {
+      final fragment = Uri.base.fragment;
+      if (fragment.isEmpty) return;
+      final params = Uri.splitQueryString(fragment);
+      final channel = params['c'];
+      if (channel == null || channel.trim().isEmpty) return;
+      _deepLinkChannel = channel.trim().startsWith('#')
+          ? channel.trim()
+          : '#${channel.trim()}';
+      _deepLinkMessageId = params['m']?.isNotEmpty == true ? params['m'] : null;
+      _applyDeepLink();
+      if (_deepLinkChannel != null) {
+        // Reintentar mientras el canal se une/abre (máx ~30s).
+        for (var attempt = 1; attempt <= 8; attempt++) {
+          await Future<void>.delayed(Duration(milliseconds: 1500 * attempt));
+          if (!mounted) return;
+          _applyDeepLink();
+        }
+      }
+    } catch (_) {
+      // URL malformada: ignorar silenciosamente.
+    }
+  }
+
+  /// Abre el canal del deep-link y resalta/desplaza al mensaje objetivo.
+  void _applyDeepLink() {
+    final channel = _deepLinkChannel;
+    if (channel == null) return;
+    final isAvailable =
+        _ircService.channels.containsKey(channel.toLowerCase()) ||
+            _ircService.isChannelJoined(channel);
+    if (!isAvailable) return;
+    ref.read(currentChannelProvider.notifier).state = channel;
+    ref.read(lastChannelProvider.notifier).state = channel;
+    if (_deepLinkMessageId != null) {
+      _tryScrollToDeepLinkMessage();
+    }
+  }
+
+  /// Busca el mensaje objetivo del permalink y lo desplaza al centro,
+  /// marcándolo con un resaltado temporal.
+  void _tryScrollToDeepLinkMessage() {
+    final msgId = _deepLinkMessageId;
+    if (msgId == null) return;
+    final targetKey = _deepLinkTargetKey;
+    if (targetKey == null) return;
+    final ctx = targetKey.currentContext;
+    if (ctx == null) return;
+    try {
+      setState(() => _deepLinkHighlightVisible = true);
+      Scrollable.ensureVisible(
+        ctx,
+        duration: const Duration(milliseconds: 400),
+        alignment: 0.5,
+      );
+      Future.delayed(const Duration(seconds: 6), () {
+        if (!mounted) return;
+        setState(() {
+          _deepLinkHighlightVisible = false;
+          _deepLinkMessageId = null;
+          _deepLinkTargetKey = null;
+        });
+      });
+    } catch (_) {
+      // Si falla el scroll, dejar el canal abierto sin más.
+    }
+  }
+
+  /// Construye el enlace permanente a un mensaje para compartir.
+  String _buildPermalink(IRCMessage message) {
+    String origin;
+    try {
+      origin = Uri.base.origin;
+    } catch (_) {
+      origin = 'https://mobilev1.globalchat.org';
+    }
+    final channel = Uri.encodeComponent(message.channel);
+    final msgId =
+        message.messageId ?? '${message.timestamp.millisecondsSinceEpoch}';
+    return '$origin/#c=$channel&m=$msgId';
+  }
+
+  /// Calcula los metadatos de visualización (agrupar consecutivos y colapsar
+  /// JOIN/PART) para cada mensaje, en un solo pase sobre la lista cronológica.
+  Map<int, _MessageDisplayMeta> _computeDisplayMeta(
+    List<IRCMessage> messages, {
+    required bool groupMessages,
+    required bool collapseJoinPart,
+  }) {
+    final meta = <int, _MessageDisplayMeta>{};
+    final n = messages.length;
+    for (var i = 0; i < n; i++) {
+      final msg = messages[i];
+      if (msg.isSystem) {
+        if (!collapseJoinPart) {
+          meta[i] = _MessageDisplayMeta();
+          continue;
+        }
+        final category = _systemCategory(msg);
+        if (category == _SystemCategory.other) {
+          meta[i] = _MessageDisplayMeta();
+          continue;
+        }
+        // Encontrar el final del run de avisos de la misma categoría.
+        var runEnd = i;
+        while (runEnd + 1 < n &&
+            messages[runEnd + 1].isSystem &&
+            _systemCategory(messages[runEnd + 1]) == category) {
+          runEnd++;
+        }
+        final runLength = runEnd - i + 1;
+        for (var j = i; j <= runEnd; j++) {
+          meta[j] = _MessageDisplayMeta(
+            hideSystem: j != runEnd,
+            systemCount: runLength,
+          );
+        }
+        i = runEnd;
+        continue;
+      }
+      // Mensaje normal: agrupar si el anterior es del mismo usuario.
+      bool hideHeader = false;
+      if (groupMessages && i > 0) {
+        final prev = messages[i - 1];
+        if (!prev.isSystem &&
+            prev.nick.toLowerCase() == msg.nick.toLowerCase() &&
+            prev.channel.toLowerCase() == msg.channel.toLowerCase() &&
+            !prev.isPending &&
+            !msg.isPending &&
+            msg.timestamp.difference(prev.timestamp).inMinutes < 10 &&
+            prev.timestamp.day == msg.timestamp.day) {
+          hideHeader = true;
+        }
+      }
+      meta[i] = _MessageDisplayMeta(hideHeader: hideHeader);
+    }
+    return meta;
+  }
+
+  _SystemCategory _systemCategory(IRCMessage msg) {
+    final lower = msg.message.toLowerCase();
+    if (lower.contains('se unió') || lower.contains('se unio')) {
+      return _SystemCategory.join;
+    }
+    if (lower.contains('ya no está conectado') ||
+        lower.contains('ya no esta conectado')) {
+      return _SystemCategory.offline;
+    }
+    return _SystemCategory.other;
+  }
+
+  /// Construye el tile aplicando los metadatos de agrupación/colapso y, si el
+  /// mensaje es el objetivo de un permalink, le asigna una key y un resaltado.
+  Widget _buildMessageTileWithMeta(
+    IRCMessage message,
+    _MessageDisplayMeta? meta,
+  ) {
+    final isDeepLinkTarget = message.messageId != null &&
+        _deepLinkMessageId != null &&
+        message.messageId == _deepLinkMessageId;
+    if (isDeepLinkTarget) {
+      _deepLinkTargetKey ??= GlobalKey();
+    }
+
+    var tile = _buildMessageTile(
+      message,
+      hideHeader: meta?.hideHeader ?? false,
+      hideSystem: meta?.hideSystem ?? false,
+      systemCount: meta?.systemCount ?? 1,
+    );
+
+    if (isDeepLinkTarget) {
+      if (_deepLinkHighlightVisible) {
+        tile = Container(
+          decoration: BoxDecoration(
+            color: Colors.amber.withValues(alpha: 0.18),
+          ),
+          child: tile,
+        );
+      }
+      tile = KeyedSubtree(key: _deepLinkTargetKey, child: tile);
+    }
+    return tile;
+  }
+
+  Widget _buildMessageTile(
+    IRCMessage message, {
+    bool hideHeader = false,
+    bool hideSystem = false,
+    int systemCount = 1,
+  }) {
+    if (hideSystem) return const SizedBox.shrink();
     // Optimización: memoizar timeFormat
     final timeFormat = DateFormat('HH:mm');
     final currentNick = ref.read(currentNicknameProvider);
@@ -12054,6 +12423,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           message,
           timeFormat,
           isOwnMessage,
+          hideHeader: hideHeader,
         ),
       );
     }
@@ -12061,8 +12431,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     // Si no es formato burbuja, usar formato texto plano (con caja por mensaje).
     if (!useBubbleFormat && !message.isSystem) {
       return Builder(
-        builder: (context) =>
-            _buildPlainTextMessage(context, message, timeFormat, isOwnMessage),
+        builder: (context) => _buildPlainTextMessage(
+          context,
+          message,
+          timeFormat,
+          isOwnMessage,
+          hideHeader: hideHeader,
+        ),
       );
     }
 
@@ -12070,6 +12445,22 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       // Detectar si es JOIN o PART o usuario no conectado
       final isJoin = message.message.contains('se unió');
       final isOffline = message.message.contains('ya no está conectado');
+
+      // Resumen de avisos colapsados: "Nick y N más se unieron al canal"
+      final String systemSummary;
+      if (systemCount > 1) {
+        final extra = systemCount - 1;
+        final extraText = extra == 1 ? '1 usuario más' : '$extra usuarios más';
+        if (isJoin) {
+          systemSummary = 'y $extraText se unieron al canal';
+        } else if (isOffline) {
+          systemSummary = 'y $extraText ya no están conectados';
+        } else {
+          systemSummary = message.message;
+        }
+      } else {
+        systemSummary = message.message;
+      }
 
       return Padding(
         padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
@@ -12164,7 +12555,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 ),
                 const SizedBox(width: 6),
                 Text(
-                  message.message,
+                  systemSummary,
                   style: TextStyle(
                     color: isJoin
                         ? Colors.green[600]
@@ -27182,3 +27573,20 @@ class IgnoreAllPrivatesBadge extends ConsumerWidget {
     );
   }
 }
+
+/// Metadatos de visualización de un mensaje: agrupación de consecutivos y
+/// colapso de avisos JOIN/PART (estilo IRCCloud).
+class _MessageDisplayMeta {
+  final bool hideHeader;
+  final bool hideSystem;
+  final int systemCount;
+
+  const _MessageDisplayMeta({
+    this.hideHeader = false,
+    this.hideSystem = false,
+    this.systemCount = 1,
+  });
+}
+
+/// Categorías de avisos de sistema colapsables.
+enum _SystemCategory { join, offline, other }

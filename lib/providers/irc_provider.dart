@@ -2462,6 +2462,13 @@ class MessageFormatPreferences {
   /// Si está activado, hacer doble tap en un usuario de la lista abre un MP.
   final bool doubleTapOpensPrivateMessage;
 
+  /// Agrupar mensajes consecutivos del mismo usuario (estilo IRCCloud):
+  /// el nick solo se muestra en el primer mensaje del grupo.
+  final bool groupMessages;
+
+  /// Colapsar avisos JOIN/PART consecutivos en una sola línea resumen.
+  final bool collapseJoinPart;
+
   const MessageFormatPreferences({
     this.channelFormat = MessageFormat.compact,
     this.privateFormat = MessageFormat.compact,
@@ -2477,6 +2484,8 @@ class MessageFormatPreferences {
     this.enableReactions = false,
     this.enableAnimatedAvatars = true,
     this.doubleTapOpensPrivateMessage = true,
+    this.groupMessages = true,
+    this.collapseJoinPart = true,
   });
 
   MessageFormatPreferences copyWith({
@@ -2494,6 +2503,8 @@ class MessageFormatPreferences {
     bool? enableReactions,
     bool? enableAnimatedAvatars,
     bool? doubleTapOpensPrivateMessage,
+    bool? groupMessages,
+    bool? collapseJoinPart,
   }) {
     return MessageFormatPreferences(
       channelFormat: channelFormat ?? this.channelFormat,
@@ -2514,6 +2525,8 @@ class MessageFormatPreferences {
           enableAnimatedAvatars ?? this.enableAnimatedAvatars,
       doubleTapOpensPrivateMessage:
           doubleTapOpensPrivateMessage ?? this.doubleTapOpensPrivateMessage,
+      groupMessages: groupMessages ?? this.groupMessages,
+      collapseJoinPart: collapseJoinPart ?? this.collapseJoinPart,
     );
   }
 }
@@ -2543,6 +2556,8 @@ class MessageFormatPreferencesNotifier
   static const _prefsKeyEnableReactions = 'enable_reactions';
   static const _prefsKeyEnableAnimatedAvatars = 'enable_animated_avatars';
   static const _prefsKeyDoubleTapOpensPrivateMessage = 'double_tap_opens_private_message';
+  static const _prefsKeyGroupMessages = 'message_group_messages';
+  static const _prefsKeyCollapseJoinPart = 'message_collapse_join_part';
 
   @override
   MessageFormatPreferences build() {
@@ -2573,6 +2588,9 @@ class MessageFormatPreferencesNotifier
           prefs.getBool(_prefsKeyEnableAnimatedAvatars) ?? true;
       final doubleTapOpensPrivateMessage =
           prefs.getBool(_prefsKeyDoubleTapOpensPrivateMessage) ?? true;
+      final groupMessages = prefs.getBool(_prefsKeyGroupMessages) ?? true;
+      final collapseJoinPart =
+          prefs.getBool(_prefsKeyCollapseJoinPart) ?? true;
 
       // Por defecto: canal = compacto (estilo IRC), privado = texto plano.
       final channelFormat = messageFormatFromString(
@@ -2599,6 +2617,8 @@ class MessageFormatPreferencesNotifier
         enableReactions: enableReactions,
         enableAnimatedAvatars: enableAnimatedAvatars,
         doubleTapOpensPrivateMessage: doubleTapOpensPrivateMessage,
+        groupMessages: groupMessages,
+        collapseJoinPart: collapseJoinPart,
       );
     } catch (_) {
       // Ignorar errores de carga
@@ -2646,6 +2666,26 @@ class MessageFormatPreferencesNotifier
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool(_prefsKeyShowInlineChannelAvatar, show);
+    } catch (_) {
+      // Ignorar errores de guardado
+    }
+  }
+
+  Future<void> setGroupMessages(bool value) async {
+    state = state.copyWith(groupMessages: value);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_prefsKeyGroupMessages, value);
+    } catch (_) {
+      // Ignorar errores de guardado
+    }
+  }
+
+  Future<void> setCollapseJoinPart(bool value) async {
+    state = state.copyWith(collapseJoinPart: value);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_prefsKeyCollapseJoinPart, value);
     } catch (_) {
       // Ignorar errores de guardado
     }
