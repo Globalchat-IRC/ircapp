@@ -4573,14 +4573,33 @@ class IRCService {
                       .substring(8, messageContent.length - 1)
                       .trim();
 
+                  // ¿La acción va dirigida a nosotros?
+                  // - En privado (query) siempre va a nosotros.
+                  // - En canal, la acción lleva el nick de destino tras el emoji.
+                  bool isActionForMe = false;
+                  if (!isChannel) {
+                    isActionForMe = true;
+                  } else {
+                    final actionParts = actionText.split(' ');
+                    final targetNick =
+                        actionParts.length >= 2 ? actionParts[1].trim() : '';
+                    isActionForMe =
+                        targetNick.isNotEmpty &&
+                        _nickname != null &&
+                        targetNick.toLowerCase() ==
+                            _nickname!.toLowerCase();
+                  }
+
                   // Detectar si es un beso (ACTION con 💋)
                   if (actionText.startsWith('\u{1F48B}') &&
-                      nick.toLowerCase() != _nickname?.toLowerCase()) {
+                      nick.toLowerCase() != _nickname?.toLowerCase() &&
+                      isActionForMe) {
                     _notifyKissListeners(nick);
                   }
 
                   // Detectar acciones interactivas genéricas
-                  if (nick.toLowerCase() != _nickname?.toLowerCase()) {
+                  if (nick.toLowerCase() != _nickname?.toLowerCase() &&
+                      isActionForMe) {
                     final actionEmojiMap = {
                       '\u{1F44A}': 'poke',
                       '\u{1F44E}': 'poke',
