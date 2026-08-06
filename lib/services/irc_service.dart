@@ -1695,9 +1695,9 @@ class IRCService {
     if (normalizedNick.isEmpty) return;
     final currentChannel = channel ?? _currentChannel;
     if (currentChannel != null && currentChannel.startsWith('#')) {
-      sendMe(currentChannel, '\u{1F44E} $normalizedNick');
+      sendMe(currentChannel, '\u{1F44A} $normalizedNick');
     } else {
-      sendMe(normalizedNick, '\u{1F44E}');
+      sendMe(normalizedNick, '\u{1F44A}');
     }
   }
 
@@ -4582,12 +4582,13 @@ class IRCService {
                   // Detectar acciones interactivas genéricas
                   if (nick.toLowerCase() != _nickname?.toLowerCase()) {
                     final actionEmojiMap = {
-                      '\u{1F48B}': 'kiss',
+                      '\u{1F44A}': 'poke',
                       '\u{1F44E}': 'poke',
                       '\u{1F44B}': 'wave',
                       '\u{1F91D}': 'highfive',
+                      '\u{1F64F}': 'highfive',
                       '\u{1F917}': 'hug',
-                      '\u{1F64F}': 'hug',
+                      '\u{1F91A}': 'slap',
                       '\u{270B}': 'slap',
                       '\u{1FA78}': 'slap',
                       '\u{1F4A6}': 'spray',
