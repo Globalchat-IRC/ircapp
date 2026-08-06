@@ -133,7 +133,7 @@ class _ActionAnimationState extends State<ActionAnimation>
   late AnimationController _mainController;
   late AnimationController _fadeController;
   late AnimationController _particlesController;
-  late AnimationController? _shakeController;
+  AnimationController? _shakeController;
 
   @override
   void initState() {

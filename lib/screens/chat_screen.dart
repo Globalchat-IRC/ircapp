@@ -734,16 +734,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       if (mounted) {
         final clean = message.message.replaceAll('\u200B', '').trim();
         if (clean.startsWith('GIFT ') && clean.split('|').length >= 4) {
+          // Formato enviado: GIFT icon|name|value|sender|target
           final parts = clean.split('|');
-          // GIFT|sender|giftId|giftName
           if (parts.length >= 4) {
-            final sender = parts[1];
-            final giftId = int.tryParse(parts[2]);
-            final giftName = parts[3];
-            final giftValue = parts.length >= 5
-                ? int.tryParse(parts[4]) ?? 30
-                : 30;
-            final recipientNick = parts.length >= 6 ? parts[5] : '';
+            final giftIcon = parts[0].substring('GIFT '.length).trim();
+            final giftName = parts[1];
+            final giftValue = int.tryParse(parts[2]) ?? 30;
+            final sender = parts[3];
+            final recipientNick = parts.length >= 5 ? parts[4] : '';
             final currentNick = ref.read(currentNicknameProvider);
             final isForMe =
                 currentNick != null &&
@@ -752,15 +750,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             if (isForMe && currentNick != sender) {
               _globalPointsService.add(giftValue);
             }
-            final giftItem = giftId != null
-                ? GiftConfig.findById(giftId)
-                : null;
             if (isForMe) {
               GiftPopup.show(
                 context,
                 senderNick: sender,
-                giftIcon: giftItem?.icon ?? '🎁',
-                giftName: giftItem?.name ?? giftName,
+                giftIcon: giftIcon.isEmpty ? '🎁' : giftIcon,
+                giftName: giftName,
               );
             }
           }
@@ -2958,7 +2953,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 ref
                     .read(notificationSettingsProvider.notifier)
                     .addCustomAction(emoji, label);
-                final channel = _ircService.currentChannel;
+                final channel = ref.read(currentChannelProvider) ?? _ircService.currentChannel;
                 if (channel != null) {
                   _ircService.sendActionToUser(channel, emoji, nick);
                 }
@@ -9112,7 +9107,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                       GestureDetector(
                                         onTap: () {
                                           if (!isSelf) {
-                                            _ircService.sendPoke(user);
+                                            _ircService.sendPoke(user, channel: ref.read(currentChannelProvider));
                                             ScaffoldMessenger.of(
                                               context,
                                             ).showSnackBar(
@@ -12072,8 +12067,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     }
 
     if (message.isSystem) {
-      // Detectar si es JOIN o PART
+      // Detectar si es JOIN o PART o usuario no conectado
       final isJoin = message.message.contains('se unió');
+      final isOffline = message.message.contains('ya no está conectado');
 
       return Padding(
         padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
@@ -12087,6 +12083,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         Colors.green.withValues(alpha: 0.2),
                         Colors.greenAccent.withValues(alpha: 0.15),
                       ]
+                    : isOffline
+                    ? [
+                        Colors.pink.withValues(alpha: 0.2),
+                        Colors.purple.withValues(alpha: 0.15),
+                      ]
                     : [
                         Colors.orange.withValues(alpha: 0.2),
                         Colors.redAccent.withValues(alpha: 0.15),
@@ -12098,12 +12099,19 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               border: Border.all(
                 color: isJoin
                     ? Colors.green.withValues(alpha: 0.4)
+                    : isOffline
+                    ? Colors.pink.withValues(alpha: 0.4)
                     : Colors.orange.withValues(alpha: 0.4),
                 width: 1.5,
               ),
               boxShadow: [
                 BoxShadow(
-                  color: (isJoin ? Colors.green : Colors.orange).withValues(
+                  color: (isJoin
+                          ? Colors.green
+                          : isOffline
+                          ? Colors.pink
+                          : Colors.orange)
+                      .withValues(
                     alpha: 0.2,
                   ),
                   blurRadius: 8,
@@ -12117,22 +12125,39 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 Container(
                   padding: const EdgeInsets.all(6),
                   decoration: BoxDecoration(
-                    color: (isJoin ? Colors.green : Colors.orange).withValues(
+                    color: (isJoin
+                            ? Colors.green
+                            : isOffline
+                            ? Colors.pink
+                            : Colors.orange)
+                        .withValues(
                       alpha: 0.2,
                     ),
                     shape: BoxShape.circle,
                   ),
                   child: Icon(
-                    isJoin ? Icons.person_add : Icons.person_remove,
+                    isJoin
+                        ? Icons.person_add
+                        : isOffline
+                        ? Icons.person_off
+                        : Icons.person_remove,
                     size: 16,
-                    color: isJoin ? Colors.green[700] : Colors.orange[700],
+                    color: isJoin
+                        ? Colors.green[700]
+                        : isOffline
+                        ? Colors.pink[700]
+                        : Colors.orange[700],
                   ),
                 ),
                 const SizedBox(width: 10),
                 Text(
                   message.nick,
                   style: TextStyle(
-                    color: isJoin ? Colors.green[700] : Colors.orange[700],
+                    color: isJoin
+                        ? Colors.green[700]
+                        : isOffline
+                        ? Colors.pink[700]
+                        : Colors.orange[700],
                     fontWeight: FontWeight.bold,
                     fontSize: 13,
                   ),
@@ -12141,7 +12166,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 Text(
                   message.message,
                   style: TextStyle(
-                    color: isJoin ? Colors.green[600] : Colors.orange[600],
+                    color: isJoin
+                        ? Colors.green[600]
+                        : isOffline
+                        ? Colors.pink[600]
+                        : Colors.orange[600],
                     fontSize: 12,
                     fontWeight: FontWeight.w500,
                   ),
@@ -19320,7 +19349,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         ),
                         onTap: () {
                           Navigator.pop(context);
-                          final channel = _ircService.currentChannel;
+                          final channel = ref.read(currentChannelProvider) ?? _ircService.currentChannel;
                           if (channel != null) {
                             _ircService.sendActionToUser(
                               channel,
@@ -19354,7 +19383,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                           title: Text(ca.label),
                           onTap: () {
                             Navigator.pop(context);
-                            final channel = _ircService.currentChannel;
+                            final channel = ref.read(currentChannelProvider) ?? _ircService.currentChannel;
                             if (channel != null) {
                               _ircService.sendActionToUser(
                                 channel,

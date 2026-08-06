@@ -58,6 +58,8 @@ class IRCService {
   final Map<String, WhoisInfo> _whoisCache = {};
   final Map<String, WhoisInfo> _pendingWhois =
       {}; // Para acumular información de whois
+  final Map<String, DateTime> _recentPrivateSends =
+      {}; // Última vez que se envió un PM a cada nick (para detectar 401 de envío)
   // Resultados de comandos LIST y WHO
   final List<Map<String, dynamic>> _listResults = []; // Lista de canales
   final List<Map<String, dynamic>> _whoResults = []; // Lista de usuarios de WHO
@@ -916,6 +918,7 @@ class IRCService {
         timer.cancel();
       }
       _pendingMessageTimers.clear();
+      _recentPrivateSends.clear();
       try {
         await _connection!.disconnect();
       } catch (_) {}
@@ -1661,6 +1664,7 @@ class IRCService {
     if (!channels.containsKey(queryChannel)) {
       channels[queryChannel] = IRCChannel(name: queryChannel);
     }
+    _recentPrivateSends[queryChannel] = DateTime.now();
     final msg = IRCMessage(
       nick: _nickname ?? 'You',
       channel: queryChannel,
@@ -1685,16 +1689,15 @@ class IRCService {
     _sendCommand('PRIVMSG $normalized :\x01TYPING 0\x01');
   }
 
-  void sendPoke(String nick) {
+  void sendPoke(String nick, {String? channel}) {
     if (!_hasActiveConnection) return;
     final normalizedNick = nick.trim();
     if (normalizedNick.isEmpty) return;
-    final currentChannel = _currentChannel;
+    final currentChannel = channel ?? _currentChannel;
     if (currentChannel != null && currentChannel.startsWith('#')) {
       sendMe(currentChannel, '\u{1F44E} $normalizedNick');
     } else {
-      final target = currentChannel ?? normalizedNick;
-      sendMe(target, '\u{1F44E} $normalizedNick');
+      sendMe(normalizedNick, '\u{1F44E}');
     }
   }
 
@@ -1743,7 +1746,10 @@ class IRCService {
   /// Enviar acción interactiva a un usuario (via ACTION al canal)
   void sendActionToUser(String channel, String emoji, String target) {
     if (!_hasActiveConnection) return;
-    final actionText = '$emoji $target';
+    // En un query privado (canal sin '#') el destinatario ya es el nick del
+    // canal: la acción se envía sin repetir el nombre de destino.
+    final isPrivateQuery = !channel.startsWith('#');
+    final actionText = isPrivateQuery ? emoji : '$emoji $target';
     sendMe(channel, actionText);
   }
 
@@ -2489,6 +2495,7 @@ class IRCService {
     if (!channels.containsKey(queryChannel)) {
       channels[queryChannel] = IRCChannel(name: queryChannel);
     }
+    _recentPrivateSends[queryChannel] = DateTime.now();
 
     // Enviar por la red PRIMERO; solo agregar localmente si el envío fue exitoso
     final sent = _sendWirePrivmsg(normalizedNick, message);
@@ -4154,6 +4161,19 @@ class IRCService {
             _whoisCache[targetNick.toLowerCase()] = errorInfo;
             _notifyWhoisListeners(errorInfo);
             _pendingWhois.remove(targetNick);
+
+            // Si acabamos de enviar un PM a ese nick y el servidor responde
+            // 401, el usuario ya no está conectado (o nunca existió).
+            final queryKey = targetNick.toLowerCase();
+            final lastSend = _recentPrivateSends[queryKey];
+            if (lastSend != null &&
+                DateTime.now().difference(lastSend).inSeconds < 30) {
+              addSystemMessage(
+                queryKey,
+                'El usuario $targetNick ya no está conectado',
+              );
+              _recentPrivateSends.remove(queryKey);
+            }
           }
           break;
 
