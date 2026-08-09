@@ -574,6 +574,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   late final ScheduledMessagesService _scheduledMessagesService;
   bool _nickIdentifyDialogOpen = false;
   bool _autoNickIdentifyDialogShown = false;
+  bool _nickStatusCheckScheduled = false;
+  // Estado del modal de identificación NickServ (0=formulario, 1=verificando,
+  // 2=éxito, 3=error) y mecanismo para actualizarlo desde fuera del diálogo.
+  int _nickIdentifyDialogPhase = 0;
+  String? _nickIdentifyDialogError;
+  bool _nickIdentifySucceeded = false;
+  BuildContext? _nickIdentifyDialogContext;
+  StateSetter? _setNickIdentifyDialogState;
+  Timer? _nickIdentifyCloseTimer;
+  Timer? _nickIdentifyTimeoutTimer;
 
   // Listener para canales de ayuda
   Function(String)? _helpChannelJoinListener;
@@ -716,6 +726,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
     // Listen for new messages to auto-open private messages
     _ircService.addMessageListener(_onMessageReceived);
+
+    // Listen for connection to verificar si el nick está registrado sin
+    // identificar (respaldo determinista del aviso del bot "nick")
+    _ircService.addConnectionListener(_onIrcConnectedForNickStatusCheck);
+    // Si la conexión ya estaba establecida antes de montar este widget
+    // (p.ej. login conecta antes de navegar), lanzar la verificación igualmente.
+    if (_ircService.isConnected) {
+      _onIrcConnectedForNickStatusCheck();
+    }
 
     // Listen for nickname changes
     _ircService.addNickChangeListener(_onNickChanged);
@@ -1103,6 +1122,19 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       // Añadir a recientes el canal de cualquier mensaje recibido
       ref.read(recentChannelsProvider.notifier).addRecent(messageChannel);
 
+      // Si el modal de identificación NickServ está abierto, vigilar la
+      // respuesta del bot "nick" al IDENTIFY para actualizar el modal y
+      // cerrar la ventana privada del bot al confirmarse la identificación.
+      if (_nickIdentifyDialogOpen) {
+        _handleNickIdentifyResponse(message);
+      }
+
+      // Si la identificación ya se confirmó, mantener cerrada la ventana
+      // privada del bot "nick" aunque lleguen mensajes posteriores.
+      if (_nickIdentifySucceeded && messageChannel == 'nick') {
+        _closePrivateChat('nick');
+      }
+
       // Notificaciones y sonidos según tipo de mensaje y reglas
       final settings = ref.read(notificationSettingsProvider);
       if (settings.doNotDisturb) {
@@ -1269,6 +1301,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       return false;
     }
 
+    if (_ircService.hasSessionIdentifyPassword) {
+      return false;
+    }
+
     if (!_isNickRegistrationMessage(message)) {
       return false;
     }
@@ -1286,6 +1322,48 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     return messageLower.contains('está registrado') ||
         messageLower.contains('esta registrado') ||
         (messageLower.contains('protegido') && !messageLower.contains('no'));
+  }
+
+  // Al conectarse, verificar (una vez) si el nick actual está registrado y sin
+  // identificar. Es un respaldo determinista: si el aviso del bot "nick" no
+  // llega o su texto no coincide, se detecta el registro vía STATUS.
+  void _onIrcConnectedForNickStatusCheck() {
+    if (_nickStatusCheckScheduled) return;
+    _nickStatusCheckScheduled = true;
+    // Retraso para dejar tiempo a que el nick quede registrado en el servidor
+    // y a que el aviso del bot (vía mensaje) o la auto-identificación ocurran.
+    Future.delayed(const Duration(seconds: 6), _checkNickRegisteredStatus);
+  }
+
+  Future<void> _checkNickRegisteredStatus() async {
+    _nickStatusCheckScheduled = false;
+    if (!mounted) return;
+    if (_autoNickIdentifyDialogShown || _nickIdentifyDialogOpen) return;
+
+    final allowNickModal = ref.read(nickIdentifyModalAllowedProvider);
+    if (!allowNickModal) return;
+
+    if (_ircService.hasSessionIdentifyPassword) return;
+
+    final currentNick = ref.read(currentNicknameProvider);
+    if (currentNick == null || currentNick.trim().isEmpty) return;
+
+    // Códigos de STATUS del bot "nick":
+    // 0 = no registrado, 1 = registrado sin identificar, 2 = registrado (no en
+    // uso), 3 = registrado e identificado.
+    final status = await _ircService.checkNickStatus(currentNick).future;
+    if (!mounted) return;
+    if (status != 1 && status != 2) return;
+
+    if (_autoNickIdentifyDialogShown || _nickIdentifyDialogOpen) return;
+    if (_ircService.hasSessionIdentifyPassword) return;
+
+    _autoNickIdentifyDialogShown = true;
+    ref.read(nickIdentifyModalAllowedProvider.notifier).state = false;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _showNickIdentifyDialog(context);
+    });
   }
 
   Future<void> _loadHistoryIfNeeded(String channel) async {
@@ -8563,9 +8641,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         }
 
                         final appTheme = ref.read(themeProvider);
+                        final myNick = ref.read(currentNicknameProvider);
+                        final isOwnUser =
+                            myNick != null &&
+                            user.toLowerCase() == myNick.toLowerCase();
                         // Generar color para el avatar
                         final userColor = isRobot
                             ? const Color(0xFFFFD700)
+                            : isOwnUser
+                            ? _ownNickDisplayColor(appTheme)
                             : colorForNick(user);
 
                         return GestureDetector(
@@ -9933,6 +10017,26 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                                         }
                                                       },
                                                     );
+                                                  },
+                                                ),
+                                                IconButton(
+                                                  padding: EdgeInsets.zero,
+                                                  visualDensity:
+                                                      VisualDensity.compact,
+                                                  constraints:
+                                                      const BoxConstraints(
+                                                        minWidth: 38,
+                                                        minHeight: 38,
+                                                      ),
+                                                  iconSize: 22,
+                                                  icon: Icon(
+                                                    Icons.color_lens,
+                                                    color: appTheme.primary,
+                                                  ),
+                                                  tooltip:
+                                                      'Formato IRC (color de nick y aura)',
+                                                  onPressed: () {
+                                                    _showFormatIRCSheet(context);
                                                   },
                                                 ),
                                                 IconButton(
@@ -11544,7 +11648,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 message.nick.toLowerCase(),
           );
     final userMode = channelData?.getUserMode(message.nick);
-    final userColor = isBot
+    final userColor = isOwnMessage
+        ? _ownNickDisplayColor(appTheme)
+        : isBot
         ? const Color(0xFFFFD700)
         : colorForNick(message.nick);
     final userIcon = _getUserIcon(userMode, isBot, nick: message.nick);
@@ -11772,7 +11878,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           );
     final userMode = channelData?.getUserMode(message.nick);
     final nickColor = isOwnMessage
-        ? appTheme.primary
+        ? _ownNickDisplayColor(appTheme)
         : isBot
         ? const Color(0xFFB8860B)
         : userMode == '@' || userMode == '&'
@@ -18842,283 +18948,507 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   void _showNickIdentifyDialog(BuildContext context) {
     if (_nickIdentifyDialogOpen) return;
     _nickIdentifyDialogOpen = true;
+    _nickIdentifyDialogPhase = 0;
+    _nickIdentifyDialogError = null;
+    _nickIdentifyCloseTimer?.cancel();
+    _nickIdentifyTimeoutTimer?.cancel();
     final appTheme = ref.read(themeProvider);
     final currentNick = ref.read(currentNicknameProvider) ?? '';
     final passwordController = TextEditingController();
     final formKey = GlobalKey<FormState>();
     bool obscurePassword = true;
-    bool isSubmitting = false;
 
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (dialogContext) => StatefulBuilder(
-        builder: (context, setDialogState) => Dialog(
-          backgroundColor: Colors.transparent,
-          child: Container(
-            constraints: const BoxConstraints(maxWidth: 500),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  appTheme.surface,
-                  appTheme.surface.withValues(alpha: 0.95),
+        builder: (context, setDialogState) {
+          _setNickIdentifyDialogState = setDialogState;
+          _nickIdentifyDialogContext = dialogContext;
+          return Dialog(
+            backgroundColor: Colors.transparent,
+            child: Container(
+              constraints: const BoxConstraints(maxWidth: 500),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    appTheme.surface,
+                    appTheme.surface.withValues(alpha: 0.95),
+                  ],
+                ),
+                borderRadius: BorderRadius.circular(24),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.blue.withValues(alpha: 0.3),
+                    blurRadius: 20,
+                    spreadRadius: 5,
+                    offset: const Offset(0, 10),
+                  ),
                 ],
               ),
-              borderRadius: BorderRadius.circular(24),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.blue.withValues(alpha: 0.3),
-                  blurRadius: 20,
-                  spreadRadius: 5,
-                  offset: const Offset(0, 10),
-                ),
-              ],
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // Header
-                Container(
-                  padding: const EdgeInsets.all(24),
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [Colors.blue, Colors.blue.shade700],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
-                    borderRadius: const BorderRadius.only(
-                      topLeft: Radius.circular(24),
-                      topRight: Radius.circular(24),
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.2),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: const Icon(
-                          Icons.lock_open,
-                          color: Colors.white,
-                          size: 28,
-                        ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Header
+                  Container(
+                    padding: const EdgeInsets.all(24),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [Colors.blue, Colors.blue.shade700],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
                       ),
-                      const SizedBox(width: 16),
-                      const Expanded(
-                        child: Text(
-                          'Identificar Nick',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 24,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
+                      borderRadius: const BorderRadius.only(
+                        topLeft: Radius.circular(24),
+                        topRight: Radius.circular(24),
                       ),
-                    ],
-                  ),
-                ),
-                // Contenido
-                Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: Form(
-                    key: formKey,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
+                    ),
+                    child: Row(
                       children: [
-                        Text(
-                          'Ingresa tu contraseña para identificar el nick "$currentNick":',
-                          style: TextStyle(
-                            color: appTheme.textPrimary,
-                            fontSize: 14,
-                            height: 1.5,
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.2),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Icon(
+                            _nickIdentifyDialogPhase == 2
+                                ? Icons.verified_user
+                                : Icons.lock_open,
+                            color: Colors.white,
+                            size: 28,
                           ),
                         ),
-                        const SizedBox(height: 20),
-                        TextFormField(
-                          controller: passwordController,
-                          obscureText: obscurePassword,
-                          enabled: !isSubmitting,
-                          style: TextStyle(color: appTheme.textPrimary),
-                          decoration: InputDecoration(
-                            labelText: 'Contraseña *',
-                            labelStyle: TextStyle(color: appTheme.primary),
-                            hintText: 'Ingresa tu contraseña',
-                            hintStyle: TextStyle(color: appTheme.textSecondary),
-                            prefixIcon: const Icon(Icons.lock),
-                            suffixIcon: IconButton(
-                              icon: Icon(
-                                obscurePassword
-                                    ? Icons.visibility
-                                    : Icons.visibility_off,
-                                color: appTheme.textSecondary,
-                              ),
-                              onPressed: () {
-                                setDialogState(() {
-                                  obscurePassword = !obscurePassword;
-                                });
-                              },
+                        const SizedBox(width: 16),
+                        const Expanded(
+                          child: Text(
+                            'Identificar Nick',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 24,
+                              fontWeight: FontWeight.bold,
                             ),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            filled: true,
-                            fillColor: appTheme.background,
                           ),
-                          validator: (value) {
-                            if (value == null || value.isEmpty) {
-                              return 'La contraseña es requerida';
-                            }
-                            return null;
-                          },
-                          onFieldSubmitted: (_) {
-                            if (formKey.currentState!.validate() &&
-                                !isSubmitting) {
-                              setDialogState(() {
-                                isSubmitting = true;
-                              });
-                              final nick =
-                                  ref.read(currentNicknameProvider) ?? '';
-                              if (nick.isNotEmpty) {
-                                // Usar el método identifyNick que envía el comando correcto
-                                _ircService.identifyNick(
-                                  passwordController.text,
-                                );
-                                Navigator.pop(context);
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text(
-                                      'Identificando nick "$nick"...',
-                                    ),
-                                    duration: const Duration(seconds: 2),
-                                    backgroundColor: Colors.blue,
-                                  ),
-                                );
-                              }
-                            }
-                          },
                         ),
                       ],
                     ),
                   ),
-                ),
-                // Botones
-                Container(
-                  padding: const EdgeInsets.all(24),
-                  decoration: BoxDecoration(
-                    color: appTheme.surface.withValues(alpha: 0.5),
-                    borderRadius: const BorderRadius.only(
-                      bottomLeft: Radius.circular(24),
-                      bottomRight: Radius.circular(24),
-                    ),
+                  // Contenido según fase
+                  _buildNickIdentifyContent(
+                    context,
+                    setDialogState,
+                    appTheme,
+                    currentNick,
+                    passwordController,
+                    formKey,
+                    obscurePassword,
                   ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      TextButton(
-                        onPressed: isSubmitting
-                            ? null
-                            : () => Navigator.pop(context),
-                        style: TextButton.styleFrom(
-                          foregroundColor: appTheme.textPrimary.withValues(
-                            alpha: 0.7,
-                          ),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 24,
-                            vertical: 12,
-                          ),
-                        ),
-                        child: const Text('Cancelar'),
-                      ),
-                      const SizedBox(width: 12),
-                      Container(
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            colors: [Colors.blue, Colors.blue.shade700],
-                          ),
-                          borderRadius: BorderRadius.circular(12),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.blue.withValues(alpha: 0.4),
-                              blurRadius: 8,
-                              offset: const Offset(0, 4),
-                            ),
-                          ],
-                        ),
-                        child: ElevatedButton.icon(
-                          onPressed: isSubmitting
-                              ? null
-                              : () {
-                                  if (formKey.currentState!.validate()) {
-                                    setDialogState(() {
-                                      isSubmitting = true;
-                                    });
-                                    final nick =
-                                        ref.read(currentNicknameProvider) ?? '';
-                                    if (nick.isNotEmpty) {
-                                      // Usar el método identifyNick que envía el comando correcto
-                                      _ircService.identifyNick(
-                                        passwordController.text,
-                                      );
-                                      Navigator.pop(context);
-                                      ScaffoldMessenger.of(
-                                        context,
-                                      ).showSnackBar(
-                                        SnackBar(
-                                          content: Text(
-                                            'Identificando nick "$nick"...',
-                                          ),
-                                          duration: const Duration(seconds: 2),
-                                          backgroundColor: Colors.blue,
-                                        ),
-                                      );
-                                    }
-                                  }
-                                },
-                          icon: isSubmitting
-                              ? const SizedBox(
-                                  width: 20,
-                                  height: 20,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    valueColor: AlwaysStoppedAnimation<Color>(
-                                      Colors.white,
-                                    ),
-                                  ),
-                                )
-                              : const Icon(Icons.check, size: 20),
-                          label: Text(
-                            isSubmitting ? 'Identificando...' : 'Identificar',
-                          ),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.transparent,
-                            foregroundColor: Colors.white,
-                            shadowColor: Colors.transparent,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 24,
-                              vertical: 12,
-                            ),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
+                  // Botones según fase
+                  _buildNickIdentifyActions(
+                    context,
+                    setDialogState,
+                    appTheme,
+                    passwordController,
+                    formKey,
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-        ),
+          );
+        },
       ),
     ).whenComplete(() {
       _nickIdentifyDialogOpen = false;
+      _nickIdentifyDialogPhase = 0;
+      _nickIdentifyDialogError = null;
+      _setNickIdentifyDialogState = null;
+      _nickIdentifyDialogContext = null;
+      _nickIdentifyCloseTimer?.cancel();
+      _nickIdentifyCloseTimer = null;
+      _nickIdentifyTimeoutTimer?.cancel();
+      _nickIdentifyTimeoutTimer = null;
     });
+  }
+
+  Widget _buildNickIdentifyContent(
+    BuildContext context,
+    StateSetter setDialogState,
+    AppTheme appTheme,
+    String currentNick,
+    TextEditingController passwordController,
+    GlobalKey<FormState> formKey,
+    bool obscurePassword,
+  ) {
+    if (_nickIdentifyDialogPhase == 1) {
+      return Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const CircularProgressIndicator(),
+            const SizedBox(height: 20),
+            Text(
+              'Verificando identificación en nick...',
+              style: TextStyle(
+                color: appTheme.textPrimary,
+                fontSize: 14,
+                height: 1.5,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (_nickIdentifyDialogPhase == 2) {
+      return Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.check_circle, color: Colors.green, size: 48),
+            const SizedBox(height: 16),
+            Text(
+              '¡Te has autenticado correctamente en nick!',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: appTheme.textPrimary,
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'El nick "$currentNick" ya está identificado.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: appTheme.textSecondary,
+                fontSize: 13,
+                height: 1.5,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (_nickIdentifyDialogPhase == 3) {
+      return Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.error, color: Colors.red, size: 48),
+            const SizedBox(height: 16),
+            Text(
+              _nickIdentifyDialogError ?? 'No se pudo identificar el nick.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: appTheme.textPrimary,
+                fontSize: 14,
+                height: 1.5,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // Fase 0: formulario con la contraseña
+    return Padding(
+      padding: const EdgeInsets.all(24),
+      child: Form(
+        key: formKey,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              'Ingresa tu contraseña para identificar el nick "$currentNick":',
+              style: TextStyle(
+                color: appTheme.textPrimary,
+                fontSize: 14,
+                height: 1.5,
+              ),
+            ),
+            const SizedBox(height: 20),
+            TextFormField(
+              controller: passwordController,
+              obscureText: obscurePassword,
+              style: TextStyle(color: appTheme.textPrimary),
+              decoration: InputDecoration(
+                labelText: 'Contraseña *',
+                labelStyle: TextStyle(color: appTheme.primary),
+                hintText: 'Ingresa tu contraseña',
+                hintStyle: TextStyle(color: appTheme.textSecondary),
+                prefixIcon: const Icon(Icons.lock),
+                suffixIcon: IconButton(
+                  icon: Icon(
+                    obscurePassword
+                        ? Icons.visibility
+                        : Icons.visibility_off,
+                    color: appTheme.textSecondary,
+                  ),
+                  onPressed: () {
+                    setDialogState(() {
+                      obscurePassword = !obscurePassword;
+                    });
+                  },
+                ),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                filled: true,
+                fillColor: appTheme.background,
+              ),
+              validator: (value) {
+                if (value == null || value.isEmpty) {
+                  return 'La contraseña es requerida';
+                }
+                return null;
+              },
+              onFieldSubmitted: (_) {
+                if (formKey.currentState!.validate()) {
+                  _submitNickIdentify(passwordController.text);
+                }
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNickIdentifyActions(
+    BuildContext context,
+    StateSetter setDialogState,
+    AppTheme appTheme,
+    TextEditingController passwordController,
+    GlobalKey<FormState> formKey,
+  ) {
+    if (_nickIdentifyDialogPhase == 1) {
+      return Container(
+        padding: const EdgeInsets.all(24),
+        decoration: BoxDecoration(
+          color: appTheme.surface.withValues(alpha: 0.5),
+          borderRadius: const BorderRadius.only(
+            bottomLeft: Radius.circular(24),
+            bottomRight: Radius.circular(24),
+          ),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              'Esperando confirmación del servidor...',
+              style: TextStyle(
+                color: appTheme.textSecondary,
+                fontSize: 12,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (_nickIdentifyDialogPhase == 2) {
+      return Container(
+        padding: const EdgeInsets.all(24),
+        decoration: BoxDecoration(
+          color: appTheme.surface.withValues(alpha: 0.5),
+          borderRadius: const BorderRadius.only(
+            bottomLeft: Radius.circular(24),
+            bottomRight: Radius.circular(24),
+          ),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            ElevatedButton.icon(
+              onPressed: () {
+                Navigator.of(_nickIdentifyDialogContext ?? context).pop();
+              },
+              icon: const Icon(Icons.check, size: 20),
+              label: const Text('Continuar'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.green,
+                foregroundColor: Colors.white,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: appTheme.surface.withValues(alpha: 0.5),
+        borderRadius: const BorderRadius.only(
+          bottomLeft: Radius.circular(24),
+          bottomRight: Radius.circular(24),
+        ),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.end,
+        children: [
+          TextButton(
+            onPressed: () =>
+                Navigator.of(_nickIdentifyDialogContext ?? context).pop(),
+            style: TextButton.styleFrom(
+              foregroundColor: appTheme.textPrimary.withValues(alpha: 0.7),
+              padding: const EdgeInsets.symmetric(
+                horizontal: 24,
+                vertical: 12,
+              ),
+            ),
+            child: const Text('Cancelar'),
+          ),
+          const SizedBox(width: 12),
+          Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [Colors.blue, Colors.blue.shade700],
+              ),
+              borderRadius: BorderRadius.circular(12),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.blue.withValues(alpha: 0.4),
+                  blurRadius: 8,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: ElevatedButton.icon(
+              onPressed: () {
+                if (formKey.currentState!.validate()) {
+                  _submitNickIdentify(passwordController.text);
+                }
+              },
+              icon: const Icon(Icons.check, size: 20),
+              label: const Text('Identificar'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.transparent,
+                foregroundColor: Colors.white,
+                shadowColor: Colors.transparent,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 12,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _submitNickIdentify(String password) {
+    final nick = ref.read(currentNicknameProvider) ?? '';
+    if (nick.isEmpty) return;
+
+    _nickIdentifyCloseTimer?.cancel();
+    _setNickIdentifyDialogState?.call(() {
+      _nickIdentifyDialogPhase = 1;
+      _nickIdentifyDialogError = null;
+    });
+    _ircService.markSessionIdentifyPassword(password);
+    _ircService.identifyNick(password);
+
+    // Timeout de seguridad: si el bot no responde, mostrar error y reintentar
+    _nickIdentifyTimeoutTimer?.cancel();
+    _nickIdentifyTimeoutTimer = Timer(const Duration(seconds: 10), () {
+      if (!_nickIdentifyDialogOpen) return;
+      _setNickIdentifyDialogState?.call(() {
+        if (_nickIdentifyDialogPhase == 1) {
+          _nickIdentifyDialogPhase = 3;
+          _nickIdentifyDialogError =
+              'No se recibió confirmación del servidor. Inténtalo de nuevo.';
+        }
+      });
+    });
+  }
+
+  // Manejar la respuesta del bot "nick" al IDENTIFY mientras el modal está
+  // abierto: confirmar el éxito (cerrando la ventana privada del bot) o el error.
+  void _handleNickIdentifyResponse(IRCMessage message) {
+    if (!_nickIdentifyDialogOpen) return;
+
+    final isNickBot =
+        message.nick.toLowerCase() == 'nick' ||
+        (message.channel.isNotEmpty &&
+            message.channel.toLowerCase() == 'nick');
+    if (!isNickBot) return;
+
+    final messageLower = message.message.toLowerCase();
+    final isSuccess =
+        messageLower.contains('contraseña aceptada') ||
+        messageLower.contains('has sido reconocido');
+    final isError =
+        messageLower.contains('contraseña incorrecta') ||
+        messageLower.contains('no está registrado');
+
+    if (isSuccess) {
+      _nickIdentifySucceeded = true;
+      _nickIdentifyTimeoutTimer?.cancel();
+      _setNickIdentifyDialogState?.call(() {
+        _nickIdentifyDialogPhase = 2;
+      });
+      _closePrivateChat('nick');
+      // Cerrar automáticamente tras mostrar la confirmación
+      _nickIdentifyCloseTimer?.cancel();
+      _nickIdentifyCloseTimer = Timer(const Duration(seconds: 3), () {
+        if (!_nickIdentifyDialogOpen) return;
+        Navigator.of(_nickIdentifyDialogContext ?? context).pop();
+      });
+    } else if (isError) {
+      _nickIdentifyTimeoutTimer?.cancel();
+      _setNickIdentifyDialogState?.call(() {
+        _nickIdentifyDialogPhase = 3;
+        _nickIdentifyDialogError = message.message;
+      });
+    }
+  }
+
+  void _closePrivateChat(String nick) {
+    final normalized = nick.toLowerCase();
+    _ircService.allChannels.remove(normalized);
+    ref.read(channelsProvider.notifier).updateChannels();
+    ref.read(recentChannelsProvider.notifier).removeRecent(normalized);
+    final current = ref.read(currentChannelProvider);
+    if (current != null && current.toLowerCase() == normalized) {
+      final channels = _ircService.allChannels.keys.toList();
+      if (channels.isNotEmpty) {
+        final next = channels.first;
+        ref.read(currentChannelProvider.notifier).state = next;
+        ref.read(lastChannelProvider.notifier).state = next;
+      } else {
+        ref.read(currentChannelProvider.notifier).state = null;
+      }
+    }
+  }
+
+  // Color del nick propio según la preferencia "Formato IRC" (null = auto).
+  Color _ownNickDisplayColor(AppTheme appTheme) {
+    final idx = ref.read(notificationSettingsProvider).nickColor;
+    if (idx != null && idx >= 0 && idx < kNickColors.length) {
+      return kNickColors[idx];
+    }
+    return appTheme.primary;
+  }
+
+  void _showFormatIRCSheet(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => const _FormatIRCPanel(),
+    );
   }
 
   void _showNickRegistrationDialog(BuildContext context) {
@@ -27590,3 +27920,333 @@ class _MessageDisplayMeta {
 
 /// Categorías de avisos de sistema colapsables.
 enum _SystemCategory { join, offline, other }
+
+
+/// Panel "Formato IRC": color del nick + aura. Se abre desde la barra inferior.
+class _FormatIRCPanel extends ConsumerStatefulWidget {
+  const _FormatIRCPanel();
+
+  @override
+  ConsumerState<_FormatIRCPanel> createState() => _FormatIRCPanelState();
+}
+
+class _FormatIRCPanelState extends ConsumerState<_FormatIRCPanel> {
+  @override
+  Widget build(BuildContext context) {
+    final appTheme = ref.watch(themeProvider);
+    final prefs = ref.watch(notificationSettingsProvider);
+    final currentNick = ref.watch(currentNicknameProvider) ?? '';
+    final selectedIndex = prefs.nickColor;
+    final auraId = prefs.nickAura;
+
+    final NickAura? currentAura = auraId == null || auraId == 'none'
+        ? null
+        : NickAura.values.where((a) => a.name == auraId).firstOrNull;
+
+    final color = (selectedIndex != null &&
+            selectedIndex >= 0 &&
+            selectedIndex < kNickColors.length)
+        ? kNickColors[selectedIndex]
+        : appTheme.primary;
+
+    return SafeArea(
+      child: Container(
+        constraints: const BoxConstraints(maxHeight: 520),
+        decoration: BoxDecoration(
+          color: appTheme.surface,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.color_lens, color: appTheme.primary, size: 22),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Formato IRC',
+                    style: TextStyle(
+                      color: appTheme.textPrimary,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const Spacer(),
+                  IconButton(
+                    icon: Icon(
+                      Icons.close,
+                      color: appTheme.textSecondary,
+                    ),
+                    tooltip: 'Cerrar',
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ],
+              ),
+              Text(
+                'Personaliza cómo se muestra tu nick',
+                style: TextStyle(
+                  color: appTheme.textSecondary,
+                  fontSize: 12,
+                ),
+              ),
+              const SizedBox(height: 12),
+              // Preview del nick con el color y aura elegidos
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 14,
+                ),
+                decoration: BoxDecoration(
+                  color: appTheme.background,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: appTheme.textSecondary.withValues(alpha: 0.2),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    if (currentAura != null &&
+                        currentAura.emoji.isNotEmpty) ...[
+                      Text(
+                        currentAura.emoji,
+                        style: const TextStyle(fontSize: 16),
+                      ),
+                      const SizedBox(width: 4),
+                    ],
+                    Text(
+                      currentNick.isEmpty ? 'TuNick' : currentNick,
+                      style: TextStyle(
+                        color: color,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Color del nick',
+                style: TextStyle(
+                  color: appTheme.textPrimary,
+                  fontSize: 13,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _buildColorSwatch(
+                    appTheme: appTheme,
+                    color: appTheme.primary,
+                    label: 'Auto',
+                    isSelected: selectedIndex == null,
+                    onTap: () {
+                      ref
+                          .read(notificationSettingsProvider.notifier)
+                          .setNickColor(null);
+                    },
+                  ),
+                  for (int i = 0; i < kNickColors.length; i++)
+                    _buildColorSwatch(
+                      appTheme: appTheme,
+                      color: kNickColors[i],
+                      isSelected: selectedIndex == i,
+                      onTap: () {
+                        ref
+                            .read(notificationSettingsProvider.notifier)
+                            .setNickColor(i);
+                      },
+                    ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              const Divider(height: 1),
+              const SizedBox(height: 12),
+              Text(
+                'Aura de nick',
+                style: TextStyle(
+                  color: appTheme.textPrimary,
+                  fontSize: 13,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: NickAura.values.map((aura) {
+                  final isSelected = aura.name == auraId;
+                  return GestureDetector(
+                    onTap: () {
+                      ref.read(notificationSettingsProvider.notifier).state =
+                          ref.read(notificationSettingsProvider).copyWith(
+                                nickAura: aura.name,
+                              );
+                    },
+                    child: Container(
+                      width: 64,
+                      padding: const EdgeInsets.symmetric(vertical: 6),
+                      decoration: BoxDecoration(
+                        color: isSelected
+                            ? aura.glowColor.withValues(alpha: 0.2)
+                            : appTheme.surface,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: isSelected
+                              ? aura.glowColor
+                              : appTheme.textSecondary.withValues(alpha: 0.2),
+                          width: isSelected ? 2 : 1,
+                        ),
+                      ),
+                      child: Column(
+                        children: [
+                          Text(
+                            aura.emoji.isEmpty ? '🚫' : aura.emoji,
+                            style: const TextStyle(fontSize: 18),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            aura.label,
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              color: isSelected
+                                  ? aura.glowColor
+                                  : appTheme.textSecondary,
+                              fontSize: 9,
+                              fontWeight: isSelected
+                                  ? FontWeight.bold
+                                  : FontWeight.normal,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                }).toList(),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () {
+                        ref
+                            .read(notificationSettingsProvider.notifier)
+                            .setNickColor(null);
+                      },
+                      icon: const Icon(Icons.restore, size: 16),
+                      label: const Text(
+                        'Color por defecto',
+                        style: TextStyle(fontSize: 12),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: appTheme.primary,
+                        side: BorderSide(
+                          color: appTheme.primary.withValues(alpha: 0.3),
+                        ),
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () {
+                        ref.read(notificationSettingsProvider.notifier).state =
+                            ref.read(notificationSettingsProvider).copyWith(
+                                  nickAura: 'none',
+                                );
+                      },
+                      icon: const Icon(Icons.close, size: 16),
+                      label: const Text(
+                        'Quitar aura',
+                        style: TextStyle(fontSize: 12),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: appTheme.textSecondary,
+                        side: BorderSide(
+                          color: appTheme.textSecondary.withValues(alpha: 0.3),
+                        ),
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildColorSwatch({
+    required AppTheme appTheme,
+    required Color color,
+    required bool isSelected,
+    required VoidCallback onTap,
+    String? label,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 46,
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        decoration: BoxDecoration(
+          color: appTheme.surface,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: isSelected
+                ? color
+                : appTheme.textSecondary.withValues(alpha: 0.2),
+            width: isSelected ? 2.5 : 1,
+          ),
+        ),
+        child: Column(
+          children: [
+            Container(
+              width: 26,
+              height: 26,
+              decoration: BoxDecoration(
+                color: color,
+                shape: BoxShape.circle,
+                boxShadow: isSelected
+                    ? [
+                        BoxShadow(
+                          color: color.withValues(alpha: 0.4),
+                          blurRadius: 6,
+                        ),
+                      ]
+                    : null,
+              ),
+            ),
+            if (label != null) ...[
+              const SizedBox(height: 4),
+              Text(
+                label,
+                style: TextStyle(
+                  color: appTheme.textSecondary,
+                  fontSize: 9,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}

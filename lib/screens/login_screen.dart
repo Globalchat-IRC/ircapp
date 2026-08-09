@@ -303,7 +303,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
     // Configurar si se permite mostrar el modal de identificación NickServ:
     // Solo se activará cuando la sesión venga por URL con autojoin=true en web.
-    final allowNickModal = PlatformUtils.isWeb && autoJoin;
+    final allowNickModal = PlatformUtils.isWeb;
     ref.read(nickIdentifyModalAllowedProvider.notifier).state = allowNickModal;
     debugLog(
       '🔐 [LOGIN] nickIdentifyModalAllowed = $allowNickModal (autoJoin=$autoJoin, isWeb=${PlatformUtils.isWeb})',
@@ -1423,6 +1423,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       // Si hay contraseña (campo de identificación), enviar IDENTIFY al bot "nick" tras conectar
       final identifyPassword = _passwordController.text.trim();
       if (identifyPassword.isNotEmpty) {
+        // Marcar la intención de identificación antes de enviar el comando
+        // para que el modal de NickServ no aparezca mientras se identifica.
+        ircService.markSessionIdentifyPassword(identifyPassword);
         // Esperar a que la conexión y el nick estén confirmados en el servidor
         await Future.delayed(const Duration(milliseconds: 500));
         ircService.identifyNick(identifyPassword);

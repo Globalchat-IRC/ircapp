@@ -112,6 +112,19 @@ class IRCService {
   bool _sessionUseSSL = true;
   String? _sessionNickname;
   String? _sessionIdentifyPassword;
+
+  /// Indica si en esta sesión se ha proporcionado una contraseña de
+  /// identificación (para no mostrar el modal de identificación NickServ).
+  bool get hasSessionIdentifyPassword => _sessionIdentifyPassword != null;
+
+  /// Registra la intención de identificación con la contraseña dada antes de
+  /// enviar el comando (evita que el modal aparezca mientras se identifica).
+  void markSessionIdentifyPassword(String? password) {
+    _sessionIdentifyPassword = password?.trim().isNotEmpty == true
+        ? password!.trim()
+        : null;
+  }
+
   final List<String> _sessionChannels = [];
   // Canales donde el servidor confirmó nuestro JOIN (eco propio).
   final Set<String> _serverConfirmedChannels = {};
