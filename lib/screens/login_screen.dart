@@ -108,6 +108,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   static const _prefAutoReconnectEnabled = 'login_auto_reconnect_enabled';
   static const _prefIdentifyNick = 'login_identify_nick';
   static const _prefIdentifyPassword = 'login_identify_password';
+  static const _prefAgeOver14 = 'login_age_over14';
+  static const _prefRulesAccepted = 'login_rules_accepted';
 
   // Lista de canales prohibidos que no se mostrarán en el combo
   static const List<String> _prohibitedChannels = ['#opers', '#services'];
@@ -1062,6 +1064,16 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       if (savedAutoReconnectEnabled != null) {
         _autoReconnectEnabled = savedAutoReconnectEnabled;
       }
+      // Restaurar confirmación de normas/edad guardada en el perfil del navegador.
+      // Si ya se aceptaron antes no se vuelve a pedir; si se borran los datos
+      // del navegador (localStorage), se pedirá de nuevo.
+      final savedAge = prefs.getBool(_prefAgeOver14);
+      final savedRules = prefs.getBool(_prefRulesAccepted);
+      if (savedAge == true) _confirmOver14 = true;
+      if (savedRules == true) _acceptRules = true;
+      if (savedAge == true || savedRules == true) {
+        debugLog('🔍 [LOGIN] Confirmación normas/edad restaurada del navegador (age: $savedAge, rules: $savedRules)');
+      }
       if (mounted) setState(() {});
     } catch (e) {
       debugLog('🔍 [LOGIN] Error cargando preferencias: $e');
@@ -1324,6 +1336,17 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         _isAutoJoining = false;
       });
       return;
+    }
+
+    // Guardar la aceptación de normas/edad en el perfil del navegador
+    // (localStorage) para no volver a pedirla. Si se borran los datos del
+    // navegador, se pedirá de nuevo.
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_prefAgeOver14, true);
+      await prefs.setBool(_prefRulesAccepted, true);
+    } catch (e) {
+      debugLog('🔍 [LOGIN] Error guardando confirmación normas/edad: $e');
     }
 
     // Si está en modo Registrado, exigir contraseña
@@ -2413,6 +2436,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   }
 
   Future<void> _confirmBeforeConnect() async {
+    // Si ya confirmó normas y mayoría de edad en una visita anterior (guardado
+    // en el perfil del navegador), conectar directamente sin volver a preguntar.
+    if (_confirmOver14 && _acceptRules) {
+      _connect();
+      return;
+    }
     final appTheme = ref.watch(themeProvider);
     var confirmOver14 = _confirmOver14;
     var acceptRules = _acceptRules;
