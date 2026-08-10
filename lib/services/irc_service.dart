@@ -49,6 +49,8 @@ class IRCService {
       []; // Listeners para cambios de estado de away (isAway, awayMessage)
   final List<Function(String channel, String nick, bool isTyping)>
       _typingListeners = []; // Listeners para CTCP TYPING
+  final List<Function(String nick)> _avatarChangedListeners =
+      []; // Listeners para cambios de avatar (sincronización entre clientes)
   final List<Function(String nick)> _pokeListeners =
       []; // Listeners para CTCP PING (poke/zumbido)
   final List<Function(String nick)> _kissListeners =
@@ -1790,6 +1792,33 @@ class IRCService {
   void _notifyTypingListeners(String channel, String nick, bool isTyping) {
     for (var listener in _typingListeners) {
       listener(channel, nick, isTyping);
+    }
+  }
+
+  void addAvatarChangedListener(void Function(String nick) listener) {
+    _avatarChangedListeners.add(listener);
+  }
+
+  void removeAvatarChangedListener(void Function(String nick) listener) {
+    _avatarChangedListeners.remove(listener);
+  }
+
+  void _notifyAvatarChangedListeners(String nick) {
+    for (var listener in _avatarChangedListeners) {
+      listener(nick);
+    }
+  }
+
+  /// Notifica a los demás clientes que el propio avatar ha cambiado.
+  /// Se envía como PRIVMSG oculto (prefijo \u200b) a todos los canales
+  /// unidos, para que el resto de instancias refresquen el avatar de este
+  /// nick al instante.
+  void broadcastAvatarChange() {
+    final nick = _nickname;
+    if (nick == null || nick.trim().isEmpty) return;
+    if (_serverConfirmedChannels.isEmpty) return;
+    for (final channel in _serverConfirmedChannels) {
+      _sendCommand('PRIVMSG $channel :\u200bAVATAR $nick');
     }
   }
 
@@ -4564,6 +4593,18 @@ class IRCService {
                 if (messageContent.contains('\x01TYPING') ||
                     RegExp(r'CTCP\s+TYPING', caseSensitive: false)
                         .hasMatch(messageContent)) {
+                  return;
+                }
+
+                //
+                // Sincronización de avatares entre clientes: mensaje oculto
+                // '\u200bAVATAR <nick>' enviado por el cliente que cambió su avatar.
+                //
+                if (messageContent.startsWith('\u200bAVATAR ')) {
+                  final syncNick = messageContent.substring(8).trim();
+                  if (syncNick.isNotEmpty) {
+                    _notifyAvatarChangedListeners(syncNick);
+                  }
                   return;
                 }
 

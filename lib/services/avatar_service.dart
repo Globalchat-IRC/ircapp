@@ -203,6 +203,17 @@ class AvatarService {
         _log('✅ Encontrado GIF default: $defaultGifUrl');
         return defaultGifUrl;
       }
+
+      // GIF generado por el editor SVG (avatar.globalchat.org). El generador
+      // guarda el GIF animado junto al PNG; si la copia en xmlrpc fallara,
+      // esta es la ruta de respaldo.
+      final svgGifUrl = _avatarPathUrl(hash, 'default', 'gif');
+      _log('➡️ Probando GIF SVG (avatar): $svgGifUrl');
+      if (await _resourceExists(svgGifUrl)) {
+        _setCache(cacheKey, svgGifUrl);
+        _log('✅ Encontrado GIF SVG (avatar): $svgGifUrl');
+        return svgGifUrl;
+      }
     }
 
     // 2. PNGs estáticos: solo custom/ y default/ (SVG generator).

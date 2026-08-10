@@ -601,6 +601,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   Function(IRCMessage)? _onGiftReceived;
   Function(String, String)? _onActionReceived;
 
+  /// Un cliente de GlobalChat ha cambiado su avatar: refrescarlo al instante.
+  void _onRemoteAvatarChanged(String nick) {
+    if (!mounted) return;
+    ref.read(avatarRefreshProvider.notifier).refreshAvatar(nick);
+  }
+
   void _resetInactivityTimer() {
     _inactivityTimer?.cancel();
     _inactivityTimer = Timer(_inactivityDuration, _onInactivityReminder);
@@ -624,6 +630,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     _chatScrollController = ScrollController();
     _chatScrollController.addListener(_onChatScroll);
     _ircService = ref.read(ircServiceProvider);
+    _ircService.addAvatarChangedListener(_onRemoteAvatarChanged);
 
     // Procesar permalink/deep-link desde la URL (#c= canal, #m= mensaje)
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -882,9 +889,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       if (!mounted) return;
       final targetChannel = (channel != null && channel.isNotEmpty)
           ? channel
-          : '#general';
+          : '#globalchat';
       if (channel == null || channel.isEmpty) {
-        // debugLog('⚠️  [ChatScreen] No channel specified, using #general');
+        // debugLog('⚠️  [ChatScreen] No channel specified, using #globalchat');
       }
 
       // Esperar un poco más para asegurar que el servidor haya terminado de registrar al usuario
@@ -2785,6 +2792,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     _messageController.removeListener(_onMessageTextChanged);
     _messageController.dispose();
     _channelController.dispose();
+    _ircService.removeAvatarChangedListener(_onRemoteAvatarChanged);
     _messageFocusNode.dispose();
     _searchController.dispose();
     _chatScrollController.dispose();
@@ -8744,15 +8752,21 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                         ),
                                         const SizedBox(width: 4),
                                       ],
-                                      // Aura emoji del usuario actual (tema visual)
+                                      // Aura emoji solo para el propio nick (tema visual)
                                       Builder(
                                         builder: (ctx) {
+                                          final currentNick = ref.watch(
+                                            currentNicknameProvider,
+                                          );
+                                          final isOwn = currentNick != null &&
+                                              user.toLowerCase() ==
+                                                  currentNick.toLowerCase();
                                           final auraId = ref
-                                              .read(
+                                              .watch(
                                                 notificationSettingsProvider,
                                               )
                                               .nickAura;
-                                          if (auraId != 'none') {
+                                          if (isOwn && auraId != 'none') {
                                             final aura = NickAura.values
                                                 .where((a) => a.name == auraId)
                                                 .firstOrNull;
@@ -8778,19 +8792,45 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                         child: Row(
                                           mainAxisSize: MainAxisSize.min,
                                           children: [
-                                            Text(
-                                              user,
-                                              style: TextStyle(
-                                                color: Colors.white,
-                                                fontSize: 12,
-                                                fontWeight:
-                                                    (isRobot ||
-                                                        userMode != null ||
-                                                        isLiveDj)
-                                                    ? FontWeight.bold
-                                                    : FontWeight.normal,
-                                              ),
-                                              overflow: TextOverflow.ellipsis,
+                                            Consumer(
+                                              builder: (context, ref, child) {
+                                                final colorIdx = ref.watch(
+                                                  notificationSettingsProvider
+                                                      .select(
+                                                        (s) => s.nickColor,
+                                                      ),
+                                                );
+                                                final currentNick = ref.watch(
+                                                  currentNicknameProvider,
+                                                );
+                                                final isSelf =
+                                                    currentNick != null &&
+                                                    user.toLowerCase() ==
+                                                        currentNick
+                                                            .toLowerCase();
+                                                final textColor = isSelf &&
+                                                        colorIdx != null &&
+                                                        colorIdx >= 0 &&
+                                                        colorIdx <
+                                                            kNickColors.length
+                                                    ? kNickColors[colorIdx]
+                                                    : Colors.white;
+                                                return Text(
+                                                  user,
+                                                  style: TextStyle(
+                                                    color: textColor,
+                                                    fontSize: 12,
+                                                    fontWeight:
+                                                        (isRobot ||
+                                                            userMode != null ||
+                                                            isLiveDj)
+                                                        ? FontWeight.bold
+                                                        : FontWeight.normal,
+                                                  ),
+                                                  overflow:
+                                                      TextOverflow.ellipsis,
+                                                );
+                                              },
                                             ),
                                             // Gender badge for current user
                                             Builder(
@@ -9710,9 +9750,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                                                               context,
                                                                             ) {
                                                                               try {
-                                                                                return _buildMessageTileWithMeta(
-                                                                                  message,
-                                                                                  displayMeta,
+                                                                                return Consumer(
+                                                                                  builder: (context, ref, _) {
+                                                                                    ref.watch(notificationSettingsProvider.select((s) => s.nickColor));
+                                                                                    ref.watch(notificationSettingsProvider.select((s) => s.nickAura));
+                                                                                  return _buildMessageTileWithMeta(
+                                                                                    message,
+                                                                                    displayMeta,
+                                                                                  );
+                                                                                  },
                                                                                 );
                                                                               } catch (
                                                                                 e
@@ -9904,9 +9950,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                                                                   final displayMeta =
                                                                                       messageDisplayMeta[msgIndex];
                                                                                   return RepaintBoundary(
-                                                                                    child: _buildMessageTileWithMeta(
-                                                                                      message,
-                                                                                      displayMeta,
+                                                                                    child: Consumer(
+                                                                                      builder: (context, ref, _) {
+                                                                                        ref.watch(notificationSettingsProvider.select((s) => s.nickColor));
+                                                                                        ref.watch(notificationSettingsProvider.select((s) => s.nickAura));
+                                                                                        return _buildMessageTileWithMeta(
+                                                                                          message,
+                                                                                          displayMeta,
+                                                                                        );
+                                                                                      },
                                                                                     ),
                                                                                   );
                                                                                 } catch (
@@ -23804,7 +23856,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     // Abrir panel de GlobalChat en navegador
                     launchUrl(
                       Uri.parse(
-                        'https://xmlrpc.globalchat.org/panel-anope/panel-perfil-usuario.html',
+                        'https://avatar.globalchat.org/webchat-avatar.html?nick=$nick',
                       ),
                       mode: LaunchMode.externalApplication,
                     );

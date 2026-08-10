@@ -68,6 +68,7 @@ if [ "$DO_DEPLOY" = true ]; then
 
   rsync -avz --delete \
     --exclude='debug_info/' \
+    --exclude='api/' \
     "$BUILD_DIR/" ${REMOTE_USER}@${REMOTE_HOST}:${REMOTE_WEB}/
 
   echo -e "${GREEN}✅ Desplegado en ${REMOTE_HOST}${NC}"

@@ -43,6 +43,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
     // invalidar caché de avatares para que se detecten los nuevos.
     if (state == AppLifecycleState.resumed) {
       AvatarService.invalidateAllCache();
+      ref.read(ircServiceProvider).broadcastAvatarChange();
     }
   }
 
@@ -1445,6 +1446,7 @@ Widget _buildAvatarsSection(BuildContext context, WidgetRef ref) {
           return ElevatedButton.icon(
             onPressed: currentNick != null && currentNick.isNotEmpty
                 ? () {
+                    ref.read(ircServiceProvider).broadcastAvatarChange();
                     launchUrl(
                       Uri.parse('https://avatar.globalchat.org/webchat-avatar.html?nick=$currentNick'),
                       mode: LaunchMode.externalApplication,
@@ -1471,6 +1473,7 @@ Widget _buildAvatarsSection(BuildContext context, WidgetRef ref) {
                     AvatarService.invalidateAllCache();
                     ref.read(globalAvatarGifProvider.notifier).clear();
                     ref.read(avatarRefreshProvider.notifier).refreshAvatar(currentNick);
+                    ref.read(ircServiceProvider).broadcastAvatarChange();
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
                         content: Text('Avatar regenerado. Se actualizará en todos los lugares.'),
